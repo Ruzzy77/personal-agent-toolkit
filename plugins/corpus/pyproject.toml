@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "corpus"
+version = "0.9.10"
+description = "Retrieval-first personal corpus workspace with reusable semantic context"
+readme = "README.md"
+authors = [
+  {name = "Sense & Corpus contributors"},
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+  "defusedxml>=0.7.1,<1",
+  "mcp>=1.27,<2",
+  "olefile>=0.47,<1",
+  "openpyxl>=3.1,<4",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "python-pptx>=1.0,<2",
+]
+
+[dependency-groups]
+dev = [
+  "pyyaml>=6,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+corpus = "corpus.cli:main"
+corpus-mcp = "corpus.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+corpus = ["native/*.swift"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

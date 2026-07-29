@@ -1,0 +1,149 @@
+#!/bin/sh
+set -eu
+export PYTHONDONTWRITEBYTECODE=1
+umask 077
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+  PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+    exec "$PROJECT_ROOT/.venv/bin/python" -m corpus.cli "$@"
+fi
+
+PYTHON_ENV_ROOT="${CORPUS_PYTHON_ENV:-$HOME/Library/Caches/Corpus/python-env}"
+UV_BIN="${UV:-$(command -v uv || true)}"
+if [ -z "$UV_BIN" ]; then
+  echo '{"ok":false,"error":{"code":"runtime_missing","message":"uv is required to provision the Corpus CLI runtime."}}' >&2
+  exit 127
+fi
+
+BOOTSTRAP_PYTHON="${PYTHON:-$(command -v python3 || true)}"
+
+prepare_python_environment() {
+  if [ -n "$BOOTSTRAP_PYTHON" ] \
+    && "$BOOTSTRAP_PYTHON" -c \
+      'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+      >/dev/null 2>&1
+  then
+    PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+      "$BOOTSTRAP_PYTHON" - "$PYTHON_ENV_ROOT" "$@"
+  else
+    PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+      "$UV_BIN" run --no-project --python ">=3.11" python - \
+        "$PYTHON_ENV_ROOT" "$@"
+  fi <<'PY'
+import os
+import sys
+import unicodedata
+from pathlib import Path
+
+from corpus.config import default_data_root, is_within, open_private_directory
+from corpus.database import list_corpora
+
+
+def normalized_absolute(path: Path, *, require_absolute: bool) -> Path:
+    expanded = path.expanduser()
+    if require_absolute and not expanded.is_absolute():
+        raise ValueError("runtime path must be absolute")
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+    return Path(unicodedata.normalize("NFC", os.path.normpath(str(expanded))))
+
+
+def resolved_absolute(path: Path) -> Path:
+    return normalized_absolute(
+        path.expanduser().resolve(strict=False),
+        require_absolute=True,
+    )
+
+
+def roots_overlap(first: Path, second: Path) -> bool:
+    return is_within(first, second) or is_within(second, first)
+
+
+def option_value(arguments: list[str], option: str) -> str | None:
+    prefix = f"{option}="
+    for index, argument in enumerate(arguments):
+        if argument == option:
+            if index + 1 < len(arguments):
+                return arguments[index + 1]
+            return None
+        if argument.startswith(prefix):
+            return argument[len(prefix) :]
+    return None
+
+
+def registration_source(arguments: list[str]) -> Path | None:
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        if argument == "--pretty":
+            position += 1
+        elif argument == "--data-root":
+            position += 2
+        elif argument.startswith("--data-root="):
+            position += 1
+        else:
+            break
+    if arguments[position : position + 2] != ["corpus", "add"]:
+        return None
+    value = option_value(arguments[position + 2 :], "--root")
+    return Path(value) if value else None
+
+
+try:
+    environment_path = Path(sys.argv[1])
+    cli_arguments = sys.argv[2:]
+    data_root_value = option_value(cli_arguments, "--data-root")
+    data_root = (
+        Path(data_root_value).expanduser().resolve(strict=False)
+        if data_root_value
+        else default_data_root()
+    )
+    environment_root = normalized_absolute(
+        environment_path,
+        require_absolute=True,
+    )
+    resolved_environment_root = resolved_absolute(environment_path)
+    source_paths = [
+        Path(corpus["source_root"])
+        for corpus in list_corpora(data_root)
+    ]
+    pending_source = registration_source(cli_arguments)
+    if pending_source is not None:
+        source_paths.append(pending_source)
+
+    for source_path in source_paths:
+        source_root = normalized_absolute(
+            source_path,
+            require_absolute=False,
+        )
+        resolved_source_root = resolved_absolute(source_path)
+        if roots_overlap(environment_root, source_root) or roots_overlap(
+            resolved_environment_root,
+            resolved_source_root,
+        ):
+            raise ValueError("runtime and registered source roots overlap")
+
+    descriptor = open_private_directory(environment_path, create=True)
+except Exception:
+    print(
+        '{"ok":false,"error":{"code":"unsafe_runtime",'
+        '"message":"The private Corpus Python environment path is unsafe."}}',
+        file=sys.stderr,
+    )
+    raise SystemExit(1) from None
+else:
+    os.close(descriptor)
+PY
+}
+
+prepare_python_environment "$@"
+
+UV_PROJECT_ENVIRONMENT="$PYTHON_ENV_ROOT" \
+  "$UV_BIN" sync --project "$PROJECT_ROOT" --frozen --no-dev \
+    --no-install-project
+
+PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+  exec "$PYTHON_ENV_ROOT/bin/python" -m corpus.cli "$@"

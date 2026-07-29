@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Sense">
+  <defs>
+    <linearGradient id="tile" x1="52" y1="36" x2="316" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8DB59E"/>
+      <stop offset="0.48" stop-color="#5F816F"/>
+      <stop offset="1" stop-color="#36584A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(292 62) rotate(128) scale(196 172)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8EADF" stop-opacity="0.72"/>
+      <stop offset="0.58" stop-color="#9FC4AF" stop-opacity="0.17"/>
+      <stop offset="1" stop-color="#557C69" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" x1="84" y1="88" x2="274" y2="272" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF5F1"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#18372C" flood-opacity="0.24"/>
+    </filter>
+    <filter id="node-shadow" x="-45%" y="-45%" width="190%" height="200%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#234638" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <rect x="20" y="20" width="320" height="320" rx="80" fill="url(#tile)" filter="url(#shadow)"/>
+  <rect x="20" y="20" width="320" height="320" rx="80" fill="url(#glow)"/>
+
+  <g fill="none" stroke="url(#ink)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round" opacity="0.97">
+    <path d="M256 101C186 101 186 180 130 180"/>
+    <path d="M256 180H130"/>
+    <path d="M256 259C186 259 186 180 130 180"/>
+  </g>
+
+  <g fill="url(#ink)" filter="url(#node-shadow)">
+    <circle cx="264" cy="101" r="24"/>
+    <circle cx="264" cy="180" r="24"/>
+    <circle cx="264" cy="259" r="24"/>
+    <circle cx="100" cy="180" r="42"/>
+  </g>
+  <circle cx="100" cy="180" r="15" fill="#557A68"/>
+</svg>

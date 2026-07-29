@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "corpus": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/corpus-mcp",
+      "args": []
+    }
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Sense"
+  short_description: "Update Sense and prepare a fresh manual task handoff"
+  default_prompt: "Use $update-sense to validate and install this Sense update, then prepare a handoff for a manually started new task with the new plugin tools."

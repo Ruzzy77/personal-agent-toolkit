@@ -1,0 +1,43 @@
+{
+  "name": "sense",
+  "description": "Keep one private work profile across AI tools.",
+  "author": {
+    "name": "Sense & Corpus contributors"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "personalization",
+    "collaboration",
+    "work-profile",
+    "local"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "sense": {
+      "command": "./bin/sense-mcp",
+      "args": [],
+      "cwd": "."
+    }
+  },
+  "interface": {
+    "displayName": "Sense",
+    "shortDescription": "A shared work profile for thoughtful collaboration",
+    "longDescription": "Sense gives AI tools one private, user-controlled work profile. It carries durable ways of working and lessons that matter across different work, while project facts remain with their projects and work-specific understanding remains in Corpus. The profile stays on this Mac and survives plugin updates.",
+    "developerName": "Sense & Corpus contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Private work profile",
+      "Cross-tool continuity",
+      "User-controlled revision and deletion"
+    ],
+    "brandColor": "#536F63",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "defaultPrompt": [
+      "Show me the work profile you use when collaborating with me.",
+      "Use Sense to work with me on this task.",
+      "What has Sense learned from our work?"
+    ]
+  },
+  "version": "0.1.9+codex.20260729184018"
+}

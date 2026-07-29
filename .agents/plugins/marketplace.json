@@ -1,0 +1,32 @@
+{
+  "name": "sense-corpus",
+  "interface": {
+    "displayName": "Sense & Corpus"
+  },
+  "plugins": [
+    {
+      "name": "sense",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sense"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "corpus",
+      "source": {
+        "source": "local",
+        "path": "./plugins/corpus"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

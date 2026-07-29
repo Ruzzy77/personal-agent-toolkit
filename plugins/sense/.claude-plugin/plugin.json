@@ -1,0 +1,10 @@
+{
+  "name": "sense",
+  "description": "Use one private work profile across AI tools.",
+  "author": {
+    "name": "Sense & Corpus contributors"
+  },
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json",
+  "version": "0.1.9+codex.20260729184018"
+}

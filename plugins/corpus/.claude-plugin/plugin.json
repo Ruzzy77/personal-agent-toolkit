@@ -1,0 +1,10 @@
+{
+  "name": "corpus",
+  "description": "Connect exact sources and build reusable corpus context.",
+  "author": {
+    "name": "Sense & Corpus contributors"
+  },
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json",
+  "version": "0.9.10+codex.20260729184018"
+}

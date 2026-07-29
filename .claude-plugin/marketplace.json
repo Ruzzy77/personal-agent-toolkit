@@ -1,0 +1,21 @@
+{
+  "name": "sense-corpus",
+  "description": "Local-first Sense and Corpus plugins",
+  "owner": {
+    "name": "Sense & Corpus contributors"
+  },
+  "plugins": [
+    {
+      "name": "sense",
+      "source": "./plugins/sense",
+      "description": "Use one private work profile across AI tools",
+      "category": "productivity"
+    },
+    {
+      "name": "corpus",
+      "source": "./plugins/corpus",
+      "description": "Connect exact sources and build reusable corpus context",
+      "category": "productivity"
+    }
+  ]
+}

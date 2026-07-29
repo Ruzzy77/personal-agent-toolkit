@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sense"
+version = "0.1.9"
+description = "Private shared work profile for AI collaborators"
+authors = [
+  {name = "Sense & Corpus contributors"},
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.27,<2",
+]
+
+[project.scripts]
+sense = "sense.cli:main"
+sense-mcp = "sense.mcp_server:main"
+
+[dependency-groups]
+dev = [
+  "pillow>=11,<13",
+  "pytest>=8,<10",
+  "pyyaml>=6,<7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

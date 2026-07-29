@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "sections": [
+    {
+      "id": "working-together",
+      "purpose": "How AI tools should collaborate with me",
+      "text": "Replace this sentence with a reviewed description of how you want an AI collaborator to share judgment and responsibility.",
+      "origins": [
+        "user_set"
+      ],
+      "use_for": [
+        "substantive work"
+      ],
+      "review_when": [
+        "my preferred way of collaborating changes"
+      ],
+      "sensitivity": "ordinary",
+      "source_refs": []
+    }
+  ],
+  "controls": {
+    "raw_conversation_storage": "never",
+    "sensitive_persistence": "explicit_confirmation",
+    "external_effects": "responsibility_based",
+    "provider_memory_management": "provider_owned"
+  }
+}

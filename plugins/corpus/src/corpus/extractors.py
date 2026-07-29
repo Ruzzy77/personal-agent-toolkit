@@ -1,0 +1,622 @@
+"""Structure-preserving extractors for temporary staged document copies."""
+
+from __future__ import annotations
+
+import html.parser
+import re
+import zipfile
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
+
+from .errors import ExtractionError
+
+EXTRACTOR_VERSION = "source-units-v4"
+EXTRACTOR_VERSION_OVERRIDES = {"hwpx": "source-units-v5"}
+MAX_ARCHIVE_MEMBERS = 20_000
+MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
+MAX_XML_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_UNIT_CHARS = 50_000
+MAX_SHEET_ROWS = 100_000
+MAX_SHEET_CELLS = 1_000_000
+
+
+@dataclass
+class UnitDraft:
+    unit_type: str
+    structure_path: dict
+    content: str
+    issues: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class ExtractionResult:
+    units: list[UnitDraft]
+    issues: list[dict] = field(default_factory=list)
+
+
+def normalize_text(value: str) -> str:
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    value = "\n".join(line.rstrip() for line in value.splitlines())
+    return value.strip()
+
+
+def _bounded_unit(draft: UnitDraft) -> Iterable[UnitDraft]:
+    text = normalize_text(draft.content)
+    if not text:
+        return
+    if len(text) <= MAX_UNIT_CHARS:
+        yield UnitDraft(draft.unit_type, draft.structure_path, text, draft.issues)
+        return
+    for chunk_index, start in enumerate(range(0, len(text), MAX_UNIT_CHARS), start=1):
+        structure = dict(draft.structure_path)
+        structure["chunk"] = chunk_index
+        yield UnitDraft(
+            draft.unit_type,
+            structure,
+            text[start : start + MAX_UNIT_CHARS],
+            [
+                *draft.issues,
+                {
+                    "code": "unit_split",
+                    "message": "Long source unit was split into bounded chunks.",
+                },
+            ],
+        )
+
+
+def _finish(
+    units: Iterable[UnitDraft],
+    issues: list[dict] | None = None,
+    *,
+    preserve_empty: bool = False,
+) -> ExtractionResult:
+    bounded: list[UnitDraft] = []
+    for unit in units:
+        if preserve_empty and not normalize_text(unit.content):
+            bounded.append(
+                UnitDraft(
+                    unit.unit_type,
+                    unit.structure_path,
+                    "",
+                    [
+                        *unit.issues,
+                        {
+                            "code": "no_extractable_text",
+                            "message": "This structural unit contains no extractable text.",
+                        },
+                    ],
+                )
+            )
+        else:
+            bounded.extend(_bounded_unit(unit))
+    result_issues = list(issues or [])
+    if not bounded:
+        result_issues.append(
+            {
+                "code": "no_extractable_text",
+                "severity": "warning",
+                "message": "The extractor found no non-empty text units.",
+            }
+        )
+    return ExtractionResult(units=bounded, issues=result_issues)
+
+
+def _preflight_zip(path: Path) -> None:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ARCHIVE_MEMBERS:
+                raise ExtractionError(
+                    "archive has too many members",
+                    details={"member_count": len(members), "limit": MAX_ARCHIVE_MEMBERS},
+                )
+            expanded = sum(member.file_size for member in members)
+            if expanded > MAX_ARCHIVE_EXPANDED_BYTES:
+                raise ExtractionError(
+                    "archive expands beyond the extraction limit",
+                    details={
+                        "expanded_bytes": expanded,
+                        "limit": MAX_ARCHIVE_EXPANDED_BYTES,
+                    },
+                )
+    except zipfile.BadZipFile as exc:
+        raise ExtractionError("invalid ZIP-based document", details={"error": str(exc)}) from exc
+
+
+def _safe_archive_xml_root(
+    archive: zipfile.ZipFile,
+    member_name: str,
+):
+    member = archive.getinfo(member_name)
+    if member.file_size > MAX_XML_MEMBER_BYTES:
+        raise ExtractionError(
+            "archive XML member exceeds the extraction limit",
+            details={
+                "reason": "xml_member_too_large",
+                "member_bytes": member.file_size,
+                "limit": MAX_XML_MEMBER_BYTES,
+            },
+        )
+    with archive.open(member) as stream:
+        content = stream.read(MAX_XML_MEMBER_BYTES + 1)
+    if len(content) > MAX_XML_MEMBER_BYTES:
+        raise ExtractionError(
+            "archive XML member exceeds the extraction limit",
+            details={
+                "reason": "xml_member_too_large",
+                "member_bytes": len(content),
+                "limit": MAX_XML_MEMBER_BYTES,
+            },
+        )
+    try:
+        return ElementTree.fromstring(
+            content,
+            forbid_dtd=True,
+            forbid_entities=True,
+            forbid_external=True,
+        )
+    except DefusedXmlException as exc:
+        raise ExtractionError(
+            "archive XML contains a forbidden construct",
+            details={"reason": "unsafe_xml"},
+        ) from exc
+
+
+def extract_text(path: Path) -> ExtractionResult:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    paragraphs = re.split(r"\n\s*\n", text)
+    units = [
+        UnitDraft("paragraph", {"paragraph": index}, paragraph)
+        for index, paragraph in enumerate(paragraphs, start=1)
+    ]
+    return _finish(units)
+
+
+def extract_markdown(path: Path) -> ExtractionResult:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    units: list[UnitDraft] = []
+    heading_stack: list[str] = []
+    paragraph_lines: list[str] = []
+    paragraph_start = 1
+
+    def flush_paragraph(end_line: int) -> None:
+        nonlocal paragraph_lines
+        if paragraph_lines:
+            units.append(
+                UnitDraft(
+                    "paragraph",
+                    {
+                        "heading_path": list(heading_stack),
+                        "line_start": paragraph_start,
+                        "line_end": end_line,
+                    },
+                    "\n".join(paragraph_lines),
+                )
+            )
+            paragraph_lines = []
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            flush_paragraph(line_number - 1)
+            level = len(heading.group(1))
+            title = normalize_text(heading.group(2))
+            heading_stack[:] = heading_stack[: level - 1]
+            heading_stack.append(title)
+            units.append(
+                UnitDraft(
+                    "heading",
+                    {
+                        "heading_path": list(heading_stack),
+                        "level": level,
+                        "line_start": line_number,
+                        "line_end": line_number,
+                    },
+                    title,
+                )
+            )
+            paragraph_start = line_number + 1
+        elif not line.strip():
+            flush_paragraph(line_number - 1)
+            paragraph_start = line_number + 1
+        else:
+            if not paragraph_lines:
+                paragraph_start = line_number
+            paragraph_lines.append(line)
+    flush_paragraph(len(text.splitlines()))
+    return _finish(units)
+
+
+class _HTMLUnitParser(html.parser.HTMLParser):
+    BLOCKS = {
+        "p",
+        "li",
+        "blockquote",
+        "pre",
+        "td",
+        "th",
+        "tr",
+        "figcaption",
+        "title",
+        "text",
+    }
+    HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+    SUPPRESSED_TAGS = {"script", "style", "noscript"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.units: list[UnitDraft] = []
+        self._capture_tag: str | None = None
+        self._capture_depth = 0
+        self._parts: list[str] = []
+        self._heading_stack: list[str] = []
+        self._counts: dict[str, int] = {}
+        self._visible_text: list[str] = []
+        self._suppressed_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        tag = tag.lower()
+        if tag in self.SUPPRESSED_TAGS:
+            self._suppressed_depth += 1
+            return
+        if self._suppressed_depth:
+            return
+        if self._capture_tag is not None:
+            if tag == "br":
+                self._parts.append("\n")
+            elif tag not in self.VOID_TAGS:
+                self._capture_depth += 1
+            return
+        if tag in self.BLOCKS | self.HEADINGS:
+            self._capture_tag = tag
+            self._capture_depth = 1
+            self._parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._suppressed_depth:
+            return
+        if self._capture_tag is not None:
+            self._parts.append(data)
+        elif data.strip():
+            self._visible_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in self.SUPPRESSED_TAGS and self._suppressed_depth:
+            self._suppressed_depth -= 1
+            return
+        if self._suppressed_depth:
+            return
+        if self._capture_tag is None:
+            return
+        self._capture_depth -= 1
+        if self._capture_depth:
+            return
+        capture_tag = self._capture_tag
+        text = normalize_text(" ".join(self._parts))
+        self._capture_tag = None
+        self._parts = []
+        if not text:
+            return
+        self._counts[capture_tag] = self._counts.get(capture_tag, 0) + 1
+        if capture_tag in self.HEADINGS:
+            level = int(capture_tag[1])
+            self._heading_stack[:] = self._heading_stack[: level - 1]
+            self._heading_stack.append(text)
+            unit_type = "heading"
+        elif capture_tag in {"td", "th", "tr"}:
+            unit_type = "table"
+        else:
+            unit_type = "paragraph"
+        self.units.append(
+            UnitDraft(
+                unit_type,
+                {
+                    "tag": capture_tag,
+                    "tag_ordinal": self._counts[capture_tag],
+                    "heading_path": list(self._heading_stack),
+                },
+                text,
+            )
+        )
+
+
+def extract_html(path: Path) -> ExtractionResult:
+    parser = _HTMLUnitParser()
+    parser.feed(path.read_text(encoding="utf-8", errors="replace"))
+    parser.close()
+    if not parser.units:
+        fallback = normalize_text(" ".join(parser._visible_text))
+        if fallback:
+            parser.units.append(
+                UnitDraft("document_text", {"scope": "visible_text_fallback"}, fallback)
+            )
+    return _finish(parser.units)
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def extract_hwpx(path: Path) -> ExtractionResult:
+    _preflight_zip(path)
+    units: list[UnitDraft] = []
+    issues: list[dict] = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            section_names = sorted(
+                name
+                for name in archive.namelist()
+                if name.lower().startswith("contents/section") and name.lower().endswith(".xml")
+            )
+            if not section_names:
+                issues.append(
+                    {
+                        "code": "hwpx_sections_missing",
+                        "severity": "error",
+                        "message": "No HWPX section XML files were found.",
+                    }
+                )
+            for section_index, name in enumerate(section_names, start=1):
+                root = _safe_archive_xml_root(archive, name)
+                paragraph_index = 0
+                for element in root.iter():
+                    if _local_name(element.tag) != "p":
+                        continue
+                    text_parts = [
+                        child.text or ""
+                        for child in element.iter()
+                        if _local_name(child.tag) == "t"
+                    ]
+                    text = normalize_text("".join(text_parts))
+                    if not text:
+                        continue
+                    paragraph_index += 1
+                    units.append(
+                        UnitDraft(
+                            "section_paragraph",
+                            {
+                                "section": section_index,
+                                "section_file": name,
+                                "paragraph": paragraph_index,
+                            },
+                            text,
+                        )
+                    )
+    except ExtractionError:
+        raise
+    except (zipfile.BadZipFile, ElementTree.ParseError, KeyError) as exc:
+        raise ExtractionError(
+            "could not parse HWPX structure", details={"error": str(exc)}
+        ) from exc
+    return _finish(units, issues)
+
+
+def extract_pdf(path: Path) -> ExtractionResult:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise ExtractionError("pypdf is not installed") from exc
+    try:
+        reader = PdfReader(str(path), strict=False)
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception as exc:
+                raise ExtractionError("encrypted PDF cannot be read") from exc
+        units = []
+        issues = []
+        for page_number, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+            if not normalize_text(text):
+                issues.append(
+                    {
+                        "code": "pdf_page_without_text",
+                        "severity": "warning",
+                        "message": "A PDF page has no extractable text and may require OCR.",
+                        "page": page_number,
+                    }
+                )
+            units.append(UnitDraft("page", {"page": page_number}, text))
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionError("could not extract PDF", details={"error": str(exc)}) from exc
+    return _finish(units, issues, preserve_empty=True)
+
+
+def extract_docx(path: Path) -> ExtractionResult:
+    _preflight_zip(path)
+    try:
+        from docx import Document
+    except ImportError as exc:
+        raise ExtractionError("python-docx is not installed") from exc
+    try:
+        document = Document(str(path))
+        units: list[UnitDraft] = []
+        heading_stack: list[str] = []
+        for paragraph_index, paragraph in enumerate(document.paragraphs, start=1):
+            text = normalize_text(paragraph.text)
+            if not text:
+                continue
+            style = paragraph.style.name if paragraph.style else ""
+            heading_match = re.match(r"Heading\s+(\d+)", style, re.IGNORECASE)
+            if heading_match:
+                level = int(heading_match.group(1))
+                heading_stack[:] = heading_stack[: level - 1]
+                heading_stack.append(text)
+                unit_type = "heading"
+            else:
+                unit_type = "paragraph"
+            units.append(
+                UnitDraft(
+                    unit_type,
+                    {
+                        "paragraph": paragraph_index,
+                        "style": style,
+                        "heading_path": list(heading_stack),
+                    },
+                    text,
+                )
+            )
+        for table_index, table in enumerate(document.tables, start=1):
+            for row_index, row in enumerate(table.rows, start=1):
+                values = [normalize_text(cell.text) for cell in row.cells]
+                units.append(
+                    UnitDraft(
+                        "table_row",
+                        {"table": table_index, "row": row_index},
+                        "\t".join(values),
+                    )
+                )
+    except Exception as exc:
+        raise ExtractionError("could not extract DOCX", details={"error": str(exc)}) from exc
+    return _finish(units)
+
+
+def extract_pptx(path: Path) -> ExtractionResult:
+    _preflight_zip(path)
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise ExtractionError("python-pptx is not installed") from exc
+    try:
+        presentation = Presentation(str(path))
+        units: list[UnitDraft] = []
+        for slide_index, slide in enumerate(presentation.slides, start=1):
+            for shape_index, shape in enumerate(slide.shapes, start=1):
+                if not hasattr(shape, "text"):
+                    continue
+                text = normalize_text(shape.text)
+                if text:
+                    units.append(
+                        UnitDraft(
+                            "slide_text",
+                            {
+                                "slide": slide_index,
+                                "shape": shape_index,
+                                "shape_name": getattr(shape, "name", ""),
+                            },
+                            text,
+                        )
+                    )
+            try:
+                notes_text = normalize_text(slide.notes_slide.notes_text_frame.text)
+            except (AttributeError, ValueError):
+                notes_text = ""
+            if notes_text:
+                units.append(UnitDraft("speaker_notes", {"slide": slide_index}, notes_text))
+    except Exception as exc:
+        raise ExtractionError("could not extract PPTX", details={"error": str(exc)}) from exc
+    return _finish(units)
+
+
+def _cell_value(cell) -> str:
+    value = cell.value
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return normalize_text(value)
+    return str(value)
+
+
+def extract_xlsx(path: Path) -> ExtractionResult:
+    _preflight_zip(path)
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise ExtractionError("openpyxl is not installed") from exc
+    units: list[UnitDraft] = []
+    issues: list[dict] = []
+    cells_seen = 0
+    try:
+        package = path.open("rb")
+        workbook = load_workbook(
+            filename=package,
+            read_only=True,
+            data_only=False,
+            keep_links=False,
+        )
+        try:
+            for sheet in workbook.worksheets:
+                for row_index, row in enumerate(sheet.iter_rows(), start=1):
+                    if row_index > MAX_SHEET_ROWS or cells_seen >= MAX_SHEET_CELLS:
+                        issues.append(
+                            {
+                                "code": "sheet_limit_reached",
+                                "severity": "warning",
+                                "message": (
+                                    "Workbook extraction stopped at the configured cell limit."
+                                ),
+                                "sheet": sheet.title,
+                            }
+                        )
+                        break
+                    rendered: list[str] = []
+                    first_cell = None
+                    last_cell = None
+                    for cell in row:
+                        cells_seen += 1
+                        value = _cell_value(cell)
+                        if not value:
+                            continue
+                        first_cell = first_cell or cell.coordinate
+                        last_cell = cell.coordinate
+                        rendered.append(f"{cell.coordinate}={value}")
+                    if rendered:
+                        units.append(
+                            UnitDraft(
+                                "sheet_row",
+                                {
+                                    "sheet": sheet.title,
+                                    "row": row_index,
+                                    "range": f"{first_cell}:{last_cell}",
+                                },
+                                "\t".join(rendered),
+                            )
+                        )
+        finally:
+            workbook.close()
+            package.close()
+    except Exception as exc:
+        raise ExtractionError("could not extract XLSX", details={"error": str(exc)}) from exc
+    return _finish(units, issues)
+
+
+EXTRACTORS = {
+    "text": extract_text,
+    "markdown": extract_markdown,
+    "html": extract_html,
+    "hwpx": extract_hwpx,
+    "pdf": extract_pdf,
+    "docx": extract_docx,
+    "pptx": extract_pptx,
+    "xlsx": extract_xlsx,
+}
+
+
+def extract(path: Path, adapter: str) -> ExtractionResult:
+    extractor = EXTRACTORS.get(adapter)
+    if extractor is None:
+        raise ExtractionError("no extractor is registered", details={"adapter": adapter})
+    return extractor(path)
