@@ -65,16 +65,16 @@ your own reviewed preferences, and import it as a read-only preview.
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 # Edit /tmp/my-sense-profile.json before continuing.
 
-./plugins/sense/bin/sense import-profile \
+./plugins/sense/launchers/sense import-profile \
   --input /tmp/my-sense-profile.json
-./plugins/sense/bin/sense read --view full
-./plugins/sense/bin/sense status
+./plugins/sense/launchers/sense read --view full
+./plugins/sense/launchers/sense status
 ```
 
 After reviewing the exact preview, activate the revision and digest returned by `status`:
 
 ```sh
-./plugins/sense/bin/sense activate \
+./plugins/sense/launchers/sense activate \
   --expected-revision 1 \
   --confirm-profile-digest PROFILE_SHA256_FROM_STATUS \
   --confirm-reviewed-profile
@@ -88,7 +88,7 @@ profile on the user's behalf.
 Corpus also starts empty. Register only a folder you want Corpus to observe:
 
 ```sh
-./plugins/corpus/bin/corpus corpus add \
+./plugins/corpus/launchers/corpus corpus add \
   --id my-work \
   --root /absolute/path/to/my-work \
   --execution-policy local_only

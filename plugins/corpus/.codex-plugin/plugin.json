@@ -15,7 +15,7 @@
   "skills": "./skills/",
   "mcpServers": {
     "corpus": {
-      "command": "./bin/corpus-mcp",
+      "command": "./launchers/corpus-mcp",
       "args": [],
       "cwd": "."
     }
@@ -44,5 +44,5 @@
       "Continue this corpus context and check what changed since the last review."
     ]
   },
-  "version": "0.9.10+codex.20260729184018"
+  "version": "0.9.11+codex.20260729190046"
 }

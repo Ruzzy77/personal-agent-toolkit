@@ -18,7 +18,7 @@ If a required read-only `corpus_*` tool is absent, do not treat that as an empty
 installation. A Codex task can retain the plugin snapshot from before an update. In local Codex
 with shell access, use the exact enabled-package checks in
 [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, use that
-package's `bin/corpus-readonly` for:
+package's `launchers/corpus-readonly` for:
 
 - `corpus list`, `overview`, `status`, `inventory`, `search`, and exact `read`;
 - linked-source `source list` and exact completed-task `source fetch`;

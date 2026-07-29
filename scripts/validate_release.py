@@ -25,7 +25,7 @@ PACKAGE_REQUIRED_FILES = {
         "assets/icon.png",
         "assets/icon.svg",
         "assets/logo.png",
-        "bin/sense-readonly",
+        "launchers/sense-readonly",
         "skills/update-sense/SKILL.md",
         "skills/update-sense/agents/openai.yaml",
         "skills/work-with-user/SKILL.md",
@@ -37,7 +37,7 @@ PACKAGE_REQUIRED_FILES = {
         "assets/icon.png",
         "assets/icon.svg",
         "assets/logo.png",
-        "bin/corpus-readonly",
+        "launchers/corpus-readonly",
         "skills/investigate-corpus/SKILL.md",
         "skills/investigate-corpus/agents/openai.yaml",
         "skills/show-corpus-overview/SKILL.md",
@@ -164,8 +164,8 @@ def validate_structure() -> None:
                 package / ".mcp.json",
                 package / "pyproject.toml",
                 package / "uv.lock",
-                package / "bin" / package_name,
-                package / "bin" / f"{package_name}-mcp",
+                package / "launchers" / package_name,
+                package / "launchers" / f"{package_name}-mcp",
             ]
         )
         required.extend(
@@ -175,6 +175,13 @@ def validate_structure() -> None:
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
         raise ValueError(f"release is missing required files: {', '.join(missing)}")
+    for package_name in PACKAGE_NAMES:
+        package_bin = ROOT / "plugins" / package_name / "bin"
+        if package_bin.exists():
+            raise ValueError(
+                f"{package_name} contains a top-level bin directory, which "
+                "Claude-hosted plugins reject"
+            )
 
     root_license = (ROOT / "LICENSE").read_bytes()
     if (
@@ -227,7 +234,7 @@ def validate_public_boundary() -> None:
             f"{package_name}-mcp",
             f"{package_name}-readonly",
         ):
-            launcher = package / "bin" / launcher_name
+            launcher = package / "launchers" / launcher_name
             if not stat.S_IMODE(launcher.stat().st_mode) & 0o100:
                 raise ValueError(f"launcher is not executable: {launcher}")
         for path in package.rglob("*"):
@@ -302,7 +309,9 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} build version is invalid")
         build_ids[package_name] = build_version.removeprefix(prefix)
         server = mcp.get("mcpServers", {}).get(package_name, {})
-        if server.get("command") != (f"${{CLAUDE_PLUGIN_ROOT}}/bin/{package_name}-mcp"):
+        if server.get("command") != (
+            f"${{CLAUDE_PLUGIN_ROOT}}/launchers/{package_name}-mcp"
+        ):
             raise ValueError(f"{package_name} Claude MCP command is invalid")
         if claude.get("mcpServers") != "./.mcp.json":
             raise ValueError(f"{package_name} Claude manifest does not use .mcp.json")
@@ -385,7 +394,7 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
     environment["CORPUS_PYTHON_ENV"] = str(temporary_root / "corpus-python")
 
     completed = subprocess.run(
-        [str(package / "bin" / f"{package_name}-mcp")],
+        [str(package / "launchers" / f"{package_name}-mcp")],
         input="".join(json.dumps(request) + "\n" for request in requests),
         text=True,
         capture_output=True,
@@ -440,7 +449,7 @@ def _run_json(
 
 def validate_sense_first_run(temporary_root: Path) -> None:
     package = ROOT / "plugins/sense"
-    launcher = str(package / "bin/sense")
+    launcher = str(package / "launchers/sense")
     data_root = temporary_root / "Sense"
     environment = os.environ.copy()
     environment.pop("VIRTUAL_ENV", None)
@@ -504,7 +513,7 @@ def validate_sense_first_run(temporary_root: Path) -> None:
 
 def validate_corpus_first_run(temporary_root: Path) -> None:
     package = ROOT / "plugins/corpus"
-    launcher = str(package / "bin/corpus")
+    launcher = str(package / "launchers/corpus")
     data_root = temporary_root / "Corpus"
     source_root = temporary_root / "example-source"
     temporary_root.mkdir(parents=True, mode=0o700)

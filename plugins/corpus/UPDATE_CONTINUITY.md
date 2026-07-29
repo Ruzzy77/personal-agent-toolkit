@@ -13,9 +13,9 @@ Use the fallback only in local Codex with shell access and only when all of thes
 2. Continue only when exactly one entry matches, its `source.source` is `local`, and
    `source.path` is an absolute directory.
 3. At that exact path, require `.codex-plugin/plugin.json`, `src/corpus/_build.py`, and executable
-   `bin/corpus-readonly`. The manifest name and version must match the selected list entry, and
+   `launchers/corpus-readonly`. The manifest name and version must match the selected list entry, and
    `_build.py` must contain the same `BUILD_ID`.
-4. Run only that package's `bin/corpus-readonly`. Do not resolve the launcher relative to the
+4. Run only that package's `launchers/corpus-readonly`. Do not resolve the launcher relative to the
    skill snapshot, search plugin cache directories, or choose a directory because its name or
    version looks newest.
 

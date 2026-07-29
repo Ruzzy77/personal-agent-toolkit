@@ -17,7 +17,7 @@ context item remains an interpretation rather than an original-source claim.
    A Codex task can retain the plugin snapshot from before an update. In local Codex with shell
    access, use the exact enabled-package checks in
    [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, run that
-   package's `bin/corpus-readonly overview --max-items-per-context 5`. This personal CLI view also
+   package's `launchers/corpus-readonly overview --max-items-per-context 5`. This personal CLI view also
    includes `local_only` corpora.
 3. Never resolve fallback from this skill's directory, scan plugin caches, or choose a
    newest-looking package. If the enabled package is missing, ambiguous, or has a version or build

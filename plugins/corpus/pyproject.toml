@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "corpus"
-version = "0.9.10"
+version = "0.9.11"
 description = "Retrieval-first personal corpus workspace with reusable semantic context"
 readme = "README.md"
 authors = [

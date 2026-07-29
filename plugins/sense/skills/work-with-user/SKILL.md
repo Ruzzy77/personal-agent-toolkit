@@ -22,8 +22,8 @@ not report that Sense or its profile is unavailable:
 1. Run `codex plugin list --json` and select exactly one installed, enabled entry whose `name` is
    `sense`. If there is no unique match, stop instead of guessing a cache directory or version.
 2. Use the selected entry's `source.path` only when it contains an executable
-   `bin/sense-readonly`; do not invoke the general lifecycle launcher as a fallback.
-3. Use `bin/sense-readonly` only for its `read` and `status` commands. `read --view index`,
+   `launchers/sense-readonly`; do not invoke the general lifecycle launcher as a fallback.
+3. Use `launchers/sense-readonly` only for its `read` and `status` commands. `read --view index`,
    `read --view sections --section-id SECTION_ID`, and `read --view full` are allowed.
 4. Explain once that the current task has an older plugin snapshot and that the enabled installation
    is being read through its read-only interface.
