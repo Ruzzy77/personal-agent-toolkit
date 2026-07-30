@@ -30,7 +30,7 @@
       "Cross-tool continuity",
       "User-controlled revision and deletion"
     ],
-    "brandColor": "#536F63",
+    "brandColor": "#0AAE98",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
@@ -39,5 +39,5 @@
       "What has Sense learned from our work?"
     ]
   },
-  "version": "0.1.10+codex.20260729190046"
+  "version": "0.1.11+codex.20260730123816"
 }

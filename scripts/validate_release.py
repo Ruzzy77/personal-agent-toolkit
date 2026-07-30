@@ -8,6 +8,7 @@ import json
 import os
 import re
 import stat
+import struct
 import subprocess
 import tempfile
 from pathlib import Path
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAMES = ("sense", "corpus")
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
 EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus"}
+EXPECTED_BANNER_SIZE = (1536, 768)
 PACKAGE_REQUIRED_FILES = {
     "sense": (
         "NOTICE",
@@ -55,6 +57,7 @@ EXPECTED_TOP_LEVEL = {
     "PRIVACY.md",
     "README.md",
     "THIRD_PARTY_NOTICES.md",
+    "assets",
     "examples",
     "plugins",
     "scripts",
@@ -100,6 +103,13 @@ def _json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError(f"{path.relative_to(ROOT)} must contain one JSON object")
     return value
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise ValueError(f"{path.relative_to(ROOT)} is not a PNG")
+    return struct.unpack(">II", header[16:24])
 
 
 def _candidate_files() -> list[Path]:
@@ -149,6 +159,7 @@ def validate_structure() -> None:
         ROOT / "README.md",
         ROOT / "PRIVACY.md",
         ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "assets/sense-corpus-banner.png",
         ROOT / "examples/sense-profile.example.json",
         ROOT / ".agents/plugins/marketplace.json",
         ROOT / ".claude-plugin/marketplace.json",
@@ -175,6 +186,12 @@ def validate_structure() -> None:
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
         raise ValueError(f"release is missing required files: {', '.join(missing)}")
+    banner = ROOT / "assets/sense-corpus-banner.png"
+    if _png_size(banner) != EXPECTED_BANNER_SIZE:
+        raise ValueError(
+            "README banner has the wrong dimensions: "
+            f"{_png_size(banner)} != {EXPECTED_BANNER_SIZE}"
+        )
     for package_name in PACKAGE_NAMES:
         package_bin = ROOT / "plugins" / package_name / "bin"
         if package_bin.exists():
@@ -182,6 +199,11 @@ def validate_structure() -> None:
                 f"{package_name} contains a top-level bin directory, which "
                 "Claude-hosted plugins reject"
             )
+        package = ROOT / "plugins" / package_name
+        if _png_size(package / "assets/icon.png") != (360, 360):
+            raise ValueError(f"{package_name} icon has the wrong dimensions")
+        if _png_size(package / "assets/logo.png") != (512, 512):
+            raise ValueError(f"{package_name} logo has the wrong dimensions")
 
     root_license = (ROOT / "LICENSE").read_bytes()
     if (

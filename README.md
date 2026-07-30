@@ -1,5 +1,7 @@
 # Sense & Corpus
 
+![Sense and Corpus](./assets/sense-corpus-banner.png)
+
 Two local-first plugins for working with AI tools without shipping personal data in the plugin.
 
 - **Sense** keeps one private work profile for collaboration preferences and lessons that matter
