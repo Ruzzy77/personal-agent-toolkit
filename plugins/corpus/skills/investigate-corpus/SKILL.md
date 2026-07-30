@@ -114,6 +114,8 @@ compare, explain, or produce something from sources.
    missing, partial and outdated projections, and migration state. Stop on `migration_required`;
    do not work around it. Treat the registered `source_scope` exclusions as the corpus inventory
    boundary; do not count excluded development environments or caches as coverage gaps.
+   For linked provider history, state `observed_through` before drawing a time-bounded conclusion.
+   When the request has a starting time, pass it as `occurred_after` instead of paging older records.
 3. Frame the request into a small set of information needs: required fields, entity and time
    scope, which versions or approval states matter, possible conflicting information, and the
    intended output.

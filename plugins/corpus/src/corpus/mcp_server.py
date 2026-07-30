@@ -1069,6 +1069,9 @@ def create_server(
             "existing corpus. Gmail records expose stable message/thread locators and bounded "
             "envelope metadata. Codex and Claude records expose stable session/turn ids, "
             "completion time, workspace metadata, a provider locator, and a freshness digest. "
+            "Use occurred_after to return only records strictly later than one timezone-aware "
+            "timestamp. observed_through reports the conservative last complete observation "
+            "across the selected bindings. "
             "No linked record contains message bodies, summaries, reasoning, tool records, or "
             "attachment bytes. Use the provider connector for Gmail and corpus_source_fetch for "
             "an exact completed agent turn. Local-only corpora remain hidden from external MCP "
@@ -1080,6 +1083,7 @@ def create_server(
         corpus_id: CorpusId,
         binding_id: Annotated[str | None, Field(max_length=64)] = None,
         record_state: Literal["active", "removed"] = "active",
+        occurred_after: Annotated[str | None, Field(max_length=100)] = None,
         limit: Annotated[int, Field(ge=1, le=CONTEXT_MAX_LIMIT)] = CONTEXT_DEFAULT_LIMIT,
         offset: Annotated[int, Field(ge=0, le=CONTEXT_MAX_OFFSET)] = 0,
     ) -> ToolResponse:
@@ -1088,6 +1092,7 @@ def create_server(
                 corpus_id=corpus_id,
                 binding_id=binding_id,
                 record_state=record_state,
+                occurred_after=occurred_after,
                 limit=limit,
                 offset=offset,
                 audience="external_mcp",

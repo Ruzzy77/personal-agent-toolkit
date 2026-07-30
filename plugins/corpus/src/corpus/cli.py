@@ -331,6 +331,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("active", "removed"),
         default="active",
     )
+    source_list.add_argument(
+        "--occurred-after",
+        help="Return records strictly later than this timezone-aware ISO 8601 timestamp.",
+    )
     source_list.add_argument("--limit", type=int, default=100)
     source_list.add_argument("--offset", type=int, default=0)
 
@@ -658,6 +662,7 @@ def execute(args: argparse.Namespace) -> dict | list:
                 corpus_id=args.corpus,
                 binding_id=args.binding_id,
                 record_state=args.record_state,
+                occurred_after=args.occurred_after,
                 limit=args.limit,
                 offset=args.offset,
                 audience="local_cli",

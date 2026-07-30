@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import difflib
 from pathlib import Path
 from typing import Any, Literal
 
 from . import BUILD_ID, __version__
 from .errors import ConfirmationRequiredError, SectionNotFoundError
 from .exposure import local_profile_index, section_view, work_profile_overview
-from .model import ProfileDocument, ProfileSection
+from .model import ProfileDocument, ProfileSection, section_sha256
 from .store import SenseStore
 
 ReadView = Literal["index", "sections", "full"]
@@ -103,6 +104,136 @@ class SenseService:
             )
         result["sections"] = sections
         return result
+
+    @staticmethod
+    def _changed_section_ids(
+        before: ProfileDocument,
+        after: ProfileDocument,
+    ) -> list[str]:
+        before_sections = {section.id: section for section in before.sections}
+        after_sections = {section.id: section for section in after.sections}
+        return sorted(
+            section_id
+            for section_id in set(before_sections) | set(after_sections)
+            if before_sections.get(section_id) != after_sections.get(section_id)
+        )
+
+    @staticmethod
+    def _profile_diff(
+        before: ProfileDocument,
+        after: ProfileDocument,
+    ) -> dict[str, Any]:
+        before_sections = {section.id: section for section in before.sections}
+        after_sections = {section.id: section for section in after.sections}
+        before_ids = set(before_sections)
+        after_ids = set(after_sections)
+        changed_sections: list[dict[str, Any]] = []
+        for section_id in sorted(before_ids & after_ids):
+            previous = before_sections[section_id]
+            current = after_sections[section_id]
+            if previous == current:
+                continue
+            previous_payload = previous.model_dump(mode="json")
+            current_payload = current.model_dump(mode="json")
+            fields_changed = sorted(
+                field
+                for field in set(previous_payload) | set(current_payload)
+                if field != "id"
+                and previous_payload.get(field) != current_payload.get(field)
+            )
+            text_diff = list(
+                difflib.unified_diff(
+                    previous.text.splitlines(),
+                    current.text.splitlines(),
+                    fromfile=f"revision-{before.revision}/{section_id}",
+                    tofile=f"revision-{after.revision}/{section_id}",
+                    lineterm="",
+                )
+            )
+            changed_sections.append(
+                {
+                    "section_id": section_id,
+                    "fields_changed": fields_changed,
+                    "before_sha256": section_sha256(previous),
+                    "after_sha256": section_sha256(current),
+                    "text_diff": text_diff,
+                }
+            )
+        return {
+            "added_section_ids": sorted(after_ids - before_ids),
+            "removed_section_ids": sorted(before_ids - after_ids),
+            "changed_sections": changed_sections,
+        }
+
+    def history(
+        self,
+        *,
+        from_revision: int | None = None,
+        to_revision: int | None = None,
+    ) -> dict[str, Any]:
+        revisions = self.store.revision_history()
+        by_revision = {
+            revision.profile.revision: revision
+            for revision in revisions
+        }
+        if (from_revision is None) != (to_revision is None):
+            raise ValueError(
+                "from_revision and to_revision must be provided together"
+            )
+        if from_revision is not None and to_revision is not None:
+            if from_revision >= to_revision:
+                raise ValueError("from_revision must be lower than to_revision")
+            missing = [
+                revision
+                for revision in (from_revision, to_revision)
+                if revision not in by_revision
+            ]
+            if missing:
+                raise ValueError(
+                    "requested revision is not retained: "
+                    + ", ".join(str(revision) for revision in missing)
+                )
+            previous = by_revision[from_revision]
+            current = by_revision[to_revision]
+            return {
+                "from_revision": {
+                    "revision": from_revision,
+                    "profile_sha256": previous.digest,
+                    "created_at": previous.created_at,
+                },
+                "to_revision": {
+                    "revision": to_revision,
+                    "profile_sha256": current.digest,
+                    "created_at": current.created_at,
+                    "current": current.current,
+                },
+                "diff": self._profile_diff(previous.profile, current.profile),
+            }
+
+        summaries = []
+        for revision in revisions:
+            previous = by_revision.get(revision.profile.revision - 1)
+            summaries.append(
+                {
+                    "revision": revision.profile.revision,
+                    "profile_sha256": revision.digest,
+                    "created_at": revision.created_at,
+                    "current": revision.current,
+                    "changed_section_ids": (
+                        self._changed_section_ids(
+                            previous.profile,
+                            revision.profile,
+                        )
+                        if previous is not None
+                        else None
+                    ),
+                }
+            )
+        return {
+            "current_revision": revisions[0].profile.revision,
+            "retained_previous_revisions": len(revisions) - 1,
+            "revisions": summaries,
+        }
 
     def revise(
         self,

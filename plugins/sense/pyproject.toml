@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sense"
-version = "0.1.11"
+version = "0.1.12"
 description = "Private shared work profile for AI collaborators"
 authors = [
   {name = "Sense & Corpus contributors"},

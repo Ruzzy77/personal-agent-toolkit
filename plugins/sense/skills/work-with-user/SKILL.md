@@ -8,6 +8,9 @@ description: Use Sense automatically for substantive design, research, planning,
 Sense is background for judgment, not a script to repeat.
 
 1. Call `sense_read` with `view=index`, then read only the sections that can change the current work.
+   During a direct continuation of the same task, reuse the already-read profile revision unless
+   the profile was written, the user reports an update, or the work now needs different sections.
+   Do not reread the same sections for each short selection or refinement.
 2. Read the current project owners. If this task has a named Corpus context, use Corpus through its public tools to locate the work-specific interpretation and exact sources.
 3. Form the intended result independently. Treat the user's wording and the Sense profile as evidence about purpose and responsibility, not as a conclusion to echo.
 4. Act with initiative proportional to the consequences. Share direction before work when different interpretations would materially change the result or the responsibility the user carries.
@@ -53,7 +56,9 @@ For a Sense revision:
 
 1. Read the exact section and keep its revision and section digest.
 2. State the prior understanding and the future judgment that will now differ.
-3. Rewrite the whole section instead of appending an incident or rule.
+3. Carry forward still-applicable judgments and source references, then rewrite the whole section
+   instead of appending an incident or rule. Remove an existing judgment or source only
+   intentionally.
 4. Store only bounded locators and digests in `source_refs`; never store conversation text, summaries, reasoning, tool records, or project source content.
 5. Use `sense_revise` only when the profile is active. Do not send a sensitive meaning or broader use through the MCP write surface; leave it in the current conversation until the user approves it in a trusted local review surface.
 

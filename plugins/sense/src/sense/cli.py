@@ -51,6 +51,13 @@ def _parser() -> argparse.ArgumentParser:
     read.add_argument("--section-id", action="append", default=[])
     read.add_argument("--include-sources", action="store_true")
 
+    history = commands.add_parser(
+        "history",
+        help="List retained revisions or compare two retained revisions.",
+    )
+    history.add_argument("--from-revision", type=int)
+    history.add_argument("--to-revision", type=int)
+
     commands.add_parser("status", help="Show private store status.")
     return parser
 
@@ -78,6 +85,11 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             view=args.view,
             section_ids=args.section_id or None,
             include_sources=args.include_sources,
+        )
+    if args.command == "history":
+        return service.history(
+            from_revision=args.from_revision,
+            to_revision=args.to_revision,
         )
     if args.command == "status":
         return service.status()

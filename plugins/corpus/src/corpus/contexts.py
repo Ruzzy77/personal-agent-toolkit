@@ -7,6 +7,7 @@ import json
 import re
 import uuid
 from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +150,23 @@ def normalize_context_id(context_id: str) -> str:
             details={"context_id": context_id, "normalized": normalized},
         )
     return normalized
+
+
+def _normalize_timestamp_filter(value: str | None, *, field: str) -> str | None:
+    if value is None:
+        return None
+    normalized = _require_string(value, field=field, maximum=100)
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ContextValidationError(
+            f"{field} must be an ISO 8601 timestamp with a timezone"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ContextValidationError(
+            f"{field} must be an ISO 8601 timestamp with a timezone"
+        )
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def normalize_source_binding_id(binding_id: str) -> str:
@@ -1043,6 +1061,7 @@ class ContextService:
         corpus_id: str,
         binding_id: str | None = None,
         record_state: str = "active",
+        occurred_after: str | None = None,
         limit: int = CONTEXT_DEFAULT_LIMIT,
         offset: int = 0,
         audience: str = "local_cli",
@@ -1063,11 +1082,17 @@ class ContextService:
             if binding_id is not None
             else None
         )
+        normalized_occurred_after = _normalize_timestamp_filter(
+            occurred_after,
+            field="occurred_after",
+        )
         if not self.database_path.exists():
             return {
                 "corpus_id": corpus_id,
                 "bindings": [],
                 "record_state": record_state,
+                "occurred_after": normalized_occurred_after,
+                "observed_through": None,
                 "offset": offset,
                 "limit": limit,
                 "returned_count": 0,
@@ -1102,25 +1127,37 @@ class ContextService:
                 record_rows = []
             else:
                 placeholders = ",".join("?" for _ in selected_ids)
+                filters = [
+                    f"binding_id IN ({placeholders})",
+                    "membership_state = ?",
+                ]
+                filter_values: list[Any] = [*selected_ids, record_state]
+                if normalized_occurred_after is not None:
+                    filters.extend(
+                        [
+                            "occurred_at IS NOT NULL",
+                            "julianday(occurred_at) > julianday(?)",
+                        ]
+                    )
+                    filter_values.append(normalized_occurred_after)
+                where_clause = " AND ".join(filters)
                 total_matching = connection.execute(
                     f"""
                     SELECT COUNT(*)
                     FROM external_source_records
-                    WHERE binding_id IN ({placeholders})
-                      AND membership_state = ?
+                    WHERE {where_clause}
                     """,
-                    (*selected_ids, record_state),
+                    filter_values,
                 ).fetchone()[0]
                 record_rows = connection.execute(
                     f"""
                     SELECT *
                     FROM external_source_records
-                    WHERE binding_id IN ({placeholders})
-                      AND membership_state = ?
+                    WHERE {where_clause}
                     ORDER BY occurred_at DESC, external_id
                     LIMIT ? OFFSET ?
                     """,
-                    (*selected_ids, record_state, limit, offset),
+                    (*filter_values, limit, offset),
                 ).fetchall()
             count_rows = connection.execute(
                 """
@@ -1152,6 +1189,18 @@ class ContextService:
                     "active_record_count": counts[row["binding_id"]].get("active", 0),
                     "removed_record_count": counts[row["binding_id"]].get("removed", 0),
                 }
+            )
+        selected_complete_times = [
+            binding_by_id[selected_id]["last_complete_at"]
+            for selected_id in selected_ids
+        ]
+        observed_through = None
+        if selected_complete_times and all(selected_complete_times):
+            observed_through = min(
+                selected_complete_times,
+                key=lambda value: datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ),
             )
         records = [
             {
@@ -1185,6 +1234,8 @@ class ContextService:
             "corpus_id": corpus_id,
             "bindings": bindings,
             "record_state": record_state,
+            "occurred_after": normalized_occurred_after,
+            "observed_through": observed_through,
             "offset": offset,
             "limit": limit,
             "returned_count": len(records),

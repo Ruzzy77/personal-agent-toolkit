@@ -77,6 +77,14 @@ class StoredProfile:
     updated_at: str
 
 
+@dataclass(frozen=True)
+class StoredRevision:
+    profile: ProfileDocument
+    digest: str
+    created_at: str
+    current: bool
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -762,17 +770,40 @@ class SenseStore:
             return int(row["count"])
 
     def history(self) -> list[ProfileDocument]:
+        return [
+            revision.profile
+            for revision in self.revision_history()
+            if not revision.current
+        ]
+
+    def revision_history(self) -> list[StoredRevision]:
         with closing(self._connect_read()) as connection:
+            current = self._load_current(connection)
             rows = connection.execute(
                 """
-                SELECT profile_json
+                SELECT profile_json, profile_sha256, created_at
                 FROM profile_revisions
                 ORDER BY revision DESC
                 """
             ).fetchall()
         return [
-            ProfileDocument.model_validate(json.loads(row["profile_json"]))
-            for row in rows
+            StoredRevision(
+                profile=current.profile,
+                digest=current.digest,
+                created_at=current.updated_at,
+                current=True,
+            ),
+            *[
+                StoredRevision(
+                    profile=ProfileDocument.model_validate(
+                        json.loads(row["profile_json"])
+                    ),
+                    digest=row["profile_sha256"],
+                    created_at=row["created_at"],
+                    current=False,
+                )
+                for row in rows
+            ],
         ]
 
     def _removal_preview(self, current: StoredProfile) -> dict[str, Any]:
