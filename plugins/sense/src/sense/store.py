@@ -490,15 +490,23 @@ class SenseStore:
         new_use = set(new_section.use_for)
         scope_expanded = not new_use.issubset(previous_use)
         retains_sensitive_content = new_section.sensitivity == "sensitive"
-        if not scope_expanded and not retains_sensitive_content:
+        declassifies_sensitive_content = (
+            previous_section.sensitivity == "sensitive"
+            and new_section.sensitivity != "sensitive"
+        )
+        if (
+            not scope_expanded
+            and not retains_sensitive_content
+            and not declassifies_sensitive_content
+        ):
             return
         has_user_source = any(
             source.origin == "user_set" for source in new_section.source_refs
         )
         if not user_confirmed or not has_user_source:
             raise ConfirmationRequiredError(
-                "Sensitive or broader profile use needs explicit user confirmation "
-                "and a user-set source reference"
+                "Sensitive content, sensitivity declassification, or broader profile "
+                "use needs explicit user confirmation and a user-set source reference"
             )
 
     def revise(
@@ -649,18 +657,23 @@ class SenseStore:
                     raise ValueError(
                         "forget replacement cannot add source references; use sense_revise"
                     )
-                if replacement_section.sensitivity == "sensitive" and (
-                    not user_confirmed
-                    or not any(
-                        source.origin == "user_set"
-                        for source in replacement_section.source_refs
+                try:
+                    self._require_sensitive_confirmation(
+                        previous_section,
+                        replacement_section,
+                        user_confirmed=user_confirmed,
                     )
-                ):
+                except ConfirmationRequiredError:
                     connection.execute("ROLLBACK")
-                    raise ConfirmationRequiredError(
-                        "retaining a sensitive replacement needs explicit user confirmation "
-                        "and a user-set source reference"
-                    )
+                    raise
+            elif (
+                previous_section.sensitivity == "sensitive"
+                and not user_confirmed
+            ):
+                connection.execute("ROLLBACK")
+                raise ConfirmationRequiredError(
+                    "forgetting a sensitive section needs explicit user confirmation"
+                )
             payload = self._forget_payload(
                 revision=current.profile.revision,
                 profile_digest=current.digest,

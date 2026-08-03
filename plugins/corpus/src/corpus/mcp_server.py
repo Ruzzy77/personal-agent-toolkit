@@ -144,6 +144,8 @@ _PRIVATE_PATH_FIELDS = {
     "absolute_path",
     "blob_ref",
     "corpus_root",
+    "cwd",
+    "cwd_prefix",
     "data_root",
     "existing_root",
     "immutable_blob_ref",
@@ -153,6 +155,8 @@ _PRIVATE_PATH_FIELDS = {
     "source_root_nfc",
     "staging_root",
     "surface_open_target",
+    "workspace",
+    "root_ref",
 }
 _CONDITIONAL_PATH_FIELDS = {
     "backup",
@@ -348,17 +352,40 @@ def _looks_like_absolute_path(value: object) -> bool:
         return False
     return bool(
         value.startswith("/")
+        or value.startswith("\\")
+        or value == "~"
+        or value.startswith(("~/", "~\\"))
+        or re.match(r"^~[^/\\]+[/\\]", value)
         or _FILE_ABSOLUTE_PREFIX_RE.match(value)
-        or re.match(r"(?i)^[A-Z]:\\", value)
+        or re.match(r"(?i)^[A-Z]:", value)
     )
 
 
 def _is_safe_relative_locator(value: object) -> bool:
     if not isinstance(value, str) or not value or "\x00" in value:
         return False
-    if _looks_like_absolute_path(value):
+    if _looks_like_absolute_path(value) or value.casefold().startswith("file:"):
         return False
     return ".." not in re.split(r"[/\\]", value)
+
+
+def _is_safe_linked_identifier(value: object) -> bool:
+    if not isinstance(value, str) or not value or len(value) > 2_000:
+        return False
+    if value.casefold().startswith("file:") or re.match(r"(?i)^[A-Z]:", value):
+        return False
+    return not any(
+        character in {"/", "\\"} or ord(character) < 32 or ord(character) == 127
+        for character in value
+    )
+
+
+def _is_safe_linked_scalar(value: object) -> bool:
+    if isinstance(value, bool) or type(value) is int:
+        return True
+    if not isinstance(value, str) or len(value) > 2_000:
+        return False
+    return not _looks_like_absolute_path(value)
 
 
 def _is_private_path_field(
@@ -641,6 +668,304 @@ def _mcp_snapshot_summary(snapshot: object) -> object:
     return result
 
 
+def _mcp_linked_selector(provider_kind: object, selector: object) -> dict[str, Any]:
+    if not isinstance(selector, dict):
+        return {}
+    if provider_kind == "gmail":
+        allowed = ("account_ref", "label_id", "label_name")
+    elif provider_kind == "codex":
+        allowed = ("actor", "lookback_days", "include_archived")
+    elif provider_kind == "claude":
+        allowed = ("actor", "lookback_days")
+    else:
+        allowed = ()
+    return {
+        field: selector[field]
+        for field in allowed
+        if field in selector and _is_safe_linked_scalar(selector[field])
+    }
+
+
+def _mcp_linked_provider_metadata(
+    provider_kind: object,
+    metadata: object,
+) -> dict[str, Any]:
+    if provider_kind not in {"codex", "claude"} or not isinstance(metadata, dict):
+        return {}
+    result = {
+        field: metadata[field]
+        for field in ("actor", "task_kind")
+        if field in metadata and _is_safe_linked_identifier(metadata[field])
+    }
+    for field in ("session_id", "turn_id"):
+        if field in metadata and _is_safe_linked_identifier(metadata[field]):
+            result[field] = metadata[field]
+    return result
+
+
+def _mcp_linked_locator(provider_kind: object, locator: object) -> dict[str, Any]:
+    if provider_kind not in {"codex", "claude"} or not isinstance(locator, dict):
+        return {}
+    result = {
+        field: locator[field]
+        for field in ("session_id", "turn_id")
+        if field in locator and _is_safe_linked_identifier(locator[field])
+    }
+    relative_path = locator.get("relative_path")
+    if _is_safe_relative_locator(relative_path):
+        result["relative_path"] = relative_path
+    return result
+
+
+def _mcp_linked_binding(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    provider_kind = value.get("provider_kind")
+    result = {
+        field: value[field]
+        for field in (
+            "binding_id",
+            "corpus_id",
+            "provider_kind",
+            "state",
+            "last_complete_run_id",
+            "last_complete_at",
+            "active_record_count",
+            "removed_record_count",
+        )
+        if field in value
+    }
+    for field in ("binding_id", "corpus_id", "last_complete_run_id"):
+        if field in result and not _is_safe_linked_identifier(result[field]):
+            result.pop(field)
+    if "selector" in value:
+        result["selector"] = _mcp_linked_selector(
+            provider_kind,
+            value.get("selector"),
+        )
+    return result
+
+
+def _mcp_linked_record(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    provider_kind = value.get("provider_kind")
+    result = {
+        field: value[field]
+        for field in (
+            "dependency_state",
+            "source_record_id",
+            "binding_id",
+            "provider_kind",
+            "external_id",
+            "parent_external_id",
+            "occurred_at",
+            "title",
+            "participants",
+            "label_ids",
+            "attachments",
+            "freshness_identity",
+            "freshness_state",
+            "metadata_sha256",
+            "membership_state",
+            "last_seen_run_id",
+            "first_seen_at",
+            "last_seen_at",
+        )
+        if field in value
+    }
+    for field in (
+        "source_record_id",
+        "binding_id",
+        "external_id",
+        "parent_external_id",
+        "last_seen_run_id",
+    ):
+        if field in result and not _is_safe_linked_identifier(result[field]):
+            result.pop(field)
+    if "provider_metadata" in value:
+        result["provider_metadata"] = _mcp_linked_provider_metadata(
+            provider_kind,
+            value.get("provider_metadata"),
+        )
+    if "locator" in value:
+        result["locator"] = _mcp_linked_locator(
+            provider_kind,
+            value.get("locator"),
+        )
+    return result
+
+
+def _mcp_linked_source_read(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    result = {
+        field: value[field]
+        for field in (
+            "corpus_id",
+            "record_state",
+            "occurred_after",
+            "observed_through",
+            "offset",
+            "limit",
+            "returned_count",
+            "total_matching",
+            "has_more",
+            "next_offset",
+        )
+        if field in value
+    }
+    result["bindings"] = [
+        _mcp_linked_binding(binding)
+        for binding in value.get("bindings", [])
+    ]
+    result["records"] = [
+        _mcp_linked_record(record)
+        for record in value.get("records", [])
+    ]
+    return result
+
+
+def _mcp_linked_issue(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"issue_invalid": True}
+    result = {
+        field: value[field]
+        for field in ("code", "reason")
+        if field in value
+    }
+    relative_path = value.get("relative_path")
+    if _is_safe_relative_locator(relative_path):
+        result["relative_path"] = relative_path
+    return result
+
+
+def _mcp_linked_source_update(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    provider_kind = value.get("provider_kind")
+    result = {
+        field: value[field]
+        for field in (
+            "binding_id",
+            "corpus_id",
+            "provider_kind",
+            "state",
+            "idempotent_replay",
+            "run_id",
+            "status",
+            "observed_in_run",
+            "removed_count",
+            "scanned_file_count",
+            "discovered_record_count",
+            "provider_scan_complete",
+            "issue_count",
+            "issues_truncated",
+        )
+        if field in value
+    }
+    for field in ("binding_id", "corpus_id", "run_id"):
+        if field in result and not _is_safe_linked_identifier(result[field]):
+            result.pop(field)
+    if "selector" in value:
+        result["selector"] = _mcp_linked_selector(
+            provider_kind,
+            value.get("selector"),
+        )
+    if "issues" in value:
+        result["issues"] = [
+            _mcp_linked_issue(issue)
+            for issue in value.get("issues", [])
+        ]
+    return result
+
+
+def _mcp_linked_source_fetch(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    provider_kind = value.get("provider_kind")
+    result = {
+        field: value[field]
+        for field in (
+            "external_id",
+            "provider_kind",
+            "freshness_state",
+            "expected_freshness_identity",
+            "current_freshness_identity",
+            "session_id",
+            "turn_id",
+            "returned_chars",
+            "visible_message_count",
+            "returned_message_count",
+            "truncated",
+            "messages",
+            "untrusted_provider_content",
+            "tool_records_included",
+            "reasoning_records_included",
+            "corpus_id",
+            "binding_id",
+            "membership_state",
+        )
+        if field in value
+    }
+    for field in (
+        "external_id",
+        "session_id",
+        "turn_id",
+        "binding_id",
+    ):
+        if field in result and not _is_safe_linked_identifier(result[field]):
+            result.pop(field)
+    if "provider_metadata" in value:
+        result["provider_metadata"] = _mcp_linked_provider_metadata(
+            provider_kind,
+            value.get("provider_metadata"),
+        )
+    if "locator" in value:
+        result["locator"] = _mcp_linked_locator(
+            provider_kind,
+            value.get("locator"),
+        )
+    return result
+
+
+def _mcp_linked_overview(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    result = dict(value)
+    corpora = []
+    for corpus in value.get("corpora", []):
+        if not isinstance(corpus, dict):
+            continue
+        projected = dict(corpus)
+        projected["linked_sources"] = [
+            _mcp_linked_binding(binding)
+            for binding in corpus.get("linked_sources", [])
+        ]
+        corpora.append(projected)
+    result["corpora"] = corpora
+    return result
+
+
+def _mcp_linked_context_read(value: object) -> object:
+    if not isinstance(value, dict) or not isinstance(value.get("items"), list):
+        return value
+    result = dict(value)
+    items = []
+    for item in value["items"]:
+        if not isinstance(item, dict):
+            continue
+        projected = dict(item)
+        if isinstance(item.get("external_sources"), list):
+            projected["external_sources"] = [
+                _mcp_linked_record(source)
+                for source in item["external_sources"]
+            ]
+        items.append(projected)
+    result["items"] = items
+    return result
+
+
 def _mcp_sensitive_paths(
     service: CorpusService,
     corpus_id: str | None,
@@ -866,9 +1191,11 @@ def create_server(
         ] = CORPUS_OVERVIEW_DEFAULT_ITEMS_PER_CONTEXT,
     ) -> ToolResponse:
         return safe_call(
-            lambda: service.overview(
-                audience="external_mcp",
-                max_items_per_context=max_items_per_context,
+            lambda: _mcp_linked_overview(
+                service.overview(
+                    audience="external_mcp",
+                    max_items_per_context=max_items_per_context,
+                )
             )
         )
 
@@ -1068,7 +1395,7 @@ def create_server(
             "List non-file source bindings and bounded metadata observations attached to one "
             "existing corpus. Gmail records expose stable message/thread locators and bounded "
             "envelope metadata. Codex and Claude records expose stable session/turn ids, "
-            "completion time, workspace metadata, a provider locator, and a freshness digest. "
+            "completion time, a safe relative provider locator, and a freshness digest. "
             "Use occurred_after to return only records strictly later than one timezone-aware "
             "timestamp. observed_through reports the conservative last complete observation "
             "across the selected bindings. "
@@ -1088,14 +1415,16 @@ def create_server(
         offset: Annotated[int, Field(ge=0, le=CONTEXT_MAX_OFFSET)] = 0,
     ) -> ToolResponse:
         return safe_call(
-            lambda: service.corpus_source_read(
-                corpus_id=corpus_id,
-                binding_id=binding_id,
-                record_state=record_state,
-                occurred_after=occurred_after,
-                limit=limit,
-                offset=offset,
-                audience="external_mcp",
+            lambda: _mcp_linked_source_read(
+                service.corpus_source_read(
+                    corpus_id=corpus_id,
+                    binding_id=binding_id,
+                    record_state=record_state,
+                    occurred_after=occurred_after,
+                    limit=limit,
+                    offset=offset,
+                    audience="external_mcp",
+                )
             ),
             corpus_id=corpus_id,
         )
@@ -1125,12 +1454,14 @@ def create_server(
         ] = SESSION_SOURCE_FETCH_DEFAULT_CHARS,
     ) -> ToolResponse:
         return safe_call(
-            lambda: service.corpus_source_fetch(
-                corpus_id=corpus_id,
-                binding_id=binding_id,
-                external_id=external_id,
-                max_chars=max_chars,
-                audience="external_mcp",
+            lambda: _mcp_linked_source_fetch(
+                service.corpus_source_fetch(
+                    corpus_id=corpus_id,
+                    binding_id=binding_id,
+                    external_id=external_id,
+                    max_chars=max_chars,
+                    audience="external_mcp",
+                )
             ),
             corpus_id=corpus_id,
         )
@@ -1158,15 +1489,17 @@ def create_server(
         confirm_persistent_context_write: Literal[True],
     ) -> ToolResponse:
         return safe_call(
-            lambda: service.corpus_source_update(
-                action=action,
-                corpus_id=corpus_id,
-                binding_id=binding_id,
-                payload=payload,
-                confirm_persistent_context_write=(
-                    confirm_persistent_context_write
-                ),
-                audience="external_mcp",
+            lambda: _mcp_linked_source_update(
+                service.corpus_source_update(
+                    action=action,
+                    corpus_id=corpus_id,
+                    binding_id=binding_id,
+                    payload=payload,
+                    confirm_persistent_context_write=(
+                        confirm_persistent_context_write
+                    ),
+                    audience="external_mcp",
+                )
             ),
             corpus_id=corpus_id,
         )
@@ -1204,14 +1537,16 @@ def create_server(
         ] = 0,
     ) -> ToolResponse:
         return safe_call(
-            lambda: service.context_read(
-                context_id=context_id,
-                state=state,
-                include_history=include_history,
-                limit=limit,
-                offset=offset,
-                audience="external_mcp",
-                view=view,
+            lambda: _mcp_linked_context_read(
+                service.context_read(
+                    context_id=context_id,
+                    state=state,
+                    include_history=include_history,
+                    limit=limit,
+                    offset=offset,
+                    audience="external_mcp",
+                    view=view,
+                )
             )
         )
 
@@ -1514,7 +1849,7 @@ def create_server(
         remote_only: bool = False,
         document_ids: Annotated[
             list[Annotated[str, Field(min_length=1, max_length=200)]] | None,
-            Field(max_length=100),
+            Field(min_length=1, max_length=100),
         ] = None,
         timeout_seconds: Annotated[float, Field(gt=0, le=600)] = 120,
     ) -> ToolResponse:

@@ -17,6 +17,10 @@ class ConfigurationError(CorpusError):
     code = "configuration_error"
 
 
+class InvalidRequestError(CorpusError):
+    code = "invalid_request"
+
+
 class CorpusNotFoundError(CorpusError):
     code = "corpus_not_found"
 

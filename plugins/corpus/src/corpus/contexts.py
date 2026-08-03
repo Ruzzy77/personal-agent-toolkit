@@ -140,6 +140,7 @@ _ATTACHMENT_KEYS = {"attachment_id", "name", "mime_type", "size"}
 _GMAIL_SELECTOR_KEYS = {"account_ref", "label_id", "label_name"}
 _GMAIL_SELECTOR_REQUIRED_KEYS = {"account_ref", "label_id"}
 _SHA256_IDENTITY_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_WINDOWS_DRIVE_PATH_RE = re.compile(r"(?i)^[A-Z]:")
 
 
 def normalize_context_id(context_id: str) -> str:
@@ -196,6 +197,48 @@ def _require_string(
         raise ContextValidationError(
             "context string field is empty or too long",
             details={"field": field, "maximum_chars": maximum},
+        )
+    return normalized
+
+
+def _require_session_identifier(
+    value: object,
+    *,
+    field: str,
+) -> str:
+    normalized = _require_string(
+        value,
+        field=field,
+        maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
+    )
+    if any(
+        character in {"/", "\\"} or ord(character) < 32 or ord(character) == 127
+        for character in normalized
+    ) or normalized.casefold().startswith("file:") or _WINDOWS_DRIVE_PATH_RE.match(
+        normalized
+    ):
+        raise ContextValidationError(
+            "session source identifier contains a path separator or control character",
+            details={"field": field},
+        )
+    return normalized
+
+
+def _require_session_relative_path(value: object, *, field: str) -> str:
+    normalized = _require_string(value, field=field, maximum=2_000)
+    if (
+        normalized.startswith(("/", "\\"))
+        or normalized == "~"
+        or normalized.startswith(("~/", "~\\"))
+        or re.match(r"^~[^/\\]+[/\\]", normalized)
+        or normalized.casefold().startswith("file:")
+        or _WINDOWS_DRIVE_PATH_RE.match(normalized)
+        or "\x00" in normalized
+        or ".." in re.split(r"[/\\]", normalized)
+    ):
+        raise ContextValidationError(
+            "session source locator must be a safe relative path",
+            details={"field": field},
         )
     return normalized
 
@@ -425,15 +468,13 @@ class ContextService:
                 "session source provider metadata fields are invalid",
                 details={"required": sorted(_SESSION_PROVIDER_METADATA_KEYS)},
             )
-        session_id = _require_string(
+        session_id = _require_session_identifier(
             provider_metadata["session_id"],
             field="provider_metadata.session_id",
-            maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
         )
-        turn_id = _require_string(
+        turn_id = _require_session_identifier(
             provider_metadata["turn_id"],
             field="provider_metadata.turn_id",
-            maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
         )
         actor = _require_string(
             provider_metadata["actor"],
@@ -482,16 +523,22 @@ class ContextService:
                 details={"required": sorted(_SESSION_LOCATOR_KEYS)},
             )
         normalized_locator = {
-            field: _require_string(
-                locator[field],
-                field=f"locator.{field}",
-                maximum=(
-                    2_000
-                    if field == "relative_path"
-                    else CONTEXT_MAX_IDENTIFIER_CHARS
-                ),
-            )
-            for field in _SESSION_LOCATOR_KEYS
+            "root_ref": _require_session_identifier(
+                locator["root_ref"],
+                field="locator.root_ref",
+            ),
+            "relative_path": _require_session_relative_path(
+                locator["relative_path"],
+                field="locator.relative_path",
+            ),
+            "session_id": _require_session_identifier(
+                locator["session_id"],
+                field="locator.session_id",
+            ),
+            "turn_id": _require_session_identifier(
+                locator["turn_id"],
+                field="locator.turn_id",
+            ),
         }
         if (
             normalized_locator["session_id"] != session_id
@@ -510,15 +557,13 @@ class ContextService:
                 "session source freshness identity must be a sha256 digest"
             )
         record = {
-            "external_id": _require_string(
+            "external_id": _require_session_identifier(
                 value["external_id"],
                 field="external_id",
-                maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
             ),
-            "parent_external_id": _require_string(
+            "parent_external_id": _require_session_identifier(
                 value["parent_external_id"],
                 field="parent_external_id",
-                maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
             ),
             "occurred_at": _require_string(
                 value["occurred_at"],
@@ -534,6 +579,10 @@ class ContextService:
             "freshness_identity": freshness_identity,
             "metadata_observed": True,
         }
+        if record["parent_external_id"] != session_id:
+            raise ContextValidationError(
+                "session source parent id does not match provider metadata"
+            )
         canonical_freshness = {
             "external_id": record["external_id"],
             "parent_external_id": record["parent_external_id"],
@@ -783,10 +832,9 @@ class ContextService:
                 "linked source observation payload fields are invalid",
                 details={"required": ["complete", "records", "run_id"]},
             )
-        run_id = _require_string(
+        run_id = _require_session_identifier(
             payload["run_id"],
             field="run_id",
-            maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
         )
         complete = payload["complete"]
         if not isinstance(complete, bool):
@@ -857,14 +905,40 @@ class ContextService:
                         "removed_count": 0,
                         "idempotent_replay": True,
                     }
+                if run["superseded_at"] is not None:
+                    raise ContextConflictError(
+                        "linked source observation run is stale",
+                        details={"reason": "stale_observation_run"},
+                    )
+                if run["base_complete_run_id"] != binding["last_complete_run_id"]:
+                    raise ContextConflictError(
+                        "linked source observation run is stale",
+                        details={"reason": "stale_observation_run"},
+                    )
             else:
                 connection.execute(
                     """
-                    INSERT INTO external_source_runs(
-                        run_id, binding_id, status, started_at, completed_at
-                    ) VALUES (?, ?, 'incomplete', ?, NULL)
+                    UPDATE external_source_runs
+                    SET superseded_at = ?
+                    WHERE binding_id = ?
+                      AND status = 'incomplete'
+                      AND superseded_at IS NULL
                     """,
-                    (run_id, binding_id, now),
+                    (now, binding_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO external_source_runs(
+                        run_id, binding_id, base_complete_run_id,
+                        status, started_at, completed_at, superseded_at
+                    ) VALUES (?, ?, ?, 'incomplete', ?, NULL, NULL)
+                    """,
+                    (
+                        run_id,
+                        binding_id,
+                        binding["last_complete_run_id"],
+                        now,
+                    ),
                 )
             for record in records:
                 source_record_id = self._external_source_record_id(
@@ -954,14 +1028,28 @@ class ContextService:
                     """,
                     (now, run_id),
                 )
-                connection.execute(
+                updated_binding = connection.execute(
                     """
                     UPDATE corpus_source_bindings
                     SET last_complete_run_id = ?, last_complete_at = ?, updated_at = ?
                     WHERE binding_id = ?
+                      AND last_complete_run_id IS ?
                     """,
-                    (run_id, now, now, binding_id),
-                )
+                    (
+                        run_id,
+                        now,
+                        now,
+                        binding_id,
+                        run["base_complete_run_id"]
+                        if run is not None
+                        else binding["last_complete_run_id"],
+                    ),
+                ).rowcount
+                if updated_binding != 1:
+                    raise ContextConflictError(
+                        "linked source observation run is stale",
+                        details={"reason": "stale_observation_run"},
+                    )
                 status = "complete"
             observed_in_run = connection.execute(
                 """
@@ -993,10 +1081,9 @@ class ContextService:
                 "linked source refresh payload fields are invalid",
                 details={"required": ["run_id"]},
             )
-        run_id = _require_string(
+        run_id = _require_session_identifier(
             payload["run_id"],
             field="run_id",
-            maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
         )
         with context_read_connection(self.data_root) as connection:
             binding = connection.execute(
@@ -1018,6 +1105,15 @@ class ContextService:
                     "allowed": sorted(SESSION_SOURCE_PROVIDERS),
                 },
             )
+        self._observe_source_records(
+            corpus_id=corpus_id,
+            binding_id=binding_id,
+            payload={
+                "run_id": run_id,
+                "records": [],
+                "complete": False,
+            },
+        )
         discovery = discover_session_records(
             provider_kind,
             _json_dict(binding["selector_json"]),

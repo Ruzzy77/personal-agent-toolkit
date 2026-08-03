@@ -26,6 +26,7 @@ from .capture import (
     current_source_path_identity,
     discard_staged_capture,
     native_source_path,
+    observe_staging,
     source_identity_from_stat,
     validate_file_boundary,
 )
@@ -53,6 +54,7 @@ from .errors import (
     ConfigurationError,
     CorpusError,
     ExtractionError,
+    InvalidRequestError,
     SemanticCommitError,
     SnapshotConflictError,
     SourceBoundaryError,
@@ -1801,6 +1803,7 @@ class CorpusService:
             "partial_active_projections": partial_projections,
             "outdated_active_projections": outdated_projections,
         }
+        staging_observation = observe_staging(self._paths(corpus_id))
         response = {
             "corpus": corpus,
             "data_root": str(self.data_root),
@@ -1828,6 +1831,7 @@ class CorpusService:
                 "default": "ephemeral",
                 "persistent_source_bytes_required_for_search": False,
                 "intentional_absence_marker": "ephemeral:sha256:<digest>",
+                "staging_observation": staging_observation,
             },
         }
         if include_derived:
@@ -2117,7 +2121,6 @@ class CorpusService:
         include_remote: bool,
         max_file_bytes: int,
         remote_only: bool = False,
-        document_ids: list[str] | None = None,
     ) -> tuple[list[dict], dict]:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
@@ -2141,7 +2144,6 @@ class CorpusService:
                 """
             ).fetchall()
         pending: list[dict] = []
-        selected_ids = set(document_ids or [])
         skipped = {
             "current": 0,
             "remote": 0,
@@ -2151,9 +2153,6 @@ class CorpusService:
         }
         for row in rows:
             document = dict(row)
-            if selected_ids and document["document_id"] not in selected_ids:
-                skipped["not_selected"] += 1
-                continue
             document_index_state, _ = self._document_index_state(document)
             if document_index_state == "current":
                 skipped["current"] += 1
@@ -2169,6 +2168,119 @@ class CorpusService:
                 continue
             pending.append(document)
         return pending, skipped
+
+    @staticmethod
+    def _safe_selection_extension(document: dict) -> str | None:
+        extension = document.get("extension")
+        if not isinstance(extension, str):
+            return None
+        normalized = extension.strip().lower().removeprefix(".")
+        if not normalized:
+            return ""
+        if (
+            len(normalized) > CORPUS_INVENTORY_MAX_EXTENSION_CHARS
+            or not all(
+                character.isascii() and character.isalnum()
+                for character in normalized
+            )
+        ):
+            return None
+        return normalized
+
+    def _exact_document_candidates(
+        self,
+        corpus_id: str,
+        *,
+        document_ids: list[str],
+        include_remote: bool,
+        max_file_bytes: int,
+        remote_only: bool,
+    ) -> tuple[list[dict], dict[str, dict], dict]:
+        placeholders = ",".join("?" for _ in document_ids)
+        with corpus_read_connection(self.data_root, corpus_id) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT d.*, r.source_size AS revision_source_size,
+                       r.source_modified_ns AS revision_source_modified_ns,
+                       r.source_changed_ns AS revision_source_changed_ns,
+                       r.source_device AS revision_source_device,
+                       r.source_inode AS revision_source_inode,
+                       p.projection_id AS active_projection_id,
+                       p.adapter_id AS projection_adapter_id,
+                       p.adapter_version AS projection_adapter_version,
+                       p.config_hash AS projection_config_hash
+                FROM documents d
+                LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
+                LEFT JOIN extraction_projections p
+                  ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                WHERE d.document_id IN ({placeholders})
+                """,
+                document_ids,
+            ).fetchall()
+        documents = {row["document_id"]: dict(row) for row in rows}
+        candidates: list[dict] = []
+        outcomes: dict[str, dict] = {}
+        skipped = {
+            "current": 0,
+            "remote": 0,
+            "local": 0,
+            "too_large": 0,
+            "not_selected": 0,
+            "unknown": 0,
+            "deleted": 0,
+            "unsupported": 0,
+            "max_files_deferred": 0,
+            "max_bytes_deferred": 0,
+        }
+
+        def record_outcome(
+            document_id: str,
+            outcome: str,
+            document: dict | None = None,
+        ) -> None:
+            item: dict[str, object] = {
+                "document_id": document_id,
+                "outcome": outcome,
+            }
+            if document is not None:
+                extension = self._safe_selection_extension(document)
+                if extension is not None:
+                    item["extension"] = extension
+            outcomes[document_id] = item
+
+        for document_id in document_ids:
+            document = documents.get(document_id)
+            if document is None:
+                skipped["unknown"] += 1
+                record_outcome(document_id, "unknown")
+                continue
+            if document["deleted_at"] is not None:
+                skipped["deleted"] += 1
+                record_outcome(document_id, "deleted", document)
+                continue
+            if document["eligibility_state"] != "supported":
+                skipped["unsupported"] += 1
+                record_outcome(document_id, "unsupported", document)
+                continue
+            document_index_state, _ = self._document_index_state(document)
+            if document_index_state == "current":
+                skipped["current"] += 1
+                record_outcome(document_id, "current", document)
+                continue
+            if document["logical_size"] > max_file_bytes:
+                skipped["too_large"] += 1
+                record_outcome(document_id, "too_large", document)
+                continue
+            if remote_only and not document["is_dataless"]:
+                skipped["local"] += 1
+                record_outcome(document_id, "remote_disallowed", document)
+                continue
+            if document["is_dataless"] and not include_remote:
+                skipped["remote"] += 1
+                record_outcome(document_id, "remote_disallowed", document)
+                continue
+            candidates.append(document)
+        return candidates, outcomes, skipped
 
     def _pending_state_summary(
         self,
@@ -2234,24 +2346,55 @@ class CorpusService:
     ) -> dict:
         corpus_id = corpus["corpus_id"]
         abandoned_staging_cleanup = cleanup_abandoned_staging(paths)
-        pending, skipped = self._pending_documents(
-            corpus_id,
-            include_remote=include_remote,
-            max_file_bytes=max_file_bytes,
-            remote_only=remote_only,
-            document_ids=document_ids,
-        )
+        exact_selection = document_ids is not None
+        if document_ids is None:
+            pending, skipped = self._pending_documents(
+                corpus_id,
+                include_remote=include_remote,
+                max_file_bytes=max_file_bytes,
+                remote_only=remote_only,
+            )
+            outcome_by_id: dict[str, dict] = {}
+        else:
+            pending, outcome_by_id, skipped = self._exact_document_candidates(
+                corpus_id,
+                document_ids=document_ids,
+                include_remote=include_remote,
+                max_file_bytes=max_file_bytes,
+                remote_only=remote_only,
+            )
         selected: list[dict] = []
         selected_bytes = 0
         for document in pending:
             if len(selected) >= max_files:
+                if exact_selection:
+                    skipped["max_files_deferred"] += 1
+                    deferred = {
+                        "document_id": document["document_id"],
+                        "outcome": "max_files_deferred",
+                    }
+                    extension = self._safe_selection_extension(document)
+                    if extension is not None:
+                        deferred["extension"] = extension
+                    outcome_by_id[document["document_id"]] = deferred
+                    continue
                 break
             if selected_bytes + document["logical_size"] > max_bytes:
+                if exact_selection:
+                    skipped["max_bytes_deferred"] += 1
+                    deferred = {
+                        "document_id": document["document_id"],
+                        "outcome": "max_bytes_deferred",
+                    }
+                    extension = self._safe_selection_extension(document)
+                    if extension is not None:
+                        deferred["extension"] = extension
+                    outcome_by_id[document["document_id"]] = deferred
                 continue
             selected.append(document)
             selected_bytes += document["logical_size"]
 
-        results: list[dict] = []
+        attempted_results: list[dict] = []
         for document in selected:
             try:
                 result = self._ingest_document(
@@ -2270,11 +2413,28 @@ class CorpusService:
                     "message": str(exc),
                     "details": getattr(exc, "details", {}),
                 }
-            results.append(result)
+                cleanup_failure = getattr(exc, "source_copy_cleanup", None)
+                if isinstance(cleanup_failure, dict):
+                    result["source_copy_retention"] = "cleanup_failed"
+                    result["source_copy_cleanup"] = cleanup_failure
+            result["outcome"] = (
+                "refreshed"
+                if result["state"] in {"indexed", "already_indexed"}
+                else "selected"
+            )
+            attempted_results.append(result)
+            if exact_selection:
+                outcome_by_id[document["document_id"]] = result
+        results = (
+            [outcome_by_id[document_id] for document_id in document_ids]
+            if document_ids is not None
+            else attempted_results
+        )
         return {
             "policy": {
                 "include_remote": include_remote,
                 "remote_only": remote_only,
+                "selection_mode": "exact" if exact_selection else "automatic",
                 "document_ids": document_ids or [],
                 "max_files": max_files,
                 "max_bytes": max_bytes,
@@ -2289,12 +2449,16 @@ class CorpusService:
             "results": results,
             "summary": {
                 **{
-                    state: sum(1 for result in results if result["state"] == state)
+                    state: sum(
+                        1
+                        for result in attempted_results
+                        if result["state"] == state
+                    )
                     for state in ("indexed", "already_indexed", "failed")
                 },
                 "source_copy_cleanup_failed": sum(
                     1
-                    for result in results
+                    for result in attempted_results
                     if result.get("source_copy_cleanup", {}).get("state") == "failed"
                 ),
             },
@@ -2320,9 +2484,19 @@ class CorpusService:
             max_file_bytes=max_file_bytes,
             timeout_seconds=timeout_seconds,
         )
+        if document_ids is not None and not document_ids:
+            raise InvalidRequestError(
+                "explicit ingest document selection must not be empty",
+                details={"minimum_document_ids": 1},
+            )
         if document_ids is not None and (
             len(document_ids) > _MAX_INGEST_DOCUMENT_IDS
-            or any(not document_id or len(document_id) > 200 for document_id in document_ids)
+            or any(
+                not isinstance(document_id, str)
+                or not document_id
+                or len(document_id) > 200
+                for document_id in document_ids
+            )
         ):
             raise BudgetExceededError(
                 "ingest document selection exceeds the supported request bounds",
@@ -2331,6 +2505,11 @@ class CorpusService:
                     "max_document_ids": _MAX_INGEST_DOCUMENT_IDS,
                     "max_document_id_chars": 200,
                 },
+            )
+        if document_ids is not None and len(set(document_ids)) != len(document_ids):
+            raise InvalidRequestError(
+                "ingest document ids must be unique",
+                details={"reason": "duplicate_document_ids"},
             )
         if remote_only and not include_remote:
             raise BudgetExceededError(
@@ -2617,6 +2796,10 @@ class CorpusService:
                           'source_root_changed_during_scan',
                           'directory_scan_failed',
                           'directory_changed_during_scan',
+                          'directory_open_failed',
+                          'scan_resource_exhausted',
+                          'scan_permission_denied',
+                          'source_root_revalidation_failed',
                           'stat_failed'
                       )
                     ORDER BY rowid
@@ -2916,6 +3099,7 @@ class CorpusService:
             ) from exc
 
         result: dict | None = None
+        primary_error: BaseException | None = None
         try:
             revision_id = _revision_id(document["document_id"], captured.sha256)
             capture_ref = _ephemeral_capture_ref(captured.sha256)
@@ -3003,19 +3187,26 @@ class CorpusService:
                 "extraction_issues": committed["extraction_issues"],
             }
             return result
+        except BaseException as exc:
+            primary_error = exc
+            raise
         finally:
             try:
                 discard_staged_capture(paths, captured)
             except Exception as exc:
-                if result is None:
-                    raise
-                result["source_copy_retention"] = "cleanup_failed"
-                result["source_copy_cleanup"] = {
+                cleanup_failure = {
                     "state": "failed",
                     "error_code": getattr(exc, "code", "unexpected_error"),
                     "message": str(exc),
                     "details": getattr(exc, "details", {}),
                 }
+                if result is not None:
+                    result["source_copy_retention"] = "cleanup_failed"
+                    result["source_copy_cleanup"] = cleanup_failure
+                elif primary_error is not None:
+                    primary_error.source_copy_cleanup = cleanup_failure
+                else:
+                    raise
 
     def _set_document_current(
         self,

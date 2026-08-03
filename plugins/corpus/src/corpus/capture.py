@@ -9,6 +9,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import time
 import uuid
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass
@@ -725,6 +726,55 @@ def cleanup_abandoned_staging(paths: RuntimePaths) -> dict:
     return {
         "files_removed": staged_files,
         "bytes_removed": staged_bytes,
+        "unexpected_entries_skipped": unexpected,
+    }
+
+
+def observe_staging(paths: RuntimePaths) -> dict:
+    """Report a neutral point-in-time view of canonical staging files."""
+
+    staged_files = 0
+    staged_bytes = 0
+    oldest_modified_ns: int | None = None
+    unexpected = 0
+    observed_at_ns = time.time_ns()
+    with paths.open_corpus_directory("staging") as staging_descriptor:
+        for name in os.listdir(staging_descriptor):
+            if not CAPTURE_NAME_RE.fullmatch(name):
+                unexpected += 1
+                continue
+            candidate = paths.staging / name
+            try:
+                descriptor, _ = open_private_file_at(
+                    staging_descriptor,
+                    name,
+                    path=candidate,
+                )
+            except ConfigurationError as exc:
+                # A writer may finish and delete its capture after listdir().
+                if exc.details.get("reason") == "missing":
+                    continue
+                raise
+            try:
+                metadata = os.fstat(descriptor)
+                staged_bytes += metadata.st_size
+                oldest_modified_ns = (
+                    metadata.st_mtime_ns
+                    if oldest_modified_ns is None
+                    else min(oldest_modified_ns, metadata.st_mtime_ns)
+                )
+            finally:
+                os.close(descriptor)
+            staged_files += 1
+    return {
+        "staging_files": staged_files,
+        "staging_bytes": staged_bytes,
+        "oldest_age_seconds": (
+            max(0.0, (observed_at_ns - oldest_modified_ns) / 1_000_000_000)
+            if oldest_modified_ns is not None
+            else None
+        ),
+        "classification": "active_or_abandoned_not_determined",
         "unexpected_entries_skipped": unexpected,
     }
 

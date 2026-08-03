@@ -209,7 +209,7 @@ def _require_current_context_schema(path: Path) -> None:
         "current_version": max(user_version, schema_version),
         "target_version": CONTEXT_SCHEMA_VERSION,
     }
-    if user_version in {1, 2, 3} and schema_version == user_version:
+    if user_version in {1, 2, 3, 4} and schema_version == user_version:
         details["command"] = "corpus context migrate"
         raise MigrationRequiredError(
             "context database migration is required",
@@ -275,7 +275,7 @@ def migrate_context_database(data_root: Path) -> dict:
                 "migrated": False,
             }
         if (
-            user_version not in {1, 2, 3}
+            user_version not in {1, 2, 3, 4}
             or schema_version != user_version
         ):
             raise UnsupportedSchemaError(
@@ -371,11 +371,15 @@ def migrate_context_database(data_root: Path) -> dict:
                 CREATE TABLE IF NOT EXISTS external_source_runs (
                     run_id TEXT PRIMARY KEY,
                     binding_id TEXT NOT NULL,
+                    base_complete_run_id TEXT,
                     status TEXT NOT NULL CHECK (status IN ('incomplete', 'complete')),
                     started_at TEXT NOT NULL,
                     completed_at TEXT,
+                    superseded_at TEXT,
                     FOREIGN KEY(binding_id)
-                        REFERENCES corpus_source_bindings(binding_id) ON DELETE CASCADE
+                        REFERENCES corpus_source_bindings(binding_id) ON DELETE CASCADE,
+                    FOREIGN KEY(base_complete_run_id)
+                        REFERENCES external_source_runs(run_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_external_source_runs_binding
                     ON external_source_runs(binding_id, started_at);
@@ -460,6 +464,68 @@ def migrate_context_database(data_root: Path) -> dict:
                     ADD COLUMN freshness_identity TEXT
                     """
                 )
+            run_columns = {
+                column["name"]
+                for column in connection.execute(
+                    "PRAGMA table_info(external_source_runs)"
+                ).fetchall()
+            }
+            if "base_complete_run_id" not in run_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE external_source_runs
+                    ADD COLUMN base_complete_run_id TEXT
+                        REFERENCES external_source_runs(run_id)
+                    """
+                )
+            if "superseded_at" not in run_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE external_source_runs
+                    ADD COLUMN superseded_at TEXT
+                    """
+                )
+            connection.execute(
+                """
+                UPDATE external_source_runs AS current_run
+                SET base_complete_run_id = (
+                    SELECT previous_run.run_id
+                    FROM external_source_runs AS previous_run
+                    WHERE previous_run.binding_id = current_run.binding_id
+                      AND previous_run.run_id != current_run.run_id
+                      AND previous_run.status = 'complete'
+                      AND previous_run.completed_at IS NOT NULL
+                      AND previous_run.completed_at <= current_run.started_at
+                    ORDER BY previous_run.completed_at DESC, previous_run.run_id DESC
+                    LIMIT 1
+                )
+                WHERE current_run.base_complete_run_id IS NULL
+                """
+            )
+            migration_time = utc_now()
+            connection.execute(
+                """
+                UPDATE external_source_runs AS older_run
+                SET superseded_at = ?
+                WHERE older_run.status = 'incomplete'
+                  AND older_run.superseded_at IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM external_source_runs AS newer_run
+                      WHERE newer_run.binding_id = older_run.binding_id
+                        AND newer_run.status = 'incomplete'
+                        AND newer_run.superseded_at IS NULL
+                        AND (
+                            newer_run.started_at > older_run.started_at
+                            OR (
+                                newer_run.started_at = older_run.started_at
+                                AND newer_run.run_id > older_run.run_id
+                            )
+                        )
+                  )
+                """,
+                (migration_time,),
+            )
             connection.execute(
                 "UPDATE schema_info SET version = ?",
                 (CONTEXT_SCHEMA_VERSION,),

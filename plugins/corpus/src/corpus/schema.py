@@ -3,7 +3,7 @@
 CATALOG_SCHEMA_VERSION = 1
 CORPUS_SCHEMA_VERSION = 4
 EXTRACTION_SCHEMA_VERSION = 4
-CONTEXT_SCHEMA_VERSION = 4
+CONTEXT_SCHEMA_VERSION = 5
 
 PROVENANCE_GUARD_SCHEMA = """
 CREATE TRIGGER IF NOT EXISTS guard_documents_current_revision_insert
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 4
+SELECT 5
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS contexts (
@@ -179,11 +179,15 @@ CREATE INDEX IF NOT EXISTS idx_corpus_source_bindings_corpus
 CREATE TABLE IF NOT EXISTS external_source_runs (
     run_id TEXT PRIMARY KEY,
     binding_id TEXT NOT NULL,
+    base_complete_run_id TEXT,
     status TEXT NOT NULL CHECK (status IN ('incomplete', 'complete')),
     started_at TEXT NOT NULL,
     completed_at TEXT,
+    superseded_at TEXT,
     FOREIGN KEY(binding_id)
-        REFERENCES corpus_source_bindings(binding_id) ON DELETE CASCADE
+        REFERENCES corpus_source_bindings(binding_id) ON DELETE CASCADE,
+    FOREIGN KEY(base_complete_run_id)
+        REFERENCES external_source_runs(run_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_external_source_runs_binding

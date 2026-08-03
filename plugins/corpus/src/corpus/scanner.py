@@ -6,6 +6,7 @@ parsers, call Spotlight/Quick Look, or follow symbolic links.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import stat
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .database import corpus_connection, encode_json, get_corpus, utc_now
-from .errors import CorpusError
+from .errors import CorpusError, SourceChangedError
 from .formats import classify
 from .source_access import (
     open_directory_at,
@@ -137,6 +138,88 @@ def _entry_stat(directory_descriptor: int, name: str) -> os.stat_result:
     return os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
 
 
+_SCAN_RESOURCE_ERRNOS = {errno.EMFILE, errno.ENFILE}
+_SCAN_PERMISSION_ERRNOS = {errno.EACCES, errno.EPERM}
+_SCAN_DIRECTORY_CHANGE_ERRNOS = {
+    errno.ENOENT,
+    errno.ENOTDIR,
+    errno.ELOOP,
+    *({errno.ESTALE} if hasattr(errno, "ESTALE") else set()),
+}
+
+
+def _scan_error_errno(error: BaseException) -> int | None:
+    """Recover a filesystem errno through the domain-error wrapper."""
+
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, OSError) and current.errno is not None:
+            return current.errno
+        current = current.__cause__
+    if isinstance(error, CorpusError):
+        reason = error.details.get("reason")
+        if isinstance(reason, str) and any(
+            reason.startswith(prefix)
+            for prefix in ("open_failed:", "stat_failed:")
+        ):
+            try:
+                return int(reason.rsplit(":", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _scan_resource_errno(error: BaseException) -> int | None:
+    candidate = _scan_error_errno(error)
+    return candidate if candidate in _SCAN_RESOURCE_ERRNOS else None
+
+
+def _scan_permission_errno(error: BaseException) -> int | None:
+    candidate = _scan_error_errno(error)
+    return candidate if candidate in _SCAN_PERMISSION_ERRNOS else None
+
+
+def _is_directory_change(error: BaseException) -> bool:
+    if isinstance(error, SourceChangedError):
+        return True
+    candidate = _scan_error_errno(error)
+    if candidate in _SCAN_DIRECTORY_CHANGE_ERRNOS:
+        return True
+    return isinstance(error, CorpusError) and error.details.get("reason") in {
+        "not_directory",
+    }
+
+
+def _open_queued_directory(
+    root_descriptor: int,
+    directory_parts: tuple[str, ...],
+    expected_chain: tuple[os.stat_result, ...],
+) -> int:
+    """Reopen one queued directory while rechecking every observed path identity."""
+
+    if len(directory_parts) != len(expected_chain):
+        raise AssertionError("queued directory identity chain is incomplete")
+    descriptor = os.dup(root_descriptor)
+    try:
+        for index, (component, expected) in enumerate(
+            zip(directory_parts, expected_chain, strict=True),
+            start=1,
+        ):
+            relative_path = "/".join(directory_parts[:index])
+            child_descriptor = open_directory_at(
+                descriptor,
+                component,
+                relative_path=relative_path,
+                expected=expected,
+            )
+            os.close(descriptor)
+            descriptor = child_descriptor
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def _record_scan_issue(
     connection,
     *,
@@ -174,6 +257,148 @@ def _record_scan_issue(
     )
 
 
+def _record_regular_file(
+    connection,
+    *,
+    summary: ScanSummary,
+    inventory_changes: dict[str, set[str]],
+    corpus_id: str,
+    scan_id: str,
+    entry_name: str,
+    entry_stat: os.stat_result,
+    relative_path: str,
+    entry_path: Path,
+) -> None:
+    relative_path_nfc = unicodedata.normalize("NFC", relative_path)
+    extension, media_type, adapter, eligibility = classify(entry_name)
+    flags = int(getattr(entry_stat, "st_flags", 0))
+    is_dataless = bool(flags & SF_DATALESS)
+    residency_state = "remote_only" if is_dataless else "resident"
+    allocated_size = int(getattr(entry_stat, "st_blocks", 0) * 512)
+    document_id = stable_document_id(corpus_id, relative_path_nfc)
+    now = utc_now()
+
+    previous = connection.execute(
+        """
+        SELECT logical_size, modified_ns, changed_ns, device, inode,
+               current_revision_id, deleted_at, residency_state,
+               eligibility_state
+        FROM documents WHERE document_id = ?
+        """,
+        (document_id,),
+    ).fetchone()
+    metadata_changed = bool(
+        previous
+        and (
+            previous["logical_size"] != entry_stat.st_size
+            or previous["modified_ns"] != entry_stat.st_mtime_ns
+            or previous["changed_ns"] != entry_stat.st_ctime_ns
+            or previous["device"] != entry_stat.st_dev
+            or previous["inode"] != entry_stat.st_ino
+        )
+    )
+    change_types = inventory_changes.setdefault(document_id, set())
+    if previous is None:
+        change_types.add("added")
+    else:
+        if previous["deleted_at"] is not None:
+            change_types.add("reappeared")
+        if metadata_changed:
+            change_types.add("metadata_changed")
+        if previous["residency_state"] != residency_state:
+            change_types.add("residency_changed")
+        if previous["eligibility_state"] != eligibility:
+            change_types.add("eligibility_changed")
+    if not change_types:
+        inventory_changes.pop(document_id)
+    if metadata_changed and previous["current_revision_id"]:
+        connection.execute(
+            """
+            UPDATE interpretation_queue
+            SET state = 'stale', reason = 'source_metadata_changed', updated_at = ?
+            WHERE revision_id = ? AND state != 'stale'
+            """,
+            (now, previous["current_revision_id"]),
+        )
+        connection.execute(
+            """
+            UPDATE atomic_claims
+            SET dependency_state = 'stale'
+            WHERE claim_id IN (
+                SELECT claim_id FROM evidence_links
+                WHERE source_revision_id = ?
+            )
+              AND dependency_state = 'valid'
+            """,
+            (previous["current_revision_id"],),
+        )
+
+    connection.execute(
+        """
+        INSERT INTO documents(
+            document_id, relative_path, relative_path_nfc, absolute_path,
+            extension, media_type, adapter, logical_size, allocated_size,
+            modified_ns, changed_ns, device, inode, mode, flags, is_dataless,
+            residency_state, eligibility_state, last_seen_scan_id,
+            first_seen_at, last_seen_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        ON CONFLICT(document_id) DO UPDATE SET
+            relative_path = excluded.relative_path,
+            relative_path_nfc = excluded.relative_path_nfc,
+            absolute_path = excluded.absolute_path,
+            extension = excluded.extension,
+            media_type = excluded.media_type,
+            adapter = excluded.adapter,
+            logical_size = excluded.logical_size,
+            allocated_size = excluded.allocated_size,
+            modified_ns = excluded.modified_ns,
+            changed_ns = excluded.changed_ns,
+            device = excluded.device,
+            inode = excluded.inode,
+            mode = excluded.mode,
+            flags = excluded.flags,
+            is_dataless = excluded.is_dataless,
+            residency_state = excluded.residency_state,
+            eligibility_state = excluded.eligibility_state,
+            last_seen_scan_id = excluded.last_seen_scan_id,
+            last_seen_at = excluded.last_seen_at,
+            deleted_at = NULL
+        """,
+        (
+            document_id,
+            relative_path,
+            relative_path_nfc,
+            str(entry_path),
+            extension,
+            media_type,
+            adapter,
+            entry_stat.st_size,
+            allocated_size,
+            entry_stat.st_mtime_ns,
+            entry_stat.st_ctime_ns,
+            entry_stat.st_dev,
+            entry_stat.st_ino,
+            entry_stat.st_mode,
+            flags,
+            int(is_dataless),
+            residency_state,
+            eligibility,
+            scan_id,
+            now,
+            now,
+        ),
+    )
+
+    summary.files += 1
+    summary.logical_bytes += entry_stat.st_size
+    summary.allocated_bytes += allocated_size
+    summary.counts_by_extension[extension or "(none)"] += 1
+    summary.eligibility_counts[eligibility] += 1
+    if is_dataless:
+        summary.dataless_files += 1
+        summary.dataless_by_extension[extension or "(none)"] += 1
+
+
 def scan_corpus(data_root: Path, corpus_id: str) -> dict:
     corpus = get_corpus(data_root, corpus_id)
     source_root = Path(corpus["source_root"])
@@ -202,263 +427,275 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
 
         try:
             root_descriptor = open_source_root(source_root)
-        except CorpusError as exc:
+        except (OSError, CorpusError) as exc:
             summary.stat_failures += 1
+            resource_errno = _scan_resource_errno(exc)
+            permission_errno = _scan_permission_errno(exc)
             _record_scan_issue(
                 connection,
                 scan_id=scan_id,
-                code="source_root_open_failed",
-                message="Could not securely open the registered source root.",
-                details={"error": str(exc)},
+                code=(
+                    "scan_resource_exhausted"
+                    if resource_errno is not None
+                    else (
+                        "scan_permission_denied"
+                        if permission_errno is not None
+                        else "source_root_open_failed"
+                    )
+                ),
+                message=(
+                    "The scan ran out of process file descriptors."
+                    if resource_errno is not None
+                    else (
+                        "Permission was denied while opening the registered source root."
+                        if permission_errno is not None
+                        else "Could not securely open the registered source root."
+                    )
+                ),
+                details={
+                    "error": str(exc),
+                    **(
+                        {"resource_errno": resource_errno}
+                        if resource_errno is not None
+                        else (
+                            {"permission_errno": permission_errno}
+                            if permission_errno is not None
+                            else {}
+                        )
+                    ),
+                },
                 structural_locator=_scan_issue_locator_from_relative("."),
             )
-            stack: list[tuple[_OwnedDescriptor, tuple[str, ...]]] = []
+            stack: list[
+                tuple[tuple[str, ...], tuple[os.stat_result, ...]]
+            ] = []
         else:
             initial_source_root_identity = source_root_identity(root_descriptor)
             root_owner = open_directories.enter_context(
                 _OwnedDescriptor(root_descriptor)
             )
-            stack = [(root_owner, ())]
+            stack = [((), ())]
 
         while stack:
-            directory_owner, directory_parts = stack.pop()
-            directory_descriptor = directory_owner.descriptor
+            directory_parts, expected_chain = stack.pop()
             directory_relative = "/".join(directory_parts) or "."
             directory_path = source_root.joinpath(*directory_parts)
-            summary.directories += 1
             try:
-                with os.scandir(directory_descriptor) as iterator:
-                    entries = list(iterator)
-            except OSError as exc:
+                directory_descriptor = _open_queued_directory(
+                    root_owner.descriptor,
+                    directory_parts,
+                    expected_chain,
+                )
+            except (OSError, CorpusError) as exc:
                 summary.stat_failures += 1
+                resource_errno = _scan_resource_errno(exc)
+                permission_errno = _scan_permission_errno(exc)
+                directory_changed = _is_directory_change(exc)
                 _record_scan_issue(
                     connection,
                     scan_id=scan_id,
-                    code="directory_scan_failed",
-                    message="Could not enumerate a directory.",
-                    details={"path": str(directory_path), "error": str(exc)},
+                    code=(
+                        "scan_resource_exhausted"
+                        if resource_errno is not None
+                        else (
+                            "scan_permission_denied"
+                            if permission_errno is not None
+                            else (
+                                "directory_changed_during_scan"
+                                if directory_changed
+                                else "directory_open_failed"
+                            )
+                        )
+                    ),
+                    message=(
+                        "The scan ran out of process file descriptors."
+                        if resource_errno is not None
+                        else (
+                            "Permission was denied while reopening a source directory."
+                            if permission_errno is not None
+                            else (
+                                "A source directory changed before it could be scanned."
+                                if directory_changed
+                                else "A source directory could not be reopened securely."
+                            )
+                        )
+                    ),
+                    details={
+                        "path": str(directory_path),
+                        "error": str(exc),
+                        **(
+                            {"resource_errno": resource_errno}
+                            if resource_errno is not None
+                            else (
+                                {"permission_errno": permission_errno}
+                                if permission_errno is not None
+                                else {}
+                            )
+                        ),
+                    },
                     structural_locator=_scan_issue_locator_from_relative(
                         directory_relative
                     ),
                 )
-                directory_owner.close()
                 continue
 
-            for entry in entries:
-                entry_parts = (*directory_parts, entry.name)
-                relative_path = "/".join(entry_parts)
-                entry_path = source_root.joinpath(*entry_parts)
+            summary.directories += 1
+            with _OwnedDescriptor(directory_descriptor):
                 try:
-                    entry_stat = _entry_stat(directory_descriptor, entry.name)
+                    with os.scandir(directory_descriptor) as iterator:
+                        entries = list(iterator)
                 except OSError as exc:
                     summary.stat_failures += 1
+                    resource_errno = _scan_resource_errno(exc)
+                    permission_errno = _scan_permission_errno(exc)
                     _record_scan_issue(
                         connection,
                         scan_id=scan_id,
-                        code="stat_failed",
-                        message="Could not read filesystem metadata.",
-                        details={"path": str(entry_path), "error": str(exc)},
+                        code=(
+                            "scan_resource_exhausted"
+                            if resource_errno is not None
+                            else (
+                                "scan_permission_denied"
+                                if permission_errno is not None
+                                else "directory_scan_failed"
+                            )
+                        ),
+                        message=(
+                            "The scan ran out of process file descriptors."
+                            if resource_errno is not None
+                            else (
+                                "Permission was denied while enumerating a directory."
+                                if permission_errno is not None
+                                else "Could not enumerate a directory."
+                            )
+                        ),
+                        details={
+                            "path": str(directory_path),
+                            "error": str(exc),
+                            **(
+                                {"resource_errno": resource_errno}
+                                if resource_errno is not None
+                                else (
+                                    {"permission_errno": permission_errno}
+                                    if permission_errno is not None
+                                    else {}
+                                )
+                            ),
+                        },
                         structural_locator=_scan_issue_locator_from_relative(
-                            relative_path
+                            directory_relative
                         ),
                     )
                     continue
 
-                if stat.S_ISLNK(entry_stat.st_mode):
-                    summary.symlinks_skipped += 1
-                    _record_scan_issue(
-                        connection,
-                        scan_id=scan_id,
-                        code="symlink_skipped",
-                        message="Symbolic links are not followed.",
-                        details={"path": str(entry_path)},
-                        structural_locator=_scan_issue_locator_from_relative(
-                            relative_path
-                        ),
-                    )
-                    continue
-                if stat.S_ISDIR(entry_stat.st_mode):
-                    relative_path_nfc = unicodedata.normalize("NFC", relative_path)
-                    entry_name_nfc = unicodedata.normalize("NFC", entry.name)
-                    excluded_by_prefix = any(
-                        relative_path_nfc == prefix
-                        or relative_path_nfc.startswith(f"{prefix}/")
-                        for prefix in excluded_path_prefixes
-                    )
-                    if (
-                        entry_name_nfc in excluded_directory_names
-                        or excluded_by_prefix
-                    ):
-                        summary.excluded_directories += 1
-                        continue
+                for entry in entries:
+                    entry_parts = (*directory_parts, entry.name)
+                    relative_path = "/".join(entry_parts)
+                    entry_path = source_root.joinpath(*entry_parts)
                     try:
-                        child_descriptor = open_directory_at(
-                            directory_descriptor,
-                            entry.name,
-                            relative_path=relative_path,
-                            expected=entry_stat,
-                        )
-                    except CorpusError as exc:
+                        entry_stat = _entry_stat(directory_descriptor, entry.name)
+                    except OSError as exc:
                         summary.stat_failures += 1
+                        resource_errno = _scan_resource_errno(exc)
+                        permission_errno = _scan_permission_errno(exc)
                         _record_scan_issue(
                             connection,
                             scan_id=scan_id,
-                            code="directory_changed_during_scan",
-                            message="A source directory changed while it was being opened.",
-                            details={"path": str(entry_path), "error": str(exc)},
+                            code=(
+                                "scan_resource_exhausted"
+                                if resource_errno is not None
+                                else (
+                                    "scan_permission_denied"
+                                    if permission_errno is not None
+                                    else "stat_failed"
+                                )
+                            ),
+                            message=(
+                                "The scan ran out of process file descriptors."
+                                if resource_errno is not None
+                                else (
+                                    "Permission was denied while reading filesystem metadata."
+                                    if permission_errno is not None
+                                    else "Could not read filesystem metadata."
+                                )
+                            ),
+                            details={
+                                "path": str(entry_path),
+                                "error": str(exc),
+                                **(
+                                    {"resource_errno": resource_errno}
+                                    if resource_errno is not None
+                                    else (
+                                        {"permission_errno": permission_errno}
+                                        if permission_errno is not None
+                                        else {}
+                                    )
+                                ),
+                            },
                             structural_locator=_scan_issue_locator_from_relative(
                                 relative_path
                             ),
                         )
                         continue
-                    child_owner = open_directories.enter_context(
-                        _OwnedDescriptor(child_descriptor)
-                    )
-                    stack.append((child_owner, entry_parts))
-                    continue
-                if not stat.S_ISREG(entry_stat.st_mode):
-                    summary.special_files_skipped += 1
-                    _record_scan_issue(
-                        connection,
-                        scan_id=scan_id,
-                        code="special_file_skipped",
-                        message="Only regular files are indexed.",
-                        details={"path": str(entry_path), "mode": entry_stat.st_mode},
-                        structural_locator=_scan_issue_locator_from_relative(
-                            relative_path
-                        ),
-                    )
-                    continue
 
-                relative_path_nfc = unicodedata.normalize("NFC", relative_path)
-                extension, media_type, adapter, eligibility = classify(entry.name)
-                flags = int(getattr(entry_stat, "st_flags", 0))
-                is_dataless = bool(flags & SF_DATALESS)
-                residency_state = "remote_only" if is_dataless else "resident"
-                allocated_size = int(getattr(entry_stat, "st_blocks", 0) * 512)
-                document_id = stable_document_id(corpus_id, relative_path_nfc)
-                now = utc_now()
-
-                previous = connection.execute(
-                    """
-                    SELECT logical_size, modified_ns, changed_ns, device, inode,
-                           current_revision_id, deleted_at, residency_state,
-                           eligibility_state
-                    FROM documents WHERE document_id = ?
-                    """,
-                    (document_id,),
-                ).fetchone()
-                metadata_changed = bool(
-                    previous
-                    and (
-                        previous["logical_size"] != entry_stat.st_size
-                        or previous["modified_ns"] != entry_stat.st_mtime_ns
-                        or previous["changed_ns"] != entry_stat.st_ctime_ns
-                        or previous["device"] != entry_stat.st_dev
-                        or previous["inode"] != entry_stat.st_ino
-                    )
-                )
-                change_types = inventory_changes.setdefault(document_id, set())
-                if previous is None:
-                    change_types.add("added")
-                else:
-                    if previous["deleted_at"] is not None:
-                        change_types.add("reappeared")
-                    if metadata_changed:
-                        change_types.add("metadata_changed")
-                    if previous["residency_state"] != residency_state:
-                        change_types.add("residency_changed")
-                    if previous["eligibility_state"] != eligibility:
-                        change_types.add("eligibility_changed")
-                if not change_types:
-                    inventory_changes.pop(document_id)
-                if metadata_changed and previous["current_revision_id"]:
-                    connection.execute(
-                        """
-                        UPDATE interpretation_queue
-                        SET state = 'stale', reason = 'source_metadata_changed', updated_at = ?
-                        WHERE revision_id = ? AND state != 'stale'
-                        """,
-                        (now, previous["current_revision_id"]),
-                    )
-                    connection.execute(
-                        """
-                        UPDATE atomic_claims
-                        SET dependency_state = 'stale'
-                        WHERE claim_id IN (
-                            SELECT claim_id FROM evidence_links
-                            WHERE source_revision_id = ?
+                    if stat.S_ISLNK(entry_stat.st_mode):
+                        summary.symlinks_skipped += 1
+                        _record_scan_issue(
+                            connection,
+                            scan_id=scan_id,
+                            code="symlink_skipped",
+                            message="Symbolic links are not followed.",
+                            details={"path": str(entry_path)},
+                            structural_locator=_scan_issue_locator_from_relative(
+                                relative_path
+                            ),
                         )
-                          AND dependency_state = 'valid'
-                        """,
-                        (previous["current_revision_id"],),
+                        continue
+                    if stat.S_ISDIR(entry_stat.st_mode):
+                        relative_path_nfc = unicodedata.normalize("NFC", relative_path)
+                        entry_name_nfc = unicodedata.normalize("NFC", entry.name)
+                        excluded_by_prefix = any(
+                            relative_path_nfc == prefix
+                            or relative_path_nfc.startswith(f"{prefix}/")
+                            for prefix in excluded_path_prefixes
+                        )
+                        if (
+                            entry_name_nfc in excluded_directory_names
+                            or excluded_by_prefix
+                        ):
+                            summary.excluded_directories += 1
+                            continue
+                        # Keep identities, not open descriptors, in the width-first
+                        # work queue. Reopening at pop time validates every ancestor.
+                        stack.append(
+                            (entry_parts, (*expected_chain, entry_stat))
+                        )
+                        continue
+                    if not stat.S_ISREG(entry_stat.st_mode):
+                        summary.special_files_skipped += 1
+                        _record_scan_issue(
+                            connection,
+                            scan_id=scan_id,
+                            code="special_file_skipped",
+                            message="Only regular files are indexed.",
+                            details={"path": str(entry_path), "mode": entry_stat.st_mode},
+                            structural_locator=_scan_issue_locator_from_relative(
+                                relative_path
+                            ),
+                        )
+                        continue
+
+                    _record_regular_file(
+                        connection,
+                        summary=summary,
+                        inventory_changes=inventory_changes,
+                        corpus_id=corpus_id,
+                        scan_id=scan_id,
+                        entry_name=entry.name,
+                        entry_stat=entry_stat,
+                        relative_path=relative_path,
+                        entry_path=entry_path,
                     )
-
-                connection.execute(
-                    """
-                    INSERT INTO documents(
-                        document_id, relative_path, relative_path_nfc, absolute_path,
-                        extension, media_type, adapter, logical_size, allocated_size,
-                        modified_ns, changed_ns, device, inode, mode, flags, is_dataless,
-                        residency_state, eligibility_state, last_seen_scan_id,
-                        first_seen_at, last_seen_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                    ON CONFLICT(document_id) DO UPDATE SET
-                        relative_path = excluded.relative_path,
-                        relative_path_nfc = excluded.relative_path_nfc,
-                        absolute_path = excluded.absolute_path,
-                        extension = excluded.extension,
-                        media_type = excluded.media_type,
-                        adapter = excluded.adapter,
-                        logical_size = excluded.logical_size,
-                        allocated_size = excluded.allocated_size,
-                        modified_ns = excluded.modified_ns,
-                        changed_ns = excluded.changed_ns,
-                        device = excluded.device,
-                        inode = excluded.inode,
-                        mode = excluded.mode,
-                        flags = excluded.flags,
-                        is_dataless = excluded.is_dataless,
-                        residency_state = excluded.residency_state,
-                        eligibility_state = excluded.eligibility_state,
-                        last_seen_scan_id = excluded.last_seen_scan_id,
-                        last_seen_at = excluded.last_seen_at,
-                        deleted_at = NULL
-                    """,
-                    (
-                        document_id,
-                        relative_path,
-                        relative_path_nfc,
-                        str(entry_path),
-                        extension,
-                        media_type,
-                        adapter,
-                        entry_stat.st_size,
-                        allocated_size,
-                        entry_stat.st_mtime_ns,
-                        entry_stat.st_ctime_ns,
-                        entry_stat.st_dev,
-                        entry_stat.st_ino,
-                        entry_stat.st_mode,
-                        flags,
-                        int(is_dataless),
-                        residency_state,
-                        eligibility,
-                        scan_id,
-                        now,
-                        now,
-                    ),
-                )
-
-                summary.files += 1
-                summary.logical_bytes += entry_stat.st_size
-                summary.allocated_bytes += allocated_size
-                summary.counts_by_extension[extension or "(none)"] += 1
-                summary.eligibility_counts[eligibility] += 1
-                if is_dataless:
-                    summary.dataless_files += 1
-                    summary.dataless_by_extension[extension or "(none)"] += 1
-            directory_owner.close()
 
         source_root_error: OSError | CorpusError | None = None
         if initial_source_root_identity is not None:
@@ -476,14 +713,50 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
             connection.execute("RELEASE scan_inventory")
             inventory_changes.clear()
             summary.stat_failures += 1
+            resource_errno = _scan_resource_errno(source_root_error)
+            permission_errno = _scan_permission_errno(source_root_error)
+            source_root_changed = _is_directory_change(source_root_error)
             _record_scan_issue(
                 connection,
                 scan_id=scan_id,
-                code="source_root_changed_during_scan",
-                message="The registered source root changed during the scan.",
+                code=(
+                    "scan_resource_exhausted"
+                    if resource_errno is not None
+                    else (
+                        "scan_permission_denied"
+                        if permission_errno is not None
+                        else (
+                            "source_root_changed_during_scan"
+                            if source_root_changed
+                            else "source_root_revalidation_failed"
+                        )
+                    )
+                ),
+                message=(
+                    "The scan ran out of process file descriptors."
+                    if resource_errno is not None
+                    else (
+                        "Permission was denied while revalidating the source root."
+                        if permission_errno is not None
+                        else (
+                            "The registered source root changed during the scan."
+                            if source_root_changed
+                            else "The registered source root could not be revalidated."
+                        )
+                    )
+                ),
                 details={
                     "source_root": str(source_root),
                     "error": str(source_root_error),
+                    **(
+                        {"resource_errno": resource_errno}
+                        if resource_errno is not None
+                        else (
+                            {"permission_errno": permission_errno}
+                            if permission_errno is not None
+                            else {}
+                        )
+                    ),
                 },
                 structural_locator=_scan_issue_locator_from_relative("."),
             )
