@@ -21,6 +21,7 @@ PACKAGE_NAMES = ("sense", "corpus", "hypes")
 MCP_PACKAGE_NAMES = ("sense", "corpus")
 CLAUDE_PACKAGE_NAMES = MCP_PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
+HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
 EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus"}
 EXPECTED_BANNER_SIZE = (1536, 768)
@@ -141,7 +142,9 @@ def _candidate_files() -> list[Path]:
         return [
             ROOT / raw.decode("utf-8")
             for raw in completed.stdout.split(b"\0")
-            if raw and (ROOT / raw.decode("utf-8")).exists()
+            if raw
+            and raw.decode("utf-8") not in HOST_MARKER_FILES
+            and (ROOT / raw.decode("utf-8")).exists()
         ]
     return [
         path
@@ -154,7 +157,13 @@ def _candidate_files() -> list[Path]:
 
 
 def validate_structure() -> None:
-    ignored_top_level = {".DS_Store", ".git", ".ruff_cache", "__pycache__"}
+    ignored_top_level = {
+        ".DS_Store",
+        ".git",
+        ".ruff_cache",
+        "__pycache__",
+        *HOST_MARKER_FILES,
+    }
     actual_top_level = {
         path.name for path in ROOT.iterdir() if path.name not in ignored_top_level
     }
