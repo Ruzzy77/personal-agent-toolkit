@@ -21,7 +21,9 @@ Work out the correct result first. Hypes shapes how that result is explained; it
 
 ## Make the language natural
 
-When writing in Korean, use common verbs and name the actual subject, action, condition, and uncertainty. Rewrite translated English patterns, long noun stacks, internal code names, and newly coined labels as ordinary sentences. Prefer a direct explanation over naming a new concept.
+Choose the most precise and natural expression for the audience, purpose, and genre. Keep established terminology, apt metaphors, and concise phrases when they carry meaning efficiently. If a useful term may be unfamiliar, define it once without repeatedly paraphrasing it.
+
+Rewrite wording when it hides who does what, sounds like translated English, imports internal process, stacks nouns without a clear action, or invents a label that will not earn repeated use. Expanding an expression into plain prose is one option, not the default.
 
 If the user asks what an awkward internal phrase means, say plainly that the phrase is awkward when it is, then explain the intended action. Do not defend the phrase or replace it with another feature name.
 
@@ -32,6 +34,8 @@ Before sending, read the draft once as the user:
 - Does the opening answer the request?
 - Can each sentence be understood without knowing the internal process?
 - Is any product, workflow, or engineering term replacing a simpler sentence?
+- Does a concise term or phrase express the meaning more accurately than a longer explanation? Keep it.
+- Did the rewrite flatten a useful distinction, voice, image, or rhythm? Restore it.
 - Did shortening remove something the user needs to judge or take responsibility for?
 - Is there any explanation, heading, list, or example that does not help?
 - Does the ending merely repeat a short answer or list? Remove it unless it changes what the user should retain or do.
