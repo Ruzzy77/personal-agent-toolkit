@@ -28,7 +28,7 @@ PACKAGE_DESCRIPTIONS = {
         "Find the work context and original sources behind a task, "
         "then carry that context into later work."
     ),
-    "hypes": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
+    "hypes": "Adapt responses and questions to what the user understands, needs to decide, and is trying to do.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}

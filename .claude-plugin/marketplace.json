@@ -20,7 +20,7 @@
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
+      "description": "Adapt responses and questions to what the user understands, needs to decide, and is trying to do.",
       "category": "productivity"
     }
   ]

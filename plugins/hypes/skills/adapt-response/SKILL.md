@@ -1,6 +1,6 @@
 ---
 name: adapt-response
-description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Also use it when the user asks what Hypes changed in a response or which explicit corrections from the current conversation it is applying. Preserve important facts and uncertainty and apply explicit corrections from the current conversation. Do not use it to set the internal voice or structure of a requested paper, report, essay, or other finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
+description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Follow the user's provisional understanding through a multi-turn conversation, adapt the next response after explicit corrections or relevant outcomes, and ask only when a missing understanding or choice would materially change the result. Also use it when the user asks what Hypes changed in a response or what it currently believes the user understands. Preserve important facts and uncertainty. Do not use it to set the internal voice or structure of a requested paper, report, essay, or other finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
 ---
 
 # Adapt the response with Hypes
@@ -21,9 +21,36 @@ change the task, grant permission, or supply a generic writing style.
 4. Deliver the revised response. Do not present a separate Hypes recommendation or ask the user to
    choose between writing styles.
 
+## Follow understanding through the conversation
+
+Maintain a provisional view of the current conversation while it remains useful. Track only what
+can change the next response: what the user has established they understand, what remains unclear,
+the current decision and responsibility, the explanation already tried and its response, and any
+explicit limit on time, attention, or detail. Keep this view in the conversation; do not create a
+separate artifact or present it as a fixed user type, ability level, or score.
+
+Update the view after an explicit correction, a request for more or less explanation, a relevant
+use of the concept, or an outcome that shows whether the explanation supported the task. Treat one
+instance as local to its topic and responsibility. Do not infer understanding, fatigue, preference,
+or approval from silence, brevity, politeness, or task continuation.
+
+## Ask without adding burden
+
+Answer directly when the current conversation provides enough understanding and authority. Ask one
+focused question only when a missing understanding or choice would materially change the answer,
+decision, or action. Use a native interactive choice when it is available and the options cover the
+real branches; otherwise ask briefly in the conversation. Do not ask the user to switch modes just
+to answer a question.
+
+Use an optional native canvas or other interactive surface only when a complex decision becomes
+easier to inspect or correct there. Do not open one for a task that is clearer as a direct answer.
+Respect an explicit request for speed, depth, an example, or less review effort within the current
+conversation, and stop asking once the missing point is resolved.
+
 ## Explain the adaptation when asked
 
-When the user explicitly asks what Hypes changed or what it is applying now, answer briefly from
+When the user explicitly asks what Hypes changed, what it is applying now, or what it currently
+believes the user understands, answer briefly from
 the visible conversation and the response that was actually delivered. Name the explicit
 corrections that mattered, what explanation or structure was removed or added, and which important
 facts, uncertainty, or decisions were deliberately kept. If a relevant Sense preference materially

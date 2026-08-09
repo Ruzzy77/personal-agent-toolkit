@@ -8,7 +8,8 @@ and present each response in a form that suits the task. The marketplace current
 - **Sense** carries one private, user-controlled work profile across AI tools.
 - **Corpus** connects a task to the files, email, and completed AI work that belong with it, then
   opens the original sources needed now.
-- **Hypes** shapes substantive responses around what the user needs to understand, decide, and do.
+- **Hypes** adapts substantive responses and questions to what the user understands, needs to
+  decide, and is trying to do in the current conversation.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
 does not contain a Sense profile, Corpus catalog or index, Hypes conversation state, source
@@ -24,7 +25,7 @@ Claude can select them when a task calls for them:
 - Corpus can be selected when a task needs to understand an ongoing body of work or locate,
   compare, and verify its original sources.
 - Hypes can be selected when a substantive response should fit the user's current purpose,
-  understanding, or decision responsibility.
+  confirmed understanding, unresolved points, or decision responsibility.
 
 Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
 personal context. Codex and Claude decide when to use a skill, so a relevant skill may not be used
@@ -128,6 +129,11 @@ the task needs, removes repeated context and process-heavy wording, adds explana
 helps, and keeps important facts, uncertainty, and decisions the user must make. Explicit wording
 or explanation corrections in the current conversation should affect the next relevant response.
 
+During the conversation, Hypes follows what the user has established they understand, what remains
+unclear, the current decision, and how earlier explanations were received. It asks one focused
+question only when the missing point would change the answer or action. Native choices or a canvas
+may be used when they genuinely reduce review effort, but simple requests stay in the conversation.
+
 It does not replace the result with project-management or engineering narration, turn a bounded
 edit into a research or governance program, list routine Git and test details, or weaken every main
 point with a reflexive caveat. Necessary limits stay where they materially affect interpretation or
@@ -144,13 +150,15 @@ request. To test explicit invocation, use:
 Use Hypes to make this response clear, natural, and appropriately detailed.
 ```
 
-Hypes adds no fixed panel or separate writing-style choice. It does not build a profile or learn
-across conversations. Simple retrieval, literal transformations, and direct one-step actions do
-not need it. Codex or Claude may not select it on every relevant response.
+Hypes adds no fixed panel or separate writing-style choice. Its provisional view of understanding
+stays in the current conversation; it does not build a profile or learn across conversations.
+Simple retrieval, literal transformations, and direct one-step actions do not need it. Codex or
+Claude may not select it on every relevant response.
 
-To check what Hypes took into account, ask “What did Hypes change or reflect in this response?” It
-will briefly name only the visible corrections and editing choices that mattered. It will not
-invent an earlier draft or display a score, profile, checklist, or internal process report.
+To check what Hypes took into account, ask “What do you currently believe I understand, and what
+still seems unclear?” or “What did Hypes change in this response?” It will answer only from the
+visible conversation. It will not invent an earlier draft or display a score, profile, checklist,
+or internal process report.
 
 ## Data boundary
 
