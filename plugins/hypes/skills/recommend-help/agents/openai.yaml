@@ -1,4 +1,0 @@
-interface:
-  display_name: "Recommend with Hypes"
-  short_description: "Calculate a separate recommendation for how much help to offer"
-  default_prompt: "Use $recommend-help to calculate how much help to offer without applying the recommendation to the response."

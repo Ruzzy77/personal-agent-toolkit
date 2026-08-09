@@ -25,7 +25,7 @@ PUBLIC_PUBLISHER = "Ruzzy77"
 PACKAGE_DESCRIPTIONS = {
     "sense": "Carry one private, user-controlled work profile across AI tools.",
     "corpus": "Find exact source passages and preserve reusable context with source links.",
-    "hypes": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
+    "hypes": "Shape responses around what the user needs to understand, decide, and do.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
@@ -57,18 +57,11 @@ PACKAGE_REQUIRED_FILES = {
         "skills/show-corpus-overview/references/overview-visual-spec.md",
     ),
     "hypes": (
-        "OWNER_REVISION",
         "assets/icon.png",
         "assets/icon.svg",
         "assets/logo.png",
-        "skills/recommend-help/SKILL.md",
-        "skills/recommend-help/agents/openai.yaml",
-        "skills/recommend-help/references/contract.md",
-        "skills/recommend-help/scripts/recommend_help.py",
-        "skills/run-hypes-task/SKILL.md",
-        "skills/run-hypes-task/agents/openai.yaml",
-        "skills/run-hypes-task/references/contract.md",
-        "skills/run-hypes-task/scripts/run_hypes_task.py",
+        "skills/adapt-response/SKILL.md",
+        "skills/adapt-response/agents/openai.yaml",
     ),
 }
 EXPECTED_TOP_LEVEL = {
@@ -426,26 +419,26 @@ def validate_package_manifests() -> dict[str, str]:
         raise ValueError("Hypes release must remain skills-only")
     if "mcpServers" in hypes_claude:
         raise ValueError("Hypes Claude release must remain skills-only")
-    hypes_field_skill = (hypes_package / "skills/run-hypes-task/SKILL.md").read_text(
+    hypes_skill = (hypes_package / "skills/adapt-response/SKILL.md").read_text(
         encoding="utf-8"
     )
-    hypes_field_agent = (
-        hypes_package / "skills/run-hypes-task/agents/openai.yaml"
+    hypes_agent = (
+        hypes_package / "skills/adapt-response/agents/openai.yaml"
     ).read_text(encoding="utf-8")
-    if "Use Hypes automatically for substantive" not in hypes_field_skill:
-        raise ValueError("Hypes field skill does not declare automatic task selection")
-    if "allow_implicit_invocation: true" not in hypes_field_agent:
-        raise ValueError("Hypes field skill does not allow implicit invocation")
+    if "Revise the draft itself" not in hypes_skill:
+        raise ValueError("Hypes skill does not revise the actual response")
+    if "Make the language natural" not in hypes_skill:
+        raise ValueError("Hypes skill does not review language quality")
+    if "allow_implicit_invocation: true" not in hypes_agent:
+        raise ValueError("Hypes skill does not allow implicit invocation")
+    for retired in ("recommend-help", "run-hypes-task"):
+        if (hypes_package / "skills" / retired).exists():
+            raise ValueError(f"retired Hypes skill remains: {retired}")
     hypes_version = hypes_codex.get("version")
     if not isinstance(hypes_version, str) or not hypes_version.startswith(
-        "0.1.0+codex."
+        "0.2.0+codex."
     ):
         raise ValueError("Hypes build version is invalid")
-    owner_revision = (ROOT / "plugins/hypes/OWNER_REVISION").read_text(
-        encoding="utf-8"
-    ).strip()
-    if not re.fullmatch(r"[0-9a-f]{40}", owner_revision):
-        raise ValueError("Hypes owner revision is invalid")
 
     return {
         name: _json(ROOT / "plugins" / name / ".codex-plugin/plugin.json")["version"]
@@ -698,221 +691,6 @@ def validate_corpus_first_run(temporary_root: Path) -> None:
         raise ValueError("Corpus data directory is not private")
 
 
-def validate_hypes_smoke() -> None:
-    package = ROOT / "plugins/hypes"
-    script = package / "skills/recommend-help/scripts/recommend_help.py"
-    baseline_sha256 = hashlib.sha256(b"public-release-smoke").hexdigest()
-    request = {
-        "schema_version": "0.1.0",
-        "expected_policy_id": "recommend-help-fixed-v0.1.0",
-        "request_id": "release-smoke-001",
-        "conversation_id": "release-conversation-001",
-        "relation_scope": {
-            "project_id": "release-smoke",
-            "task_relation": "decision-review",
-            "responsibility": "ordinary",
-        },
-        "assistance_allowed": True,
-        "baseline_delivery_plan": {
-            "baseline_id": "release-baseline-001",
-            "baseline_sha256": baseline_sha256,
-            "required_content_ids": ["answer", "limitations"],
-            "optional_content_ids": [],
-            "assistance_mode": "brief",
-            "human_responsibility": {
-                "release_owner": "human",
-                "agent_execution_authority": False,
-                "decision_class": "ordinary",
-                "required_check_ids": ["release-check"],
-            },
-        },
-        "current_conversation_overlay": {
-            "conversation_id": "release-conversation-001",
-            "revision": 0,
-            "seen_events": [],
-            "relation_states": [],
-            "prior_delivered_baselines": [],
-        },
-        "observations": [],
-    }
-    environment = os.environ.copy()
-    environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    completed = subprocess.run(
-        ["python3", str(script)],
-        input=json.dumps(request, sort_keys=True) + "\n",
-        text=True,
-        capture_output=True,
-        env=environment,
-        timeout=30,
-        check=True,
-    )
-    receipt = json.loads(completed.stdout)
-    if receipt.get("status") != "ok":
-        raise ValueError("Hypes release smoke did not succeed")
-    if receipt.get("applied") is not False:
-        raise ValueError("Hypes release smoke applied its recommendation")
-    if receipt.get("persistent_write_count") != 0:
-        raise ValueError("Hypes release smoke reported a persistent write")
-    if receipt.get("baseline_delivery_plan") != request["baseline_delivery_plan"]:
-        raise ValueError("Hypes release smoke changed the baseline plan")
-
-
-def validate_hypes_field_smoke() -> None:
-    package = ROOT / "plugins/hypes"
-    script = package / "skills/run-hypes-task/scripts/run_hypes_task.py"
-    environment = os.environ.copy()
-    environment["PYTHONDONTWRITEBYTECODE"] = "1"
-
-    def invoke(request: dict[str, Any]) -> dict[str, Any]:
-        completed = subprocess.run(
-            ["python3", str(script)],
-            input=json.dumps(request, sort_keys=True) + "\n",
-            text=True,
-            capture_output=True,
-            env=environment,
-            timeout=30,
-            check=True,
-        )
-        receipt = json.loads(completed.stdout)
-        if receipt.get("status") != "ok":
-            raise ValueError("Hypes field release smoke did not succeed")
-        if receipt.get("persistent_write_count") != 0:
-            raise ValueError("Hypes field smoke reported a persistent write")
-        return receipt
-
-    common = {
-        "schema_version": "0.1.0",
-        "expected_policy_id": "hypes-field-fixed-v0.1.0",
-    }
-    scope = {
-        "project_id": "release-smoke",
-        "task_relation": "decision-review",
-        "responsibility": "ordinary",
-    }
-    strategy = {
-        "information_depth": "standard",
-        "support_mode": "none",
-        "dialogue_move": "answer",
-        "responsibility_move": "deliver",
-    }
-    responsibility = {
-        "release_owner": "human",
-        "agent_execution_authority": False,
-        "decision_class": "ordinary",
-        "required_check_ids": ["release-check"],
-    }
-
-    started = invoke(
-        {
-            **common,
-            "operation": "start",
-            "request_id": "field-start-001",
-            "field_session_id": "release-field-001",
-            "conversation_id": "release-conversation-001",
-            "task_contract_id": "judgment-handoff-v0",
-            "trial_condition": "hypes_proposal",
-        }
-    )
-    baseline = {
-        "baseline_id": "release-baseline-001",
-        "baseline_sha256": hashlib.sha256(b"field-baseline-1").hexdigest(),
-        "required_content_ids": ["answer", "limitations"],
-        "optional_content_ids": ["example"],
-        "delivery_strategy": strategy,
-        "human_responsibility": responsibility,
-    }
-    prepared = invoke(
-        {
-            **common,
-            "operation": "prepare",
-            "request_id": "field-prepare-001",
-            "field_session": started["field_session"],
-            "turn_id": "field-turn-001",
-            "relation_scope": scope,
-            "assistance_allowed": True,
-            "baseline_delivery_plan": baseline,
-            "observations": [],
-        }
-    )
-    proposal = prepared["result"]["proposal"]
-    if proposal.get("applied") is not False or proposal.get("differs_from_baseline") is not True:
-        raise ValueError("Hypes field smoke did not keep its proposal separate")
-    if prepared["result"].get("preserved_required_content_ids") != [
-        "answer",
-        "limitations",
-    ]:
-        raise ValueError("Hypes field smoke changed required content")
-
-    committed = invoke(
-        {
-            **common,
-            "operation": "commit",
-            "request_id": "field-commit-001",
-            "field_session": prepared["field_session"],
-            "pending_plan_digest": prepared["field_session"]["pending_turn"][
-                "pending_digest"
-            ],
-            "selected_source": "hypes",
-            "user_confirmed_hypes_selection": True,
-        }
-    )
-    if committed["result"]["committed_plan"].get("actual_delivery_not_yet_proven") is not True:
-        raise ValueError("Hypes field smoke conflated commit and delivery")
-
-    attested = invoke(
-        {
-            **common,
-            "operation": "attest_delivery",
-            "request_id": "field-attest-001",
-            "field_session": committed["field_session"],
-            "pending_commit_digest": committed["field_session"]["pending_turn"][
-                "pending_digest"
-            ],
-            "delivery_id": "field-delivery-001",
-            "delivery_receipt_sha256": hashlib.sha256(
-                b"field-delivery-receipt-1"
-            ).hexdigest(),
-            "delivered": True,
-            "caller_attested": True,
-        }
-    )
-    if attested["result"].get("platform_delivery_independently_proven") is not False:
-        raise ValueError("Hypes field smoke overstated delivery proof")
-
-    next_baseline = dict(baseline)
-    next_baseline["baseline_id"] = "release-baseline-002"
-    next_baseline["baseline_sha256"] = hashlib.sha256(
-        b"field-baseline-2"
-    ).hexdigest()
-    next_prepared = invoke(
-        {
-            **common,
-            "operation": "prepare",
-            "request_id": "field-prepare-002",
-            "field_session": attested["field_session"],
-            "turn_id": "field-turn-002",
-            "relation_scope": scope,
-            "assistance_allowed": True,
-            "baseline_delivery_plan": next_baseline,
-            "observations": [
-                {
-                    "event_id": "field-correction-001",
-                    "sequence": 0,
-                    "kind": "confirmed_correction",
-                    "relation_scope": scope,
-                    "effect": "likely_gap",
-                    "confirmed_by_user": True,
-                }
-            ],
-        }
-    )
-    next_proposal = next_prepared["result"]["proposal"]
-    if next_proposal.get("reason_code") != "matching_likely_gap":
-        raise ValueError("Hypes field smoke did not use the confirmed correction")
-    if next_proposal.get("recommended_strategy", {}).get("support_mode") != "scaffold":
-        raise ValueError("Hypes field smoke did not adapt the next proposal")
-
-
 def validate_runtime_smoke() -> None:
     packages_before = {
         package_name: _package_tree_manifest(ROOT / "plugins" / package_name)
@@ -926,8 +704,6 @@ def validate_runtime_smoke() -> None:
             _mcp_handshake(package_name, root / f"{package_name}-mcp")
         validate_sense_first_run(root / "sense-first-run")
         validate_corpus_first_run(root / "corpus-first-run")
-        validate_hypes_smoke()
-        validate_hypes_field_smoke()
     packages_after = {
         package_name: _package_tree_manifest(ROOT / "plugins" / package_name)
         for package_name in PACKAGE_NAMES

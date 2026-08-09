@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hypes"
+  short_description: "Fit each response to what the user needs now"
+  default_prompt: "Use $adapt-response to give me the actual answer in the clearest useful form."
+policy:
+  allow_implicit_invocation: true

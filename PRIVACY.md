@@ -30,27 +30,25 @@ residency. These actions are separate from ordinary local reads.
 
 ## Hypes
 
-Hypes ships as a skills-only component with a recommendation-only control and a task-local field
-loop that is eligible automatically when substantive work needs adaptive help.
+Hypes ships as a single skills-only component that can be selected automatically when a
+substantive response benefits from adaptation.
 
-- It receives no conversation or answer text and accepts only bounded structured identifiers.
-- It does not create a profile, database, log, network request, or cross-conversation state.
-- In the control, its recommendation remains separate from the delivered baseline and is marked
-  `applied: false`.
-- In the field loop, a differing Hypes delivery strategy is committed only after the user selects
-  it. Required content and human responsibility remain unchanged.
-- Automatic eligibility is based on the current task type, not background observation. Hypes does
+- It uses only the request, conversation, and other context already available to the host.
+- It does not create a profile, database, log, network request, or cross-conversation memory.
+- It changes the actual response rather than producing a separate recommendation or interface.
+- Explicit corrections from the current conversation can affect later responses in that same
+  conversation. Silence, ordinary replies, and apparent acceptance are not treated as learned
+  preferences.
+- Automatic eligibility is based on the current request, not background observation. Hypes does
   not monitor the screen, keyboard, emotion, or unrelated conversations.
-- The caller may pass the previous valid overlay or field-session receipt back during the same
-  task; Hypes does not recover or retain that state after the task ends.
-- Field outcomes bind to a caller-attested earlier delivery. The component does not independently
-  prove that a platform displayed the response or that an outcome is correct.
+- Sense remains the owner of reviewed cross-work preferences. Hypes does not copy or update the
+  Sense profile.
 
 ## Repository contents
 
 The release repository must not contain:
 
-- Sense or Corpus runtime databases, or any Hypes conversation overlay;
+- Sense or Corpus runtime databases, or any Hypes conversation data;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;

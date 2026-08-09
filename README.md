@@ -7,8 +7,7 @@ how AI helps. The marketplace currently contains:
 
 - **Sense** carries one private, user-controlled work profile across AI tools.
 - **Corpus** finds exact source passages and preserves reusable context with source links.
-- **Hypes** adapts the depth and form of help when substantive work needs it, while keeping a
-  recommendation-only control and creating no personal database.
+- **Hypes** shapes substantive responses around what the user needs to understand, decide, and do.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
 does not contain a Sense profile, Corpus catalog or index, Hypes conversation state, source
@@ -22,7 +21,8 @@ The user does not need to name a plugin on every request. Once installed and ena
   style, priorities, responsibility, or learning across completed work.
 - Corpus is eligible automatically when a task requires locating, comparing, or verifying source
   material from registered collections.
-- Hypes is eligible automatically when substantive work may need a different depth or form of help.
+- Hypes is eligible automatically when a substantive response should fit the user's current purpose,
+  understanding, or decision responsibility.
 
 Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
 personal context. Skill selection is performed by the host and is not a guaranteed operating-system
@@ -120,26 +120,22 @@ outside this repository.
 
 ### Hypes
 
-The Hypes release has two task-local paths. `recommend-help` echoes the sealed baseline unchanged,
-returns a separate recommendation with `applied: false`, and remains the control. `run-hypes-task`
-is eligible automatically for substantive design, research, planning, review, writing,
-implementation, and handoff work when a different depth or form of help may affect understanding,
-judgment, or responsibility. It keeps the normal baseline and Hypes proposal separate, requires
-the user to choose a differing proposal, and can use confirmed corrections or outcomes bound to an
-earlier caller-attested delivery on the next turn.
+Hypes works in the background on substantive tasks. It writes the actual response at a useful
+depth, removes repeated context and process-heavy wording, adds explanation only when it helps, and
+keeps important facts, uncertainty, and decisions the user owns. Explicit wording or explanation
+corrections in the current conversation should affect the next relevant response.
 
 Start a new task or session after installation. The host can select Hypes without a named request.
 To test explicit invocation, use:
 
 ```text
-Use Hypes whenever this task needs a different depth or form of help, and ask only when its proposal differs.
+Use Hypes to make this response clear, natural, and appropriately detailed.
 ```
 
-The returned task state must remain visible in the same conversation and is discarded when the
-task closes. Simple retrieval, literal transformations, and direct one-step actions do not trigger
-the field loop. Automatic selection remains a host decision rather than a guaranteed per-response
-hook. The current release does not learn across conversations, and its delivery receipt is a caller
-attestation rather than independent platform proof.
+Hypes adds no fixed panel or separate writing-style choice. It does not build a profile or learn
+across conversations. Simple retrieval, literal transformations, and direct one-step actions do
+not need it. Automatic selection remains a host decision rather than a guaranteed per-response
+hook.
 
 ## Data boundary
 
@@ -150,8 +146,8 @@ By default on macOS:
   `~/Library/Application Support/Corpus/`.
 - Provider-linked records remain with their original providers. Corpus stores bounded metadata and
   reads exact visible content only when explicitly requested.
-- Hypes keeps no personal database. Recommendation overlays and task-local field-session receipts
-  are supplied by the caller in the same task and discarded when that task ends.
+- Hypes keeps no personal database and adds no storage beyond the conversation already available
+  to the host.
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 
@@ -163,8 +159,8 @@ python3 scripts/validate_release.py
 
 The validation checks manifests, license copies, package versions, file permissions, private-data
 and credential patterns, empty-state behavior, Sense preview activation, Corpus first registration,
-Hypes baseline preservation, its implicit-selection metadata, the field-loop selection and
-next-turn update, and real MCP `initialize` plus `tools/list` handshakes.
+Hypes skill structure and implicit-selection metadata, and real MCP `initialize` plus `tools/list`
+handshakes.
 
 ## License
 

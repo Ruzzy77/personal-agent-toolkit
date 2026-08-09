@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809072327",
-  "description": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
+  "version": "0.2.0+codex.20260809075606",
+  "description": "Shape responses around what the user needs to understand, decide, and do.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

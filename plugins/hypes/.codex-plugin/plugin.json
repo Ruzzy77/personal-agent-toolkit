@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809072327",
-  "description": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
+  "version": "0.2.0+codex.20260809075606",
+  "description": "Shape responses around what the user needs to understand, decide, and do.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -11,15 +11,15 @@
   "license": "Apache-2.0",
   "keywords": [
     "personalization",
-    "cognitive-model",
-    "adaptive-interface",
-    "privacy"
+    "response-quality",
+    "writing",
+    "clarity"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Hypes",
-    "shortDescription": "Adapt help when substantive work needs it",
-    "longDescription": "Hypes keeps a recommendation-only control and a task-local adaptive loop that is eligible whenever substantive work needs a different depth or form of help. It applies a differing strategy only after the user chooses it and can use confirmed corrections or bound outcomes on the next turn. It does not write a profile, database, or cross-conversation state.",
+    "shortDescription": "Shape each response around what matters now",
+    "longDescription": "Hypes works in the background on substantive tasks. It writes the actual response at a useful depth, adds explanation only when it helps, removes unnecessary structure and process language, and applies explicit corrections from the current conversation. It does not add a separate interface or build a cross-conversation profile.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -29,9 +29,9 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Calculate a separate help recommendation for this task without applying it to the response.",
-      "Use Hypes whenever this task needs a different depth or form of help, and ask only when its proposal differs.",
-      "Close this Hypes task session and summarize the four outcome dimensions."
+      "Use Hypes to make this response clear, natural, and appropriately detailed.",
+      "Explain this without repeating what I already understand.",
+      "Remove unnecessary headings and process explanation from this draft."
     ]
   }
 }

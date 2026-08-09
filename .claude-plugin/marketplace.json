@@ -20,7 +20,7 @@
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
+      "description": "Shape responses around what the user needs to understand, decide, and do.",
       "category": "productivity"
     }
   ]

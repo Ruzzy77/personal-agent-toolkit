@@ -1,6 +1,0 @@
-interface:
-  display_name: "Use Hypes When Needed"
-  short_description: "Adapt help when substantive work needs it"
-  default_prompt: "Use $run-hypes-task whenever this task needs a different depth or form of help."
-policy:
-  allow_implicit_invocation: true
