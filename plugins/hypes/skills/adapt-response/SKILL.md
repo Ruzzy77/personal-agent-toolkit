@@ -1,6 +1,6 @@
 ---
 name: adapt-response
-description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Preserve important facts and uncertainty and apply explicit corrections from the current conversation. Do not use it to set the internal voice or structure of a requested paper, report, essay, or other finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
+description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Also use it when the user asks what Hypes changed in a response or which explicit corrections from the current conversation it is applying. Preserve important facts and uncertainty and apply explicit corrections from the current conversation. Do not use it to set the internal voice or structure of a requested paper, report, essay, or other finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
 ---
 
 # Adapt the response with Hypes
@@ -20,6 +20,19 @@ change the task, grant permission, or supply a generic writing style.
    materially change the result.
 4. Deliver the revised response. Do not present a separate Hypes recommendation or ask the user to
    choose between writing styles.
+
+## Explain the adaptation when asked
+
+When the user explicitly asks what Hypes changed or what it is applying now, answer briefly from
+the visible conversation and the response that was actually delivered. Name the explicit
+corrections that mattered, what explanation or structure was removed or added, and which important
+facts, uncertainty, or decisions were deliberately kept. If a relevant Sense preference materially
+affected the response, name only that choice rather than reproducing the profile.
+
+Do not invent an unseen earlier draft or claim an exact before-and-after comparison when both
+versions are not available. If a change cannot be established from the visible conversation, say
+so plainly. Do not turn the explanation into a score, user type, checklist, status display, log, or
+lasting preference. Keep this explanation out of ordinary responses unless the user asks for it.
 
 ## Make the language natural
 

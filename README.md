@@ -148,6 +148,10 @@ Hypes adds no fixed panel or separate writing-style choice. It does not build a 
 across conversations. Simple retrieval, literal transformations, and direct one-step actions do
 not need it. Codex or Claude may not select it on every relevant response.
 
+To check what Hypes took into account, ask “What did Hypes change or reflect in this response?” It
+will briefly name only the visible corrections and editing choices that mattered. It will not
+invent an earlier draft or display a score, profile, checklist, or internal process report.
+
 ## Data boundary
 
 By default on macOS:

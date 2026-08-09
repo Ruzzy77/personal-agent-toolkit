@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.2.0+codex.20260809111953",
+  "version": "0.2.0+codex.20260809123839",
   "description": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
   "author": {
     "name": "Ruzzy77",
@@ -31,7 +31,8 @@
     "defaultPrompt": [
       "Use Hypes to make this response clear, natural, and appropriately detailed.",
       "Explain this without repeating what I already understand.",
-      "Remove unnecessary headings and explanations of internal process from this draft."
+      "Remove unnecessary headings and explanations of internal process from this draft.",
+      "Tell me briefly what Hypes changed or took into account in this response."
     ]
   }
 }
