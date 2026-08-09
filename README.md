@@ -6,8 +6,8 @@ A local-first toolkit that helps AI work with the user's preferences, return to 
 and present each response in a form that suits the task. The marketplace currently contains:
 
 - **Sense** carries one private, user-controlled work profile across AI tools.
-- **Corpus** finds the original source behind information and carries selected context into later
-  work without losing the source link.
+- **Corpus** connects a task to the files, email, and completed AI work that belong with it, then
+  opens the original sources needed now.
 - **Hypes** shapes substantive responses around what the user needs to understand, decide, and do.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
@@ -21,8 +21,8 @@ Claude can select them when a task calls for them:
 
 - Sense can be selected when substantive work depends on the user's intent, working
   style, priorities, responsibility, or learning across completed work.
-- Corpus can be selected when a task requires locating, comparing, or verifying source
-  material from registered collections.
+- Corpus can be selected when a task needs to understand an ongoing body of work or locate,
+  compare, and verify its original sources.
 - Hypes can be selected when a substantive response should fit the user's current purpose,
   understanding, or decision responsibility.
 
@@ -117,9 +117,9 @@ Corpus also starts empty. Register only a folder you want Corpus to search:
   --execution-policy local_only
 ```
 
-Then ask the AI tool to show the Corpus overview, scan the selected corpus, or find exact source
-passages. Source files remain read-only. Indexes and reusable context are private runtime data
-outside this repository.
+Then ask the AI tool what work contexts Corpus can help continue, or ask it to connect the current
+task to its files, email, completed AI work, and exact source passages. Source files remain
+read-only. Indexes and saved context are private runtime data outside this repository.
 
 ### Hypes
 

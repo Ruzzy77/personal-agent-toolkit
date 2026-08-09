@@ -24,7 +24,10 @@ MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
 PACKAGE_DESCRIPTIONS = {
     "sense": "Keep one private, user-controlled work profile available across AI tools.",
-    "corpus": "Find the original source behind information and carry selected context into later work.",
+    "corpus": (
+        "Find the work context and original sources behind a task, "
+        "then carry that context into later work."
+    ),
     "hypes": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}

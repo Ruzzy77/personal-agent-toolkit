@@ -1,12 +1,12 @@
 interface:
-  display_name: "Find in Corpus"
-  short_description: "Find original sources and carry context forward"
-  default_prompt: "Use $investigate-corpus to find the original sources for this task or continue the Corpus context I selected."
+  display_name: "Find Work Context in Corpus"
+  short_description: "Connect this task to its work and sources"
+  default_prompt: "Use $investigate-corpus to identify the work context behind this task and open the original sources I need."
 dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Corpus tools for source finding, exact file and completed-task reading, and selected reusable context"
+      description: "Corpus tools for finding work context and reading exact files, email records, and completed tasks"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "description": "Find the original source behind information and carry selected context into later work.",
+  "description": "Find the work context and original sources behind a task, then carry that context into later work.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -25,8 +25,8 @@
   },
   "interface": {
     "displayName": "Corpus",
-    "shortDescription": "Find original sources and carry context forward",
-    "longDescription": "Corpus finds the original file, message, or completed AI task behind information used in your work, then keeps selected context linked to those sources for later tasks. Registered files and provider records remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
+    "shortDescription": "Connect each task to its work context and sources",
+    "longDescription": "Corpus connects a task to the files, email, and completed AI work that belong to the same body of work, then opens the original sources needed now. Source-linked context can carry the work into later tasks. Registered files and provider records remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -34,7 +34,7 @@
       "Local indexing",
       "Linked sources",
       "Linked completed tasks",
-      "Corpus overview",
+      "Work-context discovery",
       "Reusable context",
       "Selected views without private source links"
     ],
@@ -42,10 +42,10 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Show my registered collections, indexing coverage, and reusable context.",
-      "Find the original sources and passages I need for this task.",
-      "Continue this selected context and show what changed since the last review."
+      "Show the work contexts and materials Corpus can help me continue.",
+      "Find which work context this task belongs to and open the original sources I need.",
+      "Show what Corpus actually used in this task."
     ]
   },
-  "version": "0.9.13+codex.20260809120042"
+  "version": "0.9.13+codex.20260809123005"
 }

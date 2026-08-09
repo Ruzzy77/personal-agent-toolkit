@@ -1178,11 +1178,10 @@ def create_server(
         name="corpus_overview",
         title="Get Corpus Overview",
         description=(
-            "Summarize the Corpus collections available through this MCP connection: how much is "
-            "indexed, which provider records are linked, and what context is saved. It also shows "
-            "which items need their sources checked and what history is archived. This read-only "
-            "view does not "
-            "save new interpretations."
+            "Show the work contexts Corpus can help continue and the file collections, provider "
+            "records, and completed agent work connected to them. It also includes source coverage "
+            "and retained history for optional detail. This read-only view does not save new "
+            "interpretations."
         ),
         annotations=READ_ONLY,
     )

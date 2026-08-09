@@ -1,12 +1,12 @@
 interface:
-  display_name: "Corpus Overview"
-  short_description: "Show sources, saved context, and review needs"
-  default_prompt: "Use $show-corpus-overview to show my Corpus sources, saved context, items that need review, and retained history."
+  display_name: "Corpus Work Overview"
+  short_description: "Show work contexts and their materials"
+  default_prompt: "Use $show-corpus-overview to show the work contexts Corpus can help me continue and the materials connected to them."
 dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Read-only Corpus overview of sources, saved context, and retained history"
+      description: "Read-only Corpus overview of work contexts, connected materials, and retained history"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

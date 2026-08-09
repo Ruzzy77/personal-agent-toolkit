@@ -1,16 +1,31 @@
 ---
 name: investigate-corpus
-description: Find and compare information in registered Corpus collections, reopen exact source passages, check versions and coverage gaps, and continue a named context only when the user has selected it. Use when a task requires locating, comparing, verifying, synthesizing, or preparing an artifact from registered sources. Do not use for an overview-only status display, direct source editing, ordinary work on one already-provided document, or persistent context maintenance unless the user selects that context.
+description: Use Corpus automatically when a task depends on understanding ongoing work across registered files, email, or completed Codex and Claude tasks. Identify the relevant work context, find and compare exact sources, check versions and gaps, and carry source-linked context into later work. Do not use for an overview-only display, direct source editing, ordinary work on one already-provided document, or persistent context changes the user has not chosen.
 ---
 
 # Investigate with Corpus
 
-Use Corpus to locate the registered sources needed for the task. Indexed files provide exact source
-locations and text. Linked provider records provide stable locators with limited metadata. Use the
-provider's standard connector for Gmail exact reads and `corpus_source_fetch` for completed Codex
-or Claude turns. The agent interprets both kinds of input for the current request. For an
-ordinary request, do not call
-`semantic_context` or any `interpretation_*` tool.
+Use Corpus to identify what body of work the request belongs to, which materials and earlier tasks
+belong with it, and which original sources need to be read now. Indexed files provide exact source
+locations and text. Linked provider records point to email and completed Codex or Claude work
+without copying their contents. Interpret both kinds of input for the current request. For an
+ordinary request, do not call `semantic_context` or any `interpretation_*` tool.
+
+## Find the work context first
+
+For ongoing or repeated work, use explicit project and work names, the current workspace, the
+requested output, and contexts already assigned in the conversation to find the closest active
+Corpus context.
+
+1. Read a context immediately when the user names it or the current task already belongs to it.
+2. When exactly one active context clearly matches the named project, workspace, or recurring
+   output, read it without asking the user to select it again.
+3. When several contexts remain plausible, show only their titles and purposes and ask the user to
+   choose. A similar title or a larger item count is not enough to select one.
+4. Use the context to locate the relevant file families, email records, completed agent work, open
+   questions, and exact sources. Do not treat saved context as a substitute for current originals.
+5. Keep an ordinary investigation in the current task. Creating, updating, or archiving a context
+   remains a separate user-visible choice.
 
 ## After a plugin update
 
@@ -35,15 +50,12 @@ checked. Do not create, fork, or delegate that transition on the user's behalf b
 the older plugin. Do not include build identifiers, package paths, or tool inventories in the normal
 handoff; show them only when diagnosing a failure.
 
-## Resume a selected named context
+## Use the work context
 
-Use `context_read(view="restricted")` when the user names an existing context, continues a repeated
-task that has already been assigned one, or selects a semantic collection. A context with
+Use `context_read(view="restricted")` for the context chosen above. A context with
 `scope.type=repeated_task` carries a recurring output or workflow. A context with
 `scope.type=semantic_collection` carries selected reusable meanings for a topic, process or
 relationship. It does not stand for an automatic summary of every document in its corpora.
-Listing contexts can help the user select one, though a similar title does not establish that it
-belongs to the current request.
 
 1. Read the selected context and note its version, scope, source-link freshness, latest scan state,
    inventory changes, questions and gaps.
@@ -65,6 +77,19 @@ belongs to the current request.
 
 Creating a named context is a user-visible persistence choice. Do it when the user asks to
 establish a repeated task or semantic collection. Keep ordinary investigations ephemeral.
+
+## Explain what Corpus contributed
+
+When the user asks what Corpus contributed to the current task, answer only from Corpus work that
+actually happened in this task:
+
+- the work context used;
+- the kinds of files, email, or earlier agent work that mattered;
+- the original sources read closely enough to affect the result;
+- any missing or outdated material that limits the answer.
+
+If Corpus was not used, say so without opening the full overview merely to produce a report. Use
+readable names and omit internal ids, counts, and tool history unless the user asks for them.
 
 ## Prepare and use the selected view (`general`)
 

@@ -14,7 +14,7 @@
     {
       "name": "corpus",
       "source": "./plugins/corpus",
-      "description": "Find the original source behind information and carry selected context into later work.",
+      "description": "Find the work context and original sources behind a task, then carry that context into later work.",
       "category": "productivity"
     },
     {

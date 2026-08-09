@@ -1,4 +1,4 @@
-"""Corpus keeps registered sources read-only while indexing and reusing selected context."""
+"""Corpus connects tasks to their work context and original sources."""
 
 from importlib.metadata import PackageNotFoundError, version
 

@@ -1,13 +1,13 @@
 ---
 name: show-corpus-overview
-description: Show a read-only overview of registered Corpus collections, including indexed and unindexed documents, linked provider records, saved context, items whose sources need review, and archived history. Use when the user asks to see, list, compare, audit, visualize, or choose among corpora, asks what Corpus currently knows, or asks how older interpretations are retained. Do not use for source investigation, index refresh, corpus registration, archive actions, or persistent context changes.
+description: Show a read-only overview organized around the work contexts Corpus can help continue, the files, email, and completed agent work connected to them, and material that needs a fresh read. Use when the user asks what work Corpus knows, wants to choose a work context, or wants to see registered collections and retained history. Do not use for source investigation, index refresh, registration, archive actions, or persistent context changes.
 ---
 
 # Show the Corpus overview
 
-Present the current saved Corpus state in one view. Keep source coverage separate from the agent's
-saved interpretation: more indexed text does not mean better understanding, and saved context is
-not the same as a statement in the source.
+Present the work Corpus can help the user resume, then show the materials connected to it. Keep
+source coverage separate from the agent's saved interpretation: more indexed text does not mean
+better understanding, and saved context is not the same as a statement in the source.
 
 ## Read the saved state
 
@@ -49,16 +49,17 @@ items for the selected corpus.
 
 The first view must let the user answer:
 
-- Which corpus should I open?
-- How much of its supported source inventory is indexed, local but unindexed, or remote?
-- Which provider records are linked?
-- What reusable understanding, relationships, differences, questions, and gaps already exist?
-- Which active interpretations need source review, and how much replaced or archived history exists?
-- When was this state last observed?
+- Which ongoing body of work should I continue?
+- What kinds of outputs recur in that work?
+- What files, email, and completed agent work belong with it?
+- What understanding and open questions have been carried forward?
+- What needs to be read again before relying on it?
 
-Default to the corpus with an active reusable context and the largest current item count. Preserve a
-user-selected corpus across presentation-only interactions. Keep the initial screen useful without
-clicking.
+Preserve a work context the user has selected. If the current request clearly names one context,
+open that context first. Otherwise show a compact list of work contexts without choosing one by
+item count. Collections without a saved work context remain available as source collections.
+Keep document counts, provider details, and retained history behind the first layer unless they
+change what the user can continue.
 
 ## Keep overview and investigation separate
 
