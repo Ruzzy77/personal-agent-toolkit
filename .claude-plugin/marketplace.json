@@ -20,7 +20,7 @@
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Recommend how much help to offer in the current conversation without applying or storing it.",
+      "description": "Adapt how much help to offer within one explicitly activated task while preserving content and responsibility.",
       "category": "productivity"
     }
   ]

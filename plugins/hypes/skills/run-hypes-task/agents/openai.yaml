@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Hypes for This Task"
+  short_description: "Adapt help within one explicit task session"
+  default_prompt: "Use $run-hypes-task to adapt help within this task and keep all state in this conversation."

@@ -30,13 +30,19 @@ residency. These actions are separate from ordinary local reads.
 
 ## Hypes
 
-Hypes currently ships as a skills-only, recommendation-only component.
+Hypes ships as a skills-only component with a recommendation-only control and an explicitly
+activated, task-local field loop.
 
 - It receives no conversation or answer text and accepts only bounded structured identifiers.
 - It does not create a profile, database, log, network request, or cross-conversation state.
-- Its recommendation remains separate from the delivered baseline and is marked `applied: false`.
-- The caller may pass the previous valid conversation overlay back during the same task; Hypes does
-  not recover or retain that overlay after the task ends.
+- In the control, its recommendation remains separate from the delivered baseline and is marked
+  `applied: false`.
+- In the field loop, a differing Hypes delivery strategy is committed only after the user selects
+  it. Required content and human responsibility remain unchanged.
+- The caller may pass the previous valid overlay or field-session receipt back during the same
+  task; Hypes does not recover or retain that state after the task ends.
+- Field outcomes bind to a caller-attested earlier delivery. The component does not independently
+  prove that a platform displayed the response or that an outcome is correct.
 
 ## Repository contents
 

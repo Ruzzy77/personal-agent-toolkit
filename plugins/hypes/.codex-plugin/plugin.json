@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809054513",
-  "description": "Recommend how much help to offer in the current conversation without applying or storing it.",
+  "version": "0.1.0+codex.20260809070127",
+  "description": "Adapt how much help to offer within one explicitly activated task while preserving content and responsibility.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Hypes",
-    "shortDescription": "Recommend how much help to offer",
-    "longDescription": "Hypes uses confirmed corrections and outcomes tied to an earlier delivered baseline to recommend how much help to offer next. The calculator returns a separate recommendation marked as not applied; it does not write a profile, database, or cross-conversation state.",
+    "shortDescription": "Adapt help within one active task",
+    "longDescription": "Hypes keeps a recommendation-only control and an explicitly activated task loop. It can propose a different delivery strategy, apply it only after the user chooses it, and use confirmed task-local corrections or bound outcomes on the next turn. It does not write a profile, database, or cross-conversation state.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -30,8 +30,8 @@
     "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Calculate a separate help recommendation for this task without applying it to the response.",
-      "Recalculate the recommendation using only confirmed corrections from this conversation.",
-      "Check whether the Hypes recommendation preserves the baseline plan and responsibility boundary."
+      "Use Hypes for this task and let me choose whether to apply each different help proposal.",
+      "Close this Hypes task session and summarize the four outcome dimensions."
     ]
   }
 }

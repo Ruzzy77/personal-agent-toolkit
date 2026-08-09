@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809054513",
-  "description": "Recommend how much help to offer in the current conversation without applying or storing it.",
+  "version": "0.1.0+codex.20260809070127",
+  "description": "Adapt how much help to offer within one explicitly activated task while preserving content and responsibility.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
