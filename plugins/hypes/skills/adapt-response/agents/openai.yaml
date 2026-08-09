@@ -1,6 +1,6 @@
 interface:
   display_name: "Hypes"
-  short_description: "Clear, natural answers for what the user needs now"
-  default_prompt: "Use $adapt-response to answer clearly and naturally, with only as much detail as I need."
+  short_description: "Answers and questions fitted to current understanding"
+  default_prompt: "Use $adapt-response to answer clearly, and ask one brief understanding question only when it would help me learn or decide."
 policy:
   allow_implicit_invocation: true

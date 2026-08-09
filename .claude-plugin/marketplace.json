@@ -20,7 +20,7 @@
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Adapt responses and questions to what the user understands, needs to decide, and is trying to do.",
+      "description": "Adapt responses and occasional teaching questions to what the user understands, needs to decide, and is trying to do.",
       "category": "productivity"
     }
   ]

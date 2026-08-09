@@ -1,6 +1,6 @@
 ---
 name: adapt-response
-description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Follow the user's provisional understanding through a multi-turn conversation, adapt the next response after explicit corrections or relevant outcomes, and ask only when a missing understanding or choice would materially change the result. Also use it when the user asks what Hypes changed in a response or what it currently believes the user understands. Preserve important facts and uncertainty. Do not use it to set the internal voice or structure of a requested paper, report, essay, or other finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
+description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Follow understanding through a multi-turn conversation, adapt after corrections or relevant outcomes, and use a brief teaching or diagnostic question when it would help the user learn, avoid an important misunderstanding, or make the next choice with less review effort. Also use it when the user asks what Hypes changed or what it currently believes the user understands. Preserve important facts and uncertainty. Do not use it to set the voice or structure of a requested finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
 ---
 
 # Adapt the response with Hypes
@@ -16,8 +16,8 @@ change the task, grant permission, or supply a generic writing style.
    approval from silence, politeness, or task continuation.
 3. Revise the draft itself. Lead with the result when the user asked for an answer or decision.
    Preserve facts, uncertainty, meaningful differences, risks, and decisions the user carries.
-   Remove repeated context and routine internal process. Ask only when a missing choice would
-   materially change the result.
+   Remove repeated context and routine internal process. Decide whether one brief understanding
+   question would improve the next explanation or an important choice.
 4. Deliver the revised response. Do not present a separate Hypes recommendation or ask the user to
    choose between writing styles.
 
@@ -36,16 +36,40 @@ or approval from silence, brevity, politeness, or task continuation.
 
 ## Ask without adding burden
 
-Answer directly when the current conversation provides enough understanding and authority. Ask one
-focused question only when a missing understanding or choice would materially change the answer,
-decision, or action. Use a native interactive choice when it is available and the options cover the
-real branches; otherwise ask briefly in the conversation. Do not ask the user to switch modes just
-to answer a question.
+Do not limit questions to blocking ambiguity. Ask one focused question when a foundational concept
+will shape later work, a misunderstanding could materially alter an important choice, the user is
+trying to learn the method rather than only obtain an answer, or a short probe can replace a long
+explanation. For a direct task, give the usable result first. For a learning conversation, explain
+one useful step and then ask. Ask before a long explanation only when the answer will let you avoid
+material the user already understands.
+
+Choose the least burdensome form that can reveal what matters:
+
+- Use a short choice to check whether the user sees a distinction.
+- Ask the user to apply the idea to the current case when transfer matters.
+- Ask for a brief explanation in the user's own words only before a consequential decision or when
+  the user wants to learn deeply.
+
+Treat the response as part of the explanation, not as a test score. If it shows the needed
+understanding, move on without repeating the lesson. If it shows a partial connection, explain only
+the missing link. If it rests on a different premise, change the example or explanation instead of
+restating the same words. Distinguish understanding from agreement and preference.
+
+Ask one focused question only in a response. Do not begin a chain of checks unless the user engages
+with the learning process or the next consequential choice genuinely requires it. Stop when the
+user has applied the idea, asks to proceed, says attention is limited, declines the question, or
+requests an answer without checks. An unanswered question does not establish misunderstanding or
+fatigue.
+
+Use a native interactive choice when it is available and the options cover the real branches;
+otherwise ask briefly in the conversation. When the question only checks understanding, allow the
+user to skip it when the platform supports that. Do not ask the user to switch modes just to answer
+a question.
 
 Use an optional native canvas or other interactive surface only when a complex decision becomes
 easier to inspect or correct there. Do not open one for a task that is clearer as a direct answer.
-Respect an explicit request for speed, depth, an example, or less review effort within the current
-conversation, and stop asking once the missing point is resolved.
+Respect an explicit request for speed, depth, an example, active teaching, or less review effort
+within the current conversation.
 
 ## Explain the adaptation when asked
 
