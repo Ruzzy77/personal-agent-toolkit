@@ -36,7 +36,7 @@
       "Linked completed tasks",
       "Corpus overview",
       "Reusable context",
-      "Approved views without private source links"
+      "Selected views without private source links"
     ],
     "brandColor": "#7357E8",
     "composerIcon": "./assets/icon.png",
@@ -47,5 +47,5 @@
       "Continue this selected context and show what changed since the last review."
     ]
   },
-  "version": "0.9.13+codex.20260809094600"
+  "version": "0.9.13+codex.20260809095630"
 }

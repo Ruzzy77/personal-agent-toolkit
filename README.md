@@ -133,6 +133,10 @@ edit into a research or governance program, list routine Git and test details, o
 point with a reflexive caveat. Necessary limits stay where they materially affect interpretation or
 action, and the writing keeps the voice and structure of its actual genre.
 
+Agent-written drafts remain agent-written. A user's direction, selection, edit request, or
+permission to proceed is not described as user authorship or line-by-line approval unless the user
+explicitly adopts that wording or claim.
+
 Start a new task or session after installation. Codex or Claude can select Hypes without a named
 request. To test explicit invocation, use:
 

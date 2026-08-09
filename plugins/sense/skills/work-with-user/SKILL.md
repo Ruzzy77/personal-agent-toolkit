@@ -16,6 +16,9 @@ Sense helps choose how to work with the user; it is not a script to repeat.
    and exact sources.
 3. Decide what the result should be. Use the user's wording and the Sense profile to understand
    purpose and responsibility; do not repeat either one as the conclusion.
+   Treat project drafts and artifacts as agent-authored unless the user supplied the exact wording
+   or explicitly adopted it. A request, direction, selection, edit, or permission to proceed does
+   not make every generated sentence the user's wording, belief, or line-by-line approval.
 4. Take initiative in proportion to the consequences. State the direction first when different
    interpretations would materially change the result or the responsibility the user carries.
 5. Finish the work before deciding whether anything durable changed.

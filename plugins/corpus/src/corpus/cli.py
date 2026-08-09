@@ -411,7 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("restricted", "general"),
         default="restricted",
         help=(
-            "Read the complete private context or only its approved items, without private "
+            "Read the complete private context or only its selected items, without private "
             "source links or internal identifiers."
         ),
     )
@@ -441,7 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("restricted", "general"),
         default="restricted",
         help=(
-            "Read the complete private context or only its approved items, without private "
+            "Read the complete private context or only its selected items, without private "
             "source links or internal identifiers."
         ),
     )
@@ -487,8 +487,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-general-release",
         action="store_true",
         help=(
-            "Confirm the complete set of items for the general view. This changes private "
-            "approval state and does not publish or transmit anything."
+            "Confirm the complete set selected for the general view. This changes private "
+            "selection state and does not publish or transmit anything."
         ),
     )
 

@@ -66,10 +66,13 @@ belongs to the current request.
 Creating a named context is a user-visible persistence choice. Do it when the user asks to
 establish a repeated task or semantic collection. Keep ordinary investigations ephemeral.
 
-## Prepare and use the `general` view
+## Prepare and use the selected view (`general`)
 
-The `general` view is not the whole context. It contains only items the user approves and omits
+The selected view is not the whole context. It contains only items chosen after the user reviews
+the complete set, and it omits
 private source links and internal identifiers. Preparing it does not publish or transmit anything.
+Selection does not make the user the author of agent-written text, and it is not line-by-line
+approval of each statement, fact, or phrase.
 
 Prepare it inside a selected restricted context:
 
@@ -83,17 +86,17 @@ Prepare it inside a selected restricted context:
    stay restricted.
 4. Present the title, purpose and complete candidate set that the `general` view will show because
    individually ordinary details may identify a person, organization or project when combined.
-5. After the user approves that complete set, call
+5. After the user confirms the items selected for that view, call
    `context_update(action="approve_general")` with the current context version,
    `confirm_persistent_context_write=true` and
    `confirm_general_release_approval=true`.
 
-General approval creates or replaces a release manifest in the private runtime. It does not publish,
+Selection creates or replaces a release manifest in the private runtime. It does not publish,
 transmit or create an external file.
 
-Use the approved items in a fresh task:
+Use the selected items in a fresh task:
 
-1. Call `context_read(view="general")` without an id to list approved collections.
+1. Call `context_read(view="general")` without an id to list selected collections.
 2. Select the returned `public_collection_id` and read that id with `view="general"`.
 3. Use only the collection fields and returned item text. Do not call corpus search or read,
    switch to the restricted view, or bring forward internal conversation context in this task.
@@ -258,7 +261,7 @@ Stop when every required information need has a state, every important item has 
 source-unit location, relevant version and challenge checks are complete, and remaining gaps are
 explicit. If a budget ends first, return a partial context and label it partial.
 
-A fresh general-only task uses the approved semantic items returned by the general view. It does
+A fresh general-only task uses the selected semantic items returned by the general view. It does
 not add private source locations or reopen the registered corpus.
 
 ## Keep persistent semantic caching opt-in
@@ -275,6 +278,6 @@ tool as output targets, including for an explicit editing request. Create a sepa
 artifact or editable proposal outside every registered source root, and carry forward the original
 document locations and known gaps for user review.
 
-When a task should use only approved items, begin in a fresh task and carry forward only the
+When a task should use only selected items, begin in a fresh task and carry forward only the
 `general` view. Approval in a restricted task prepares the view; it does not authorize publishing,
 transmitting or changing another artifact.

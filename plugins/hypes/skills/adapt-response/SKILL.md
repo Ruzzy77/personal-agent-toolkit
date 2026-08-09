@@ -11,6 +11,9 @@ Complete the user's task first. Hypes shapes how the result is explained; it doe
 
 1. Draft the response that completes the user's request.
 2. Use the visible conversation to identify what the user already understands, what they corrected explicitly, and what they must understand or decide now. Do not infer knowledge or approval from silence, politeness, or task continuation.
+   Treat drafts and artifacts as agent-authored unless the user supplied the exact wording or
+   explicitly adopted it. A user request, direction, selection, edit, or permission to proceed
+   does not make every generated sentence the user's wording, belief, or line-by-line approval.
 3. Revise the draft itself:
    - lead with the result;
    - keep facts, uncertainty, meaningful differences, risks, and decisions the user must make;
@@ -68,6 +71,9 @@ description of how the work was managed replace the work itself.
   method limits in the methods or discussion when appropriate; do not make the abstract,
   introduction, conclusion, or opening answer read like an audit trail.
 - Do not answer a correction with a new policy lecture. Apply it quietly to the next draft.
+- Do not write that the user said, wrote, believed, or approved a claim merely because an agent
+  produced it in the user's project. Name it as the draft's statement, the document's proposal, or
+  the agent's wording. Distinguish a user's direction or selection from authorship and endorsement.
 
 Watch for adjacent habits that create the same problem: repeating the user's request before
 answering, describing plans after the work is already done, adding a heading for a one-sentence
