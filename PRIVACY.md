@@ -30,7 +30,7 @@ residency. These actions are separate from ordinary local reads.
 
 ## Hypes
 
-Hypes currently ships as a skills-only recommendation prototype.
+Hypes currently ships as a skills-only, recommendation-only component.
 
 - It receives no conversation or answer text and accepts only bounded structured identifiers.
 - It does not create a profile, database, log, network request, or cross-conversation state.

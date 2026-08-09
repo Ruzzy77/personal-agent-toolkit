@@ -1,4 +1,4 @@
 interface:
-  display_name: "Hypes 도움 추천"
-  short_description: "실제 답변과 분리해 필요한 도움 방식을 따로 계산합니다"
-  default_prompt: "$recommend-help로 이번 작업의 도움 방식을 실제 답변에 적용하지 않고 따로 계산해 주세요."
+  display_name: "Recommend with Hypes"
+  short_description: "Calculate a separate recommendation for how much help to offer"
+  default_prompt: "Use $recommend-help to calculate how much help to offer without applying the recommendation to the response."

@@ -1,9 +1,12 @@
 {
   "name": "sense",
-  "description": "Keep one private work profile across AI tools.",
+  "description": "Carry one private, user-controlled work profile across AI tools.",
   "author": {
-    "name": "Sense & Corpus contributors"
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
   },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "keywords": [
     "personalization",
@@ -21,9 +24,9 @@
   },
   "interface": {
     "displayName": "Sense",
-    "shortDescription": "A shared work profile for thoughtful collaboration",
-    "longDescription": "Sense gives AI tools one private, user-controlled work profile. It carries durable ways of working and lessons that matter across different work, while project facts remain with their projects and work-specific understanding remains in Corpus. The profile stays on this Mac and survives plugin updates.",
-    "developerName": "Sense & Corpus contributors",
+    "shortDescription": "Carry your work profile across AI tools",
+    "longDescription": "Sense keeps collaboration preferences and durable lessons in one private profile that the user can review, revise, or delete. AI tools use the same profile across different work, while project facts stay with their projects and source-specific context stays in Corpus. The profile remains on this Mac across plugin updates.",
+    "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
       "Private work profile",
@@ -39,5 +42,5 @@
       "What has Sense learned from our work?"
     ]
   },
-  "version": "0.1.12+codex.20260809031138"
+  "version": "0.1.12+codex.20260809054513"
 }

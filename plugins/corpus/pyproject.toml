@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "corpus"
 version = "0.9.13"
-description = "Retrieval-first personal corpus workspace with reusable semantic context"
+description = "Source-linked personal workspace for exact retrieval and reusable context"
 readme = "README.md"
 authors = [
-  {name = "Sense & Corpus contributors"},
+  {name = "Ruzzy77"},
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]

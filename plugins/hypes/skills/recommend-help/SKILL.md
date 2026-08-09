@@ -14,7 +14,7 @@ description: Calculate a task-local, current-conversation shadow recommendation 
 3. Add an overlay event only for:
    - a correction the user explicitly confirmed; or
    - an outcome attributable to the frozen baseline action that was actually delivered without Hypes assistance.
-   Never attribute an outcome to the separate Hypes recommendation because this prototype does not apply it.
+   Never attribute an outcome to the separate Hypes recommendation because the recommendation-only pass does not apply it.
 4. Do not treat ordinary replies, silence, completion, or apparent acceptance as evidence.
 5. Before the first invocation, read [references/contract.md](references/contract.md). Resolve `scripts/recommend_help.py` relative to this `SKILL.md`, then invoke it as `python3 <absolute-script-path>` and send the exact request shape as JSON on standard input.
 6. Treat stdout as a separate shadow receipt. Require it to echo the baseline, include `shadow_recommendation`, and report `applied: false` and `persistent_write_count: 0`.
@@ -23,7 +23,7 @@ description: Calculate a task-local, current-conversation shadow recommendation 
 
 If the command is unavailable or rejects the input, continue with the baseline delivery plan and report the failure only when the user asked to inspect the shadow run.
 
-This prototype verifies that the script echoes the sealed baseline and records `applied: false`; it does not prove that final wording was causally unaffected after the same host agent saw the receipt. Do not describe implicit skill selection as a guaranteed per-turn hook in Codex, Claude, or another host.
+The current release verifies that the script echoes the sealed baseline and records `applied: false`; it does not prove that final wording was causally unaffected after the same host agent saw the receipt. Do not describe implicit skill selection as a guaranteed per-turn hook in Codex, Claude, or another host.
 
 ## Keep it invisible
 

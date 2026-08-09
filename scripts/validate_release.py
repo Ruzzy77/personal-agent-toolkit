@@ -21,6 +21,12 @@ PACKAGE_NAMES = ("sense", "corpus", "hypes")
 MCP_PACKAGE_NAMES = ("sense", "corpus")
 CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
+PUBLIC_PUBLISHER = "Ruzzy77"
+PACKAGE_DESCRIPTIONS = {
+    "sense": "Carry one private, user-controlled work profile across AI tools.",
+    "corpus": "Find exact source passages and preserve reusable context with source links.",
+    "hypes": "Recommend how much help to offer in the current conversation without applying or storing it.",
+}
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
 EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus"}
@@ -312,6 +318,8 @@ def validate_marketplaces() -> None:
         raise ValueError("Codex marketplace package order is invalid")
     if [item.get("name") for item in claude_plugins] != expected_claude_names:
         raise ValueError("Claude marketplace package order is invalid")
+    if claude.get("owner", {}).get("name") != PUBLIC_PUBLISHER:
+        raise ValueError("Claude marketplace publisher is invalid")
 
     for item in codex_plugins:
         name = item["name"]
@@ -329,6 +337,8 @@ def validate_marketplaces() -> None:
         name = item["name"]
         if item.get("source") != f"./plugins/{name}":
             raise ValueError(f"Claude {name} source is invalid")
+        if item.get("description") != PACKAGE_DESCRIPTIONS[name]:
+            raise ValueError(f"Claude {name} description is invalid")
 
 
 def validate_package_manifests() -> dict[str, str]:
@@ -352,10 +362,14 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} Claude manifest license is invalid")
         if project.get("license") != "Apache-2.0":
             raise ValueError(f"{package_name} Python package license is invalid")
-        if codex.get("author", {}).get("name") != "Sense & Corpus contributors":
+        if codex.get("author", {}).get("name") != PUBLIC_PUBLISHER:
             raise ValueError(f"{package_name} Codex author is not public")
-        if claude.get("author", {}).get("name") != "Sense & Corpus contributors":
+        if claude.get("author", {}).get("name") != PUBLIC_PUBLISHER:
             raise ValueError(f"{package_name} Claude author is not public")
+        if codex.get("description") != PACKAGE_DESCRIPTIONS[package_name]:
+            raise ValueError(f"{package_name} Codex description is invalid")
+        if claude.get("description") != PACKAGE_DESCRIPTIONS[package_name]:
+            raise ValueError(f"{package_name} Claude description is invalid")
 
         base_version = project.get("version")
         build_version = codex.get("version")
@@ -394,10 +408,14 @@ def validate_package_manifests() -> dict[str, str]:
         raise ValueError("Hypes Codex manifest license is invalid")
     if hypes_claude.get("license") != "Apache-2.0":
         raise ValueError("Hypes Claude manifest license is invalid")
-    if hypes_codex.get("author", {}).get("name") != "Hypes contributors":
+    if hypes_codex.get("author", {}).get("name") != PUBLIC_PUBLISHER:
         raise ValueError("Hypes Codex author is invalid")
-    if hypes_claude.get("author", {}).get("name") != "Hypes contributors":
+    if hypes_claude.get("author", {}).get("name") != PUBLIC_PUBLISHER:
         raise ValueError("Hypes Claude author is invalid")
+    if hypes_codex.get("description") != PACKAGE_DESCRIPTIONS["hypes"]:
+        raise ValueError("Hypes Codex description is invalid")
+    if hypes_claude.get("description") != PACKAGE_DESCRIPTIONS["hypes"]:
+        raise ValueError("Hypes Claude description is invalid")
     if hypes_codex.get("skills") != "./skills/":
         raise ValueError("Hypes skills path is invalid")
     if "mcpServers" in hypes_codex or "apps" in hypes_codex:

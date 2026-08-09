@@ -1,10 +1,13 @@
 {
   "name": "corpus",
-  "description": "Connect exact sources and build reusable corpus context.",
+  "description": "Find exact source passages and preserve reusable context with source links.",
   "author": {
-    "name": "Sense & Corpus contributors"
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
   },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.9.13+codex.20260809031138"
+  "version": "0.9.13+codex.20260809054513"
 }

@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sense"
 version = "0.1.12"
-description = "Private shared work profile for AI collaborators"
+description = "Private, user-controlled work profile shared across AI tools"
 authors = [
-  {name = "Sense & Corpus contributors"},
+  {name = "Ruzzy77"},
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]

@@ -1,9 +1,12 @@
 {
   "name": "corpus",
-  "description": "Connect exact sources and build reusable corpus context.",
+  "description": "Find exact source passages and preserve reusable context with source links.",
   "author": {
-    "name": "Sense & Corpus contributors"
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
   },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "keywords": [
     "documents",
@@ -22,9 +25,9 @@
   },
   "interface": {
     "displayName": "Corpus",
-    "shortDescription": "Explore sources and reuse corpus context",
-    "longDescription": "Corpus connects registered folders and bounded provider records for work, research, and personal collections. It inventories files, selectively prepares searchable text and stable source locations, and lets the agent build reusable context from exact file, mail, or completed agent-task sources. Gmail content remains with its connector, while completed Codex and Claude turns are read from their original provider records only when requested. The personal view retains full source links, while an optional general view can be prepared for external reuse. Registered documents and provider state remain unchanged. Archived contexts remain readable; destructive context purge is not provided.",
-    "developerName": "Sense & Corpus contributors",
+    "shortDescription": "Find sources and carry linked context forward",
+    "longDescription": "Corpus finds the original file, message, or completed agent task behind information used in a project, then preserves selected context with links back to those sources. It reads only registered sources, keeps personal indexes and context on this Mac, and leaves original documents and provider records unchanged. Archived contexts remain readable; destructive context purge is not provided.",
+    "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
       "Read",
@@ -39,10 +42,10 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Show me the current state of my corpora and the context already understood.",
+      "Show my registered collections, indexing coverage, and reusable context.",
       "Find the original sources and passages I need for this task.",
-      "Continue this corpus context and check what changed since the last review."
+      "Continue this selected context and show what changed since the last review."
     ]
   },
-  "version": "0.9.13+codex.20260809031138"
+  "version": "0.9.13+codex.20260809054513"
 }

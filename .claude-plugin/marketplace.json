@@ -1,26 +1,26 @@
 {
   "name": "personal-agent-toolkit",
-  "description": "Local-first personal agent plugins",
+  "description": "Local-first tools for personal context, source continuity, and adaptive assistance",
   "owner": {
-    "name": "Personal Agent Toolkit contributors"
+    "name": "Ruzzy77"
   },
   "plugins": [
     {
       "name": "sense",
       "source": "./plugins/sense",
-      "description": "Use one private work profile across AI tools",
+      "description": "Carry one private, user-controlled work profile across AI tools.",
       "category": "productivity"
     },
     {
       "name": "corpus",
       "source": "./plugins/corpus",
-      "description": "Connect exact sources and build reusable corpus context",
+      "description": "Find exact source passages and preserve reusable context with source links.",
       "category": "productivity"
     },
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Calculate a current-conversation help recommendation without applying it",
+      "description": "Recommend how much help to offer in the current conversation without applying or storing it.",
       "category": "productivity"
     }
   ]

@@ -1,10 +1,13 @@
 {
   "name": "sense",
-  "description": "Use one private work profile across AI tools.",
+  "description": "Carry one private, user-controlled work profile across AI tools.",
   "author": {
-    "name": "Sense & Corpus contributors"
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
   },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.1.12+codex.20260809031138"
+  "version": "0.1.12+codex.20260809054513"
 }

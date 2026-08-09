@@ -2,18 +2,17 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-A local-first distribution for independent personal-agent plugins. The marketplace currently
-contains:
+A local-first toolkit for carrying personal context, tracing work back to sources, and adjusting
+how AI helps. The marketplace currently contains:
 
-- **Sense** keeps one private work profile for collaboration preferences and lessons that matter
-  across different work.
-- **Corpus** indexes user-selected folders and links reusable context back to exact sources.
-- **Hypes** calculates a current-conversation help recommendation without applying it or creating
-  a personal store.
+- **Sense** carries one private, user-controlled work profile across AI tools.
+- **Corpus** finds exact source passages and preserves reusable context with source links.
+- **Hypes** recommends how much help to offer in the current conversation without applying or
+  storing the recommendation.
 
-This repository is an empty distribution: it contains plugin code, manifests, assets, and dependency
-locks only. It does not contain a Sense profile, Corpus catalog or index, Hypes conversation state,
-source documents, saved context, provider conversations, credentials, or runtime databases.
+This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
+does not contain a Sense profile, Corpus catalog or index, Hypes conversation state, source
+documents, saved context, provider conversations, credentials, or runtime databases.
 
 ## Requirements
 
@@ -47,39 +46,6 @@ claude plugin install hypes@personal-agent-toolkit --scope user
 ```
 
 Restart the host after installing or updating a plugin.
-
-### Migrating from `sense-corpus`
-
-The repository and marketplace were renamed to `personal-agent-toolkit` when Hypes became the third
-independent plugin. Existing Codex installations can move to the new marketplace identity with:
-
-```sh
-codex plugin remove sense@sense-corpus
-codex plugin remove corpus@sense-corpus
-codex plugin marketplace remove sense-corpus
-codex plugin marketplace add Ruzzy77/personal-agent-toolkit
-codex plugin add sense@personal-agent-toolkit
-codex plugin add corpus@personal-agent-toolkit
-```
-
-Private Sense and Corpus data lives outside the plugin packages and is not removed by this package
-migration. Start a new Codex task after reinstalling so it receives the new plugin snapshot.
-
-Existing Claude Code installations can move from the old marketplace without changing private
-Sense or Corpus data:
-
-```sh
-claude plugin uninstall sense@sense-corpus --scope user
-claude plugin uninstall corpus@sense-corpus --scope user
-claude plugin marketplace remove sense-corpus
-claude plugin marketplace add Ruzzy77/personal-agent-toolkit
-claude plugin install sense@personal-agent-toolkit --scope user
-claude plugin install corpus@personal-agent-toolkit --scope user
-claude plugin install hypes@personal-agent-toolkit --scope user
-```
-
-Start a new Claude Code session after the migration. An already-running session can retain the old
-skill and MCP snapshot.
 
 ### Claude Cowork
 
@@ -140,10 +106,10 @@ outside this repository.
 
 ### Hypes
 
-Hypes is a recommendation-only prototype for the current Codex task or Claude session. It echoes
-the sealed baseline plan unchanged, returns a separate recommendation marked `applied: false`, and
-writes no profile or database. Start a new task or session after installation and invoke it
-explicitly first:
+The current Hypes release makes a separate recommendation for the current Codex task or Claude
+session. It echoes the sealed baseline plan unchanged, returns the recommendation with
+`applied: false`, and writes no profile or database. Start a new task or session after installation
+and invoke it explicitly first:
 
 ```text
 Use Hypes to calculate the help mode separately without applying it to the response.

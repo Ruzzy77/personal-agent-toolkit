@@ -1,4 +1,4 @@
 """Generated Corpus provider-package identity."""
 
 PACKAGE_VERSION = "0.9.13"
-BUILD_ID = "0.9.13+codex.20260809031138"
+BUILD_ID = "0.9.13+codex.20260809054513"
