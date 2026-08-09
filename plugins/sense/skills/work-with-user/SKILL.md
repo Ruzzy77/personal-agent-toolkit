@@ -16,26 +16,34 @@ Sense is background for judgment, not a script to repeat.
 4. Act with initiative proportional to the consequences. Share direction before work when different interpretations would materially change the result or the responsibility the user carries.
 5. Finish the work before deciding whether anything durable changed.
 
-## Task-local plugin snapshots
+## Existing host sessions after an update
 
-A Codex task can keep the skill and MCP snapshot it received when the task started even after Sense
-is updated. If `sense_read` is not callable after normal tool discovery in a local Codex task, do
-not report that Sense or its profile is unavailable:
+An already-running Codex task or Claude session can keep the skill and MCP snapshot it received at
+startup even after Sense is updated. If `sense_read` is not callable after normal tool discovery,
+do not report that Sense or its profile is unavailable.
 
-1. Run `codex plugin list --json` and select exactly one installed, enabled entry whose `name` is
-   `sense`. If there is no unique match, stop instead of guessing a cache directory or version.
-2. Use the selected entry's `source.path` only when it contains an executable
-   `launchers/sense-readonly`; do not invoke the general lifecycle launcher as a fallback.
-3. Use `launchers/sense-readonly` only for its `read` and `status` commands. `read --view index`,
-   `read --view sections --section-id SECTION_ID`, and `read --view full` are allowed.
-4. Explain once that the current task has an older plugin snapshot and that the enabled installation
-   is being read through its read-only interface.
+Resolve one enabled installation only when the current host has local shell access:
+
+- In Codex, run `codex plugin list --json` and select exactly one installed, enabled entry whose
+  `name` is `sense`. Use only its absolute `source.path`.
+- In Claude Code, run `claude plugin list --json` and select exactly one enabled entry whose `id`
+  starts with `sense@`. Use only its absolute `installPath`, and require the version in
+  `.claude-plugin/plugin.json` to equal the listed version.
+- In Claude Cowork or another host without local shell access, do not use a launcher fallback.
+  Continue only after the user starts a new local session that exposes the Sense MCP tools.
+
+If there is no unique match, stop instead of guessing a cache directory or version. At the exact
+resolved path, require an executable `launchers/sense-readonly`; do not invoke the general lifecycle
+launcher as a fallback. Use `launchers/sense-readonly` only for its `read` and `status` commands.
+`read --view index`, `read --view sections --section-id SECTION_ID`, and `read --view full` are
+allowed. Explain once that the current session has an older plugin snapshot and the enabled
+installation is being read through its read-only interface.
 
 Never use this fallback for `import-profile`, `activate`, profile revision, lifecycle control,
 forgetting, removal, or any other persistent change. If a write or a newly installed tool is needed,
-finish and validate the plugin installation, then continue in a new task started directly by the
-user from the Codex UI. A programmatic fork or delegated task can retain the old registry. Do not
-claim that the current task hot-reloaded the plugin.
+finish and validate the plugin installation, then continue in a new session started directly by
+the user in the current host. In Codex, a programmatic fork or delegated task can retain the old
+registry. Do not claim that the current task or session hot-reloaded the plugin.
 
 For visual artifacts, keep the current project's brand, template, and content owners authoritative.
 When they leave visual direction open and a user-owned design library exists, read its current

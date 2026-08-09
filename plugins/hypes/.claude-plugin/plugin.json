@@ -1,0 +1,11 @@
+{
+  "name": "hypes",
+  "version": "0.1.0+codex.20260809022430",
+  "description": "Calculate a current-conversation help recommendation without applying it or storing a profile.",
+  "author": {
+    "name": "Hypes contributors"
+  },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "license": "Apache-2.0"
+}

@@ -15,8 +15,9 @@ ordinary request, do not call
 ## Continue across a plugin update
 
 If a required read-only `corpus_*` tool is absent, do not treat that as an empty Corpus or a failed
-installation. A Codex task can retain the plugin snapshot from before an update. In local Codex
-with shell access, use the exact enabled-package checks in
+installation. An already-running Codex task or Claude session can retain the plugin snapshot from
+before an update. In local Codex or Claude Code with shell access, use the host-specific exact
+enabled-package checks in
 [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, use that
 package's `launchers/corpus-readonly` for:
 
@@ -31,11 +32,12 @@ archive/migrate, cleanup, reconciliation, semantic commits, or purge. If exact r
 stop without drawing a data or installation conclusion.
 
 A write or a tool introduced by the updated package requires the validated package to be installed,
-then the user to start a new task directly in the Codex UI. Do not use `fork_thread`,
-`create_thread`, or a delegated task as the transition because they may inherit the previous plugin
-registry. Continue with a `thread://` reference to this task or a concise handoff, then verify the
-exact enabled version and actual MCP `tools/list` in the UI-started task before continuing. Never
-claim that the current or programmatically created task hot-reloaded.
+then the user to start a new task or session directly in that host. In Codex, do not use
+`fork_thread`, `create_thread`, or a delegated task as the transition because they may inherit the
+previous plugin registry; carry a `thread://` reference or concise handoff. In Claude Code, verify
+the enabled version and component inventory before starting a new session. In Claude Cowork, use a
+new local session after confirming the plugin is enabled. In every host, verify the actual MCP tool
+surface before continuing and never claim an in-place hot-reload.
 
 ## Resume a selected named context
 
@@ -107,9 +109,9 @@ already-saved understanding. Begin this investigation workflow once the user ask
 compare, explain, or produce something from sources.
 
 1. Call `corpus_list` only when the corpus id is unknown. If the selected corpus is
-   `local_only`, stop the MCP workflow. In local Codex, the verified read-only fallback may read it;
-   otherwise explain that an operator must use the local CLI or authorize a different corpus
-   boundary.
+   `local_only`, stop the MCP workflow. In local Codex or Claude Code, the verified read-only
+   fallback may read it; otherwise explain that an operator must use the local CLI or authorize a
+   different corpus boundary.
 2. Call `corpus_status` before substantive work. Check scan completeness, the current snapshot,
    missing, partial and outdated projections, and migration state. Stop on `migration_required`;
    do not work around it. Treat the registered `source_scope` exclusions as the corpus inventory

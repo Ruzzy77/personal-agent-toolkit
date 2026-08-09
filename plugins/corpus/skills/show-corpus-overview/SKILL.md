@@ -14,8 +14,9 @@ context item remains an interpretation rather than an original-source claim.
 1. Call MCP `corpus_overview` with five items per context when that tool is exposed in the current
    task.
 2. If `corpus_overview` is absent, do not treat that as an empty Corpus or a failed installation.
-   A Codex task can retain the plugin snapshot from before an update. In local Codex with shell
-   access, use the exact enabled-package checks in
+   An already-running Codex task or Claude session can retain the plugin snapshot from before an
+   update. In local Codex or Claude Code with shell access, use the host-specific exact
+   enabled-package checks in
    [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, run that
    package's `launchers/corpus-readonly overview --max-items-per-context 5`. This personal CLI view also
    includes `local_only` corpora.
@@ -34,11 +35,12 @@ context item remains an interpretation rather than an original-source claim.
 
 The fallback is read-only. Never use it for scan, sync, refresh, hydration, registration, linked
 source changes, context changes, archive, migration, cleanup, or purge. If the request needs a
-write or a tool introduced by the updated package, ask the user to start a new task directly in the
-Codex UI after validated installation. Do not use `fork_thread`, `create_thread`, or a delegated
-task as the transition because they may retain the previous plugin registry. Carry this task with a
-`thread://` reference or concise handoff, verify the installed version and actual MCP `tools/list`
-there, and do not claim same-task or programmatic hot-reload.
+write or a tool introduced by the updated package, ask the user to start a new task or session
+directly in the current host after validated installation. In Codex, do not use `fork_thread`,
+`create_thread`, or a delegated task as the transition; carry a `thread://` reference or concise
+handoff. In Claude Code, start a new session after checking the installed version and component
+inventory. In Claude Cowork, confirm the plugin is enabled and start a new local session. Verify the
+actual MCP tool surface there, and do not claim an in-place hot-reload.
 
 ## Build one integrated view
 

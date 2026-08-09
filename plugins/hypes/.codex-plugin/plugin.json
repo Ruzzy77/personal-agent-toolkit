@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809014144",
+  "version": "0.1.0+codex.20260809022430",
   "description": "\uac1c\uc778\uc774 \ud1b5\uc81c\ud558\ub294 \ub300\ud654\ubcc4 \ub3c4\uc6c0 \ucd94\ucc9c\uc744 \uc2dc\ud5d8\ud558\ub294 \uac1c\ubc1c\uc6a9 \ud50c\ub7ec\uadf8\uc778\uc785\ub2c8\ub2e4.",
   "author": {
     "name": "Hypes contributors"
@@ -24,6 +24,9 @@
     "capabilities": [
       "Interactive"
     ],
+    "brandColor": "#FF6A32",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": [
       "\uc774\ubc88 \uc791\uc5c5\uc758 \ub3c4\uc6c0 \ubc29\uc2dd\uc744 \uc2e4\uc81c \ub2f5\ubcc0\uc5d0 \uc801\uc6a9\ud558\uc9c0 \uc54a\uace0 \ub530\ub85c \uacc4\uc0b0\ud574 \uc8fc\uc138\uc694.",
       "\ud604\uc7ac \ub300\ud654\uc5d0\uc11c \ud655\uc778\ub41c \uc815\uc815\ub9cc \ubc18\uc601\ud574 \ucd94\ucc9c\uc744 \ub2e4\uc2dc \uacc4\uc0b0\ud574 \uc8fc\uc138\uc694.",

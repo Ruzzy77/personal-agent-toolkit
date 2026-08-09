@@ -1,6 +1,6 @@
 # Personal Agent Toolkit
 
-![Sense and Corpus](./assets/sense-corpus-banner.png)
+![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
 A local-first distribution for independent personal-agent plugins. The marketplace currently
 contains:
@@ -43,10 +43,8 @@ codex plugin add hypes@personal-agent-toolkit
 claude plugin marketplace add .
 claude plugin install sense@personal-agent-toolkit --scope user
 claude plugin install corpus@personal-agent-toolkit --scope user
+claude plugin install hypes@personal-agent-toolkit --scope user
 ```
-
-Hypes is Codex-only in this release. It will not be added to the Claude marketplace until its
-selection and recommendation-only behavior are validated there.
 
 Restart the host after installing or updating a plugin.
 
@@ -67,6 +65,22 @@ codex plugin add corpus@personal-agent-toolkit
 Private Sense and Corpus data lives outside the plugin packages and is not removed by this package
 migration. Start a new Codex task after reinstalling so it receives the new plugin snapshot.
 
+Existing Claude Code installations can move from the old marketplace without changing private
+Sense or Corpus data:
+
+```sh
+claude plugin uninstall sense@sense-corpus --scope user
+claude plugin uninstall corpus@sense-corpus --scope user
+claude plugin marketplace remove sense-corpus
+claude plugin marketplace add Ruzzy77/personal-agent-toolkit
+claude plugin install sense@personal-agent-toolkit --scope user
+claude plugin install corpus@personal-agent-toolkit --scope user
+claude plugin install hypes@personal-agent-toolkit --scope user
+```
+
+Start a new Claude Code session after the migration. An already-running session can retain the old
+skill and MCP snapshot.
+
 ### Claude Cowork
 
 The repository is also a Cowork plugin marketplace. In Claude, open
@@ -76,7 +90,7 @@ The repository is also a Cowork plugin marketplace. In Claude, open
 Ruzzy77/personal-agent-toolkit
 ```
 
-Install both Sense and Corpus from that marketplace, then start a new local
+Install Sense, Corpus, and Hypes from that marketplace, then start a new local
 Cowork session. Full local MCP functionality is intended for Cowork and Code;
 ordinary Chat sessions are not a supported runtime target for this release.
 
@@ -126,9 +140,10 @@ outside this repository.
 
 ### Hypes
 
-Hypes is a recommendation-only prototype for the current Codex task. It keeps the actual response
-unchanged, returns a separate recommendation marked `applied: false`, and writes no profile or
-database. Start a new Codex task after installation and invoke it explicitly first:
+Hypes is a recommendation-only prototype for the current Codex task or Claude session. It echoes
+the sealed baseline plan unchanged, returns a separate recommendation marked `applied: false`, and
+writes no profile or database. Start a new task or session after installation and invoke it
+explicitly first:
 
 ```text
 Use Hypes to calculate the help mode separately without applying it to the response.

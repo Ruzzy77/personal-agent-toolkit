@@ -16,6 +16,12 @@
       "source": "./plugins/corpus",
       "description": "Connect exact sources and build reusable corpus context",
       "category": "productivity"
+    },
+    {
+      "name": "hypes",
+      "source": "./plugins/hypes",
+      "description": "Calculate a current-conversation help recommendation without applying it",
+      "category": "productivity"
     }
   ]
 }

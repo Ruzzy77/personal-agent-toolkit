@@ -6,5 +6,5 @@
   },
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.9.13+codex.20260803070101"
+  "version": "0.9.13+codex.20260809031138"
 }

@@ -1,6 +1,6 @@
 ---
 name: recommend-help
-description: Calculate a task-local, current-conversation shadow recommendation for substantive judgment, review, or handoff work. Use when Codex should test how much help to provide without changing the actual response, adding Hypes UI, or learning across conversations. Do not use for simple retrieval, literal transformations, or direct one-step actions.
+description: Calculate a task-local, current-conversation shadow recommendation for substantive judgment, review, or handoff work. Use when the host agent should test how much help to provide without changing the actual response, adding Hypes UI, or learning across conversations. Do not use for simple retrieval, literal transformations, or direct one-step actions.
 ---
 
 # Recommend Help
@@ -23,7 +23,7 @@ description: Calculate a task-local, current-conversation shadow recommendation 
 
 If the command is unavailable or rejects the input, continue with the baseline delivery plan and report the failure only when the user asked to inspect the shadow run.
 
-This prototype verifies that the script echoes the sealed baseline and records `applied: false`; it does not prove that final wording was causally unaffected after the same Codex process saw the receipt. Do not describe implicit skill selection as a guaranteed per-turn hook.
+This prototype verifies that the script echoes the sealed baseline and records `applied: false`; it does not prove that final wording was causally unaffected after the same host agent saw the receipt. Do not describe implicit skill selection as a guaranteed per-turn hook in Codex, Claude, or another host.
 
 ## Keep it invisible
 

@@ -19,7 +19,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAMES = ("sense", "corpus", "hypes")
 MCP_PACKAGE_NAMES = ("sense", "corpus")
-CLAUDE_PACKAGE_NAMES = MCP_PACKAGE_NAMES
+CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
@@ -52,6 +52,9 @@ PACKAGE_REQUIRED_FILES = {
     ),
     "hypes": (
         "OWNER_REVISION",
+        "assets/icon.png",
+        "assets/icon.svg",
+        "assets/logo.png",
         "skills/recommend-help/SKILL.md",
         "skills/recommend-help/agents/openai.yaml",
         "skills/recommend-help/references/contract.md",
@@ -178,7 +181,7 @@ def validate_structure() -> None:
         ROOT / "README.md",
         ROOT / "PRIVACY.md",
         ROOT / "THIRD_PARTY_NOTICES.md",
-        ROOT / "assets/sense-corpus-banner.png",
+        ROOT / "assets/personal-agent-toolkit-banner.png",
         ROOT / "examples/sense-profile.example.json",
         ROOT / ".agents/plugins/marketplace.json",
         ROOT / ".claude-plugin/marketplace.json",
@@ -192,10 +195,11 @@ def validate_structure() -> None:
                 package / ".codex-plugin/plugin.json",
             ]
         )
+        if package_name in CLAUDE_PACKAGE_NAMES:
+            required.append(package / ".claude-plugin/plugin.json")
         if package_name in MCP_PACKAGE_NAMES:
             required.extend(
                 [
-                    package / ".claude-plugin/plugin.json",
                     package / ".mcp.json",
                     package / "pyproject.toml",
                     package / "uv.lock",
@@ -210,12 +214,19 @@ def validate_structure() -> None:
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
         raise ValueError(f"release is missing required files: {', '.join(missing)}")
-    banner = ROOT / "assets/sense-corpus-banner.png"
+    banner = ROOT / "assets/personal-agent-toolkit-banner.png"
     if _png_size(banner) != EXPECTED_BANNER_SIZE:
         raise ValueError(
             "README banner has the wrong dimensions: "
             f"{_png_size(banner)} != {EXPECTED_BANNER_SIZE}"
         )
+    for package_name in PACKAGE_NAMES:
+        package = ROOT / "plugins" / package_name
+        if _png_size(package / "assets/icon.png") != (360, 360):
+            raise ValueError(f"{package_name} icon has the wrong dimensions")
+        if _png_size(package / "assets/logo.png") != (512, 512):
+            raise ValueError(f"{package_name} logo has the wrong dimensions")
+
     for package_name in MCP_PACKAGE_NAMES:
         package_bin = ROOT / "plugins" / package_name / "bin"
         if package_bin.exists():
@@ -223,11 +234,6 @@ def validate_structure() -> None:
                 f"{package_name} contains a top-level bin directory, which "
                 "Claude-hosted plugins reject"
             )
-        package = ROOT / "plugins" / package_name
-        if _png_size(package / "assets/icon.png") != (360, 360):
-            raise ValueError(f"{package_name} icon has the wrong dimensions")
-        if _png_size(package / "assets/logo.png") != (512, 512):
-            raise ValueError(f"{package_name} logo has the wrong dimensions")
 
     root_license = (ROOT / "LICENSE").read_bytes()
     if (
@@ -375,16 +381,30 @@ def validate_package_manifests() -> dict[str, str]:
     build_id = next(iter(build_ids.values()))
     if any(marker in build_id.casefold() for marker in ("test", "validation", "audit")):
         raise ValueError(f"release uses a non-release build ID: {build_id}")
-    hypes = _json(ROOT / "plugins/hypes/.codex-plugin/plugin.json")
-    if hypes.get("name") != "hypes":
-        raise ValueError("Hypes Codex identity is invalid")
-    if hypes.get("license") != "Apache-2.0":
+    hypes_package = ROOT / "plugins/hypes"
+    hypes_codex = _json(hypes_package / ".codex-plugin/plugin.json")
+    hypes_claude = _json(hypes_package / ".claude-plugin/plugin.json")
+    if hypes_codex.get("name") != hypes_claude.get("name") or hypes_codex.get(
+        "name"
+    ) != "hypes":
+        raise ValueError("Hypes provider identities differ")
+    if hypes_codex.get("version") != hypes_claude.get("version"):
+        raise ValueError("Hypes provider versions differ")
+    if hypes_codex.get("license") != "Apache-2.0":
         raise ValueError("Hypes Codex manifest license is invalid")
-    if hypes.get("skills") != "./skills/":
+    if hypes_claude.get("license") != "Apache-2.0":
+        raise ValueError("Hypes Claude manifest license is invalid")
+    if hypes_codex.get("author", {}).get("name") != "Hypes contributors":
+        raise ValueError("Hypes Codex author is invalid")
+    if hypes_claude.get("author", {}).get("name") != "Hypes contributors":
+        raise ValueError("Hypes Claude author is invalid")
+    if hypes_codex.get("skills") != "./skills/":
         raise ValueError("Hypes skills path is invalid")
-    if "mcpServers" in hypes or "apps" in hypes:
+    if "mcpServers" in hypes_codex or "apps" in hypes_codex:
         raise ValueError("Hypes release must remain skills-only")
-    hypes_version = hypes.get("version")
+    if "mcpServers" in hypes_claude:
+        raise ValueError("Hypes Claude release must remain skills-only")
+    hypes_version = hypes_codex.get("version")
     if not isinstance(hypes_version, str) or not hypes_version.startswith(
         "0.1.0+codex."
     ):
