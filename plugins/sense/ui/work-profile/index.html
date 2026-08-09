@@ -220,6 +220,14 @@
         line-height: 1.4;
       }
 
+      .section-purpose {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
       .summary-end {
         display: flex;
         align-items: center;
@@ -426,14 +434,14 @@
         return node;
       }
 
-      function sectionCard(section, open) {
+      function sectionCard(section) {
         const card = document.createElement("details");
-        card.open = open;
 
         const summary = document.createElement("summary");
         const heading = element("div", "section-heading");
         heading.append(
-          element("span", "section-title", section?.title ?? "이름 없는 내용")
+          element("span", "section-title", section?.title ?? "이름 없는 내용"),
+          element("span", "section-purpose", section?.purpose ?? "")
         );
         const end = element("div", "summary-end");
         const badges = element("div", "badges");
@@ -449,7 +457,7 @@
         const facts = element("div", "facts");
         facts.append(
           fact("관련 작업", section?.related_work ?? []),
-          fact("다시 살펴볼 때", section?.review_when ?? []),
+          fact("주의할 상황", section?.review_when ?? []),
           fact("출처", (section?.sources ?? []).map(sourceText))
         );
         body.append(facts);
@@ -516,14 +524,12 @@
         profile.append(toolbar);
 
         const groups = element("div", "groups");
-        let first = true;
         for (const group of result.groups) {
           const groupNode = element("section", "group");
           groupNode.append(element("h2", "group-title", group?.title ?? ""));
           const sectionList = element("div", "section-list");
           for (const section of group?.sections ?? []) {
-            sectionList.append(sectionCard(section, first));
-            first = false;
+            sectionList.append(sectionCard(section));
           }
           groupNode.append(sectionList);
           groups.append(groupNode);

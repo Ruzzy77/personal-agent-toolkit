@@ -43,7 +43,7 @@ SOURCE_LABELS = {
     ("user_set", "file"): "직접 설정한 내용",
     ("user_set", "corpus"): "직접 확인한 업무 자료",
     ("user_set", "result"): "직접 확인한 작업 결과",
-    ("learned_from_work", "conversation"): "작업을 다시 확인한 대화",
+    ("learned_from_work", "conversation"): "작업에서 확인한 대화",
     ("learned_from_work", "file"): "작업을 통해 확인한 자료",
     ("learned_from_work", "corpus"): "업무에서 이어 온 이해",
     ("learned_from_work", "result"): "작업에서 확인한 결과",
@@ -171,6 +171,7 @@ def work_profile_overview(
         grouped[presentation["group"]].append(
             {
                 "title": presentation["title"],
+                "purpose": _display_text(section.purpose, exact_redactions),
                 "text": _display_text(section.text, exact_redactions),
                 "origins": [ORIGIN_LABELS[origin] for origin in section.origins],
                 "related_work": [
