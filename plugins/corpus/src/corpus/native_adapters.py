@@ -15,9 +15,12 @@ from .adapters import (
     AdapterCapabilities,
     AdapterDescriptor,
     ExternalJSONLAdapter,
+    ExtractedUnit,
     ExtractionEnvelope,
+    ExtractionIssue,
 )
 from .errors import ExtractionError
+from .extractors import extract_pdf
 
 _PDF_VISION_SOURCE = (
     Path(__file__).resolve().with_name("native") / "corpus_pdf_vision.swift"
@@ -53,12 +56,16 @@ class PDFKitVisionAdapter:
             "max_pages": 200,
             "max_edge_pixels": 3_000,
             "recognition_languages": ["ko-KR", "en-US"],
-            "ocr_scope": "all_pages",
+            "ocr_scope": "hybrid",
+            "native_text_min_alphanumeric_characters": 32,
+            "blank_page_detection": "rendered_luma_near_white_v1",
+            "fallback_backend": "pypdf",
+            "fallback_scope": "native_adapter_error",
             "runtime": _macos_runtime_identity(),
         }
         self.descriptor = AdapterDescriptor.from_config(
             adapter_id="work-corpus.native.pdfkit-vision",
-            adapter_version=f"1.0.0+source.{self.source_hash[:12]}",
+            adapter_version=f"1.2.0+source.{self.source_hash[:12]}",
             config=self.config,
             capabilities=AdapterCapabilities(
                 format_ids=("pdf",),
@@ -141,4 +148,73 @@ class PDFKitVisionAdapter:
             self.budgets,
             config=self.config,
         )
-        return adapter.extract(path, format_id=format_id)
+        try:
+            return adapter.extract(path, format_id=format_id)
+        except ExtractionError:
+            return self._extract_with_pypdf(path, format_id=format_id)
+
+    def _extract_with_pypdf(
+        self,
+        path: Path,
+        *,
+        format_id: str,
+    ) -> ExtractionEnvelope:
+        """Recover PDFs that the host PDFKit cannot open or process."""
+
+        path = Path(path)
+        if format_id != "pdf":
+            raise ExtractionError(
+                "PDF fallback does not support this format",
+                details={"format_id": format_id},
+            )
+        if not path.is_file():
+            raise ExtractionError("adapter input must be an existing regular file")
+        input_bytes = path.stat().st_size
+        if input_bytes > self.budgets.max_input_bytes:
+            raise ExtractionError(
+                "PDF fallback input exceeds its byte budget",
+                details={"count": input_bytes, "limit": self.budgets.max_input_bytes},
+            )
+
+        fallback = extract_pdf(path)
+
+        def convert_issue(raw: dict) -> ExtractionIssue:
+            code = raw.get("code", "extraction_warning")
+            message = raw.get("message", "The PDF fallback reported an issue.")
+            severity = raw.get("severity", "info" if code == "unit_split" else "warning")
+            details = {
+                key: value
+                for key, value in raw.items()
+                if key not in {"code", "message", "severity"}
+            }
+            return ExtractionIssue(
+                code=str(code),
+                message=str(message),
+                severity=severity,
+                details=details,
+            )
+
+        units = tuple(
+            ExtractedUnit(
+                unit_type=unit.unit_type,
+                structure_path=unit.structure_path,
+                content=unit.content.encode("utf-8", errors="replace").decode("utf-8"),
+                derivation_method="native_text",
+                quality_flags=("pypdf_fallback", "reading_order_unverified"),
+                issues=tuple(convert_issue(issue) for issue in unit.issues),
+            )
+            for unit in fallback.units
+        )
+        issues = tuple(convert_issue(issue) for issue in fallback.issues)
+        material_issues = [
+            issue
+            for issue in (*issues, *(item for unit in units for item in unit.issues))
+            if issue.severity in {"warning", "error"} and issue.code != "unit_split"
+        ]
+        completeness = "complete" if units and not material_issues else "partial"
+        return ExtractionEnvelope.create(
+            descriptor=self.descriptor,
+            completeness=completeness,
+            units=units,
+            issues=issues,
+        )

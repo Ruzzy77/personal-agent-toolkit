@@ -32,6 +32,20 @@ func boundedInt(
     return result
 }
 
+func configuredString(
+    _ value: Any?,
+    default defaultValue: String,
+    allowedValues: Set<String>
+) throws -> String {
+    guard let value else {
+        return defaultValue
+    }
+    guard let result = value as? String, allowedValues.contains(result) else {
+        throw AdapterFailure.invalidConfiguration
+    }
+    return result
+}
+
 func render(_ page: PDFPage, maxEdgePixels: Int) throws -> CGImage {
     let box = page.bounds(for: .mediaBox)
     guard box.width > 0, box.height > 0 else {
@@ -55,6 +69,40 @@ func render(_ page: PDFPage, maxEdgePixels: Int) throws -> CGImage {
         throw AdapterFailure.renderFailed
     }
     return rendered
+}
+
+func isVisuallyBlank(_ image: CGImage) -> Bool {
+    let sampleWidth = min(image.width, 128)
+    let sampleHeight = min(image.height, 128)
+    guard sampleWidth > 0, sampleHeight > 0 else {
+        return false
+    }
+    var pixels = [UInt8](repeating: 255, count: sampleWidth * sampleHeight)
+    let rendered = pixels.withUnsafeMutableBytes { buffer in
+        guard let context = CGContext(
+            data: buffer.baseAddress,
+            width: sampleWidth,
+            height: sampleHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: sampleWidth,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else {
+            return false
+        }
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
+        context.interpolationQuality = .low
+        context.draw(
+            image,
+            in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight)
+        )
+        return true
+    }
+    guard rendered else {
+        return false
+    }
+    return !pixels.contains { value in value < 250 }
 }
 
 func topLeftBoundingBox(_ box: CGRect) -> [Double] {
@@ -90,6 +138,12 @@ func normalizedText(_ text: String?) -> String {
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func alphanumericCharacterCount(_ text: String) -> Int {
+    text.unicodeScalars.reduce(0) { count, scalar in
+        count + (CharacterSet.alphanumerics.contains(scalar) ? 1 : 0)
+    }
 }
 
 func writeResult(_ result: [String: Any]) throws {
@@ -181,7 +235,12 @@ func averageConfidence(_ lines: [RecognizedTextObservation]) -> Double? {
                             "coordinate_system": "top_left_normalized",
                             "bbox": topLeftBoundingBox(cell.content.boundingRegion.boundingBox),
                         ],
-                        "quality_flags": ["ocr", "structured_ocr", "table_cell"],
+                        "quality_flags": [
+                            "ocr",
+                            "structured_ocr",
+                            "table_cell",
+                            "reading_order_unverified",
+                        ],
                         "issues": [],
                     ]
                     if let confidence = averageConfidence(lines) {
@@ -302,6 +361,17 @@ func runAdapter() async throws {
     guard !languages.isEmpty, languages.count <= 8 else {
         throw AdapterFailure.invalidConfiguration
     }
+    let ocrScope = try configuredString(
+        config["ocr_scope"],
+        default: "hybrid",
+        allowedValues: ["hybrid", "all_pages", "textless_pages"]
+    )
+    let nativeTextMinAlphanumericCharacters = try boundedInt(
+        config["native_text_min_alphanumeric_characters"],
+        default: 32,
+        minimum: 1,
+        maximum: 10_000
+    )
     let budgets = request["budgets"] as? [String: Any] ?? [:]
     let maxUnits = try boundedInt(
         budgets["max_units"],
@@ -329,17 +399,7 @@ func runAdapter() async throws {
 
     var units: [[String: Any]] = []
     var totalContentCharacters = 0
-    var issues: [[String: Any]] = [
-        [
-            "code": "reading_order_unverified",
-            "message": (
-                "PDFKit text order and Vision observation order are preserved as observations; "
-                    + "multi-column and table reading order has not been verified."
-            ),
-            "severity": "warning",
-            "details": ["backend": "pdfkit_vision"],
-        ],
-    ]
+    var issues: [[String: Any]] = []
     let pageCount = min(document.pageCount, maxPages)
     if document.pageCount > maxPages {
         issues.append([
@@ -369,7 +429,7 @@ func runAdapter() async throws {
                     "structure_path": ["page": pageIndex + 1],
                     "content": nativeText,
                     "derivation_method": "native_text",
-                    "quality_flags": [],
+                    "quality_flags": ["reading_order_unverified"],
                     "issues": [],
                 ]],
                 to: &units,
@@ -388,9 +448,28 @@ func runAdapter() async throws {
             }
         }
 
+        let shouldRunOCR: Bool
+        switch ocrScope {
+        case "all_pages":
+            shouldRunOCR = true
+        case "textless_pages":
+            shouldRunOCR = nativeText.isEmpty
+        default:
+            shouldRunOCR = (
+                alphanumericCharacterCount(nativeText)
+                    < nativeTextMinAlphanumericCharacters
+            )
+        }
+        if !shouldRunOCR {
+            continue
+        }
+
         do {
             let image = try autoreleasepool {
                 try render(page, maxEdgePixels: maxEdgePixels)
+            }
+            if nativeText.isEmpty && isVisuallyBlank(image) {
+                continue
             }
             var recognized: [[String: Any]] = []
 #if compiler(>=6.2)
@@ -465,9 +544,16 @@ func runAdapter() async throws {
         }
     }
 
+    let hasIncompleteIssue = issues.contains { issue in
+        guard let severity = issue["severity"] as? String else {
+            return false
+        }
+        return severity == "warning" || severity == "error"
+    }
+
     try writeResult([
         "schema_version": "corpus.extraction-result.v1",
-        "completeness": "partial",
+        "completeness": units.isEmpty || hasIncompleteIssue ? "partial" : "complete",
         "units": units,
         "issues": issues,
     ])
