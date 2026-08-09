@@ -1,7 +1,7 @@
 {
-  "name": "sense-corpus",
+  "name": "personal-agent-toolkit",
   "interface": {
-    "displayName": "Sense & Corpus"
+    "displayName": "Personal Agent Toolkit"
   },
   "plugins": [
     {
@@ -21,6 +21,18 @@
       "source": {
         "source": "local",
         "path": "./plugins/corpus"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "hypes",
+      "source": {
+        "source": "local",
+        "path": "./plugins/hypes"
       },
       "policy": {
         "installation": "AVAILABLE",

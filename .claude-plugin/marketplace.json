@@ -1,8 +1,8 @@
 {
-  "name": "sense-corpus",
-  "description": "Local-first Sense and Corpus plugins",
+  "name": "personal-agent-toolkit",
+  "description": "Local-first personal agent plugins",
   "owner": {
-    "name": "Sense & Corpus contributors"
+    "name": "Personal Agent Toolkit contributors"
   },
   "plugins": [
     {

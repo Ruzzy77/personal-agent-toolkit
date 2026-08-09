@@ -1,6 +1,6 @@
 # Privacy boundary
 
-Sense & Corpus is local-first and ships with no user data.
+Personal Agent Toolkit is local-first and ships with no user data.
 
 ## Sense
 
@@ -28,11 +28,21 @@ Some explicitly requested extraction operations may use an external host when th
 policy allows it. Optional hydration of remote placeholders may use network, disk, and local
 residency. These actions are separate from ordinary local reads.
 
+## Hypes
+
+Hypes currently ships as a skills-only recommendation prototype.
+
+- It receives no conversation or answer text and accepts only bounded structured identifiers.
+- It does not create a profile, database, log, network request, or cross-conversation state.
+- Its recommendation remains separate from the delivered baseline and is marked `applied: false`.
+- The caller may pass the previous valid conversation overlay back during the same task; Hypes does
+  not recover or retain that overlay after the task ends.
+
 ## Repository contents
 
 The release repository must not contain:
 
-- Sense or Corpus runtime databases;
+- Sense or Corpus runtime databases, or any Hypes conversation overlay;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;

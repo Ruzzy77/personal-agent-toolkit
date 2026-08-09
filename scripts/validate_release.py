@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the public Sense & Corpus release and its empty first-run paths."""
+"""Validate the public Personal Agent Toolkit release."""
 
 from __future__ import annotations
 
@@ -17,7 +17,10 @@ from typing import Any
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_NAMES = ("sense", "corpus")
+PACKAGE_NAMES = ("sense", "corpus", "hypes")
+MCP_PACKAGE_NAMES = ("sense", "corpus")
+CLAUDE_PACKAGE_NAMES = MCP_PACKAGE_NAMES
+MARKETPLACE_NAME = "personal-agent-toolkit"
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
 EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus"}
 EXPECTED_BANNER_SIZE = (1536, 768)
@@ -45,6 +48,13 @@ PACKAGE_REQUIRED_FILES = {
         "skills/show-corpus-overview/SKILL.md",
         "skills/show-corpus-overview/agents/openai.yaml",
         "skills/show-corpus-overview/references/overview-visual-spec.md",
+    ),
+    "hypes": (
+        "OWNER_REVISION",
+        "skills/recommend-help/SKILL.md",
+        "skills/recommend-help/agents/openai.yaml",
+        "skills/recommend-help/references/contract.md",
+        "skills/recommend-help/scripts/recommend_help.py",
     ),
 }
 EXPECTED_TOP_LEVEL = {
@@ -171,14 +181,19 @@ def validate_structure() -> None:
                 package / "LICENSE",
                 package / "NOTICE",
                 package / ".codex-plugin/plugin.json",
-                package / ".claude-plugin/plugin.json",
-                package / ".mcp.json",
-                package / "pyproject.toml",
-                package / "uv.lock",
-                package / "launchers" / package_name,
-                package / "launchers" / f"{package_name}-mcp",
             ]
         )
+        if package_name in MCP_PACKAGE_NAMES:
+            required.extend(
+                [
+                    package / ".claude-plugin/plugin.json",
+                    package / ".mcp.json",
+                    package / "pyproject.toml",
+                    package / "uv.lock",
+                    package / "launchers" / package_name,
+                    package / "launchers" / f"{package_name}-mcp",
+                ]
+            )
         required.extend(
             package / relative
             for relative in PACKAGE_REQUIRED_FILES[package_name]
@@ -192,7 +207,7 @@ def validate_structure() -> None:
             "README banner has the wrong dimensions: "
             f"{_png_size(banner)} != {EXPECTED_BANNER_SIZE}"
         )
-    for package_name in PACKAGE_NAMES:
+    for package_name in MCP_PACKAGE_NAMES:
         package_bin = ROOT / "plugins" / package_name / "bin"
         if package_bin.exists():
             raise ValueError(
@@ -216,9 +231,11 @@ def validate_structure() -> None:
         package_license = (ROOT / "plugins" / package_name / "LICENSE").read_bytes()
         if package_license != root_license:
             raise ValueError(f"{package_name} LICENSE differs from the root license")
-        package_notice = (ROOT / "plugins" / package_name / "NOTICE").read_bytes()
-        if package_notice != (ROOT / "NOTICE").read_bytes():
-            raise ValueError(f"{package_name} NOTICE differs from the root notice")
+        package_notice = (ROOT / "plugins" / package_name / "NOTICE").read_text(
+            encoding="utf-8"
+        )
+        if "Copyright 2026" not in package_notice:
+            raise ValueError(f"{package_name} NOTICE has no copyright line")
 
 
 def validate_public_boundary() -> None:
@@ -249,7 +266,7 @@ def validate_public_boundary() -> None:
         if PROVIDER_LOCATOR_RE.search(data):
             raise ValueError(f"concrete provider locator found in {relative}")
 
-    for package_name in PACKAGE_NAMES:
+    for package_name in MCP_PACKAGE_NAMES:
         package = ROOT / "plugins" / package_name
         for launcher_name in (
             package_name,
@@ -267,17 +284,18 @@ def validate_public_boundary() -> None:
 def validate_marketplaces() -> None:
     codex = _json(ROOT / ".agents/plugins/marketplace.json")
     claude = _json(ROOT / ".claude-plugin/marketplace.json")
-    if codex.get("name") != "sense-corpus" or claude.get("name") != "sense-corpus":
-        raise ValueError("marketplace identities must both be sense-corpus")
+    if codex.get("name") != MARKETPLACE_NAME or claude.get("name") != MARKETPLACE_NAME:
+        raise ValueError(f"marketplace identities must both be {MARKETPLACE_NAME}")
 
-    expected_names = list(PACKAGE_NAMES)
+    expected_codex_names = list(PACKAGE_NAMES)
+    expected_claude_names = list(CLAUDE_PACKAGE_NAMES)
     codex_plugins = codex.get("plugins")
     claude_plugins = claude.get("plugins")
     if not isinstance(codex_plugins, list) or not isinstance(claude_plugins, list):
         raise TypeError("marketplace plugin collections must be arrays")
-    if [item.get("name") for item in codex_plugins] != expected_names:
+    if [item.get("name") for item in codex_plugins] != expected_codex_names:
         raise ValueError("Codex marketplace package order is invalid")
-    if [item.get("name") for item in claude_plugins] != expected_names:
+    if [item.get("name") for item in claude_plugins] != expected_claude_names:
         raise ValueError("Claude marketplace package order is invalid")
 
     for item in codex_plugins:
@@ -300,7 +318,7 @@ def validate_marketplaces() -> None:
 
 def validate_package_manifests() -> dict[str, str]:
     build_ids: dict[str, str] = {}
-    for package_name in PACKAGE_NAMES:
+    for package_name in MCP_PACKAGE_NAMES:
         package = ROOT / "plugins" / package_name
         codex = _json(package / ".codex-plugin/plugin.json")
         claude = _json(package / ".claude-plugin/plugin.json")
@@ -348,6 +366,26 @@ def validate_package_manifests() -> dict[str, str]:
     build_id = next(iter(build_ids.values()))
     if any(marker in build_id.casefold() for marker in ("test", "validation", "audit")):
         raise ValueError(f"release uses a non-release build ID: {build_id}")
+    hypes = _json(ROOT / "plugins/hypes/.codex-plugin/plugin.json")
+    if hypes.get("name") != "hypes":
+        raise ValueError("Hypes Codex identity is invalid")
+    if hypes.get("license") != "Apache-2.0":
+        raise ValueError("Hypes Codex manifest license is invalid")
+    if hypes.get("skills") != "./skills/":
+        raise ValueError("Hypes skills path is invalid")
+    if "mcpServers" in hypes or "apps" in hypes:
+        raise ValueError("Hypes release must remain skills-only")
+    hypes_version = hypes.get("version")
+    if not isinstance(hypes_version, str) or not hypes_version.startswith(
+        "0.1.0+codex."
+    ):
+        raise ValueError("Hypes build version is invalid")
+    owner_revision = (ROOT / "plugins/hypes/OWNER_REVISION").read_text(
+        encoding="utf-8"
+    ).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", owner_revision):
+        raise ValueError("Hypes owner revision is invalid")
+
     return {
         name: _json(ROOT / "plugins" / name / ".codex-plugin/plugin.json")["version"]
         for name in PACKAGE_NAMES
@@ -388,7 +426,7 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "sense-corpus-release-validation",
+                    "name": "personal-agent-toolkit-release-validation",
                     "version": "1",
                 },
             },
@@ -599,19 +637,79 @@ def validate_corpus_first_run(temporary_root: Path) -> None:
         raise ValueError("Corpus data directory is not private")
 
 
+def validate_hypes_smoke() -> None:
+    package = ROOT / "plugins/hypes"
+    script = package / "skills/recommend-help/scripts/recommend_help.py"
+    baseline_sha256 = hashlib.sha256(b"public-release-smoke").hexdigest()
+    request = {
+        "schema_version": "0.1.0",
+        "expected_policy_id": "recommend-help-fixed-v0.1.0",
+        "request_id": "release-smoke-001",
+        "conversation_id": "release-conversation-001",
+        "relation_scope": {
+            "project_id": "release-smoke",
+            "task_relation": "decision-review",
+            "responsibility": "ordinary",
+        },
+        "assistance_allowed": True,
+        "baseline_delivery_plan": {
+            "baseline_id": "release-baseline-001",
+            "baseline_sha256": baseline_sha256,
+            "required_content_ids": ["answer", "limitations"],
+            "optional_content_ids": [],
+            "assistance_mode": "brief",
+            "human_responsibility": {
+                "release_owner": "human",
+                "agent_execution_authority": False,
+                "decision_class": "ordinary",
+                "required_check_ids": ["release-check"],
+            },
+        },
+        "current_conversation_overlay": {
+            "conversation_id": "release-conversation-001",
+            "revision": 0,
+            "seen_events": [],
+            "relation_states": [],
+            "prior_delivered_baselines": [],
+        },
+        "observations": [],
+    }
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    completed = subprocess.run(
+        ["python3", str(script)],
+        input=json.dumps(request, sort_keys=True) + "\n",
+        text=True,
+        capture_output=True,
+        env=environment,
+        timeout=30,
+        check=True,
+    )
+    receipt = json.loads(completed.stdout)
+    if receipt.get("status") != "ok":
+        raise ValueError("Hypes release smoke did not succeed")
+    if receipt.get("applied") is not False:
+        raise ValueError("Hypes release smoke applied its recommendation")
+    if receipt.get("persistent_write_count") != 0:
+        raise ValueError("Hypes release smoke reported a persistent write")
+    if receipt.get("baseline_delivery_plan") != request["baseline_delivery_plan"]:
+        raise ValueError("Hypes release smoke changed the baseline plan")
+
+
 def validate_runtime_smoke() -> None:
     packages_before = {
         package_name: _package_tree_manifest(ROOT / "plugins" / package_name)
         for package_name in PACKAGE_NAMES
     }
     with tempfile.TemporaryDirectory(
-        prefix="sense-corpus-release-validation-"
+        prefix="personal-agent-toolkit-release-validation-"
     ) as temporary:
         root = Path(temporary)
-        for package_name in PACKAGE_NAMES:
+        for package_name in MCP_PACKAGE_NAMES:
             _mcp_handshake(package_name, root / f"{package_name}-mcp")
         validate_sense_first_run(root / "sense-first-run")
         validate_corpus_first_run(root / "corpus-first-run")
+        validate_hypes_smoke()
     packages_after = {
         package_name: _package_tree_manifest(ROOT / "plugins" / package_name)
         for package_name in PACKAGE_NAMES
