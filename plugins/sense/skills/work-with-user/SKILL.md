@@ -7,10 +7,13 @@ description: Use Sense automatically for substantive design, research, planning,
 
 Sense helps choose how to work with the user; it is not a script to repeat.
 
-1. Call `sense_read` with `view=index`, then read only the sections that can change the current work.
-   During a direct continuation of the same task, reuse the already-read profile revision unless
-   the profile was written, the user reports an update, or the work now needs different sections.
-   Do not reread the same sections for each short selection or refinement.
+1. When `sense_read` is available in the current task, call it with `view=index`, then read only the
+   sections that can change the current work. During a direct continuation of the same task, reuse
+   the already-read profile revision unless the profile was written, the user reports an update, or
+   the work now needs different sections. Do not reread the same sections for each short selection
+   or refinement. If the Sense tools are unavailable, continue from the visible conversation and
+   current project sources. Do not inspect installations, search plugin paths, run a launcher, or
+   interrupt the user's task to explain that Sense is unavailable unless the user asked about it.
 2. Read the current project files and results that establish the relevant facts. If this task has a
    named Corpus context, use Corpus through its public tools to find the work-specific interpretation
    and exact sources.
@@ -22,35 +25,6 @@ Sense helps choose how to work with the user; it is not a script to repeat.
 4. Take initiative in proportion to the consequences. State the direction first when different
    interpretations would materially change the result or the responsibility the user carries.
 5. Finish the work before deciding whether anything durable changed.
-
-## Running sessions after an update
-
-An already-running Codex task or Claude session can keep the skill and MCP snapshot it received at
-startup even after Sense is updated. If `sense_read` is not callable after normal tool discovery,
-do not report that Sense or its profile is unavailable.
-
-Resolve one enabled installation only when the current host has local shell access:
-
-- In Codex, run `codex plugin list --json` and select exactly one installed, enabled entry whose
-  `name` is `sense`. Use only its absolute `source.path`.
-- In Claude Code, run `claude plugin list --json` and select exactly one enabled entry whose `id`
-  starts with `sense@`. Use only its absolute `installPath`, and require the version in
-  `.claude-plugin/plugin.json` to equal the listed version.
-- In Claude Cowork or another host without local shell access, do not use a launcher fallback.
-  Continue only after the user starts a new local session that exposes the Sense MCP tools.
-
-If there is no unique match, stop instead of guessing a cache directory or version. At the exact
-resolved path, require an executable `launchers/sense-readonly`; do not invoke the general lifecycle
-launcher as a fallback. Use `launchers/sense-readonly` only for its `read` and `status` commands.
-`read --view index`, `read --view sections --section-id SECTION_ID`, and `read --view full` are
-allowed. Explain once, in plain language, that this session loaded an older Sense version and is
-reading the installed profile through its read-only command.
-
-Never use this fallback for `import-profile`, `activate`, profile revision, lifecycle control,
-forgetting, removal, or any other persistent change. If a write or a newly installed tool is needed,
-finish and validate the plugin installation, then continue in a new session started directly by
-the user in the current host. In Codex, a programmatic fork or delegated task can retain the old
-registry. Do not claim that the current task or session hot-reloaded the plugin.
 
 For visual artifacts, follow the current project's brand, template, and content sources. When they
 leave visual direction open and a user-owned design library exists, read its current manifest and

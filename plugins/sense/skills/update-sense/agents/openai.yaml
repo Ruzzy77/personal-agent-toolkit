@@ -1,4 +1,4 @@
 interface:
   display_name: "Update Sense"
-  short_description: "Update Sense for use in a new task"
-  default_prompt: "Use $update-sense to validate and install this Sense update, then tell me how to continue in a new task that loads the updated tools."
+  short_description: "Update Sense and reload it safely"
+  default_prompt: "Use $update-sense to validate and install this Sense update, then tell me how to restart the app and continue with the updated tools."
