@@ -1,12 +1,12 @@
 interface:
   display_name: "Work with Sense"
-  short_description: "Use a shared work profile across thoughtful tasks"
-  default_prompt: "Use $work-with-user to understand how I work and collaborate on this task with independent judgment."
+  short_description: "Use a shared work profile when user context matters"
+  default_prompt: "Use $work-with-user to apply my work profile while reaching your own conclusion about this task."
 dependencies:
   tools:
     - type: "mcp"
       value: "sense"
-      description: "Read and manage the private shared Sense work profile"
+      description: "Read and revise the private shared Sense work profile"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

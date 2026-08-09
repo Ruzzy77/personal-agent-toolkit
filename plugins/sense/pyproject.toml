@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sense"
 version = "0.1.12"
-description = "Private, user-controlled work profile shared across AI tools"
+description = "Keep one private, user-controlled work profile available across AI tools"
 authors = [
   {name = "Ruzzy77"},
 ]

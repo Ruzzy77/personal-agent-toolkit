@@ -8,19 +8,19 @@
     {
       "name": "sense",
       "source": "./plugins/sense",
-      "description": "Carry one private, user-controlled work profile across AI tools.",
+      "description": "Keep one private, user-controlled work profile available across AI tools.",
       "category": "productivity"
     },
     {
       "name": "corpus",
       "source": "./plugins/corpus",
-      "description": "Find exact source passages and preserve reusable context with source links.",
+      "description": "Find the original source behind information and carry selected context into later work.",
       "category": "productivity"
     },
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Shape responses around what the user needs to understand, decide, and do.",
+      "description": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
       "category": "productivity"
     }
   ]

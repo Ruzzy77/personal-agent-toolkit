@@ -1,12 +1,12 @@
 interface:
-  display_name: "Show Corpus Workspace"
-  short_description: "Show indexing, current context, and retained history"
-  default_prompt: "Use $show-corpus-overview to show my current Corpus workspace, including index coverage, current context, review needs, and retained history."
+  display_name: "Corpus Overview"
+  short_description: "Show sources, saved context, and review needs"
+  default_prompt: "Use $show-corpus-overview to show my Corpus sources, saved context, items that need review, and retained history."
 dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Read-only Corpus workspace overview and saved context"
+      description: "Read-only Corpus overview of sources, saved context, and retained history"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

@@ -21,14 +21,16 @@ from .model import (
 from .service import ControlAction, ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
-    "Sense keeps one private work profile for collaborating with the user across AI tools. "
-    "It contains durable ways of working and cross-work learning, not project facts or raw "
-    "conversation history. Current user requests, project-owned sources, and executed results "
-    "remain authoritative. While the profile is a preview, read it only when the user explicitly "
-    "asks. After trusted activation, read it for work that needs interpretation or judgment. "
-    "Do not echo its wording mechanically; use it to form an independent view. "
-    "Only revise the profile when a completed result or explicit correction changes a future "
-    "judgment across work. Project-specific understanding belongs with the project or Corpus. "
+    "Sense keeps one private work profile that AI tools can use when working with the user. "
+    "It contains ways of working and lessons that remain useful across different tasks, not "
+    "project facts or raw conversation history. Follow the current user request first, and verify "
+    "project facts in the project's current sources and executed results. While the profile is a "
+    "preview, read it only when the user explicitly asks. After trusted activation, read it for "
+    "work that needs interpretation or a consequential choice. Do not repeat its wording "
+    "mechanically; use it "
+    "to form an independent view. Only revise the profile when a completed result or explicit "
+    "correction should change choices in other kinds of work. Project-specific understanding "
+    "belongs with the project or Corpus. "
     "A preview profile is intentionally read-only until the user reviews and activates it."
 )
 
@@ -129,12 +131,12 @@ def create_server(data_root: Path | None = None) -> FastMCP:
         title="Read Work Profile",
         description=(
             "Read the private shared work profile. Start with view=index, then request only the "
-            "relevant section ids. When the user asks to see the whole profile, use "
-            "sense_overview. view=full is reserved for explicit structured inspection or repair "
-            "when that review screen is insufficient. Sensitive sections are never returned by "
-            "index alone. Source "
-            "locators are omitted unless include_sources=true is needed for user-requested "
-            "inspection or repair. This never changes state."
+            "relevant section ids. Use sense_overview when the user asks to review all non-sensitive "
+            "sections in one screen. Use view=full only for an explicit structured inspection or "
+            "repair that the review screen cannot support. The index never returns sensitive section "
+            "content. Source locators "
+            "are omitted unless include_sources=true is needed for a user-requested inspection or "
+            "repair. This does not modify the profile."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -159,10 +161,10 @@ def create_server(data_root: Path | None = None) -> FastMCP:
         name="sense_overview",
         title="Show Work Profile",
         description=(
-            "Show a read-only review screen of the whole shared work profile when the user "
-            "explicitly asks to see or inspect what Sense currently uses. The screen includes "
-            "where each part applies, when to review it, and source categories without exposing "
-            "source locators, digests, or sensitive section content. This never changes state."
+            "Open a read-only review screen of the non-sensitive parts of the shared work profile "
+            "when the user asks what Sense currently uses. The screen shows where each part applies, "
+            "when to review it, and the kinds of sources behind it. It does not expose source "
+            "locators, digests, or sensitive section content, and it does not modify the profile."
         ),
         annotations=READ_ONLY,
         meta={
@@ -183,11 +185,11 @@ def create_server(data_root: Path | None = None) -> FastMCP:
         title="Revise Work Profile",
         description=(
             "Replace one whole profile section after an explicit user correction or completed "
-            "work changes a future judgment across work. Requires the revision and section "
-            "digest returned by sense_read. The previous understanding and changed future "
-            "judgment are checked for presence but are not stored. A preview profile rejects "
-            "all writes. This MCP call cannot authorize sensitive content or expanded use; those "
-            "changes require a trusted local review surface."
+            "work shows that future choices in other kinds of work should change. Use the revision "
+            "and section digest returned by sense_read. The previous understanding and the "
+            "description of what should differ next time are required but are not stored. A "
+            "preview profile rejects all writes. This MCP call cannot authorize sensitive content "
+            "or broader use; those changes require a trusted local review surface."
         ),
         annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},
@@ -216,10 +218,11 @@ def create_server(data_root: Path | None = None) -> FastMCP:
         name="sense_control",
         title="Manage Work Profile",
         description=(
-            "Inspect or export the full work profile and preview the exact effect of forgetting "
-            "a section or removing the Sense database. This MCP surface cannot activate, forget, "
-            "or remove data because a model-supplied flag is not evidence of the user's approval. "
-            "Those actions require a trusted local review surface."
+            "Inspect or export the full work profile, or show exactly what would be removed by "
+            "forgetting a section or deleting the Sense database. This tool cannot activate the "
+            "profile, forget a section, or remove data because a confirmation flag supplied by a "
+            "model does not prove the user's approval. Those actions require a trusted local "
+            "review surface."
         ),
         annotations=PROFILE_CONTROL,
         meta={"ui": {"visibility": ["model"]}},
@@ -242,10 +245,10 @@ def create_server(data_root: Path | None = None) -> FastMCP:
         name="sense_status",
         title="Check Work Profile Status",
         description=(
-            "Return the local Sense schema, preview or active state, current revision and digest, "
-            "retained revision count, server version, and private file permissions. It does not "
-            "claim that every provider is connected; compare real client reads when checking "
-            "cross-platform state."
+            "Show which Sense build is running, whether the profile is a preview or active, which "
+            "revision is current, how many older revisions remain, and whether the private files "
+            "have safe permissions. This checks only the local installation. Compare actual reads "
+            "from each AI tool when checking whether they use the same profile."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},

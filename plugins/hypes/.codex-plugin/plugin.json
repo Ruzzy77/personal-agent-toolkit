@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.2.0+codex.20260809080942",
-  "description": "Shape responses around what the user needs to understand, decide, and do.",
+  "version": "0.2.0+codex.20260809094600",
+  "description": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Hypes",
-    "shortDescription": "Shape each response around what matters now",
-    "longDescription": "Hypes works in the background on substantive tasks. It writes the actual response at a useful depth, adds explanation only when it helps, removes unnecessary structure and process language, and applies explicit corrections from the current conversation. It does not add a separate interface or build a cross-conversation profile.",
+    "shortDescription": "Clear, natural responses for what matters now",
+    "longDescription": "Hypes works quietly on substantive tasks. It makes the response clear and appropriately detailed, removes unnecessary structure and narration of internal process, and applies explicit corrections from the current conversation. It adds no separate interface and keeps no profile across conversations.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -31,7 +31,7 @@
     "defaultPrompt": [
       "Use Hypes to make this response clear, natural, and appropriately detailed.",
       "Explain this without repeating what I already understand.",
-      "Remove unnecessary headings and process explanation from this draft."
+      "Remove unnecessary headings and explanations of internal process from this draft."
     ]
   }
 }

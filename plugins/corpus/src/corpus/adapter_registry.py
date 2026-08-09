@@ -1,4 +1,4 @@
-"""Format-to-adapter routing owned by Corpus Workspace.
+"""Format-to-adapter routing used by Corpus.
 
 Backend packages can change without making their identifiers, chunks, or
 lifecycle part of the corpus schema.  The registry only selects an adapter;

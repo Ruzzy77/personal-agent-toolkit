@@ -1,4 +1,4 @@
-"""Agent-friendly JSON CLI for Corpus Workspace operations."""
+"""Agent-friendly JSON CLI for Corpus operations."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def load_json_object(path_value: str) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="corpus",
-        description="Read-only multi-source corpus workspace.",
+        description="Manage registered sources, private indexes, and reusable context.",
     )
     parser.add_argument(
         "--data-root",
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     corpus = commands.add_parser("corpus", help="Manage explicit corpus registrations.")
     corpus_commands = corpus.add_subparsers(dest="corpus_command", required=True)
-    add = corpus_commands.add_parser("add", help="Register an allowlisted source root.")
+    add = corpus_commands.add_parser("add", help="Register a folder Corpus may read.")
     add.add_argument("--id", required=True, dest="corpus_id")
     add.add_argument("--root", required=True, type=Path)
     add.add_argument(
@@ -174,7 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument(
         "--include-remote",
         action="store_true",
-        help="Permit pending dataless placeholders to materialize within budgets.",
+        help="Download remote placeholders within the file, size, and time limits.",
     )
     sync.add_argument("--timeout-seconds", type=float, default=120)
 
@@ -264,7 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--include-remote",
         action="store_true",
-        help="Permit selected dataless placeholders to materialize within budgets.",
+        help="Download selected remote placeholders within the file, size, and time limits.",
     )
     ingest.add_argument(
         "--remote-only",
@@ -295,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search = commands.add_parser(
         "search",
-        help="Acquire lexical candidates; agent interpretation is still required.",
+        help="Find possible passages by exact terms; inspect the source before relying on them.",
     )
     search.add_argument("--corpus", required=True)
     search.add_argument("--query", required=True)
@@ -411,8 +411,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("restricted", "general"),
         default="restricted",
         help=(
-            "Read the complete private context or its approved, source-link-free "
-            "shareable semantic projection."
+            "Read the complete private context or only its approved items, without private "
+            "source links or internal identifiers."
         ),
     )
     context_list.add_argument("--limit", type=int, default=100)
@@ -441,8 +441,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("restricted", "general"),
         default="restricted",
         help=(
-            "Read the complete private context or its approved, source-link-free "
-            "shareable semantic projection."
+            "Read the complete private context or only its approved items, without private "
+            "source links or internal identifiers."
         ),
     )
     context_show.add_argument("--include-history", action="store_true")
@@ -463,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     context_update = context_commands.add_parser(
         "update",
-        help="Append, supersede, or advance a named context from a JSON object.",
+        help="Update or approve a named context from a JSON object.",
     )
     context_update.add_argument("--id", required=True, dest="context_id")
     context_update.add_argument(
@@ -487,8 +487,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-general-release",
         action="store_true",
         help=(
-            "Confirm approval of a general semantic release. This changes private "
-            "approval state and does not publish or transmit it."
+            "Confirm the complete set of items for the general view. This changes private "
+            "approval state and does not publish or transmit anything."
         ),
     )
 

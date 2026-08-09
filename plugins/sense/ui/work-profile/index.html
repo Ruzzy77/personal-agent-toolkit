@@ -417,7 +417,7 @@
 
       function sourceText(source) {
         const count = Number(source?.count ?? 0);
-        return `${String(source?.label ?? "확인한 출처")} · ${count}곳`;
+        return `${String(source?.label ?? "확인한 출처")} ${count}건`;
       }
 
       function fact(title, items) {
@@ -495,13 +495,15 @@
         const formattedDate = formatDate(result.updated_at);
         status.append(
           statusCopy,
-          element("div", "date", formattedDate ? `${formattedDate} 정리` : "")
+          element("div", "date", formattedDate ? `${formattedDate} 수정` : "")
         );
         hero.append(status);
         profile.append(hero);
 
         const toolbar = element("div", "toolbar");
-        toolbar.append(element("div", "recent", result.recent_change ?? ""));
+        if (result.recent_change) {
+          toolbar.append(element("div", "recent", result.recent_change));
+        }
         const toggle = element("button", "toggle", "모두 펼치기");
         toggle.type = "button";
         toggle.addEventListener("click", () => {

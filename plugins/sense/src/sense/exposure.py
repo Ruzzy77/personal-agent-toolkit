@@ -9,7 +9,7 @@ from .model import ProfileDocument, ProfileSection, section_sha256
 
 SECTION_PRESENTATION = {
     "working-together": {
-        "title": "판단과 책임",
+        "title": "결정과 책임",
         "group": "함께 일하기",
     },
     "work-process": {
@@ -17,12 +17,12 @@ SECTION_PRESENTATION = {
         "group": "함께 일하기",
     },
     "evidence-and-judgment": {
-        "title": "자료를 판단하는 방식",
-        "group": "근거와 표현",
+        "title": "자료를 읽는 기준",
+        "group": "자료와 표현",
     },
     "conversation-and-writing": {
         "title": "대화와 글",
-        "group": "근거와 표현",
+        "group": "자료와 표현",
     },
     "research-and-long-term-goals": {
         "title": "연구와 장기 작업",
@@ -33,10 +33,10 @@ SECTION_PRESENTATION = {
         "group": "오래 이어갈 일",
     },
 }
-GROUP_ORDER = ("함께 일하기", "근거와 표현", "오래 이어갈 일", "그 밖의 내용")
+GROUP_ORDER = ("함께 일하기", "자료와 표현", "오래 이어갈 일", "그 밖의 내용")
 ORIGIN_LABELS = {
     "user_set": "직접 설정",
-    "learned_from_work": "작업에서 배움",
+    "learned_from_work": "작업에서 배운 것",
 }
 SOURCE_LABELS = {
     ("user_set", "conversation"): "직접 확인한 대화",
@@ -46,7 +46,7 @@ SOURCE_LABELS = {
     ("learned_from_work", "conversation"): "작업을 다시 확인한 대화",
     ("learned_from_work", "file"): "작업을 통해 확인한 자료",
     ("learned_from_work", "corpus"): "업무에서 이어 온 이해",
-    ("learned_from_work", "result"): "판단을 바꾼 작업 결과",
+    ("learned_from_work", "result"): "작업에서 확인한 결과",
 }
 DISPLAY_VALUE_END = r"""(?=(?:[.;,!?)}\]](?:\s|$))|["'<>`]|[\r\n]|$)"""
 DISPLAY_LOCATOR_PATTERNS = (
@@ -201,20 +201,20 @@ def work_profile_overview(
             "description": (
                 "지금은 요청할 때만 이 내용을 참고합니다."
                 if lifecycle == "preview"
-                else "해석과 판단이 필요한 작업에서 이 내용을 참고합니다."
+                else "해석하거나 선택할 일이 있는 작업에서 이 내용을 참고합니다."
             ),
         },
         "groups": groups,
         "recent_change": (
             "처음 만든 작업 프로필입니다."
             if profile.revision == 1
-            else "작업 프로필이 새 내용으로 바뀌었습니다."
+            else ""
         ),
         "updated_at": updated_at,
         "privacy": [
             "대화 원문은 저장하지 않습니다.",
-            "민감한 내용은 사용자가 직접 확인한 경우에만 남깁니다.",
-            "별도 확인이 필요한 내용은 이 화면에 표시하지 않습니다.",
+            "민감한 내용은 사용자가 저장을 직접 승인한 경우에만 남깁니다.",
+            "민감하게 표시된 내용은 이 화면에 나타내지 않습니다.",
             "각 앱의 대화 기억은 해당 앱이 관리합니다.",
         ],
     }

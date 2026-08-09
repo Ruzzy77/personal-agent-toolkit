@@ -23,9 +23,9 @@ CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
 PACKAGE_DESCRIPTIONS = {
-    "sense": "Carry one private, user-controlled work profile across AI tools.",
-    "corpus": "Find exact source passages and preserve reusable context with source links.",
-    "hypes": "Shape responses around what the user needs to understand, decide, and do.",
+    "sense": "Keep one private, user-controlled work profile available across AI tools.",
+    "corpus": "Find the original source behind information and carry selected context into later work.",
+    "hypes": "Make responses clear, natural, and suited to what the user needs to understand, decide, and do.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}

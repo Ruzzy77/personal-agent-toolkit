@@ -1,43 +1,39 @@
 ---
 name: investigate-corpus
-description: Find and compare information across indexed work, research, and personal collections through Corpus, including exact document source units and linked provider records, with version checks, coverage gaps, and optional named context for a repeated task or selected semantic collection. Use when a task requires locating, comparing, verifying, synthesizing, or preparing an artifact from registered sources. Do not use for an overview-only status display, direct source editing, ordinary work on one already-provided document, or persistent context maintenance unless the user selects that context.
+description: Find and compare information in registered Corpus collections, reopen exact source passages, check versions and coverage gaps, and continue a named context only when the user has selected it. Use when a task requires locating, comparing, verifying, synthesizing, or preparing an artifact from registered sources. Do not use for an overview-only status display, direct source editing, ordinary work on one already-provided document, or persistent context maintenance unless the user selects that context.
 ---
 
-# Investigate Corpus
+# Investigate with Corpus
 
 Use Corpus to locate the registered sources needed for the task. Indexed files provide exact source
-locations and text. Linked provider records provide stable locators with bounded metadata. Use the
+locations and text. Linked provider records provide stable locators with limited metadata. Use the
 provider's standard connector for Gmail exact reads and `corpus_source_fetch` for completed Codex
-or Claude turns. The host agent interprets both kinds of input for the current request. For an
+or Claude turns. The agent interprets both kinds of input for the current request. For an
 ordinary request, do not call
 `semantic_context` or any `interpretation_*` tool.
 
-## Continue across a plugin update
+## After a plugin update
 
 If a required read-only `corpus_*` tool is absent, do not treat that as an empty Corpus or a failed
-installation. An already-running Codex task or Claude session can retain the plugin snapshot from
-before an update. In local Codex or Claude Code with shell access, use the host-specific exact
-enabled-package checks in
+installation. A task or session that was already open can keep the plugin version it started with.
+When local shell access is available, follow the exact enabled-package checks in
 [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, use that
-package's `launchers/corpus-readonly` for:
+package's `launchers/corpus-readonly` for these reads:
 
 - `corpus list`, `overview`, `status`, `inventory`, `search`, and exact `read`;
 - linked-source `source list` and exact completed-task `source fetch`;
 - named-context `context list` and `context show`.
 
-Never resolve fallback relative to this stale skill, search plugin caches, or choose a
-newest-looking package. The launcher rejects all other commands. In particular, never use fallback
-for scan, sync, refresh, ingest, remote hydration, corpus or source changes, context create/update/
-archive/migrate, cleanup, reconciliation, semantic commits, or purge. If exact resolution fails,
-stop without drawing a data or installation conclusion.
+Never guess a package path, search caches, or choose a package because it looks newest. The launcher
+rejects all other commands. Do not use this fallback for scan, sync, refresh, downloads, source
+changes, context changes, cleanup, migration, or deletion. If the exact installed package cannot be
+verified, stop without drawing a conclusion about the user's data or installation.
 
-A write or a tool introduced by the updated package requires the validated package to be installed,
-then the user to start a new task or session directly in that host. In Codex, do not use
-`fork_thread`, `create_thread`, or a delegated task as the transition because they may inherit the
-previous plugin registry; carry a `thread://` reference or concise handoff. In Claude Code, verify
-the enabled version and component inventory before starting a new session. In Claude Cowork, use a
-new local session after confirming the plugin is enabled. In every host, verify the actual MCP tool
-surface before continuing and never claim an in-place hot-reload.
+If the work needs a newly installed tool or any persistent change, tell the user that the current
+task has not loaded the update and ask them to start a new task or session after the installation is
+checked. Do not create, fork, or delegate that transition on the user's behalf because it may retain
+the older plugin. Do not include build identifiers, package paths, or tool inventories in the normal
+handoff; show them only when diagnosing a failure.
 
 ## Resume a selected named context
 
@@ -70,9 +66,12 @@ belongs to the current request.
 Creating a named context is a user-visible persistence choice. Do it when the user asks to
 establish a repeated task or semantic collection. Keep ordinary investigations ephemeral.
 
-## Prepare and use a general semantic view
+## Prepare and use the `general` view
 
-Prepare a general view inside a selected restricted context:
+The `general` view is not the whole context. It contains only items the user approves and omits
+private source links and internal identifiers. Preparing it does not publish or transmit anything.
+
+Prepare it inside a selected restricted context:
 
 1. Read the restricted view and reopen every exact `SourceUnit` that supports an item proposed for
    general use. Items linked to Gmail or another external provider stay restricted.
@@ -82,7 +81,7 @@ Prepare a general view inside a selected restricted context:
 3. Mark only source-linked `finding`, `relationship` or `difference` items as
    `general_candidate`. Questions, gaps, long source excerpts and items with non-direct source links
    stay restricted.
-4. Present the public title, public purpose and complete candidate set to the user because
+4. Present the title, purpose and complete candidate set that the `general` view will show because
    individually ordinary details may identify a person, organization or project when combined.
 5. After the user approves that complete set, call
    `context_update(action="approve_general")` with the current context version,
@@ -92,11 +91,11 @@ Prepare a general view inside a selected restricted context:
 General approval creates or replaces a release manifest in the private runtime. It does not publish,
 transmit or create an external file.
 
-Start actual public-facing use in a fresh task:
+Use the approved items in a fresh task:
 
 1. Call `context_read(view="general")` without an id to list approved collections.
 2. Select the returned `public_collection_id` and read that id with `view="general"`.
-3. Use only the public collection fields and returned item text. Do not call corpus search or read,
+3. Use only the collection fields and returned item text. Do not call corpus search or read,
    switch to the restricted view, or bring forward internal conversation context in this task.
 4. Treat `total_matching` as the items currently available. A changed dependency observed by the
    source index and item supersession remove affected items from the general view. Do not
@@ -118,7 +117,7 @@ compare, explain, or produce something from sources.
    boundary; do not count excluded development environments or caches as coverage gaps.
    For linked provider history, state `observed_through` before drawing a time-bounded conclusion.
    When the request has a starting time, pass it as `occurred_after` instead of paging older records.
-3. Frame the request into a small set of information needs: required fields, entity and time
+3. Break the request into a small set of information needs: required fields, entity and time
    scope, which versions or approval states matter, possible conflicting information, and the
    intended output.
 4. Keep these layers distinct:
@@ -161,8 +160,8 @@ periodically complete a full label enumeration. Only the full enumeration can re
 
 ## Use completed Codex and Claude turns as linked sources
 
-Use this path when a selected corpus needs to reuse evidence from completed agent work without
-copying its conversation into Corpus.
+Use this path when a selected corpus needs to reuse a result or interpretation from completed agent
+work while keeping a link to the original task instead of copying its conversation into Corpus.
 
 1. Inspect an existing binding with `corpus_source_read`. A Codex or Claude record contains only
    provider, stable session and turn ids, completion time, cwd/workspace, actor/task kind, an exact
@@ -187,7 +186,7 @@ The refresh operation updates Corpus private runtime state only. It does not alt
 Sense policy, another consumer's policy or automation, and does not itself create a semantic
 interpretation.
 
-## Retrieve before materializing
+## Find candidates, then read the exact source
 
 1. Use `corpus_inventory` as a filtered raw-source and version lane when indexed coverage may omit
    a relevant document, or when title, date, status, owner or supersession matters. Filter by
@@ -233,7 +232,7 @@ context with the remaining gap instead of widening indefinitely.
   inherently partial.
 - Never edit, move, rename, delete, pin, evict or create sidecars beside a registered source.
 
-## Build an ephemeral task context
+## Keep the investigation in this task
 
 For a restricted source investigation, assemble a compact context for this request only before
 answering or handing off an artifact:
@@ -266,7 +265,7 @@ not add private source locations or reopen the registered corpus.
 
 Treat `semantic_context` and `interpretation_*` as a legacy compatibility workflow. Use them only
 when the user explicitly asks to inspect or maintain an existing semantic cache. New repeated tasks
-uses `context_read` and `context_update`.
+use `context_read` and `context_update`.
 
 ## Hand off without touching originals
 
@@ -276,6 +275,6 @@ tool as output targets, including for an explicit editing request. Create a sepa
 artifact or editable proposal outside every registered source root, and carry forward the original
 document locations and known gaps for user review.
 
-For a public-facing artifact, begin in a fresh general-only task and carry forward only the approved
-general view. Release approval in a restricted task prepares the view; it does not authorize
-publishing, transmitting or changing an external artifact.
+When a task should use only approved items, begin in a fresh task and carry forward only the
+`general` view. Approval in a restricted task prepares the view; it does not authorize publishing,
+transmitting or changing another artifact.

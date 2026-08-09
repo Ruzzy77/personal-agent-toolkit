@@ -20,29 +20,30 @@ Corpus indexes only sources the user explicitly registers.
 - Source bytes remain in their original locations and are not written by Corpus.
 - Local indexes and reusable context stay in the private Corpus runtime directory.
 - Gmail bodies remain with Gmail. Completed Codex and Claude turns remain with their providers.
-- Provider links persist only bounded metadata, a locator, and a freshness identity.
+- Provider links keep only limited record details, the original record's location, and a fingerprint
+  used to detect changes.
 - Exact provider content is read at request time and is not copied into the Corpus index.
 - Archived context remains readable. Destructive context purge is not currently provided.
 
-Some explicitly requested extraction operations may use an external host when the corpus execution
-policy allows it. Optional hydration of remote placeholders may use network, disk, and local
-residency. These actions are separate from ordinary local reads.
+Some explicitly requested extraction operations may run outside the local machine when the Corpus
+execution policy allows it. Downloading cloud placeholder files uses network, disk, and local
+storage. These actions are separate from ordinary local reads.
 
 ## Hypes
 
 Hypes ships as a single skills-only component that can be selected automatically when a
 substantive response benefits from adaptation.
 
-- It uses only the request, conversation, and other context already available to the host.
+- It uses only the request, conversation, and other context already available in the current task.
 - It does not create a profile, database, log, network request, or cross-conversation memory.
 - It changes the actual response rather than producing a separate recommendation or interface.
 - Explicit corrections from the current conversation can affect later responses in that same
   conversation. Silence, ordinary replies, and apparent acceptance are not treated as learned
   preferences.
-- Automatic eligibility is based on the current request, not background observation. Hypes does
+- Automatic selection is based on the current request, not background observation. Hypes does
   not monitor the screen, keyboard, emotion, or unrelated conversations.
-- Sense remains the owner of reviewed cross-work preferences. Hypes does not copy or update the
-  Sense profile.
+- Reviewed preferences that should carry across tasks remain in Sense. Hypes does not copy or
+  update the Sense profile.
 
 ## Repository contents
 

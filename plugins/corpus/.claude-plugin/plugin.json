@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "description": "Find exact source passages and preserve reusable context with source links.",
+  "description": "Find the original source behind information and carry selected context into later work.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -9,5 +9,5 @@
   "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.9.13+codex.20260809054513"
+  "version": "0.9.13+codex.20260809094600"
 }

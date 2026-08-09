@@ -1,4 +1,4 @@
-"""Corpus Workspace: a read-only source fabric with reusable context."""
+"""Corpus keeps registered sources read-only while indexing and reusing selected context."""
 
 from importlib.metadata import PackageNotFoundError, version
 

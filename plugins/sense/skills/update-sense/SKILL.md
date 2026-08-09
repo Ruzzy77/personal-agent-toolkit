@@ -17,8 +17,9 @@ tasks and Claude sessions do not hot-reload skills or MCP tools after installati
    treat the current task's MCP surface as installation proof.
 4. Cross the refresh boundary for the host that was updated:
    - In Codex, do not use `fork_thread` or a programmatically delegated task as proof of refresh;
-     ask the user to start a new task directly from the Codex UI. Include the current `thread://`
-     reference, owner commit, installed build version, completed checks, and unresolved request.
+     ask the user to start a new task directly from the Codex UI. Tell them that the update is
+     installed, that a new task is required, and which unfinished request to continue. Keep commit,
+     build, and validation identifiers out of the normal handoff unless diagnosis requires them.
    - In Claude Code, require `claude plugin list --json` to show the expected enabled version, use
      `claude plugin details sense@MARKETPLACE` to check the skill and MCP inventory, then start a
      new Claude Code session. `claude mcp list` confirms installation connectivity but not that an

@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "description": "Find exact source passages and preserve reusable context with source links.",
+  "description": "Find the original source behind information and carry selected context into later work.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -25,18 +25,18 @@
   },
   "interface": {
     "displayName": "Corpus",
-    "shortDescription": "Find sources and carry linked context forward",
-    "longDescription": "Corpus finds the original file, message, or completed agent task behind information used in a project, then preserves selected context with links back to those sources. It reads only registered sources, keeps personal indexes and context on this Mac, and leaves original documents and provider records unchanged. Archived contexts remain readable; destructive context purge is not provided.",
+    "shortDescription": "Find original sources and carry context forward",
+    "longDescription": "Corpus finds the original file, message, or completed AI task behind information used in your work, then keeps selected context linked to those sources for later tasks. Registered files and provider records remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
-      "Read",
+      "Source reading",
       "Local indexing",
       "Linked sources",
-      "Agent task history",
-      "Workspace overview",
+      "Linked completed tasks",
+      "Corpus overview",
       "Reusable context",
-      "Optional shared views"
+      "Approved views without private source links"
     ],
     "brandColor": "#7357E8",
     "composerIcon": "./assets/icon.png",
@@ -47,5 +47,5 @@
       "Continue this selected context and show what changed since the last review."
     ]
   },
-  "version": "0.9.13+codex.20260809054513"
+  "version": "0.9.13+codex.20260809094600"
 }

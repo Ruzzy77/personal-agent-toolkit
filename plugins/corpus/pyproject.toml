@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "corpus"
 version = "0.9.13"
-description = "Source-linked personal workspace for exact retrieval and reusable context"
+description = "Find the original source behind information and carry selected context into later work."
 readme = "README.md"
 authors = [
   {name = "Ruzzy77"},

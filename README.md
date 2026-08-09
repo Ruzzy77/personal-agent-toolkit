@@ -2,11 +2,12 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-A local-first toolkit for carrying personal context, tracing work back to sources, and adjusting
-how AI helps. The marketplace currently contains:
+A local-first toolkit that helps AI work with the user's preferences, return to original sources,
+and present each response in a form that suits the task. The marketplace currently contains:
 
 - **Sense** carries one private, user-controlled work profile across AI tools.
-- **Corpus** finds exact source passages and preserves reusable context with source links.
+- **Corpus** finds the original source behind information and carries selected context into later
+  work without losing the source link.
 - **Hypes** shapes substantive responses around what the user needs to understand, decide, and do.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
@@ -15,18 +16,20 @@ documents, saved context, provider conversations, credentials, or runtime databa
 
 ## When the plugins run
 
-The user does not need to name a plugin on every request. Once installed and enabled:
+The user does not need to name a plugin on every request. Once installed and enabled, Codex or
+Claude can select them when a task calls for them:
 
-- Sense is eligible automatically when substantive work depends on the user's intent, working
+- Sense can be selected when substantive work depends on the user's intent, working
   style, priorities, responsibility, or learning across completed work.
-- Corpus is eligible automatically when a task requires locating, comparing, or verifying source
+- Corpus can be selected when a task requires locating, comparing, or verifying source
   material from registered collections.
-- Hypes is eligible automatically when a substantive response should fit the user's current purpose,
+- Hypes can be selected when a substantive response should fit the user's current purpose,
   understanding, or decision responsibility.
 
 Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
-personal context. Skill selection is performed by the host and is not a guaranteed operating-system
-hook, so a new task or session is required after plugin installation or update.
+personal context. Codex and Claude decide when to use a skill, so a relevant skill may not be used
+on every response. Start a new task or session after installing or updating a plugin so the new
+version can load.
 
 ## Requirements
 
@@ -59,7 +62,7 @@ claude plugin install corpus@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 ```
 
-Restart the host after installing or updating a plugin.
+Start a new task or session after installing or updating a plugin.
 
 ### Claude Cowork
 
@@ -105,7 +108,7 @@ profile on the user's behalf.
 
 ### Corpus
 
-Corpus also starts empty. Register only a folder you want Corpus to observe:
+Corpus also starts empty. Register only a folder you want Corpus to search:
 
 ```sh
 ./plugins/corpus/launchers/corpus corpus add \
@@ -120,13 +123,18 @@ outside this repository.
 
 ### Hypes
 
-Hypes works in the background on substantive tasks. It writes the actual response at a useful
-depth, removes repeated context and process-heavy wording, adds explanation only when it helps, and
-keeps important facts, uncertainty, and decisions the user owns. Explicit wording or explanation
-corrections in the current conversation should affect the next relevant response.
+Hypes works in the background on substantive tasks. It writes the actual response with the detail
+the task needs, removes repeated context and process-heavy wording, adds explanation only when it
+helps, and keeps important facts, uncertainty, and decisions the user must make. Explicit wording
+or explanation corrections in the current conversation should affect the next relevant response.
 
-Start a new task or session after installation. The host can select Hypes without a named request.
-To test explicit invocation, use:
+It does not replace the result with project-management or engineering narration, turn a bounded
+edit into a research or governance program, list routine Git and test details, or weaken every main
+point with a reflexive caveat. Necessary limits stay where they materially affect interpretation or
+action, and the writing keeps the voice and structure of its actual genre.
+
+Start a new task or session after installation. Codex or Claude can select Hypes without a named
+request. To test explicit invocation, use:
 
 ```text
 Use Hypes to make this response clear, natural, and appropriately detailed.
@@ -134,8 +142,7 @@ Use Hypes to make this response clear, natural, and appropriately detailed.
 
 Hypes adds no fixed panel or separate writing-style choice. It does not build a profile or learn
 across conversations. Simple retrieval, literal transformations, and direct one-step actions do
-not need it. Automatic selection remains a host decision rather than a guaranteed per-response
-hook.
+not need it. Codex or Claude may not select it on every relevant response.
 
 ## Data boundary
 
@@ -144,10 +151,10 @@ By default on macOS:
 - Sense stores its private profile under `~/Library/Application Support/Sense/`.
 - Corpus stores its catalog, indexes, and context under
   `~/Library/Application Support/Corpus/`.
-- Provider-linked records remain with their original providers. Corpus stores bounded metadata and
-  reads exact visible content only when explicitly requested.
+- Provider-linked records remain with their original providers. Corpus stores limited record
+  details and reads exact visible content only when explicitly requested.
 - Hypes keeps no personal database and adds no storage beyond the conversation already available
-  to the host.
+  in the current task.
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 
@@ -172,5 +179,5 @@ are installed separately and retain their own licenses; see
 
 이 저장소는 Sense, Corpus, Hypes와 이후 추가될 독립 플러그인의 공통 배포 채널입니다.
 플러그인 코드와 설치 정보만 들어 있으며 개인 작업 프로필, 원문, 색인, 대화 상태,
-credential, runtime database는 포함하지 않습니다. 각 플러그인의 데이터와 실행 경계는
-분리되고 새 설치는 빈 상태로 시작합니다.
+자격 증명, 실행 중 생성되는 데이터베이스는 포함하지 않습니다. 각 플러그인의 데이터와
+실행 경계는 분리되고 새 설치는 빈 상태로 시작합니다.

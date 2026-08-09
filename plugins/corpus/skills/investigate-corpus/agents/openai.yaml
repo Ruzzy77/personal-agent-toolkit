@@ -1,12 +1,12 @@
 interface:
   display_name: "Find in Corpus"
-  short_description: "Find exact sources and reuse selected context"
-  default_prompt: "Use $investigate-corpus to find current source passages or continue my selected corpus context."
+  short_description: "Find original sources and carry context forward"
+  default_prompt: "Use $investigate-corpus to find the original sources for this task or continue the Corpus context I selected."
 dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Local Corpus overview, exact file and provider-task reading, reusable context, and optional general-view tools"
+      description: "Corpus tools for source finding, exact file and completed-task reading, and selected reusable context"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

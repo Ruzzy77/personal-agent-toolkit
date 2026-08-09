@@ -1,28 +1,27 @@
 ---
 name: show-corpus-overview
-description: Show a read-only personal overview of registered Corpus collections, including source-index coverage, local and remote document states, linked provider records, reusable semantic context, stale items needing review, superseded history, archived contexts, open questions, and freshness. Use when the user asks to see, list, compare, audit, visualize, or choose among corpora, asks what Corpus currently knows, or asks how old interpretations are retained. Do not use for source investigation, index refresh, corpus registration, archive actions, or persistent context changes.
+description: Show a read-only overview of registered Corpus collections, including indexed and unindexed documents, linked provider records, saved context, items whose sources need review, and archived history. Use when the user asks to see, list, compare, audit, visualize, or choose among corpora, asks what Corpus currently knows, or asks how older interpretations are retained. Do not use for source investigation, index refresh, corpus registration, archive actions, or persistent context changes.
 ---
 
-# Show Corpus Workspace
+# Show the Corpus overview
 
-Present the current saved Corpus state as one workspace view. Keep source coverage and agent-authored
-understanding visibly distinct: more indexed text does not mean better understanding, and a saved
-context item remains an interpretation rather than an original-source claim.
+Present the current saved Corpus state in one view. Keep source coverage separate from the agent's
+saved interpretation: more indexed text does not mean better understanding, and saved context is
+not the same as a statement in the source.
 
 ## Read the saved state
 
 1. Call MCP `corpus_overview` with five items per context when that tool is exposed in the current
    task.
 2. If `corpus_overview` is absent, do not treat that as an empty Corpus or a failed installation.
-   An already-running Codex task or Claude session can retain the plugin snapshot from before an
-   update. In local Codex or Claude Code with shell access, use the host-specific exact
-   enabled-package checks in
+   A task or session that was already open can keep the plugin version it started with. When local
+   shell access is available, follow the exact enabled-package checks in
    [UPDATE_CONTINUITY.md](../../UPDATE_CONTINUITY.md). Only after every check passes, run that
-   package's `launchers/corpus-readonly overview --max-items-per-context 5`. This personal CLI view also
-   includes `local_only` corpora.
-3. Never resolve fallback from this skill's directory, scan plugin caches, or choose a
-   newest-looking package. If the enabled package is missing, ambiguous, or has a version or build
-   mismatch, stop without inferring anything about the user's data.
+   package's `launchers/corpus-readonly overview --max-items-per-context 5`. This private overview
+   also includes `local_only` corpora.
+3. Never guess a package path, search caches, or choose a package because it looks newest. If the
+   installed package cannot be verified exactly, stop without inferring anything about the user's
+   data.
 4. Start with five items per context and increase only when the user asks to inspect more.
 5. Treat the response as a stored-state view. Do not call `corpus_scan`, `corpus_sync`,
    `corpus_refresh`, `context_update`, or provider mutation tools merely to make the overview look
@@ -33,14 +32,13 @@ context item remains an interpretation rather than an original-source claim.
 7. When `inventory_complete=false`, a scan timestamp is old, context items are truncated, or a
    source has partial extraction, show that condition without turning it into a generic warning.
 
-The fallback is read-only. Never use it for scan, sync, refresh, hydration, registration, linked
-source changes, context changes, archive, migration, cleanup, or purge. If the request needs a
-write or a tool introduced by the updated package, ask the user to start a new task or session
-directly in the current host after validated installation. In Codex, do not use `fork_thread`,
-`create_thread`, or a delegated task as the transition; carry a `thread://` reference or concise
-handoff. In Claude Code, start a new session after checking the installed version and component
-inventory. In Claude Cowork, confirm the plugin is enabled and start a new local session. Verify the
-actual MCP tool surface there, and do not claim an in-place hot-reload.
+The fallback is read-only. Never use it for scan, sync, refresh, downloads, registration, source
+changes, context changes, archive, migration, cleanup, or deletion. If the request needs a newly
+installed tool or any persistent change, tell the user that the current task has not loaded the
+update and ask them to start a new task or session after the installation is checked. Do not create,
+fork, or delegate that transition on the user's behalf because it may retain the older plugin. Do
+not include build identifiers, package paths, or tool inventories in the normal handoff; show them
+only when diagnosing a failure.
 
 ## Build one integrated view
 
@@ -66,7 +64,8 @@ clicking.
 
 Use context item text as a readable map of saved understanding. Do not reopen source units, validate
 claims, infer new project status, or add new context items while preparing the overview. If the user
-selects a corpus or item and asks for evidence, changes, or a substantive answer, hand that follow-up
+selects a corpus or item and asks to check it against current sources, compare changes, or answer a
+substantive question, hand that follow-up
 to `investigate-corpus`.
 
 Show lifecycle counts without treating history as current knowledge. `stale_item_count` identifies
