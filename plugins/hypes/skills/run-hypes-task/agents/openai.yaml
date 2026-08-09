@@ -1,4 +1,6 @@
 interface:
-  display_name: "Run Hypes for This Task"
-  short_description: "Adapt help within one explicit task session"
-  default_prompt: "Use $run-hypes-task to adapt help within this task and keep all state in this conversation."
+  display_name: "Use Hypes When Needed"
+  short_description: "Adapt help when substantive work needs it"
+  default_prompt: "Use $run-hypes-task whenever this task needs a different depth or form of help."
+policy:
+  allow_implicit_invocation: true

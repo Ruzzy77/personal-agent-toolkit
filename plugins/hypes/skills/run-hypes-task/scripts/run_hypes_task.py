@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stateless field loop for one explicitly activated Hypes task.
+"""Stateless field loop for one task where adaptive help is relevant.
 
 The caller carries the returned session object between invocations.  This
 program accepts only bounded structured records and writes no file, database,

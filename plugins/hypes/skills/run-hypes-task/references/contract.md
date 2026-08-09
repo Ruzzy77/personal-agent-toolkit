@@ -2,10 +2,12 @@
 
 ## Purpose
 
-This contract lets a host agent try Hypes inside one explicitly activated task.
-It separates a normal baseline plan, a Hypes proposal, the user's selection,
-caller-attested delivery, and later confirmed outcomes. It does not create a
-personal database or learn an intervention policy.
+This contract lets a host agent run Hypes when substantive task work needs
+adaptive help. Host selection may start the task-local loop without a named
+user invocation. The contract separates a normal baseline plan, a Hypes
+proposal, the user's selection, caller-attested delivery, and later confirmed
+outcomes. It does not create a personal database or learn an intervention
+policy.
 
 ## Fixed identifiers
 
@@ -33,7 +35,9 @@ start
 The caller carries the complete returned `field_session` verbatim. The script
 stores nothing. A session is bound to one `conversation_id`, fixed policy,
 contract, and condition. It has at most one pending turn. A closed session
-cannot reopen.
+cannot reopen. If a prior session is unavailable, the host may start an empty
+session for a currently eligible task but must not reconstruct earlier
+observations from conversation prose.
 
 ## Operations
 

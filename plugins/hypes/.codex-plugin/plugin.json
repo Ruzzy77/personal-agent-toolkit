@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.1.0+codex.20260809070736",
-  "description": "Adapt how much help to offer within one explicitly activated task while preserving content and responsibility.",
+  "version": "0.1.0+codex.20260809072327",
+  "description": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Hypes",
-    "shortDescription": "Adapt help within one active task",
-    "longDescription": "Hypes keeps a recommendation-only control and an explicitly activated task loop. It can propose a different delivery strategy, apply it only after the user chooses it, and use confirmed task-local corrections or bound outcomes on the next turn. It does not write a profile, database, or cross-conversation state.",
+    "shortDescription": "Adapt help when substantive work needs it",
+    "longDescription": "Hypes keeps a recommendation-only control and a task-local adaptive loop that is eligible whenever substantive work needs a different depth or form of help. It applies a differing strategy only after the user chooses it and can use confirmed corrections or bound outcomes on the next turn. It does not write a profile, database, or cross-conversation state.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
     "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Calculate a separate help recommendation for this task without applying it to the response.",
-      "Use Hypes for this task and let me choose whether to apply each different help proposal.",
+      "Use Hypes whenever this task needs a different depth or form of help, and ask only when its proposal differs.",
       "Close this Hypes task session and summarize the four outcome dimensions."
     ]
   }

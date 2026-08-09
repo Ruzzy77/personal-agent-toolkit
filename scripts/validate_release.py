@@ -25,7 +25,7 @@ PUBLIC_PUBLISHER = "Ruzzy77"
 PACKAGE_DESCRIPTIONS = {
     "sense": "Carry one private, user-controlled work profile across AI tools.",
     "corpus": "Find exact source passages and preserve reusable context with source links.",
-    "hypes": "Adapt how much help to offer within one explicitly activated task while preserving content and responsibility.",
+    "hypes": "Adapt how much help to offer when substantive task work needs it while preserving content and responsibility.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
@@ -426,6 +426,16 @@ def validate_package_manifests() -> dict[str, str]:
         raise ValueError("Hypes release must remain skills-only")
     if "mcpServers" in hypes_claude:
         raise ValueError("Hypes Claude release must remain skills-only")
+    hypes_field_skill = (hypes_package / "skills/run-hypes-task/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    hypes_field_agent = (
+        hypes_package / "skills/run-hypes-task/agents/openai.yaml"
+    ).read_text(encoding="utf-8")
+    if "Use Hypes automatically for substantive" not in hypes_field_skill:
+        raise ValueError("Hypes field skill does not declare automatic task selection")
+    if "allow_implicit_invocation: true" not in hypes_field_agent:
+        raise ValueError("Hypes field skill does not allow implicit invocation")
     hypes_version = hypes_codex.get("version")
     if not isinstance(hypes_version, str) or not hypes_version.startswith(
         "0.1.0+codex."

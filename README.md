@@ -7,12 +7,26 @@ how AI helps. The marketplace currently contains:
 
 - **Sense** carries one private, user-controlled work profile across AI tools.
 - **Corpus** finds exact source passages and preserves reusable context with source links.
-- **Hypes** keeps a recommendation-only control and, when the user explicitly activates it,
-  adapts help within one task without creating a personal database.
+- **Hypes** adapts the depth and form of help when substantive work needs it, while keeping a
+  recommendation-only control and creating no personal database.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
 does not contain a Sense profile, Corpus catalog or index, Hypes conversation state, source
 documents, saved context, provider conversations, credentials, or runtime databases.
+
+## When the plugins run
+
+The user does not need to name a plugin on every request. Once installed and enabled:
+
+- Sense is eligible automatically when substantive work depends on the user's intent, working
+  style, priorities, responsibility, or learning across completed work.
+- Corpus is eligible automatically when a task requires locating, comparing, or verifying source
+  material from registered collections.
+- Hypes is eligible automatically when substantive work may need a different depth or form of help.
+
+Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
+personal context. Skill selection is performed by the host and is not a guaranteed operating-system
+hook, so a new task or session is required after plugin installation or update.
 
 ## Requirements
 
@@ -108,21 +122,24 @@ outside this repository.
 
 The Hypes release has two task-local paths. `recommend-help` echoes the sealed baseline unchanged,
 returns a separate recommendation with `applied: false`, and remains the control. `run-hypes-task`
-starts only when the user explicitly asks to apply or evaluate Hypes in that task. It keeps the
-normal baseline and Hypes proposal separate, requires the user to choose a differing proposal,
-and can use confirmed corrections or outcomes bound to an earlier caller-attested delivery on the
-next turn.
+is eligible automatically for substantive design, research, planning, review, writing,
+implementation, and handoff work when a different depth or form of help may affect understanding,
+judgment, or responsibility. It keeps the normal baseline and Hypes proposal separate, requires
+the user to choose a differing proposal, and can use confirmed corrections or outcomes bound to an
+earlier caller-attested delivery on the next turn.
 
-Start a new task or session after installation and activate the field loop explicitly:
+Start a new task or session after installation. The host can select Hypes without a named request.
+To test explicit invocation, use:
 
 ```text
-Use Hypes for this task and let me choose whether to apply each different help proposal.
+Use Hypes whenever this task needs a different depth or form of help, and ask only when its proposal differs.
 ```
 
 The returned task state must remain visible in the same conversation and is discarded when the
-task closes. Automatic selection is a host choice, not a guaranteed per-response hook. The current
-release does not learn across conversations, and its delivery receipt is a caller attestation rather
-than independent platform proof.
+task closes. Simple retrieval, literal transformations, and direct one-step actions do not trigger
+the field loop. Automatic selection remains a host decision rather than a guaranteed per-response
+hook. The current release does not learn across conversations, and its delivery receipt is a caller
+attestation rather than independent platform proof.
 
 ## Data boundary
 
@@ -133,7 +150,7 @@ By default on macOS:
   `~/Library/Application Support/Corpus/`.
 - Provider-linked records remain with their original providers. Corpus stores bounded metadata and
   reads exact visible content only when explicitly requested.
-- Hypes keeps no personal database. Recommendation overlays and activated field-session receipts
+- Hypes keeps no personal database. Recommendation overlays and task-local field-session receipts
   are supplied by the caller in the same task and discarded when that task ends.
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
@@ -146,8 +163,8 @@ python3 scripts/validate_release.py
 
 The validation checks manifests, license copies, package versions, file permissions, private-data
 and credential patterns, empty-state behavior, Sense preview activation, Corpus first registration,
-Hypes baseline preservation, the explicit field-loop selection and next-turn update, and real MCP
-`initialize` plus `tools/list` handshakes.
+Hypes baseline preservation, its implicit-selection metadata, the field-loop selection and
+next-turn update, and real MCP `initialize` plus `tools/list` handshakes.
 
 ## License
 

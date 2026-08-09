@@ -1,11 +1,11 @@
 ---
 name: run-hypes-task
-description: Run an explicitly activated, current-task Hypes field loop for substantive judgment handoffs. Use when the user asks to apply, try, or evaluate Hypes in this task, and continue on later substantive turns only while a valid field_session receipt remains visible in the same conversation. Do not use without explicit activation, for simple retrieval or direct one-step actions, or across conversations.
+description: Use Hypes automatically for substantive design, research, planning, review, writing, implementation, and handoff work when adapting the depth or form of help may improve the user's understanding, judgment, or responsibility. Start or continue one task-local field loop without requiring the user to invoke Hypes by name. Also use when the user asks to apply or evaluate Hypes. Do not use for simple retrieval, literal transformations, direct one-step actions, or across conversations.
 ---
 
 # Run Hypes for This Task
 
-Use Hypes as an optional help proposal inside one active task. Keep the answer's
+Use Hypes as background help adaptation inside one active task. Keep the answer's
 facts, required content, and the user's responsibility under the host agent's
 control. Hypes may change only the delivery strategy after the user chooses it.
 
@@ -14,17 +14,21 @@ task. Run the calculator with `python3` and the absolute path to
 `scripts/run_hypes_task.py`. Send one JSON object on stdin and read one JSON
 receipt from stdout.
 
-## Activation boundary
+## Selection boundary
 
-- Start only after the user explicitly asks to use, try, or evaluate Hypes for
-  the current task.
+- Start automatically when substantive work depends on how much explanation,
+  support, dialogue, or responsibility handling the user needs. The user does
+  not need to invoke Hypes by name.
+- Skip simple retrieval, literal transformation, status lookup, and direct
+  one-step actions whose result does not depend on adaptive help.
 - Default to `hypes_proposal`. Use `baseline` or `scope_filter` only for an
   intentionally planned comparison.
 - Continue on later substantive turns only when the latest valid
   `field_session` receipt remains visible in this same conversation.
 - If the receipt is missing, invalid, compacted away, or belongs to another
-  conversation, do not reconstruct it from prose. Continue normally or ask the
-  user to activate a new field session.
+  conversation, do not reconstruct prior observations from prose. Start a new
+  empty session only if the current turn independently meets the selection
+  boundary; otherwise continue normally.
 - This skill selection is not a guaranteed host hook. Codex and Claude may
   select skills differently, so do not claim that Hypes ran on every turn.
 
@@ -34,10 +38,11 @@ receipt from stdout.
    its digest as `baseline_delivery_plan`; never send answer text or reasoning.
 2. Call `prepare` with the previous `field_session`, the current relation scope,
    the baseline, and only newly confirmed observations.
-3. If the proposal is identical to the baseline, keep the baseline. If it
-   differs, let the user choose the baseline or the Hypes proposal through the
-   platform's lightest native interaction. Do not add a fixed Hypes panel,
-   heading, or repeated product label.
+3. If the proposal is identical to the baseline, keep it silently. If it
+   materially differs, let the user choose the baseline or the Hypes proposal
+   through the platform's lightest native interaction. Do not ask merely to
+   announce that Hypes ran, and do not add a fixed panel, heading, or repeated
+   product label.
 4. Call `commit` with the user's choice. Applying a different Hypes strategy
    requires `user_confirmed_hypes_selection: true`; never infer this choice from
    silence, tone, or task continuation.
@@ -78,8 +83,8 @@ receipt from stdout.
 If the script is missing, rejects input, exits nonzero, or returns a receipt
 whose digest or preserved boundaries do not validate, ignore the proposal and
 deliver the already established baseline. Do not silently invent or repair
-state. Mention diagnostics only when the user asks or when the failure blocks
-the explicitly requested evaluation.
+state. Mention diagnostics only when the user asks or when the failure blocks a
+requested Hypes evaluation.
 
 ## Reporting
 
