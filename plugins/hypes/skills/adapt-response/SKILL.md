@@ -63,6 +63,28 @@ use of the concept, or an outcome that shows whether the explanation supported t
 instance as local to its topic and responsibility. Do not infer understanding, fatigue, preference,
 or approval from silence, brevity, politeness, or task continuation.
 
+## Use the cross-conversation model narrowly
+
+When Hypes MCP tools are available and the task is substantive, call `hypes_read` only for the
+current topic and, when useful, the current task and responsibility. Use active relations as
+revisable explanation clues. Do not treat them as project facts, durable preferences, a general
+skill level, or a substitute for the visible conversation. A current explicit correction always
+wins. Recheck-due and pending relations do not shape the answer unless the user is inspecting the
+model.
+
+Write only a compact relation that can materially improve a later explanation. Use `hypes_observe`
+after an explicit statement about understanding, a relevant application outcome, or an observation
+that has independently recurred in another conversation. Do not send conversation text, full
+answers, hidden reasoning, agreement, politeness, silence, health information, personality, or
+ability claims. Ordinary one-off evidence remains pending; do not manufacture a second episode key
+to promote it.
+
+Use `hypes_revise` when the user explicitly corrects a retained relation. Read the current revision
+before every write and use a stable unique idempotency key so a retry cannot duplicate a change.
+When the user asks to remove retained understanding, show `hypes_preview_forget` first and call
+`hypes_forget` only after the exact preview is approved. The signed ticket, not an MCP session,
+carries the deletion target into the second call.
+
 ## Ask without adding burden
 
 Do not limit questions to blocking ambiguity. Ask one focused question when a foundational concept
@@ -111,8 +133,9 @@ within the current conversation.
 ## Explain the adaptation when asked
 
 When the user explicitly asks what Hypes changed, what it is applying now, or what it currently
-believes the user understands, answer briefly from
-the visible conversation and the response that was actually delivered. Name the explicit
+believes the user understands, answer briefly from the visible conversation, relevant active Hypes
+relations, and the response that was actually delivered. Distinguish current-conversation evidence
+from retained relations. Name the explicit
 corrections that mattered, what explanation or structure was removed or added, and which important
 facts, uncertainty, or decisions were deliberately kept. If a relevant Sense preference materially
 affected the response, name only that choice rather than reproducing the profile.
@@ -143,8 +166,10 @@ Treat drafts and artifacts as agent-authored unless the user supplied the exact 
 explicitly adopted it. Apply explicit corrections to the next relevant response, but do not turn
 one correction into a durable user model.
 
-Use an available Sense profile only where it changes the current choice. Do not copy or revise it,
-and do not create a Hypes profile, score, database, log, or cross-conversation memory.
+Use an available Sense profile only where it changes the current choice. Do not copy or revise it.
+Apply explicit corrections to the next relevant response, but do not turn one correction into a
+durable user model, and do not create a Hypes profile, score, log, or cross-conversation memory
+outside the Hypes MCP store.
 
 Do not add a Hypes heading, badge, status, or explanation to ordinary responses. The user should
 notice the finished answer, not the mechanism.

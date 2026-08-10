@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ipaddress
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -103,9 +105,13 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
         )
 
 
-def create_server(data_root: Path | None = None) -> FastMCP:
+def create_server(data_root: Path | None = None) -> MCPServer:
     service = SenseService(data_root)
-    server = FastMCP("Sense", instructions=SERVER_INSTRUCTIONS)
+    server = MCPServer(
+        "Sense",
+        version="0.1.13",
+        instructions=SERVER_INSTRUCTIONS,
+    )
 
     @server.resource(
         PROFILE_UI_URI,
@@ -263,7 +269,29 @@ mcp = create_server()
 
 
 def main() -> None:
-    mcp.run(transport="stdio")
+    transport = os.environ.get("SENSE_MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    if transport != "streamable-http":
+        raise ValueError("SENSE_MCP_TRANSPORT must be stdio or streamable-http")
+    host = os.environ.get("SENSE_MCP_HOST", "127.0.0.1")
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:
+        raise ValueError(
+            "SENSE_MCP_HOST must be loopback until an authenticated OAuth resource server is configured"
+        )
+    mcp.run(
+        transport="streamable-http",
+        host=host,
+        port=int(os.environ.get("SENSE_MCP_PORT", "8000")),
+        streamable_http_path=os.environ.get("SENSE_MCP_PATH", "/sense/mcp"),
+        stateless_http=True,
+        json_response=True,
+    )
 
 
 if __name__ == "__main__":

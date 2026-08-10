@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.2.0+codex.20260810024023",
-  "description": "Adapt responses and occasional teaching questions to what the user understands, needs to decide, and is trying to do.",
+  "version": "0.3.0+codex.20260810042309",
+  "description": "Adapt responses to what the user understands and carry forward only confirmed, scoped explanation clues.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -16,14 +16,23 @@
     "clarity"
   ],
   "skills": "./skills/",
+  "mcpServers": {
+    "hypes": {
+      "command": "./launchers/hypes-mcp",
+      "args": [],
+      "cwd": "."
+    }
+  },
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "Clear, natural responses for what matters now",
-    "longDescription": "Hypes follows the user's understanding through a conversation, keeps ongoing work easy to recover through meaningful state changes and grounded remaining progress, and uses a brief teaching question when it can improve later explanations or an important choice without adding needless review. It adds no fixed interface and keeps no profile across conversations.",
+    "longDescription": "Hypes follows the user's understanding through a conversation and carries forward only confirmed concept relationships and explanation clues for the relevant topic, task, and responsibility. It keeps no raw conversation and does not reduce the user to a general skill level or personality. Its MCP transport is sessionless, while the private cognitive model remains on this Mac across plugin updates.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
-      "Interactive"
+      "Adaptive explanations",
+      "Scoped cognitive model",
+      "User review and deletion"
     ],
     "brandColor": "#FF6A32",
     "composerIcon": "./assets/icon.png",

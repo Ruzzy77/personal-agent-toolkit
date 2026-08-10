@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -11,7 +12,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -1130,13 +1131,14 @@ def create_server(
     data_root: Path | None = None,
     *,
     enable_semantic_cache_tools: bool = False,
-) -> FastMCP:
+) -> MCPServer:
     service = CorpusService(
         data_root or default_data_root(),
         maintain_legacy_semantic_cache=enable_semantic_cache_tools,
     )
-    server = FastMCP(
+    server = MCPServer(
         "Corpus",
+        version="0.9.15",
         instructions=(
             SEMANTIC_CACHE_INSTRUCTIONS
             if enable_semantic_cache_tools
@@ -1893,7 +1895,29 @@ mcp = create_server(
 
 
 def main() -> None:
-    mcp.run(transport="stdio")
+    transport = os.environ.get("CORPUS_MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    if transport != "streamable-http":
+        raise ValueError("CORPUS_MCP_TRANSPORT must be stdio or streamable-http")
+    host = os.environ.get("CORPUS_MCP_HOST", "127.0.0.1")
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:
+        raise ValueError(
+            "CORPUS_MCP_HOST must be loopback until an authenticated OAuth resource server is configured"
+        )
+    mcp.run(
+        transport="streamable-http",
+        host=host,
+        port=int(os.environ.get("CORPUS_MCP_PORT", "8000")),
+        streamable_http_path=os.environ.get("CORPUS_MCP_PATH", "/corpus/mcp"),
+        stateless_http=True,
+        json_response=True,
+    )
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "corpus"
-version = "0.9.14"
+version = "0.9.15"
 description = "Find the work context and original sources behind a task, then carry that context into later work."
 readme = "README.md"
 authors = [
@@ -15,7 +15,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
   "defusedxml>=0.7.1,<1",
-  "mcp>=1.27,<2",
+  "mcp>=2,<3",
   "olefile>=0.47,<1",
   "openpyxl>=3.1,<4",
   "pypdf>=5,<7",

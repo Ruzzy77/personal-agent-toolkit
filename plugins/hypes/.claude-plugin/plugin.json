@@ -1,12 +1,13 @@
 {
   "name": "hypes",
-  "version": "0.2.0+codex.20260810024023",
-  "description": "Adapt responses and occasional teaching questions to what the user understands, needs to decide, and is trying to do.",
+  "version": "0.3.0+codex.20260810042309",
+  "description": "Adapt responses to what the user understands and carry forward only confirmed, scoped explanation clues.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
   },
   "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json"
 }
