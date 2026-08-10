@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.2.0+codex.20260809151043",
+  "version": "0.2.0+codex.20260810024023",
   "description": "Adapt responses and occasional teaching questions to what the user understands, needs to decide, and is trying to do.",
   "author": {
     "name": "Ruzzy77",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "Clear, natural responses for what matters now",
-    "longDescription": "Hypes follows the user's understanding through a conversation, adapts later responses after corrections or relevant outcomes, and uses a brief teaching question when it can improve later explanations or an important choice without adding needless review. It adds no fixed interface and keeps no profile across conversations.",
+    "longDescription": "Hypes follows the user's understanding through a conversation, keeps ongoing work easy to recover through meaningful state changes and grounded remaining progress, and uses a brief teaching question when it can improve later explanations or an important choice without adding needless review. It adds no fixed interface and keeps no profile across conversations.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -32,6 +32,7 @@
       "Use Hypes to make this response clear, natural, and appropriately detailed.",
       "Explain this without repeating what I already understand.",
       "Teach this interactively, but stop asking once I can apply it.",
+      "Tell me what materially changed, roughly where the work stands, and what remains.",
       "Remove unnecessary headings and explanations of internal process from this draft.",
       "Tell me briefly what Hypes changed or took into account in this response.",
       "Tell me what you currently believe I understand and what still seems unclear."

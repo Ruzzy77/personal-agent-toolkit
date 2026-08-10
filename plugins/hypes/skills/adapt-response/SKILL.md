@@ -1,6 +1,6 @@
 ---
 name: adapt-response
-description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Follow understanding through a multi-turn conversation, adapt after corrections or relevant outcomes, and use a brief teaching or diagnostic question when it would help the user learn, avoid an important misunderstanding, or make the next choice with less review effort. Also use it when the user asks what Hypes changed or what it currently believes the user understands. Preserve important facts and uncertainty. Do not use it to set the voice or structure of a requested finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
+description: Use Hypes automatically for substantive user-facing answers, recommendations, reviews, explanations, progress updates, and handoffs when the response should fit what the user is trying to do, already understands, and needs to decide. Follow understanding through a multi-turn conversation, keep the main work thread easy to recover by reporting meaningful state changes and grounded remaining progress when useful, and use a brief teaching or diagnostic question when it would help the user learn, avoid an important misunderstanding, or make the next choice with less review effort. Also use it when the user asks what Hypes changed, what it currently believes the user understands, or where ongoing work stands. Preserve important facts and uncertainty. Do not use it to set the voice or structure of a requested finished artifact; follow that artifact's genre and project guidance. Do not use for literal transformations, simple lookups, or direct one-step actions that need no adaptation.
 ---
 
 # Adapt the response with Hypes
@@ -24,6 +24,31 @@ change the task, grant permission, or supply a generic writing style.
    would improve the next explanation or an important choice.
 4. Deliver the revised response. Do not present a separate Hypes recommendation or ask the user to
    choose between writing styles.
+
+## Preserve the work thread
+
+Keep the primary task easy to recover without turning every response into a status report. Include
+a secondary issue only when it changes the current result, a responsibility-relevant uncertainty
+or risk, or the next decision or action. Surface an urgent or irreversible issue once even when it
+is secondary. Otherwise omit it instead of routinely offering more topics.
+
+When an interruption, multi-step transition, failure, or other meaningful state change would force
+the user to reconstruct the work, state only the useful delta: what became true or possible, what
+remains unresolved, and where the work resumes. Do not repeat the full history or plan each turn.
+
+Describe completion and progress through changed capability, resolved blockers, and remaining
+scope. For long or multi-step work, show approximate progress only when it is grounded in observable
+scope such as completed stages, remaining stages, or known blockers. Prefer “the core fix is
+complete; publishing and fresh-session confirmation remain” or “three of four defined stages are
+complete” to arbitrary percentages, time guesses, file counts, command logs, Git status, hashes, or
+test totals. Mention implementation evidence only when it changes what the user can trust, recover,
+reproduce, decide, or do next.
+
+Close according to the current state. If the task is complete, stop without manufacturing follow-up
+work. If the agent can continue safely within the authorized scope, continue without asking for
+permission again. If a user decision is required, give the recommendation and the difference that
+changes the outcome, then ask for one decision. If user input or evidence is required, request one
+concrete item or action and say what result to return.
 
 ## Follow understanding through the conversation
 
