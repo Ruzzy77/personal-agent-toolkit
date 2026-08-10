@@ -24,8 +24,10 @@ Corpus context.
    choose. A similar title or a larger item count is not enough to select one.
 4. Use the context to locate the relevant file families, email records, completed agent work, open
    questions, and exact sources. Do not treat saved context as a substitute for current originals.
-5. Keep an ordinary investigation in the current task. Creating, updating, or archiving a context
-   remains a separate user-visible choice.
+5. Keep an ordinary investigation in the current task. Creating, archiving, expanding the scope of,
+   or approving a general view from a context remains a separate user-visible choice. Once the user
+   has selected a named context, maintaining current source-linked items inside that existing scope
+   does not require another confirmation on every use.
 
 ## After a plugin update
 
@@ -59,18 +61,24 @@ relationship. It does not stand for an automatic summary of every document in it
 
 1. Read the selected context and note its version, scope, source-link freshness, latest scan state,
    inventory changes, questions and gaps.
-2. When the requested as-of state requires a current source index and the request authorizes that
-   persistent update, run `corpus_sync` with bounded budgets. Use `corpus_scan` when only metadata
-   inventory must be current. Read the context again after either operation.
+2. Treat registration of a local source root as continuing permission for Corpus to maintain its
+   private index of resident files inside that registered scope. Before relying on a selected
+   context, run `corpus_sync` with bounded budgets and `include_remote=false` for each relevant
+   registered corpus whose source root is accessible. Do not stop at excluding a stale item or ask
+   for another confirmation merely because this maintenance updates private metadata and extracted
+   SourceUnits. Read the context again after sync.
 3. Treat active context items as previous agent interpretation. Reopen every linked `SourceUnit`
    that can change the result. For an item with `external_sources`, use the Gmail connector for an
    exact message or thread, or `corpus_source_fetch` for an exact completed Codex or Claude turn.
    Investigate new file inventory and linked-source candidates that fall inside the task scope.
 4. Build the current request context from the refreshed source reads. Carry forward an item only
    when its linked sources and current task still support it.
-5. Call `context_update` only for the selected named context and only with information worth
-   reusing in another execution. Use `append` for a new item, `supersede` when an earlier item has
-   changed, and `advance_checkpoint` after the reported inventory changes have been reviewed.
+5. Maintain the selected named context after reading the current exact sources. Use `append` only
+   for information worth reusing inside its existing scope, `supersede` to replace an earlier item
+   in place when its meaning or source links changed, and `advance_checkpoint` after reviewing the
+   reported inventory changes. Do not preserve the previous interpretation as routine history.
+   Passing `confirm_persistent_context_write=true` asserts that this maintenance stays inside the
+   already user-selected context; do not turn that assertion into a repeated confirmation prompt.
 6. Send the version returned by the latest context operation as the next `expected_version`.
    Re-read on a version conflict. Reusing the same `client_ref` is reserved for an exact retry of
    the same item payload.
@@ -244,20 +252,23 @@ neighbors, and one challenge pass. Tool ceilings are not targets. Add one more r
 newly exposed source family could change a high-impact conclusion; otherwise return a partial
 context with the remaining gap instead of widening indefinitely.
 
-## Repair coverage only when the answer is blocked
+## Keep the registered resident index current
 
-- Do not call `corpus_sync`, `corpus_scan`, `corpus_refresh` or trigger hydration merely to improve
-  future search. An ordinary investigation does not authorize persistent indexing.
-- Treat scan as a private metadata mutation, refresh as persistent extracted indexing with a
-  temporary source-byte capture, and remote hydration as a network, disk and residency effect.
-- When missing material could change the answer, report the gap and the exact candidate
-  `document_id` values. Continue with refresh or hydration only when document reading and that
-  persistent effect are authorized.
-- If full resident-index maintenance is authorized, prefer `corpus_sync`; it stops before refresh
-  when metadata enumeration is incomplete. Use `corpus_refresh` for exact selected documents.
-  Keep `include_remote=false` unless remote download is authorized, then use bounded file, byte and
-  timeout budgets. Repeating refresh does not repair a projection whose current adapter is
-  inherently partial.
+- Use bounded `corpus_sync` during substantive investigation to keep registered resident files
+  current. It stops before refresh when metadata enumeration is incomplete and skips documents
+  whose current source and adapter state already match the index.
+- Treat registration as permission only for Corpus's private metadata and extracted index inside
+  that source scope. It does not authorize editing source files, expanding the registered root,
+  creating a provider binding, publishing a general view, or downloading remote placeholders.
+- Keep `include_remote=false` unless remote download is explicitly authorized. Remote hydration has
+  network, disk and residency effects. When it is not authorized, report the exact remote or missing
+  documents that could change the answer and continue with the resident coverage.
+- Use `corpus_refresh` for an exact selected document when bounded sync leaves that necessary
+  resident document pending. Repeating refresh does not repair a projection whose current adapter
+  is inherently partial.
+- If sync fails because the registered source root cannot be opened, report that access problem.
+  Do not describe the context as current merely because a checkout or remembered path can be read
+  outside the registered Corpus lifecycle.
 - Never edit, move, rename, delete, pin, evict or create sidecars beside a registered source.
 
 ## Keep the investigation in this task

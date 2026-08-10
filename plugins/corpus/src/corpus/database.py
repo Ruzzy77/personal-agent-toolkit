@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import unicodedata
+import uuid
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
@@ -27,7 +28,12 @@ from .errors import (
     MigrationRequiredError,
     UnsupportedSchemaError,
 )
-from .migrations import inspect_schema, migrate_corpus_database, require_current_schema
+from .migrations import (
+    backup_database_to_private_subdirectory,
+    inspect_schema,
+    migrate_corpus_database,
+    require_current_schema,
+)
 from .schema import (
     CATALOG_SCHEMA,
     CONTEXT_SCHEMA,
@@ -35,6 +41,7 @@ from .schema import (
     CORPUS_SCHEMA,
     CORPUS_SCHEMA_VERSION,
 )
+from .source_access import opened_source_root
 
 
 def utc_now() -> str:
@@ -641,6 +648,163 @@ def register_corpus(
     paths = RuntimePaths(data_root=data_root, corpus_id=corpus_id)
     ensure_corpus_db(paths)
     return get_corpus(data_root, corpus_id)
+
+
+def _expected_source_root_nfc(source_root: Path) -> str:
+    resolved = source_root.expanduser().resolve(strict=False)
+    return unicodedata.normalize("NFC", str(resolved))
+
+
+def rebind_corpus_source_root(
+    *,
+    data_root: Path,
+    corpus_id: str,
+    source_root: Path,
+    expected_source_root: Path,
+) -> dict:
+    """Replace one registered root after validation and a private catalog backup."""
+
+    corpus_id = normalize_corpus_id(corpus_id)
+    try:
+        source_root = validate_source_root(source_root, data_root)
+    except OSError as exc:
+        raise ConfigurationError(
+            "source root could not be resolved",
+            details={
+                "source_root": str(source_root),
+                "reason": f"resolve_failed:{exc.errno}",
+            },
+        ) from exc
+    source_root_nfc = unicodedata.normalize("NFC", str(source_root))
+    expected_root_nfc = _expected_source_root_nfc(expected_source_root)
+    catalog = ensure_catalog(data_root)
+
+    with opened_source_root(source_root), closing(connect(catalog)) as connection:
+        existing = connection.execute(
+            "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+        ).fetchone()
+        if existing is None:
+            raise CorpusNotFoundError(
+                "corpus is not registered",
+                details={"corpus_id": corpus_id},
+            )
+        existing_root_nfc = unicodedata.normalize(
+            "NFC",
+            str(existing["source_root"]),
+        )
+        if existing_root_nfc != expected_root_nfc:
+            raise ConfigurationError(
+                "registered source root does not match the expected root",
+                details={
+                    "corpus_id": corpus_id,
+                    "existing_root": existing["source_root"],
+                    "expected_root": str(expected_source_root),
+                },
+            )
+        if existing_root_nfc == source_root_nfc:
+            return {
+                "changed": False,
+                "previous_root": existing["source_root"],
+                "source_root": str(source_root),
+                "backup": None,
+                "corpus": _corpus_row(existing),
+            }
+        conflicting = connection.execute(
+            """
+            SELECT corpus_id, source_root
+            FROM corpora
+            WHERE corpus_id != ?
+              AND (source_root = ? OR source_root_nfc = ?)
+            LIMIT 1
+            """,
+            (corpus_id, str(source_root), source_root_nfc),
+        ).fetchone()
+        if conflicting is not None:
+            raise ConfigurationError(
+                "source root is already registered to another corpus",
+                details={
+                    "corpus_id": corpus_id,
+                    "requested_root": str(source_root),
+                    "conflicting_corpus_id": conflicting["corpus_id"],
+                    "conflicting_root": conflicting["source_root"],
+                },
+            )
+
+        backup_name = (
+            f"catalog-source-root-rebind-{corpus_id}-"
+            f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-"
+            f"{uuid.uuid4().hex[:12]}.sqlite"
+        )
+        with private_directory(data_root) as data_root_descriptor:
+            backup_path = backup_database_to_private_subdirectory(
+                connection,
+                parent_descriptor=data_root_descriptor,
+                backup_directory_name="backups",
+                backup_directory=data_root / "backups",
+                backup_name=backup_name,
+            )
+
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if current is None:
+                raise CorpusNotFoundError(
+                    "corpus is not registered",
+                    details={"corpus_id": corpus_id},
+                )
+            current_root_nfc = unicodedata.normalize(
+                "NFC",
+                str(current["source_root"]),
+            )
+            if current_root_nfc != expected_root_nfc:
+                raise ConfigurationError(
+                    "registered source root changed before rebind",
+                    details={
+                        "corpus_id": corpus_id,
+                        "existing_root": current["source_root"],
+                        "expected_root": str(expected_source_root),
+                        "backup": str(backup_path),
+                    },
+                )
+            conflicting = connection.execute(
+                """
+                SELECT corpus_id, source_root
+                FROM corpora
+                WHERE corpus_id != ?
+                  AND (source_root = ? OR source_root_nfc = ?)
+                LIMIT 1
+                """,
+                (corpus_id, str(source_root), source_root_nfc),
+            ).fetchone()
+            if conflicting is not None:
+                raise ConfigurationError(
+                    "source root became registered to another corpus before rebind",
+                    details={
+                        "corpus_id": corpus_id,
+                        "requested_root": str(source_root),
+                        "conflicting_corpus_id": conflicting["corpus_id"],
+                        "conflicting_root": conflicting["source_root"],
+                        "backup": str(backup_path),
+                    },
+                )
+            connection.execute(
+                """
+                UPDATE corpora
+                SET source_root = ?, source_root_nfc = ?, updated_at = ?
+                WHERE corpus_id = ?
+                """,
+                (str(source_root), source_root_nfc, utc_now(), corpus_id),
+            )
+
+    return {
+        "changed": True,
+        "previous_root": existing["source_root"],
+        "source_root": str(source_root),
+        "backup": str(backup_path),
+        "corpus": get_corpus(data_root, corpus_id),
+    }
 
 
 def configure_corpus_source_scope(

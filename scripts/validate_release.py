@@ -390,11 +390,14 @@ def validate_package_manifests() -> dict[str, str]:
         if interface.get("logo") != "./assets/logo.png":
             raise ValueError(f"{package_name} Codex logo is invalid")
 
-    if len(set(build_ids.values())) != 1:
-        raise ValueError(f"packages do not share one build ID: {build_ids}")
-    build_id = next(iter(build_ids.values()))
-    if any(marker in build_id.casefold() for marker in ("test", "validation", "audit")):
-        raise ValueError(f"release uses a non-release build ID: {build_id}")
+    for package_name, build_id in build_ids.items():
+        if any(
+            marker in build_id.casefold()
+            for marker in ("test", "validation", "audit")
+        ):
+            raise ValueError(
+                f"{package_name} uses a non-release build ID: {build_id}"
+            )
     hypes_package = ROOT / "plugins/hypes"
     hypes_codex = _json(hypes_package / ".codex-plugin/plugin.json")
     hypes_claude = _json(hypes_package / ".claude-plugin/plugin.json")

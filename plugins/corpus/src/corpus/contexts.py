@@ -2532,15 +2532,61 @@ class ContextService:
 
             now = utc_now()
             inserted = []
+            if action == "supersede":
+                # A selected item cannot change under an existing general-view approval.
+                target_placeholders = ",".join("?" for _ in target_ids)
+                connection.execute(
+                    f"""
+                        UPDATE context_release_manifests
+                        SET state = 'superseded'
+                        WHERE context_id = ? AND state = 'active'
+                          AND release_id IN (
+                              SELECT release_id
+                              FROM context_release_items
+                              WHERE item_id IN ({target_placeholders})
+                          )
+                        """,
+                    (context_id, *target_ids),
+                )
             for (item, sources, external_sources), observations in zip(
                 normalized,
                 observed_sources,
                 strict=True,
             ):
                 source_observations, external_observations = observations
-                item_id = f"ctxi_{uuid.uuid4().hex}"
-                connection.execute(
-                    """
+                if action == "supersede":
+                    item_id = item["supersedes_item_id"]
+                    connection.execute(
+                        "DELETE FROM context_sources WHERE item_id = ?",
+                        (item_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM context_external_sources WHERE item_id = ?",
+                        (item_id,),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE context_items
+                        SET client_ref = ?, input_sha256 = ?, kind = ?, body_text = ?,
+                            attributes_json = ?, disclosure_state = ?,
+                            lifecycle_state = 'active', supersedes_item_id = NULL
+                        WHERE context_id = ? AND item_id = ?
+                        """,
+                        (
+                            item["client_ref"],
+                            item["input_sha256"],
+                            item["kind"],
+                            item["body_text"],
+                            encode_json(item["attributes"]),
+                            item["disclosure_state"],
+                            context_id,
+                            item_id,
+                        ),
+                    )
+                else:
+                    item_id = f"ctxi_{uuid.uuid4().hex}"
+                    connection.execute(
+                        """
                         INSERT INTO context_items(
                             item_id, context_id, client_ref, input_sha256, kind,
                             body_text, attributes_json, disclosure_state,
@@ -2548,19 +2594,19 @@ class ContextService:
                             supersedes_item_id, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                         """,
-                    (
-                        item_id,
-                        context_id,
-                        item["client_ref"],
-                        item["input_sha256"],
-                        item["kind"],
-                        item["body_text"],
-                        encode_json(item["attributes"]),
-                        item["disclosure_state"],
-                        item["supersedes_item_id"],
-                        now,
-                    ),
-                )
+                        (
+                            item_id,
+                            context_id,
+                            item["client_ref"],
+                            item["input_sha256"],
+                            item["kind"],
+                            item["body_text"],
+                            encode_json(item["attributes"]),
+                            item["disclosure_state"],
+                            item["supersedes_item_id"],
+                            now,
+                        ),
+                    )
                 for source, observation in zip(
                     sources,
                     source_observations,
@@ -2609,15 +2655,6 @@ class ContextService:
                             source["link_role"],
                             observation["metadata_sha256"],
                         ),
-                    )
-                if item["supersedes_item_id"] is not None:
-                    connection.execute(
-                        """
-                            UPDATE context_items
-                            SET lifecycle_state = 'superseded'
-                            WHERE item_id = ?
-                            """,
-                        (item["supersedes_item_id"],),
                     )
                 inserted.append(
                     {

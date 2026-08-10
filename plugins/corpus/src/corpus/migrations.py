@@ -1153,62 +1153,80 @@ def _backup_database(
     paths: RuntimePaths,
     backup_name: str,
 ) -> Path:
-    backup_directory = paths.corpus_root / "backups"
+    with paths.open_corpus_root() as corpus_descriptor:
+        return backup_database_to_private_subdirectory(
+            connection,
+            parent_descriptor=corpus_descriptor,
+            backup_directory_name="backups",
+            backup_directory=paths.corpus_root / "backups",
+            backup_name=backup_name,
+        )
+
+
+def backup_database_to_private_subdirectory(
+    connection: sqlite3.Connection,
+    *,
+    parent_descriptor: int,
+    backup_directory_name: str,
+    backup_directory: Path,
+    backup_name: str,
+) -> Path:
+    """Create and verify one immutable SQLite backup below a private directory."""
+
     backup_path = backup_directory / backup_name
     temporary_name = f".{backup_name}.{uuid.uuid4().hex}.tmp"
     temporary_path = backup_directory / temporary_name
 
-    with paths.open_corpus_root() as corpus_descriptor:
-        backup_directory_descriptor = ensure_private_directory_at(
-            corpus_descriptor,
-            "backups",
-            path=backup_directory,
-        )
+    backup_directory_descriptor = ensure_private_directory_at(
+        parent_descriptor,
+        backup_directory_name,
+        path=backup_directory,
+    )
+    try:
         try:
-            try:
-                copied, expected_digest = _stage_streaming_backup(
-                    connection,
-                    backup_directory_descriptor=backup_directory_descriptor,
-                    temporary_name=temporary_name,
-                    temporary_path=temporary_path,
-                    backup_path=backup_path,
-                )
-                try:
-                    os.link(
-                        temporary_name,
-                        backup_name,
-                        src_dir_fd=backup_directory_descriptor,
-                        dst_dir_fd=backup_directory_descriptor,
-                        follow_symlinks=False,
-                    )
-                except FileExistsError as exc:
-                    raise MigrationError(
-                        "migration backup path already exists",
-                        details={"backup": str(backup_path)},
-                    ) from exc
-            finally:
-                with suppress(FileNotFoundError):
-                    os.unlink(temporary_name, dir_fd=backup_directory_descriptor)
-            os.fsync(backup_directory_descriptor)
-            installed_descriptor, _ = open_private_file_at(
-                backup_directory_descriptor,
-                backup_name,
-                path=backup_path,
+            copied, expected_digest = _stage_streaming_backup(
+                connection,
+                backup_directory_descriptor=backup_directory_descriptor,
+                temporary_name=temporary_name,
+                temporary_path=temporary_path,
+                backup_path=backup_path,
             )
             try:
-                installed = os.fstat(installed_descriptor)
-                if (
-                    installed.st_size != copied
-                    or _hash_descriptor(installed_descriptor) != expected_digest
-                ):
-                    raise MigrationError(
-                        "installed migration backup failed integrity verification",
-                        details={"backup": str(backup_path)},
-                    )
-            finally:
-                os.close(installed_descriptor)
+                os.link(
+                    temporary_name,
+                    backup_name,
+                    src_dir_fd=backup_directory_descriptor,
+                    dst_dir_fd=backup_directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as exc:
+                raise MigrationError(
+                    "migration backup path already exists",
+                    details={"backup": str(backup_path)},
+                ) from exc
         finally:
-            os.close(backup_directory_descriptor)
+            with suppress(FileNotFoundError):
+                os.unlink(temporary_name, dir_fd=backup_directory_descriptor)
+        os.fsync(backup_directory_descriptor)
+        installed_descriptor, _ = open_private_file_at(
+            backup_directory_descriptor,
+            backup_name,
+            path=backup_path,
+        )
+        try:
+            installed = os.fstat(installed_descriptor)
+            if (
+                installed.st_size != copied
+                or _hash_descriptor(installed_descriptor) != expected_digest
+            ):
+                raise MigrationError(
+                    "installed migration backup failed integrity verification",
+                    details={"backup": str(backup_path)},
+                )
+        finally:
+            os.close(installed_descriptor)
+    finally:
+        os.close(backup_directory_descriptor)
     return backup_path
 
 

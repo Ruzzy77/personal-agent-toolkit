@@ -1,6 +1,6 @@
 ---
 name: show-corpus-overview
-description: Show a read-only overview organized around the work contexts Corpus can help continue, the files, email, and completed agent work connected to them, and material that needs a fresh read. Use when the user asks what work Corpus knows, wants to choose a work context, or wants to see registered collections and retained history. Do not use for source investigation, index refresh, registration, archive actions, or persistent context changes.
+description: Show a read-only overview organized around the work contexts Corpus can help continue, the files, email, and completed agent work connected to them, and material that needs a fresh read. Use when the user asks what work Corpus knows, wants to choose a work context, or wants to see registered collections. Do not use for source investigation, index refresh, registration, archive actions, or persistent context changes.
 ---
 
 # Show the Corpus overview
@@ -58,8 +58,8 @@ The first view must let the user answer:
 Preserve a work context the user has selected. If the current request clearly names one context,
 open that context first. Otherwise show a compact list of work contexts without choosing one by
 item count. Collections without a saved work context remain available as source collections.
-Keep document counts, provider details, and retained history behind the first layer unless they
-change what the user can continue.
+Keep document counts and provider details behind the first layer unless they change what the user
+can continue.
 
 ## Keep overview and investigation separate
 
@@ -69,10 +69,9 @@ selects a corpus or item and asks to check it against current sources, compare c
 substantive question, hand that follow-up
 to `investigate-corpus`.
 
-Show lifecycle counts without treating history as current knowledge. `stale_item_count` identifies
-active interpretations whose linked source needs review. `superseded_item_count` is retained history,
-and `archived_contexts` contains completed contexts that remain readable. Do not show superseded item
-text by default, archive a context, or propose purge merely because these counts are nonzero.
+`stale_item_count` identifies current interpretations whose linked source needs review.
+`archived_contexts` contains completed contexts that remain readable. Do not present legacy
+superseded-item counts as part of the current work overview.
 
 When the visualization supports a drill-down action, send a follow-up message that names the selected
 corpus and asks Corpus to verify the selected item against exact current sources. The overview itself

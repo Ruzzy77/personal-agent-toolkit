@@ -46,6 +46,7 @@ from .database import (
     get_corpus,
     list_corpora,
     migrate_corpus,
+    rebind_corpus_source_root,
     register_corpus,
     utc_now,
 )
@@ -1166,6 +1167,25 @@ class CorpusService:
             exclude_path_prefixes=exclude_path_prefixes,
         )
 
+    def rebind_source_root(
+        self,
+        *,
+        corpus_id: str,
+        source_root: Path,
+        expected_source_root: Path,
+    ) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        get_corpus(self.data_root, corpus_id)
+        paths = self._paths(corpus_id)
+        paths.ensure()
+        with writer_lock(paths.corpus_root / "writer.lock"):
+            return rebind_corpus_source_root(
+                data_root=self.data_root,
+                corpus_id=corpus_id,
+                source_root=source_root,
+                expected_source_root=expected_source_root,
+            )
+
     def corpora(self) -> list[dict]:
         return list_corpora(self.data_root)
 
@@ -1230,15 +1250,6 @@ class CorpusService:
                 audience=audience,
                 view="restricted",
             )
-            history = self.context_read(
-                context_id=context["context_id"],
-                state="active",
-                include_history=True,
-                limit=CONTEXT_MAX_LIMIT,
-                offset=0,
-                audience=audience,
-                view="restricted",
-            )
             stale_item_count, stale_source_link_count = (
                 self._overview_stale_counts(detail["items"])
             )
@@ -1255,11 +1266,6 @@ class CorpusService:
                 "stale_item_count": stale_item_count,
                 "stale_source_link_count": stale_source_link_count,
                 "stale_counts_truncated": detail["has_more"],
-                "superseded_item_count": max(
-                    0,
-                    history["total_matching"] - detail["total_matching"],
-                ),
-                "history_truncated": history["has_more"],
             }
             active_contexts.append(context_view)
             for corpus_id in context["corpus_ids"]:
@@ -1358,10 +1364,6 @@ class CorpusService:
                             context["stale_source_link_count"]
                             for context in contexts
                         ),
-                        "superseded_item_count": sum(
-                            context["superseded_item_count"]
-                            for context in contexts
-                        ),
                     },
                 }
             )
@@ -1383,10 +1385,6 @@ class CorpusService:
                 ),
                 "stale_source_link_count": sum(
                     context["stale_source_link_count"]
-                    for context in active_contexts
-                ),
-                "superseded_item_count": sum(
-                    context["superseded_item_count"]
                     for context in active_contexts
                 ),
             },

@@ -1180,7 +1180,7 @@ def create_server(
         description=(
             "Show the work contexts Corpus can help continue and the file collections, provider "
             "records, and completed agent work connected to them. It also includes source coverage "
-            "and retained history for optional detail. This read-only view does not save new "
+            "and current context state for optional detail. This read-only view does not save new "
             "interpretations."
         ),
         annotations=READ_ONLY,
@@ -1512,6 +1512,8 @@ def create_server(
             "List named reusable contexts when context_id is omitted, or read one context "
             "in the requested view. The restricted view includes bounded active items, exact "
             "file source links, linked provider locators, freshness, and inventory changes. "
+            "include_history exists only to inspect superseded items created by older runtimes; "
+            "current replacements do not create interpretation history. "
             "The selected view (general) returns only selected items and omits private source "
             "links, internal identifiers, and freshness internals. List the "
             "general view first, then use its public collection id as context_id to read one "
@@ -1555,9 +1557,12 @@ def create_server(
         name="context_update",
         title="Update Named Context",
         description=(
-            "Create, append, replace, checkpoint, approve, or archive information in a named "
-            "private context. All actions require "
-            "confirm_persistent_context_write=true and the current expected_version. "
+            "Create, append, replace in place, checkpoint, approve, or archive information in a "
+            "named private context. Replacement keeps only the current interpretation and "
+            "invalidates an active general selection until it is approved again. All actions "
+            "require confirm_persistent_context_write=true and the current expected_version. For "
+            "maintenance inside an already user-selected context, confirmation is a caller "
+            "assertion of that continuing scope rather than a new prompt. "
             "approve_general also requires confirm_general_release_approval=true. Selection "
             "changes persistent private state only; it does not publish or transmit the "
             "source-link-free "
@@ -1770,10 +1775,13 @@ def create_server(
         name="corpus_sync",
         title="Synchronize Corpus Index",
         description=(
-            "Run one metadata scan, stop if its inventory is incomplete, and otherwise refresh "
+            "Maintain the private index for a registered source root. Run one metadata scan, "
+            "stop if its inventory is incomplete, and otherwise refresh "
             "only supported documents whose source index is pending. Returns a bounded change, "
             "refresh, and remaining-work summary with one final snapshot. Source files are not "
-            "edited. include_remote=false keeps remote placeholders pending; true automatically "
+            "edited. With include_remote=false, the existing registration defines the maintenance "
+            "scope and no new source permission is required. Remote placeholders stay pending; "
+            "include_remote=true automatically "
             "selects pending remote documents within the same budgets and may download them, "
             "changing local residency and using network and disk."
         ),

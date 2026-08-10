@@ -140,6 +140,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Remove all source exclusions.",
     )
+    rebind_root = corpus_commands.add_parser(
+        "rebind-root",
+        help="Replace a registered source root after validation and backup.",
+    )
+    rebind_root.add_argument("--id", required=True, dest="corpus_id")
+    rebind_root.add_argument("--root", required=True, type=Path)
+    rebind_root.add_argument(
+        "--expected-root",
+        required=True,
+        type=Path,
+        help="Current registered root; the command stops if it does not match.",
+    )
     corpus_commands.add_parser("list", help="List registered corpora.")
 
     overview = commands.add_parser(
@@ -445,7 +457,11 @@ def build_parser() -> argparse.ArgumentParser:
             "source links or internal identifiers."
         ),
     )
-    context_show.add_argument("--include-history", action="store_true")
+    context_show.add_argument(
+        "--include-history",
+        action="store_true",
+        help="Include superseded items created by older runtimes.",
+    )
     context_show.add_argument("--limit", type=int, default=100)
     context_show.add_argument("--offset", type=int, default=0)
 
@@ -592,6 +608,12 @@ def execute(args: argparse.Namespace) -> dict | list:
                 exclude_path_prefixes=(
                     [] if args.clear else args.exclude_path_prefix
                 ),
+            )
+        if args.corpus_command == "rebind-root":
+            return service.rebind_source_root(
+                corpus_id=args.corpus_id,
+                source_root=args.root,
+                expected_source_root=args.expected_root,
             )
         return {"corpora": service.corpora()}
     if args.command == "overview":

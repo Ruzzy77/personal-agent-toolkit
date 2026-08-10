@@ -6,7 +6,7 @@ dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Read-only Corpus overview of work contexts, connected materials, and retained history"
+      description: "Read-only Corpus overview of work contexts and connected materials"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

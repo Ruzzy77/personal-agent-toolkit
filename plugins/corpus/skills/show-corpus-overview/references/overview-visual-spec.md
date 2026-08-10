@@ -49,14 +49,12 @@ Use one responsive surface with this reading order:
 5. A collapsed source-inventory section with the selected corpus's last completed scan and one
    directly labelled horizontal bar for indexed, local-unindexed, and remote documents. Pair color
    with labels and exact counts. Mark partial extraction separately.
-6. A collapsed interpretation-history section:
+6. A collapsed context-state section:
    - `active_item_count`: 저장한 내용;
    - `stale_item_count`: 원문을 다시 읽을 내용;
-   - `superseded_item_count`: 이전 내용;
    - `archived_context_count`: 보관한 업무 맥락.
    Treat stale as a review state inside active items, not a separate total to add to them. Show
-   archived context titles only when at least one exists; keep replaced item text collapsed unless
-   the user asks for history.
+   archived context titles only when at least one exists. Do not add a replaced-item history view.
 7. One labelled action for the selected work context. It may ask Codex to continue that work and
    read the exact sources needed now through `window.openai.sendFollowUpMessage`.
 
@@ -69,7 +67,7 @@ labels, and decorative graphs. The selected work context should remain the domin
 - If `inventory_complete=false`, say “목록 확인 미완료”.
 - If context items are truncated, show the available count and say more items exist.
 - If stale counts are truncated, label them as a lower bound rather than an exact total.
-- Superseded history and archived contexts are provenance, not current understanding.
+- Archived contexts are provenance, not current understanding.
 - Preserve the response audience. Do not invent omitted local-only corpora, local paths, or private
   IDs.
 - Personal view may show the returned names, people, dates, amounts, and context text. Do not add
