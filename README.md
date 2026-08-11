@@ -9,10 +9,11 @@ and present each response in a form that suits the task. The marketplace current
 - **Corpus** connects a task to the files, email, and completed AI work that belong with it, then
   opens the original sources needed now.
 - **Hypes** adapts substantive responses and questions to what the user understands, needs to
-  decide, and is trying to do in the current conversation.
+  decide, and is trying to do, and carries forward only stable, scoped explanation clues at
+  natural commitment points.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
-does not contain a Sense profile, Corpus catalog or index, Hypes conversation state, source
+does not contain a Sense profile, Corpus catalog or index, Hypes cognitive-model database, source
 documents, saved context, provider conversations, credentials, or runtime databases.
 
 ## When the plugins run
@@ -40,6 +41,22 @@ version can load.
 
 The launchers provision isolated Python environments from the committed lockfiles. Python 3.11 or
 newer is required.
+
+## Choose the smallest installation that fits
+
+- **Local only:** install any Sense, Corpus, or Hypes plugins you want. No gateway, tunnel, ChatGPT
+  registration, hosted server, or cloud bill is needed.
+- **Personal ChatGPT:** keep those installed products and add the optional `gateway/` component.
+  Create one OpenAI Secure MCP Tunnel and one developer connection for each product you want in
+  Chat. One macOS LaunchAgent supervises all selected products and tunnels. Product data remains on
+  that Mac; no public inbound server or AWS deployment is needed.
+- **Hosted or multi-user:** use the separately reviewed authenticated runtime when the service must
+  stay available independently of a personal device or serve multiple identities. This is an
+  advanced deployment, not a prerequisite for personal use.
+
+The gateway is toolkit infrastructure, not a fourth plugin. It never creates a combined tool
+namespace. A user may select Sense only, Corpus plus Hypes, or all three; local and Chat surfaces
+continue to register and call each selected product independently.
 
 ## Install from a checkout
 
@@ -77,6 +94,40 @@ Ruzzy77/personal-agent-toolkit
 Install Sense, Corpus, and Hypes from that marketplace, then start a new local
 Cowork session. Full local MCP functionality is intended for Cowork and Code;
 ordinary Chat sessions are not a supported runtime target for this release.
+
+### Personal ChatGPT through the optional gateway
+
+The local product packages intentionally contain no `.app.json` or maintainer-owned ChatGPT
+connection. To use selected products in a private Chat, create your own Platform tunnels and
+developer connections, then use the optional [gateway guide](./gateway/GUIDE.md). The gateway:
+
+- discovers selected products already installed and enabled in this Codex marketplace, or accepts
+  an equivalent exact local package root;
+- starts their packaged MCP launchers against the same existing local data;
+- exposes fixed loopback paths through one gateway process;
+- keeps one tunnel and one ChatGPT registration per selected product; and
+- installs one supervising macOS LaunchAgent, regardless of whether one, two, or three products are
+  selected.
+
+Enabling it does not reinstall a product or migrate its data. Stopping the one gateway service
+returns to local-only use without removing Sense, Corpus, Hypes, or their state. After a product
+update, rerun the gateway installer and restart that LaunchAgent so the selected installed roots and
+reviewed tool surface are refreshed.
+
+The package builder creates a private marketplace containing only the selected product entries and
+their own connection ids. It does not create a gateway plugin or a model-selected router. Test each
+developer connection in a fresh Chat. Separately test the full skill-plus-app package on a ChatGPT
+surface that supports local marketplace plugins; a working MCP connection alone does not prove that
+ordinary Chat loads the local skill bundle.
+
+Private developer registration is not public submission. Public directory distribution remains a
+separate review process for each independently installable product.
+
+See OpenAI's documentation for
+[private tunnels](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+[developer testing](https://developers.openai.com/plugins/deploy/connect-chatgpt),
+[plugin packaging](https://developers.openai.com/plugins/build/plugins), and
+[public submission](https://developers.openai.com/plugins/deploy/submission).
 
 ## First use
 
@@ -128,6 +179,8 @@ Hypes works in the background on substantive tasks. It writes the actual respons
 the task needs, removes repeated context and process-heavy wording, adds explanation only when it
 helps, and keeps important facts, uncertainty, and decisions the user must make. Explicit wording
 or explanation corrections in the current conversation should affect the next relevant response.
+When the user proposes a direction, Hypes compares its value, risks, reversibility, and likely
+failure costs instead of opening with unsupported agreement or praise.
 
 During the conversation, Hypes follows what the user has established they understand, what remains
 unclear, the current decision, and how earlier explanations were received. It may ask one brief
@@ -156,15 +209,36 @@ request. To test explicit invocation, use:
 Use Hypes to make this response clear, natural, and appropriately detailed.
 ```
 
-Hypes adds no fixed panel or separate writing-style choice. Its provisional view of understanding
-stays in the current conversation; it does not build a profile or learn across conversations.
-Simple retrieval, literal transformations, and direct one-step actions do not need it. Codex or
+Hypes adds no fixed panel or separate writing-style choice. When its MCP is available, it keeps a
+small private cognitive-model database outside the plugin package. The database contains compact
+concept relationships and explanation clues with an exact topic, task, and responsibility scope;
+it does not contain raw conversations, a general ability score, personality, or sensitive traits.
+
+Provisional understanding stays in the visible conversation while work is underway. At task
+completion, handoff, a material conclusion, or topic change, the calling agent may use
+`hypes_revise` automatically when one compact relation is stable, reusable, exactly scoped,
+non-sensitive, and likely to change a future explanation. It does not ask whether to save and does
+not accumulate intermediate candidates. Silence, brief assent, preferences, agreement, project
+facts, health, ability, personality, transcripts, full answers, and hidden reasoning are not
+retention evidence. Agent-selected conversation conclusions are reviewed after 90 days by default;
+relations the user explicitly asks Hypes to retain are reviewed after 180 days by default.
+
+If current evidence conflicts with an active relation, `hypes_mark_recheck` suspends the old
+relation without storing the competing claim or conversation. Conflicting or due-for-review
+relations remain visible for inspection but do not silently influence an answer.
+
+The MCP transport is sessionless. Reads carry their exact scope; relation retention, recheck, and
+deletion writes carry the expected active-model revision and idempotency information. No call relies
+on a previous connection or server process. Only relations that pass the retention gate persist
+across processes.
+If the MCP is unavailable, Hypes falls back to what is established in the visible conversation.
+Simple retrieval, literal transformations, and direct one-step actions do not need it, and Codex or
 Claude may not select it on every relevant response.
 
 To check what Hypes took into account, ask “What do you currently believe I understand, and what
-still seems unclear?” or “What did Hypes change in this response?” It will answer only from the
-visible conversation. It will not invent an earlier draft or display a score, profile, checklist,
-or internal process report.
+still seems unclear?” or “What did Hypes change in this response?” It will distinguish the visible
+conversation from active stored clues, show recheck items when relevant, and will not invent an
+earlier draft or display a score, personality profile, checklist, or internal process report.
 
 ## Data boundary
 
@@ -175,8 +249,9 @@ By default on macOS:
   `~/Library/Application Support/Corpus/`.
 - Provider-linked records remain with their original providers. Corpus stores limited record
   details and reads exact visible content only when explicitly requested.
-- Hypes keeps no personal database and adds no storage beyond the conversation already available
-  in the current task.
+- Hypes stores its compact private cognitive model under
+  `~/Library/Application Support/Hypes/`. It stores no raw conversation, and all retained model
+  state is available to the overview and deletion flow.
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 
@@ -188,8 +263,10 @@ python3 scripts/validate_release.py
 
 The validation checks manifests, license copies, package versions, file permissions, private-data
 and credential patterns, empty-state behavior, Sense preview activation, Corpus first registration,
-Hypes skill structure and implicit-selection metadata, and real MCP `initialize` plus `tools/list`
-handshakes.
+Hypes private-store permissions, skill structure and implicit-selection metadata, and real MCP
+`initialize` plus `tools/list` handshakes for all three plugins. It also checks that product HTTP
+listeners remain sessionless and loopback-only and that the optional gateway contains no product
+runtime, connection id, credential, or user data.
 
 ## License
 

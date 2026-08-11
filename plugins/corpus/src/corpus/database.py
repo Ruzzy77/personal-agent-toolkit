@@ -66,11 +66,16 @@ def _require_rollback_journal_header(path: Path, header: bytes) -> None:
 
 def _configure_write_connection(connection: sqlite3.Connection, *, path: Path) -> None:
     connection.execute("PRAGMA busy_timeout = 30000")
+    connection.execute("PRAGMA secure_delete = ON")
+    secure_delete = int(connection.execute("PRAGMA secure_delete").fetchone()[0])
+    if secure_delete != 1:
+        raise ConfigurationError(
+            "database could not enable secure row deletion",
+            details={"path": str(path), "reason": "secure_delete_unavailable"},
+        )
     current = str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower()
     if current != "delete":
-        current = str(
-            connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0]
-        ).lower()
+        current = str(connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0]).lower()
     if current != "delete":
         raise ConfigurationError(
             "database could not enter rollback-journal mode",
@@ -172,8 +177,7 @@ def ensure_catalog(data_root: Path) -> Path:
     with closing(connect(path)) as connection, connection:
         connection.executescript(CATALOG_SCHEMA)
         columns = {
-            column["name"]
-            for column in connection.execute("PRAGMA table_info(corpora)").fetchall()
+            column["name"] for column in connection.execute("PRAGMA table_info(corpora)").fetchall()
         }
         if "source_scope_json" not in columns:
             connection.execute(
@@ -271,20 +275,14 @@ def migrate_context_database(data_root: Path) -> dict:
                 },
             ) from exc
         schema_version = int(row["version"]) if row is not None else 0
-        if (
-            user_version == CONTEXT_SCHEMA_VERSION
-            and schema_version == CONTEXT_SCHEMA_VERSION
-        ):
+        if user_version == CONTEXT_SCHEMA_VERSION and schema_version == CONTEXT_SCHEMA_VERSION:
             return {
                 "database": "contexts",
                 "from_version": CONTEXT_SCHEMA_VERSION,
                 "to_version": CONTEXT_SCHEMA_VERSION,
                 "migrated": False,
             }
-        if (
-            user_version not in {1, 2, 3, 4}
-            or schema_version != user_version
-        ):
+        if user_version not in {1, 2, 3, 4} or schema_version != user_version:
             raise UnsupportedSchemaError(
                 "context database schema is not supported",
                 details={
@@ -299,9 +297,7 @@ def migrate_context_database(data_root: Path) -> dict:
             if from_version == 1:
                 columns = {
                     column["name"]
-                    for column in connection.execute(
-                        "PRAGMA table_info(context_items)"
-                    ).fetchall()
+                    for column in connection.execute("PRAGMA table_info(context_items)").fetchall()
                 }
                 if "disclosure_state" not in columns:
                     connection.execute(
@@ -856,9 +852,7 @@ def _corpus_row(row: sqlite3.Row) -> dict:
     corpus = dict(row)
     raw_scope = corpus.pop("source_scope_json", None)
     corpus["source_scope"] = (
-        normalize_source_scope()
-        if raw_scope is None
-        else _decode_source_scope(raw_scope)
+        normalize_source_scope() if raw_scope is None else _decode_source_scope(raw_scope)
     )
     return corpus
 
@@ -887,6 +881,47 @@ def list_corpora(data_root: Path) -> list[dict]:
     with closing(connect_readonly(catalog)) as connection:
         rows = connection.execute("SELECT * FROM corpora ORDER BY corpus_id").fetchall()
     return [_corpus_row(row) for row in rows]
+
+
+def list_corpora_page(
+    data_root: Path,
+    *,
+    limit: int,
+    offset: int = 0,
+) -> dict[str, object]:
+    """Read one bounded catalog page without materializing the full registry."""
+
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ConfigurationError("corpus page limit must be a positive integer")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise ConfigurationError("corpus page offset must be a non-negative integer")
+    catalog = data_root / "catalog.sqlite"
+    if not catalog.exists():
+        return {
+            "offset": offset,
+            "limit": limit,
+            "returned_count": 0,
+            "has_more": False,
+            "next_offset": None,
+            "corpora": [],
+        }
+    _require_existing_database(catalog)
+    with closing(connect_readonly(catalog)) as connection:
+        rows = connection.execute(
+            "SELECT * FROM corpora ORDER BY corpus_id LIMIT ? OFFSET ?",
+            (limit + 1, offset),
+        ).fetchall()
+    has_more = len(rows) > limit
+    selected = rows[:limit]
+    next_offset = offset + len(selected)
+    return {
+        "offset": offset,
+        "limit": limit,
+        "returned_count": len(selected),
+        "has_more": has_more,
+        "next_offset": next_offset if has_more else None,
+        "corpora": [_corpus_row(row) for row in selected],
+    }
 
 
 @contextmanager

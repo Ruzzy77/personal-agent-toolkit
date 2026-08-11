@@ -8,7 +8,7 @@ workspace view, not a stored report or a new source of truth.
 Keep three layers legible without presenting them as a quality ladder:
 
 1. **Work contexts** — ongoing bodies of work described by their purpose, recurring output or
-   topic, current understanding, relationships, and open questions.
+   topic, current work interpretation, relationships, and open questions.
 2. **Connected materials** — the file collections, provider records, and completed agent work
    linked to each work context. These links help locate originals; they are not copied content.
 3. **Source inventory** — supported documents split into:
@@ -24,7 +24,7 @@ Group context item kinds for reading:
 
 | Saved kind | User-facing group |
 |---|---|
-| `finding` | 현재 이해 |
+| `finding` | 현재 업무 해석 |
 | `relationship`, `difference` | 관계와 변화 |
 | `question`, `gap` | 확인할 것 |
 
@@ -39,7 +39,7 @@ Use one responsive surface with this reading order:
    materials connected to it. Do not select a context merely because it has more saved items.
 2. A selected-work strip with its purpose, recurring output types, related source collections, and
    any material that must be read again. Selection must be keyboard accessible.
-3. Three semantic groups: current understanding, relations and changes, and questions or gaps.
+3. Three semantic groups: current work interpretation, relations and changes, and questions or gaps.
    Prefer readable text over badges. Show source counts only when they help choose what to verify.
 4. A small source-to-context relation:
 
@@ -67,7 +67,7 @@ labels, and decorative graphs. The selected work context should remain the domin
 - If `inventory_complete=false`, say “목록 확인 미완료”.
 - If context items are truncated, show the available count and say more items exist.
 - If stale counts are truncated, label them as a lower bound rather than an exact total.
-- Archived contexts are provenance, not current understanding.
+- Archived contexts are provenance, not current work interpretation.
 - Preserve the response audience. Do not invent omitted local-only corpora, local paths, or private
   IDs.
 - Personal view may show the returned names, people, dates, amounts, and context text. Do not add

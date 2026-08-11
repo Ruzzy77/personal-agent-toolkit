@@ -4,16 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sense"
-version = "0.1.13"
+version = "0.2.0"
 description = "Keep one private, user-controlled work profile available across AI tools"
 authors = [
   {name = "Ruzzy77"},
 ]
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=2,<3",
+  "pydantic>=2.11,<3",
 ]
 
 [project.scripts]
@@ -29,3 +30,6 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+sense = ["ui/work_profile/index.html"]

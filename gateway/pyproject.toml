@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "personal-agent-tunnel-gateway"
+version = "0.1.0"
+description = "Personal gateway for selected installed Sense, Corpus, and Hypes plugins"
+authors = [
+  {name = "Ruzzy77"},
+]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28,<1",
+  "mcp>=2,<3",
+  "starlette>=0.46,<1",
+  "uvicorn>=0.34,<1",
+]
+
+[project.scripts]
+personal-agent-tunnel = "personal_agent_remote.tunnel:main"
+personal-agent-tunnel-gateway = "personal_agent_remote.tunnel_gateway:main"
+personal-agent-tunnel-service = "personal_agent_remote.tunnel_service:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/personal_agent_remote"]

@@ -851,10 +851,11 @@ wheels = [
 
 [[package]]
 name = "sense"
-version = "0.1.13"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -865,7 +866,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", specifier = ">=2,<3" }]
+requires-dist = [
+    { name = "mcp", specifier = ">=2,<3" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
+]
 
 [package.metadata.requires-dev]
 dev = [

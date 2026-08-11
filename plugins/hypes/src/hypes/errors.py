@@ -40,3 +40,14 @@ class ReplayConflict(HypesError):
 class InvalidTicket(HypesError):
     def __init__(self, message: str = "the forget ticket is invalid or expired") -> None:
         super().__init__("invalid_forget_ticket", message)
+
+
+class DeletionCleanupPending(HypesError):
+    """The logical deletion committed but SQLite still needs a physical cleanup retry."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "deletion_cleanup_pending",
+            "the relation deletion committed, but physical storage cleanup is still pending; "
+            "retry the same forget request with the same idempotency key",
+        )

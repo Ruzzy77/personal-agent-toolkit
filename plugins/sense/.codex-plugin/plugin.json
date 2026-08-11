@@ -38,10 +38,9 @@
     "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Show me the work profile you use when collaborating with me.",
-      "Use Sense to work with me on this task.",
       "Show what Sense currently carries forward from completed work.",
       "Show which guidance is affecting this task."
     ]
   },
-  "version": "0.1.13+codex.20260810042309"
+  "version": "0.2.0+codex.20260811051335"
 }

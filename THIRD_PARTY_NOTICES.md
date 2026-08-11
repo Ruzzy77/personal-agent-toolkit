@@ -9,17 +9,20 @@ Direct runtime dependencies:
 | Dependency | Used by | License |
 | --- | --- | --- |
 | `defusedxml` | Corpus | Python Software Foundation License |
-| `mcp` | Sense, Corpus | MIT |
+| `httpx` | Optional personal gateway | BSD-3-Clause |
+| `mcp` | Sense, Corpus, Hypes, optional personal gateway | MIT |
 | `olefile` | Corpus | BSD |
 | `openpyxl` | Corpus | MIT |
+| `pydantic` | Sense, Corpus, Hypes | MIT |
 | `pypdf` | Corpus | BSD-3-Clause |
 | `python-docx` | Corpus | MIT |
 | `python-pptx` | Corpus | MIT |
-
-Hypes uses only the Python standard library at runtime.
+| `starlette` | Optional personal gateway | BSD-3-Clause |
+| `uvicorn` | Optional personal gateway | BSD-3-Clause |
 
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
-`plugins/sense/uv.lock` and `plugins/corpus/uv.lock`.
+`plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/hypes/uv.lock`, and
+`gateway/uv.lock`.
 
 This file is informational and does not replace the license text supplied by any dependency.

@@ -16,6 +16,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from . import __version__
 from .config import default_data_root
 from .contexts import CONTEXT_DEFAULT_LIMIT, CONTEXT_MAX_LIMIT, CONTEXT_MAX_OFFSET
 from .database import encode_json, get_corpus
@@ -69,6 +70,10 @@ SERVER_INSTRUCTIONS = (
     "endorsement. It changes private runtime state only and does not publish or transmit items. "
     "Saving agent-created context "
     "outside source roots requires explicit confirmation. "
+    "Context question and gap items describe unresolved work, missing material, evidence, or "
+    "source coverage. They never describe the user's understanding, skill, or cognitive state; "
+    "concept "
+    "understanding and helpful explanation patterns belong to Hypes, not Corpus or Sense. "
     "The server never writes source bytes. "
     "A registered corpus may also contain linked provider records such as Gmail message "
     "locators and completed Codex or Claude turns. Gmail content stays with its connector; "
@@ -1116,6 +1121,52 @@ def _mcp_sync(
     return result
 
 
+def _mcp_search_candidates(
+    service: CorpusService,
+    corpus_id: str,
+    *,
+    questions: list[str],
+    limit_per_question: int,
+) -> dict:
+    """Build the bounded multi-question candidate response shared by MCP surfaces."""
+
+    _require_mcp_access(service, corpus_id)
+    pools = []
+    candidate_count = 0
+    for question in questions:
+        if not question.strip():
+            continue
+        pool = service.search(
+            corpus_id,
+            question,
+            limit=limit_per_question,
+        )
+        pools.append(pool)
+        candidate_count += pool["count"]
+        response = {
+            "candidate_pools": pools,
+            "interpretation_required": True,
+            "ranking_is_evidence": False,
+        }
+        serialized_bytes = len(encode_json(response).encode())
+        if serialized_bytes > MCP_SEARCH_MAX_SERIALIZED_BYTES:
+            raise BudgetExceededError(
+                "multi-question search response exceeds the aggregate budget",
+                details={
+                    "requested_question_count": len(questions),
+                    "completed_pool_count": len(pools),
+                    "candidate_count": candidate_count,
+                    "serialized_bytes": serialized_bytes,
+                    "maximum_serialized_bytes": MCP_SEARCH_MAX_SERIALIZED_BYTES,
+                },
+            )
+    return {
+        "candidate_pools": pools,
+        "interpretation_required": True,
+        "ranking_is_evidence": False,
+    }
+
+
 def _semantic_cache_tools_enabled_from_environment() -> bool:
     return os.environ.get(SEMANTIC_CACHE_TOOLS_ENV) == "1"
 
@@ -1138,7 +1189,7 @@ def create_server(
     )
     server = MCPServer(
         "Corpus",
-        version="0.9.15",
+        version=__version__,
         instructions=(
             SEMANTIC_CACHE_INSTRUCTIONS
             if enable_semantic_cache_tools
@@ -1182,8 +1233,9 @@ def create_server(
         description=(
             "Show the work contexts Corpus can help continue and the file collections, provider "
             "records, and completed agent work connected to them. It also includes source coverage "
-            "and current context state for optional detail. This read-only view does not save new "
-            "interpretations."
+            "and current context state for optional detail. Questions and gaps are unresolved work "
+            "or source needs. They do not describe the user's knowledge or cognitive state. "
+            "This read-only view does not save new interpretations."
         ),
         annotations=READ_ONLY,
     )
@@ -1316,46 +1368,15 @@ def create_server(
         ],
         limit_per_question: Annotated[int, Field(ge=1, le=50)] = 12,
     ) -> ToolResponse:
-        def run() -> dict:
-            _require_mcp_access(service, corpus_id)
-            pools = []
-            candidate_count = 0
-            for question in questions:
-                if not question.strip():
-                    continue
-                pool = service.search(
-                    corpus_id,
-                    question,
-                    limit=limit_per_question,
-                )
-                pools.append(pool)
-                candidate_count += pool["count"]
-                response = {
-                    "candidate_pools": pools,
-                    "interpretation_required": True,
-                    "ranking_is_evidence": False,
-                }
-                serialized_bytes = len(encode_json(response).encode())
-                if serialized_bytes > MCP_SEARCH_MAX_SERIALIZED_BYTES:
-                    raise BudgetExceededError(
-                        "multi-question search response exceeds the aggregate budget",
-                        details={
-                            "requested_question_count": len(questions),
-                            "completed_pool_count": len(pools),
-                            "candidate_count": candidate_count,
-                            "serialized_bytes": serialized_bytes,
-                            "maximum_serialized_bytes": (
-                                MCP_SEARCH_MAX_SERIALIZED_BYTES
-                            ),
-                        },
-                    )
-            return {
-                "candidate_pools": pools,
-                "interpretation_required": True,
-                "ranking_is_evidence": False,
-            }
-
-        return safe_call(run, corpus_id=corpus_id)
+        return safe_call(
+            lambda: _mcp_search_candidates(
+                service,
+                corpus_id,
+                questions=questions,
+                limit_per_question=limit_per_question,
+            ),
+            corpus_id=corpus_id,
+        )
 
     @server.tool(
         name="corpus_read",
@@ -1514,6 +1535,8 @@ def create_server(
             "List named reusable contexts when context_id is omitted, or read one context "
             "in the requested view. The restricted view includes bounded active items, exact "
             "file source links, linked provider locators, freshness, and inventory changes. "
+            "Question and gap items mean unresolved work, missing evidence, or source coverage, "
+            "never the user's concept understanding or skill. "
             "include_history exists only to inspect superseded items created by older runtimes; "
             "current replacements do not create interpretation history. "
             "The selected view (general) returns only selected items and omits private source "
@@ -1562,6 +1585,8 @@ def create_server(
             "Create, append, replace in place, checkpoint, approve, or archive information in a "
             "named private context. Replacement keeps only the current interpretation and "
             "invalidates an active general selection until it is approved again. All actions "
+            "must keep question and gap items about the work or sources, not the user's concept "
+            "understanding, skill, or helpful explanation patterns. They "
             "require confirm_persistent_context_write=true and the current expected_version. For "
             "maintenance inside an already user-selected context, confirmation is a caller "
             "assertion of that continuing scope rather than a new prompt. "
@@ -1908,7 +1933,8 @@ def main() -> None:
         loopback = False
     if not loopback:
         raise ValueError(
-            "CORPUS_MCP_HOST must be loopback until an authenticated OAuth resource server is configured"
+            "CORPUS_MCP_HOST must be loopback until an authenticated OAuth resource server is "
+            "configured"
         )
     mcp.run(
         transport="streamable-http",

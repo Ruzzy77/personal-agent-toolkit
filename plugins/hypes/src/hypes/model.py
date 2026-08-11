@@ -12,13 +12,16 @@ RelationKind = Literal[
     "helpful_explanation",
     "unhelpful_explanation",
 ]
-EvidenceKind = Literal[
-    "user_statement",
-    "explicit_correction",
-    "applied_outcome",
-    "repeated_observation",
+RelationStatus = Literal["active", "recheck_due"]
+RetentionBasis = Literal[
+    "explicit_user_request",
+    "conversation_conclusion",
 ]
-RelationStatus = Literal["pending", "active", "recheck_due", "superseded"]
+RecheckBasis = Literal[
+    "explicit_user_correction",
+    "incompatible_application_outcome",
+    "current_conversation_conflict",
+]
 
 
 class CognitiveScope(BaseModel):

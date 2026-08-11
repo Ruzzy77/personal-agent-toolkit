@@ -59,6 +59,13 @@ Use `context_read(view="restricted")` for the context chosen above. A context wi
 `scope.type=semantic_collection` carries selected reusable meanings for a topic, process or
 relationship. It does not stand for an automatic summary of every document in its corpora.
 
+In this skill, a `question` is unresolved work or source inquiry and a `gap` is missing material,
+evidence, or source coverage. Neither describes what the user understands, their skill level, or
+their cognitive state. Keep the user's topic-, task-, or responsibility-specific concept
+relationships and helpful explanation patterns with Hypes; do not copy them into Corpus or Sense.
+When Hypes is available, follow its own observation, confirmation, and persistence contract. When it
+is unavailable, keep that understanding only in the current conversation and continue Corpus work.
+
 1. Read the selected context and note its version, scope, source-link freshness, latest scan state,
    inventory changes, questions and gaps.
 2. Treat registration of a local source root as continuing permission for Corpus to maintain its

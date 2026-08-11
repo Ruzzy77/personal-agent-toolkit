@@ -7,7 +7,7 @@ description: Show a read-only overview organized around the work contexts Corpus
 
 Present the work Corpus can help the user resume, then show the materials connected to it. Keep
 source coverage separate from the agent's saved interpretation: more indexed text does not mean
-better understanding, and saved context is not the same as a statement in the source.
+better work interpretation, and saved context is not the same as a statement in the source.
 
 ## Read the saved state
 
@@ -52,8 +52,13 @@ The first view must let the user answer:
 - Which ongoing body of work should I continue?
 - What kinds of outputs recur in that work?
 - What files, email, and completed agent work belong with it?
-- What understanding and open questions have been carried forward?
+- What source-linked work interpretation and unresolved work or source questions have been carried
+  forward?
 - What needs to be read again before relying on it?
+
+Questions and gaps in this view describe unresolved work, missing material, evidence, or source
+coverage. Do not present them as the user's misunderstanding, skill level, or cognitive state; that
+kind of topic-, task-, or responsibility-specific understanding belongs with Hypes.
 
 Preserve a work context the user has selected. If the current request clearly names one context,
 open that context first. Otherwise show a compact list of work contexts without choosing one by
@@ -63,11 +68,10 @@ can continue.
 
 ## Keep overview and investigation separate
 
-Use context item text as a readable map of saved understanding. Do not reopen source units, validate
-claims, infer new project status, or add new context items while preparing the overview. If the user
-selects a corpus or item and asks to check it against current sources, compare changes, or answer a
-substantive question, hand that follow-up
-to `investigate-corpus`.
+Use context item text as a readable map of saved work interpretation. Do not reopen source units,
+validate claims, infer new project status, or add new context items while preparing the overview. If
+the user selects a corpus or item and asks to check it against current sources, compare changes, or
+answer a substantive question, hand that follow-up to `investigate-corpus`.
 
 `stale_item_count` identifies current interpretations whose linked source needs review.
 `archived_contexts` contains completed contexts that remain readable. Do not present legacy

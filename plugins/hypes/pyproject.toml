@@ -4,11 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypes"
-version = "0.3.0"
+version = "0.6.0"
 description = "Adaptive explanations and a scoped personal cognitive model"
 authors = [
   {name = "Ruzzy77"},
 ]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=2,<3",
@@ -27,6 +29,7 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hypes"]
+exclude = ["/src/hypes/harness/**"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

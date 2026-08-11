@@ -45,6 +45,22 @@ class ConfirmationMismatchError(SenseError):
     code = "confirmation_mismatch"
 
 
+class IdempotencyConflictError(SenseError):
+    code = "idempotency_conflict"
+
+
+class InvalidDeleteTicketError(SenseError):
+    code = "invalid_delete_ticket"
+
+
+class MigrationStateError(SenseError):
+    code = "migration_state_error"
+
+
+class MigrationTargetNotEmptyError(SenseError):
+    code = "migration_target_not_empty"
+
+
 class UnsafeStorageError(SenseError):
     code = "unsafe_storage"
 

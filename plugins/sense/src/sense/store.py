@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -12,13 +14,16 @@ import time
 import unicodedata
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .errors import (
     ConfirmationMismatchError,
     ConfirmationRequiredError,
+    IdempotencyConflictError,
+    InvalidDeleteTicketError,
+    MigrationTargetNotEmptyError,
     PreviewReadOnlyError,
     ProfileBusyError,
     ProfileExistsError,
@@ -26,6 +31,11 @@ from .errors import (
     RevisionConflictError,
     SectionNotFoundError,
     UnsafeStorageError,
+)
+from .migration import (
+    MIGRATION_BUNDLE_SCHEMA_VERSION,
+    MIGRATION_FORMAT,
+    validate_idempotency_key,
 )
 from .model import (
     Lifecycle,
@@ -49,6 +59,7 @@ REMOVABLE_NAMES = {
 }
 LOCK_TIMEOUT_SECONDS = 2.0
 SQLITE_BUSY_TIMEOUT_MS = 2000
+REMOTE_DELETE_TICKET_TTL = timedelta(minutes=10)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS current_profile (
@@ -65,6 +76,20 @@ CREATE TABLE IF NOT EXISTS profile_revisions (
     profile_json TEXT NOT NULL,
     profile_sha256 TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS remote_operation_replays (
+    operation TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_sha256 TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (operation, idempotency_key)
 );
 """
 
@@ -509,6 +534,215 @@ class SenseStore:
                 "use needs explicit user confirmation and a user-set source reference"
             )
 
+    @staticmethod
+    def _replay_operation(
+        connection: sqlite3.Connection,
+        *,
+        operation: str,
+        idempotency_key: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT request_sha256, response_json FROM remote_operation_replays "
+            "WHERE operation = ? AND idempotency_key = ?",
+            (operation, idempotency_key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_sha256"] != content_sha256(request):
+            raise IdempotencyConflictError(
+                "the idempotency key was already used with different input"
+            )
+        replay = json.loads(row["response_json"])
+        if not isinstance(replay, dict):
+            raise UnsafeStorageError("stored Sense replay response is inconsistent")
+        replay["replayed"] = True
+        return replay
+
+    @staticmethod
+    def _record_operation_replay(
+        connection: sqlite3.Connection,
+        *,
+        operation: str,
+        idempotency_key: str,
+        request: dict[str, Any],
+        response: dict[str, Any],
+    ) -> None:
+        connection.execute(
+            "INSERT INTO remote_operation_replays ("
+            "operation, idempotency_key, request_sha256, response_json, created_at"
+            ") VALUES (?, ?, ?, ?, ?)",
+            (
+                operation,
+                idempotency_key,
+                content_sha256(request),
+                canonical_json_bytes(response).decode("utf-8"),
+                utc_now(),
+            ),
+        )
+
+    @staticmethod
+    def _ticket_secret(connection: sqlite3.Connection) -> bytes:
+        row = connection.execute(
+            "SELECT value FROM runtime_metadata WHERE key = 'remote_delete_ticket_secret'"
+        ).fetchone()
+        if row is None:
+            value = os.urandom(32).hex()
+            connection.execute(
+                "INSERT INTO runtime_metadata(key, value) VALUES "
+                "('remote_delete_ticket_secret', ?)",
+                (value,),
+            )
+            return bytes.fromhex(value)
+        try:
+            secret = bytes.fromhex(row["value"])
+        except ValueError as exc:
+            raise UnsafeStorageError(
+                "stored Sense delete-ticket key is inconsistent"
+            ) from exc
+        if len(secret) != 32:
+            raise UnsafeStorageError("stored Sense delete-ticket key is inconsistent")
+        return secret
+
+    @classmethod
+    def _sign_remote_delete_ticket(
+        cls,
+        connection: sqlite3.Connection,
+        payload: dict[str, Any],
+    ) -> str:
+        encoded = base64.urlsafe_b64encode(canonical_json_bytes(payload)).decode(
+            "ascii"
+        ).rstrip("=")
+        signature = hmac.new(
+            cls._ticket_secret(connection),
+            encoded.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{encoded}.{signature}"
+
+    @classmethod
+    def _verify_remote_delete_ticket(
+        cls,
+        connection: sqlite3.Connection,
+        ticket: str,
+    ) -> dict[str, Any]:
+        try:
+            encoded, supplied_signature = ticket.split(".", 1)
+            expected_signature = hmac.new(
+                cls._ticket_secret(connection),
+                encoded.encode("ascii"),
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(supplied_signature, expected_signature):
+                raise InvalidDeleteTicketError(
+                    "the Sense delete ticket is invalid or expired"
+                )
+            decoded = base64.urlsafe_b64decode(
+                encoded + "=" * (-len(encoded) % 4)
+            )
+            payload = json.loads(decoded)
+        except InvalidDeleteTicketError:
+            raise
+        except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise InvalidDeleteTicketError(
+                "the Sense delete ticket is invalid or expired"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise InvalidDeleteTicketError(
+                "the Sense delete ticket is invalid or expired"
+            )
+        return payload
+
+    def import_migration_profile(
+        self,
+        *,
+        profile: ProfileDocument,
+        lifecycle: Lifecycle,
+        profile_sha256: str,
+        bundle_sha256: str,
+        expected_empty: bool,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Initialize an empty namespace from one validated canonical bundle."""
+
+        if expected_empty is not True:
+            raise ValueError("Sense migration import requires expected_empty=true")
+        if lifecycle != "active":
+            raise ValueError("Sense migration accepts only an active profile")
+        if content_sha256(profile) != profile_sha256:
+            raise ValueError("Sense migration profile digest does not match its payload")
+        expected_bundle_sha256 = content_sha256(
+            {
+                "format": MIGRATION_FORMAT,
+                "bundle_schema_version": MIGRATION_BUNDLE_SCHEMA_VERSION,
+                "lifecycle": lifecycle,
+                "profile": profile.model_dump(mode="json"),
+                "profile_sha256": profile_sha256,
+            }
+        )
+        if bundle_sha256 != expected_bundle_sha256:
+            raise ValueError("Sense migration bundle digest does not match its payload")
+        validate_idempotency_key(idempotency_key)
+        request = {
+            "expected_empty": True,
+            "bundle_sha256": bundle_sha256,
+            "profile_sha256": profile_sha256,
+        }
+        with closing(self._connect_write(create=True)) as connection:
+            self._begin_exclusive(connection)
+            replay = self._replay_operation(
+                connection,
+                operation="migration_import_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+            )
+            if replay is not None:
+                connection.execute("COMMIT")
+                return replay
+
+            current_exists = connection.execute(
+                "SELECT 1 FROM current_profile WHERE singleton = 1"
+            ).fetchone()
+            history_exists = connection.execute(
+                "SELECT 1 FROM profile_revisions LIMIT 1"
+            ).fetchone()
+            if current_exists is not None or history_exists is not None:
+                raise MigrationTargetNotEmptyError(
+                    "Sense migration target is not empty"
+                )
+
+            connection.execute(
+                "INSERT INTO current_profile ("
+                "singleton, lifecycle, revision, profile_json, profile_sha256, updated_at"
+                ") VALUES (1, ?, ?, ?, ?, ?)",
+                (
+                    lifecycle,
+                    profile.revision,
+                    self._profile_json(profile),
+                    profile_sha256,
+                    utc_now(),
+                ),
+            )
+            result = {
+                "revision": profile.revision,
+                "lifecycle": lifecycle,
+                "profile_sha256": profile_sha256,
+                "bundle_sha256": bundle_sha256,
+                "effect": "profile_imported",
+                "replayed": False,
+            }
+            self._record_operation_replay(
+                connection,
+                operation="migration_import_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+                response=result,
+            )
+            connection.execute("COMMIT")
+            self._checkpoint(connection)
+        self._secure_runtime_files()
+        return result
+
     def revise(
         self,
         *,
@@ -562,6 +796,290 @@ class SenseStore:
             self._checkpoint(connection)
         self._secure_runtime_files()
         return self.read()
+
+    def remote_revise_public(
+        self,
+        *,
+        expected_revision: int,
+        idempotency_key: str,
+        principal_binding: str,
+        section_id: str,
+        previous_understanding: str,
+        changed_future_judgment: str,
+        public_fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Replace only caller-visible fields of one existing ordinary section."""
+
+        allowed_public_fields = {
+            "purpose",
+            "text",
+            "origins",
+            "use_for",
+            "review_when",
+        }
+        if set(public_fields) != allowed_public_fields:
+            raise ValueError("remote update must contain exactly the public section fields")
+        if not previous_understanding.strip():
+            raise ValueError("previous_understanding must explain the replaced view")
+        if not changed_future_judgment.strip():
+            raise ValueError(
+                "changed_future_judgment must state what will differ next time"
+            )
+        request = {
+            "expected_revision": expected_revision,
+            "principal_binding": principal_binding,
+            "section_id": section_id,
+            "previous_understanding": previous_understanding,
+            "changed_future_judgment": changed_future_judgment,
+            "public_fields": public_fields,
+        }
+        with closing(self._connect_write()) as connection:
+            self._begin_exclusive(connection)
+            replay = self._replay_operation(
+                connection,
+                operation="remote_revise_public_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+            )
+            if replay is not None:
+                connection.execute("COMMIT")
+                return replay
+
+            current = self._load_current(connection)
+            self._require_active(current)
+            self._require_revision(current, expected_revision)
+            previous = self._find_section(current.profile, section_id)
+            if previous.sensitivity != "ordinary":
+                raise SectionNotFoundError(
+                    "Sense profile section was not found",
+                    details={"section_id": section_id},
+                )
+            replacement = ProfileSection.model_validate(
+                {
+                    "id": previous.id,
+                    **public_fields,
+                    "sensitivity": previous.sensitivity,
+                    "source_refs": [
+                        source.model_dump(mode="json")
+                        for source in previous.source_refs
+                    ],
+                }
+            )
+            self._require_sensitive_confirmation(
+                previous,
+                replacement,
+                user_confirmed=False,
+            )
+            self._archive_current(connection, current)
+            sections = [
+                replacement if section.id == section_id else section
+                for section in current.profile.sections
+            ]
+            revised = ProfileDocument.model_validate(
+                current.profile.model_copy(
+                    update={
+                        "revision": current.profile.revision + 1,
+                        "sections": sections,
+                    }
+                ).model_dump(mode="json")
+            )
+            self._replace_current(
+                connection,
+                lifecycle=current.lifecycle,
+                profile=revised,
+            )
+            self._prune_history(connection)
+            result = {
+                "revision": revised.revision,
+                "effect": "section_updated",
+                "replayed": False,
+            }
+            self._record_operation_replay(
+                connection,
+                operation="remote_revise_public_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+                response=result,
+            )
+            connection.execute("COMMIT")
+            self._checkpoint(connection)
+        self._secure_runtime_files()
+        return result
+
+    def remote_delete_preview(
+        self,
+        *,
+        section_id: str,
+        principal_binding: str,
+    ) -> dict[str, Any]:
+        """Mint a short-lived, exact-state ticket for one ordinary section."""
+
+        with closing(self._connect_write()) as connection:
+            self._begin_exclusive(connection)
+            current = self._load_current(connection)
+            self._require_active(current)
+            section = self._find_section(current.profile, section_id)
+            if section.sensitivity != "ordinary":
+                raise SectionNotFoundError(
+                    "Sense profile section was not found",
+                    details={"section_id": section_id},
+                )
+            if len(current.profile.sections) == 1:
+                raise ValueError("Sense profile must keep at least one section")
+            expires_at = datetime.now(UTC) + REMOTE_DELETE_TICKET_TTL
+            payload = {
+                "action": "remote_delete_section_v1",
+                "principal_binding": principal_binding,
+                "expected_revision": current.profile.revision,
+                "profile_sha256": current.digest,
+                "section_id": section_id,
+                "section_sha256": section_sha256(section),
+                "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+            }
+            ticket = self._sign_remote_delete_ticket(connection, payload)
+            connection.execute("COMMIT")
+        self._secure_runtime_files()
+        return {
+            "revision": current.profile.revision,
+            "section": section,
+            "delete_ticket": ticket,
+            "expires_at": payload["expires_at"],
+            "effect": "remove_section_from_current_and_retained_revisions",
+        }
+
+    def remote_delete(
+        self,
+        *,
+        expected_revision: int,
+        idempotency_key: str,
+        principal_binding: str,
+        delete_ticket: str,
+    ) -> dict[str, Any]:
+        """Forget one previewed ordinary section and every retained copy of it."""
+
+        request = {
+            "expected_revision": expected_revision,
+            "principal_binding": principal_binding,
+            "delete_ticket": delete_ticket,
+        }
+        with closing(self._connect_write()) as connection:
+            self._begin_exclusive(connection)
+            replay = self._replay_operation(
+                connection,
+                operation="remote_delete_section_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+            )
+            if replay is not None:
+                connection.execute("COMMIT")
+                return replay
+
+            current = self._load_current(connection)
+            self._require_active(current)
+            self._require_revision(current, expected_revision)
+            payload = self._verify_remote_delete_ticket(connection, delete_ticket)
+            try:
+                expires_at = datetime.fromisoformat(str(payload["expires_at"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise InvalidDeleteTicketError(
+                    "the Sense delete ticket is invalid or expired"
+                ) from exc
+            if expires_at.tzinfo is None or expires_at <= datetime.now(UTC):
+                raise InvalidDeleteTicketError(
+                    "the Sense delete ticket is invalid or expired"
+                )
+            if (
+                payload.get("action") != "remote_delete_section_v1"
+                or payload.get("principal_binding") != principal_binding
+                or payload.get("expected_revision") != expected_revision
+                or payload.get("profile_sha256") != current.digest
+                or not isinstance(payload.get("section_id"), str)
+                or not isinstance(payload.get("section_sha256"), str)
+            ):
+                raise InvalidDeleteTicketError(
+                    "the Sense delete ticket does not match this account or profile state"
+                )
+            section_id = payload["section_id"]
+            section = self._find_section(current.profile, section_id)
+            if (
+                section.sensitivity != "ordinary"
+                or section_sha256(section) != payload["section_sha256"]
+            ):
+                raise InvalidDeleteTicketError(
+                    "the previewed Sense section changed; preview the deletion again"
+                )
+            if len(current.profile.sections) == 1:
+                raise ValueError("Sense profile must keep at least one section")
+
+            self._archive_current(connection, current)
+            revision_rows = connection.execute(
+                "SELECT revision, profile_json FROM profile_revisions"
+            ).fetchall()
+            for row in revision_rows:
+                historical = ProfileDocument.model_validate(
+                    json.loads(row["profile_json"])
+                )
+                historical_sections = [
+                    candidate
+                    for candidate in historical.sections
+                    if candidate.id != section_id
+                ]
+                if not historical_sections:
+                    connection.execute(
+                        "DELETE FROM profile_revisions WHERE revision = ?",
+                        (row["revision"],),
+                    )
+                    continue
+                scrubbed = ProfileDocument.model_validate(
+                    historical.model_copy(
+                        update={"sections": historical_sections}
+                    ).model_dump(mode="json")
+                )
+                connection.execute(
+                    "UPDATE profile_revisions SET profile_json = ?, profile_sha256 = ? "
+                    "WHERE revision = ?",
+                    (
+                        self._profile_json(scrubbed),
+                        content_sha256(scrubbed),
+                        row["revision"],
+                    ),
+                )
+
+            revised = ProfileDocument.model_validate(
+                current.profile.model_copy(
+                    update={
+                        "revision": current.profile.revision + 1,
+                        "sections": [
+                            candidate
+                            for candidate in current.profile.sections
+                            if candidate.id != section_id
+                        ],
+                    }
+                ).model_dump(mode="json")
+            )
+            self._replace_current(
+                connection,
+                lifecycle=current.lifecycle,
+                profile=revised,
+            )
+            self._prune_history(connection)
+            result = {
+                "revision": revised.revision,
+                "removed_section_count": 1,
+                "effect": "section_deleted",
+                "replayed": False,
+            }
+            self._record_operation_replay(
+                connection,
+                operation="remote_delete_section_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+                response=result,
+            )
+            connection.execute("COMMIT")
+            self._purge_deleted_bytes(connection)
+        self._secure_runtime_files()
+        return result
 
     @staticmethod
     def _forget_payload(
@@ -699,8 +1217,11 @@ class SenseStore:
                     if section.id != section_id or replacement_section is not None
                 ]
                 if not historical_sections:
-                    connection.execute("ROLLBACK")
-                    raise ValueError("Sense profile must keep at least one section")
+                    connection.execute(
+                        "DELETE FROM profile_revisions WHERE revision = ?",
+                        (row["revision"],),
+                    )
+                    continue
                 scrubbed = historical.model_copy(update={"sections": historical_sections})
                 scrubbed = ProfileDocument.model_validate(
                     scrubbed.model_dump(mode="json")

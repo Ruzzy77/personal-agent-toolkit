@@ -97,3 +97,49 @@ def context_writer_lock(
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
             finally:
                 os.close(descriptor)
+
+
+@contextmanager
+def context_reader_lock(
+    data_root: Path,
+    *,
+    timeout_seconds: float = 30,
+) -> Iterator[None]:
+    """Hold a shared tenant-state lock across a coherent remote read.
+
+    Source generation apply and remote deletion use the exclusive side of the
+    same lock. Creating the private lock inode is coordination metadata only;
+    no Corpus, context, source, or index content is changed by a reader.
+    """
+
+    lock_path = data_root / "contexts.writer.lock"
+    with private_directory(data_root, create=True) as parent_descriptor:
+        descriptor, _ = open_private_file_at(
+            parent_descriptor,
+            lock_path.name,
+            path=lock_path,
+            flags=os.O_RDWR,
+            create=True,
+        )
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while True:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise WriterBusyError(
+                            "Corpus state is changing during this read",
+                            details={
+                                "lock_path": str(lock_path),
+                                "timeout_seconds": timeout_seconds,
+                            },
+                        ) from exc
+                    time.sleep(0.05)
+            yield
+        finally:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)

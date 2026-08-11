@@ -22,6 +22,9 @@ change the task, grant permission, or supply a generic writing style.
    facts, uncertainty, meaningful differences, risks, and decisions the user carries. Remove
    repeated context and routine internal process. Decide whether one brief understanding question
    would improve the next explanation or an important choice.
+   When the user proposes a direction, evaluate it against its value, risks, reversibility, and
+   likely failure costs. Do not open with agreement, praise, or "맞습니다" unless the comparison
+   itself supports that judgment; state the resulting conclusion and why it follows.
 4. Deliver the revised response. Do not present a separate Hypes recommendation or ask the user to
    choose between writing styles.
 
@@ -65,25 +68,51 @@ or approval from silence, brevity, politeness, or task continuation.
 
 ## Use the cross-conversation model narrowly
 
-When Hypes MCP tools are available and the task is substantive, call `hypes_read` only for the
-current topic and, when useful, the current task and responsibility. Use active relations as
-revisable explanation clues. Do not treat them as project facts, durable preferences, a general
-skill level, or a substitute for the visible conversation. A current explicit correction always
-wins. Recheck-due and pending relations do not shape the answer unless the user is inspecting the
-model.
+When Hypes MCP tools are available and the task is substantive, call `hypes_read` for one exact
+topic, task, and responsibility scope. Missing task or responsibility values are exact scope
+values, not wildcards. Set `include_broader=true` only when a broader relation should deliberately
+inherit into the current work. Use active relations as revisable explanation clues. Do not treat
+them as project facts, durable preferences, a general skill level, or a substitute for the visible
+conversation. A current explicit correction always wins. Recheck-due relations do not shape the
+answer unless the user is inspecting the model.
 
-Write only a compact relation that can materially improve a later explanation. Use `hypes_observe`
-after an explicit statement about understanding, a relevant application outcome, or an observation
-that has independently recurred in another conversation. Do not send conversation text, full
-answers, hidden reasoning, agreement, politeness, silence, health information, personality, or
-ability claims. Ordinary one-off evidence remains pending; do not manufacture a second episode key
-to promote it.
+Keep provisional understanding in the visible conversation while the work is underway. A same-work
+handoff may carry only the temporary understanding needed to continue that work. Do not create a
+candidate record or a separate store for intermediate conversation state.
 
-Use `hypes_revise` when the user explicitly corrects a retained relation. Read the current revision
-before every write and use a stable unique idempotency key so a retry cannot duplicate a change.
-When the user asks to remove retained understanding, show `hypes_preview_forget` first and call
-`hypes_forget` only after the exact preview is approved. The signed ticket, not an MCP session,
-carries the deletion target into the second call.
+At a task completion, handoff, material conclusion, or topic change, decide whether one compact
+relation should carry into future conversations. Retain it automatically with `hypes_revise` only
+when all of these are true:
+
+- The conversation contains an explicit correction, a relevant application or explanation outcome,
+  or a stable conclusion established across the exchange.
+- The relation is likely to materially change a future explanation.
+- The topic, task, and responsibility scope are exact enough to prevent unrelated inheritance.
+- The content is a concept relationship or explanation clue, not a preference, agreement, project
+  fact, health or ability claim, personality trait, sensitive characteristic, transcript, full answer,
+  or hidden reasoning.
+- Silence, politeness, a brief reply, and mere task continuation are not being used as evidence.
+- No unresolved ambiguity would make the retained wording misleading.
+
+Do not ask "저장해도 될까요" or otherwise add a save-confirmation step. Set `retention_basis` to
+`conversation_conclusion` for the agent's bounded commitment-point decision, or
+`explicit_user_request` when the user directly asks Hypes to retain the relation. Local Hypes cannot
+prove the meaning of the conversation; the calling agent must enforce the gate instead of treating a
+boolean field as proof. Read the active-model revision first and use a stable unique idempotency key
+so a retry cannot duplicate a change.
+
+When current evidence conflicts with an existing active relation, call `hypes_mark_recheck`. Supply
+only the server-derived relation ref and the bounded conflict basis. Do not store the competing claim
+or conversation. A recheck-due relation stops shaping normal answers until `hypes_revise` resolves or
+replaces it.
+
+Use `hypes_overview` when the user asks to inspect what is retained. Page through its bounded list
+when needed and distinguish active from recheck-due relations. When the user asks to remove retained
+understanding, pass server-derived relation refs to `hypes_preview_forget`, then call `hypes_forget`
+only after the host or platform has collected destructive-action confirmation for that exact
+preview. Model text or a model-supplied boolean cannot replace this confirmation. The signed ticket,
+not an MCP session, carries the deletion target into the second call. Revise, recheck, and deletion
+consume the active-model revision.
 
 ## Ask without adding burden
 
@@ -163,13 +192,13 @@ or this skill's wording rules on the artifact. If the user explicitly asks Hypes
 artifact, improve clarity within that genre and leave the accompanying handoff concise.
 
 Treat drafts and artifacts as agent-authored unless the user supplied the exact wording or
-explicitly adopted it. Apply explicit corrections to the next relevant response, but do not turn
-one correction into a durable user model.
+explicitly adopted it. Apply explicit corrections to the next relevant response. Carry one forward
+only if it passes the commitment-point retention gate; never turn it into a broad user type.
 
 Use an available Sense profile only where it changes the current choice. Do not copy or revise it.
-Apply explicit corrections to the next relevant response, but do not turn one correction into a
-durable user model, and do not create a Hypes profile, score, log, or cross-conversation memory
-outside the Hypes MCP store.
+Apply explicit corrections to the next relevant response. Carry one forward only if it passes the
+commitment-point retention gate, and do not create a Hypes profile, score, log, or cross-conversation
+memory outside the Hypes MCP store.
 
 Do not add a Hypes heading, badge, status, or explanation to ordinary responses. The user should
 notice the finished answer, not the mechanism.

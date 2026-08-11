@@ -161,13 +161,14 @@ wheels = [
 
 [[package]]
 name = "corpus"
-version = "0.9.15"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "defusedxml" },
     { name = "mcp" },
     { name = "olefile" },
     { name = "openpyxl" },
+    { name = "pydantic" },
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "python-pptx" },
@@ -185,6 +186,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=2,<3" },
     { name = "olefile", specifier = ">=0.47,<1" },
     { name = "openpyxl", specifier = ">=3.1,<4" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pypdf", specifier = ">=5,<7" },
     { name = "python-docx", specifier = ">=1.1,<2" },
     { name = "python-pptx", specifier = ">=1.0,<2" },

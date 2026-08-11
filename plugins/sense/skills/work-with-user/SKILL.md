@@ -39,8 +39,13 @@ outdated instruction only when it could change the work.
 After completed work or an explicit correction, keep any lasting change with its nearest owner:
 
 - Leave project facts, code, results, and execution methods with the project.
-- Put a continuing question or relationship within one body of work in its selected Corpus context
-  only when persistent context writes are authorized.
+- Put unresolved questions, missing evidence, and source-linked relationships about one body of work
+  in its selected Corpus context only when persistent context writes are authorized.
+- Put the user's topic-, task-, or responsibility-specific concept relationships, unclear points, and
+  helpful explanation patterns in Hypes only when Hypes is available and its own observation,
+  confirmation, and persistence contract permits the write. A completed task or Sense revision is
+  not such authorization. If Hypes is unavailable, keep this understanding only in the current
+  conversation. Do not copy concept mastery or explanation effects into Sense or Corpus.
 - Revise Sense only for guidance that should change choices in different kinds of work.
 - Store nothing when future choices should not change.
 

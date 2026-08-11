@@ -1476,6 +1476,42 @@ class CorpusService:
     def context_migrate(self) -> dict:
         return self.contexts.migrate()
 
+    def export_context_migration_bundle(
+        self,
+        *,
+        context_ids: list[str] | None = None,
+    ) -> dict:
+        """Export only portable current restricted-context application state."""
+
+        from .context_migration import export_context_migration_bundle
+
+        return export_context_migration_bundle(
+            self.data_root,
+            context_ids=context_ids,
+        )
+
+    def import_context_migration_bundle(
+        self,
+        *,
+        bundle: dict,
+        expected_source_heads: object,
+        idempotency_key: str,
+        expected_targets_absent: bool,
+        source_head_reader,
+    ) -> dict:
+        """Add absent context identities after exact remote-source validation."""
+
+        from .context_migration import import_context_migration_bundle
+
+        return import_context_migration_bundle(
+            self,
+            bundle=bundle,
+            expected_source_heads=expected_source_heads,
+            idempotency_key=idempotency_key,
+            expected_targets_absent=expected_targets_absent,
+            source_head_reader=source_head_reader,
+        )
+
     def corpus_source_read(
         self,
         *,

@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.3.0+codex.20260810042309",
-  "description": "Adapt responses to what the user understands and carry forward only confirmed, scoped explanation clues.",
+  "version": "0.6.0+codex.20260811051335",
+  "description": "Adapt responses and carry forward only stable, scoped explanation clues at natural commitment points.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

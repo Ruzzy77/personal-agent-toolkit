@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.3.0+codex.20260810042309",
-  "description": "Adapt responses to what the user understands and carry forward only confirmed, scoped explanation clues.",
+  "version": "0.6.0+codex.20260811051335",
+  "description": "Adapt responses and carry forward only stable, scoped explanation clues at natural commitment points.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -26,7 +26,7 @@
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "Clear, natural responses for what matters now",
-    "longDescription": "Hypes follows the user's understanding through a conversation and carries forward only confirmed concept relationships and explanation clues for the relevant topic, task, and responsibility. It keeps no raw conversation and does not reduce the user to a general skill level or personality. Its MCP transport is sessionless, while the private cognitive model remains on this Mac across plugin updates.",
+    "longDescription": "Hypes follows the user's understanding through a conversation and, at task completion, handoff, or a material conclusion, automatically carries forward only stable concept relationships and explanation clues for the exact topic, task, and responsibility. It does not ask whether to save or accumulate intermediate candidates. Hypes keeps no raw conversation and does not reduce the user to a general skill level or personality. Its MCP transport is sessionless, while the private cognitive model remains on this Mac across plugin updates.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -40,11 +40,7 @@
     "defaultPrompt": [
       "Use Hypes to make this response clear, natural, and appropriately detailed.",
       "Explain this without repeating what I already understand.",
-      "Teach this interactively, but stop asking once I can apply it.",
-      "Tell me what materially changed, roughly where the work stands, and what remains.",
-      "Remove unnecessary headings and explanations of internal process from this draft.",
-      "Tell me briefly what Hypes changed or took into account in this response.",
-      "Tell me what you currently believe I understand and what still seems unclear."
+      "Tell me what materially changed, roughly where the work stands, and what remains."
     ]
   }
 }

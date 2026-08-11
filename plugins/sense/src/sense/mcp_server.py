@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from collections.abc import Callable
+from importlib import resources
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -12,6 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from . import __version__
 from .errors import SenseError
 from .model import (
     ProfileSection,
@@ -31,8 +33,10 @@ SERVER_INSTRUCTIONS = (
     "work that needs interpretation or a consequential choice. Do not repeat its wording "
     "mechanically; use it "
     "to form an independent view. Only revise the profile when a completed result or explicit "
-    "correction should change choices in other kinds of work. Project-specific understanding "
-    "belongs with the project or Corpus. "
+    "correction should change choices in other kinds of work. Work-specific facts, unresolved "
+    "questions, gaps, and source-linked interpretation belong with the project or Corpus. The "
+    "user's topic-, task-, or responsibility-specific concept understanding and explanation "
+    "effects belong to Hypes, not Sense or Corpus. "
     "A preview profile is intentionally read-only until the user reviews and activates it."
 )
 
@@ -64,8 +68,11 @@ McpControlAction = Literal[
     "preview_remove_database",
 ]
 PROFILE_UI_URI = "ui://sense/work-profile-v1.html"
-PROFILE_UI_PATH = (
-    Path(__file__).resolve().parents[2] / "ui" / "work-profile" / "index.html"
+PROFILE_UI_RESOURCE = (
+    resources.files("sense")
+    .joinpath("ui")
+    .joinpath("work_profile")
+    .joinpath("index.html")
 )
 
 
@@ -109,7 +116,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     service = SenseService(data_root)
     server = MCPServer(
         "Sense",
-        version="0.1.13",
+        version=__version__,
         instructions=SERVER_INSTRUCTIONS,
     )
 
@@ -130,7 +137,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         },
     )
     def sense_work_profile_resource() -> str:
-        return PROFILE_UI_PATH.read_text(encoding="utf-8")
+        return PROFILE_UI_RESOURCE.read_text(encoding="utf-8")
 
     @server.tool(
         name="sense_read",
@@ -195,7 +202,8 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             "and section digest returned by sense_read. The previous understanding and the "
             "description of what should differ next time are required but are not stored. A "
             "preview profile rejects all writes. This MCP call cannot authorize sensitive content "
-            "or broader use; those changes require a trusted local review surface."
+            "or broader use; those changes require a trusted local review surface. Do not store "
+            "concept mastery or helpful explanation patterns here; Hypes owns that state."
         ),
         annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},

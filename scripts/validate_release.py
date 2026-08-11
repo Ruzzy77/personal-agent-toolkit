@@ -7,10 +7,12 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import stat
 import struct
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAMES = ("sense", "corpus", "hypes")
-MCP_PACKAGE_NAMES = ("sense", "corpus")
+MCP_PACKAGE_NAMES = PACKAGE_NAMES
 CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
@@ -28,11 +30,55 @@ PACKAGE_DESCRIPTIONS = {
         "Find the work context and original sources behind a task, "
         "then carry that context into later work."
     ),
-    "hypes": "Adapt responses and occasional teaching questions to what the user understands, needs to decide, and is trying to do.",
+    "hypes": (
+        "Adapt responses and carry forward only stable, scoped explanation "
+        "clues at natural commitment points."
+    ),
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
-EXPECTED_TOOL_COUNTS = {"sense": 5, "corpus": 14}
-EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus"}
+EXPECTED_TOOL_NAMES = {
+    "sense": {
+        "sense_read",
+        "sense_overview",
+        "sense_revise",
+        "sense_control",
+        "sense_status",
+    },
+    "corpus": {
+        "corpus_list",
+        "corpus_overview",
+        "corpus_status",
+        "corpus_inventory",
+        "corpus_search_candidates",
+        "corpus_read",
+        "corpus_source_read",
+        "corpus_source_fetch",
+        "corpus_source_update",
+        "context_read",
+        "context_update",
+        "corpus_sync",
+        "corpus_scan",
+        "corpus_refresh",
+    },
+    "hypes": {
+        "hypes_read",
+        "hypes_mark_recheck",
+        "hypes_revise",
+        "hypes_overview",
+        "hypes_preview_forget",
+        "hypes_forget",
+        "hypes_status",
+    },
+}
+EXPECTED_TOOL_COUNTS = {
+    name: len(tools) for name, tools in EXPECTED_TOOL_NAMES.items()
+}
+EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus", "hypes": "Hypes"}
+PACKAGE_LAUNCHERS = {
+    "sense": ("sense", "sense-mcp", "sense-readonly"),
+    "corpus": ("corpus", "corpus-mcp", "corpus-readonly"),
+    "hypes": ("hypes-mcp",),
+}
 EXPECTED_BANNER_SIZE = (1536, 768)
 PACKAGE_REQUIRED_FILES = {
     "sense": (
@@ -63,6 +109,13 @@ PACKAGE_REQUIRED_FILES = {
         "assets/icon.png",
         "assets/icon.svg",
         "assets/logo.png",
+        "src/hypes/__init__.py",
+        "src/hypes/_build.py",
+        "src/hypes/errors.py",
+        "src/hypes/model.py",
+        "src/hypes/store.py",
+        "src/hypes/service.py",
+        "src/hypes/mcp_server.py",
         "skills/adapt-response/SKILL.md",
         "skills/adapt-response/agents/openai.yaml",
     ),
@@ -79,31 +132,46 @@ EXPECTED_TOP_LEVEL = {
     "THIRD_PARTY_NOTICES.md",
     "assets",
     "examples",
+    "gateway",
     "plugins",
     "scripts",
 }
 FORBIDDEN_PARTS = {
     ".corpus-data",
+    ".hypes-data",
     ".local",
     ".pytest_cache",
     ".ruff_cache",
     ".runtime",
+    ".sense-data",
     ".venv",
     "__pycache__",
     "staging",
 }
 FORBIDDEN_SUFFIXES = (
+    ".db",
+    ".db-journal",
+    ".db-shm",
+    ".db-wal",
     ".sqlite",
+    ".sqlite-journal",
     ".sqlite3",
+    ".sqlite3-journal",
     ".sqlite-shm",
     ".sqlite-wal",
+    ".sqlite3-shm",
+    ".sqlite3-wal",
 )
 SECRET_PATTERNS = {
     "private-key": re.compile(rb"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----"),
     "service-token": re.compile(
-        rb"(?<![A-Za-z0-9])(?:sk-(?:proj-|ant-)?|ghp_|github_pat_)[A-Za-z0-9_-]{20,}"
+        rb"\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_-]{20,}|"
+        rb"github_pat_[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|"
+        rb"glpat-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{20,}|"
+        rb"npm_[A-Za-z0-9]{20,})\b"
     ),
-    "aws-access-key": re.compile(rb"(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])"),
+    "aws-access-key": re.compile(rb"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    "google-api-key": re.compile(rb"\bAIza[0-9A-Za-z_-]{25,}\b"),
 }
 PUBLIC_BLOCKERS = {
     "maintainer-home": b"/" + b"Users" + b"/",
@@ -191,6 +259,13 @@ def validate_structure() -> None:
         ROOT / "examples/sense-profile.example.json",
         ROOT / ".agents/plugins/marketplace.json",
         ROOT / ".claude-plugin/marketplace.json",
+        ROOT / "gateway/.personal-agent-gateway-release.json",
+        ROOT / "gateway/GUIDE.md",
+        ROOT / "gateway/LICENSE",
+        ROOT / "gateway/NOTICE",
+        ROOT / "gateway/README.md",
+        ROOT / "gateway/pyproject.toml",
+        ROOT / "gateway/uv.lock",
     ]
     for package_name in PACKAGE_NAMES:
         package = ROOT / "plugins" / package_name
@@ -209,9 +284,11 @@ def validate_structure() -> None:
                     package / ".mcp.json",
                     package / "pyproject.toml",
                     package / "uv.lock",
-                    package / "launchers" / package_name,
-                    package / "launchers" / f"{package_name}-mcp",
                 ]
+            )
+            required.extend(
+                package / "launchers" / launcher_name
+                for launcher_name in PACKAGE_LAUNCHERS[package_name]
             )
         required.extend(
             package / relative
@@ -234,11 +311,17 @@ def validate_structure() -> None:
             raise ValueError(f"{package_name} logo has the wrong dimensions")
 
     for package_name in MCP_PACKAGE_NAMES:
-        package_bin = ROOT / "plugins" / package_name / "bin"
+        package = ROOT / "plugins" / package_name
+        package_bin = package / "bin"
         if package_bin.exists():
             raise ValueError(
                 f"{package_name} contains a top-level bin directory, which "
                 "Claude-hosted plugins reject"
+            )
+        if any(package.rglob(".app.json")):
+            raise ValueError(
+                f"{package_name} unexpectedly contains a remote ChatGPT registration; "
+                "this release is local-only"
             )
 
     root_license = (ROOT / "LICENSE").read_bytes()
@@ -289,17 +372,98 @@ def validate_public_boundary() -> None:
 
     for package_name in MCP_PACKAGE_NAMES:
         package = ROOT / "plugins" / package_name
-        for launcher_name in (
-            package_name,
-            f"{package_name}-mcp",
-            f"{package_name}-readonly",
-        ):
+        for launcher_name in PACKAGE_LAUNCHERS[package_name]:
             launcher = package / "launchers" / launcher_name
             if not stat.S_IMODE(launcher.stat().st_mode) & 0o100:
                 raise ValueError(f"launcher is not executable: {launcher}")
         for path in package.rglob("*"):
             if path.is_symlink():
                 raise ValueError(f"package contains a symbolic link: {path}")
+
+
+def _gateway_content_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        relative_text = path.relative_to(root).as_posix()
+        if relative_text == ".personal-agent-gateway-release.json":
+            continue
+        relative = relative_text.encode("utf-8")
+        if path.is_symlink():
+            raise ValueError("gateway release contains a symbolic link")
+        digest.update(b"D" if path.is_dir() else b"F")
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        if path.is_file():
+            data = path.read_bytes()
+            digest.update(len(data).to_bytes(8, "big"))
+            digest.update(data)
+            digest.update(stat.S_IMODE(path.stat().st_mode).to_bytes(2, "big"))
+    return digest.hexdigest()
+
+
+def validate_gateway_release() -> None:
+    gateway = ROOT / "gateway"
+    expected_root = {
+        ".personal-agent-gateway-release.json",
+        "GUIDE.md",
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+        "launchers",
+        "pyproject.toml",
+        "src",
+        "uv.lock",
+    }
+    if {path.name for path in gateway.iterdir()} != expected_root:
+        raise ValueError("gateway release root is invalid")
+    project = tomllib.loads((gateway / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    if project.get("name") != "personal-agent-tunnel-gateway":
+        raise ValueError("gateway package identity is invalid")
+    dependencies = project.get("dependencies")
+    if not isinstance(dependencies, list) or any(
+        value.split("=", 1)[0].casefold() in PACKAGE_NAMES
+        for value in dependencies
+        if isinstance(value, str)
+    ):
+        raise ValueError("gateway package must not install product packages")
+    expected_modules = {
+        "__init__.py",
+        "installed_products.py",
+        "tunnel.py",
+        "tunnel_gateway.py",
+        "tunnel_service.py",
+    }
+    module_root = gateway / "src/personal_agent_remote"
+    if {path.name for path in module_root.iterdir()} != expected_modules:
+        raise ValueError("gateway package contains the wrong runtime modules")
+    expected_launchers = {
+        "personal-agent-tunnel",
+        "personal-agent-tunnel-gateway",
+        "personal-agent-tunnel-service",
+    }
+    launcher_root = gateway / "launchers"
+    if {path.name for path in launcher_root.iterdir()} != expected_launchers:
+        raise ValueError("gateway package contains the wrong launchers")
+    for launcher in expected_launchers:
+        path = launcher_root / launcher
+        if stat.S_IMODE(path.stat().st_mode) != 0o755:
+            raise ValueError(f"gateway launcher is not executable: {launcher}")
+        text = path.read_text(encoding="utf-8")
+        for marker in ("--frozen", "--no-dev", "--no-install-project", "umask 077"):
+            if marker not in text:
+                raise ValueError(f"gateway launcher is missing {marker}: {launcher}")
+    sentinel = _json(gateway / ".personal-agent-gateway-release.json")
+    if sentinel != {
+        "format": "personal-agent-tunnel-gateway-release",
+        "schema_version": 1,
+        "version": "0.1.0",
+        "content_sha256": sentinel.get("content_sha256"),
+    }:
+        raise ValueError("gateway release sentinel is invalid")
+    if sentinel["content_sha256"] != _gateway_content_digest(gateway):
+        raise ValueError("gateway release content digest is invalid")
 
 
 def validate_marketplaces() -> None:
@@ -362,6 +526,10 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} Claude manifest license is invalid")
         if project.get("license") != "Apache-2.0":
             raise ValueError(f"{package_name} Python package license is invalid")
+        if project.get("license-files") != ["LICENSE", "NOTICE"]:
+            raise ValueError(
+                f"{package_name} Python package must include LICENSE and NOTICE"
+            )
         if codex.get("author", {}).get("name") != PUBLIC_PUBLISHER:
             raise ValueError(f"{package_name} Codex author is not public")
         if claude.get("author", {}).get("name") != PUBLIC_PUBLISHER:
@@ -377,13 +545,64 @@ def validate_package_manifests() -> dict[str, str]:
         if not isinstance(build_version, str) or not build_version.startswith(prefix):
             raise ValueError(f"{package_name} build version is invalid")
         build_ids[package_name] = build_version.removeprefix(prefix)
-        server = mcp.get("mcpServers", {}).get(package_name, {})
-        if server.get("command") != (
-            f"${{CLAUDE_PLUGIN_ROOT}}/launchers/{package_name}-mcp"
+        dependencies = project.get("dependencies")
+        if not isinstance(dependencies, list) or not any(
+            isinstance(value, str) and value.startswith("mcp>=2")
+            for value in dependencies
         ):
+            raise ValueError(f"{package_name} does not require MCP SDK 2.x")
+        if not any(
+            isinstance(value, str) and value.startswith("pydantic>=2")
+            for value in dependencies
+        ):
+            raise ValueError(
+                f"{package_name} does not declare its Pydantic 2.x dependency"
+            )
+        lock_text = (package / "uv.lock").read_text(encoding="utf-8")
+        if 'name = "mcp"' not in lock_text:
+            raise ValueError(f"{package_name} lockfile does not contain MCP")
+        if 'name = "pydantic"' not in lock_text:
+            raise ValueError(f"{package_name} lockfile does not contain Pydantic")
+        scripts = project.get("scripts")
+        if not isinstance(scripts, dict) or scripts.get(f"{package_name}-mcp") != (
+            f"{package_name}.mcp_server:main"
+        ):
+            raise ValueError(f"{package_name} Python MCP entry point is invalid")
+
+        codex_servers = codex.get("mcpServers")
+        if not isinstance(codex_servers, dict) or set(codex_servers) != {package_name}:
+            raise ValueError(
+                f"{package_name} Codex manifest must expose one MCP server"
+            )
+        codex_server = codex_servers[package_name]
+        if codex_server != {
+            "command": f"./launchers/{package_name}-mcp",
+            "args": [],
+            "cwd": ".",
+        }:
+            raise ValueError(f"{package_name} Codex MCP command is invalid")
+        if "apps" in codex:
+            raise ValueError(
+                f"{package_name} must not include a remote app registration "
+                "in this local release"
+            )
+        claude_servers = mcp.get("mcpServers")
+        if not isinstance(claude_servers, dict) or set(claude_servers) != {
+            package_name
+        }:
+            raise ValueError(
+                f"{package_name} Claude manifest must expose one MCP server"
+            )
+        server = claude_servers[package_name]
+        if server != {
+            "command": f"${{CLAUDE_PLUGIN_ROOT}}/launchers/{package_name}-mcp",
+            "args": [],
+        }:
             raise ValueError(f"{package_name} Claude MCP command is invalid")
         if claude.get("mcpServers") != "./.mcp.json":
             raise ValueError(f"{package_name} Claude manifest does not use .mcp.json")
+        if codex.get("skills") != "./skills/":
+            raise ValueError(f"{package_name} Codex skills path is invalid")
         interface = codex.get("interface", {})
         if interface.get("composerIcon") != "./assets/icon.png":
             raise ValueError(f"{package_name} Codex composer icon is invalid")
@@ -399,32 +618,6 @@ def validate_package_manifests() -> dict[str, str]:
                 f"{package_name} uses a non-release build ID: {build_id}"
             )
     hypes_package = ROOT / "plugins/hypes"
-    hypes_codex = _json(hypes_package / ".codex-plugin/plugin.json")
-    hypes_claude = _json(hypes_package / ".claude-plugin/plugin.json")
-    if hypes_codex.get("name") != hypes_claude.get("name") or hypes_codex.get(
-        "name"
-    ) != "hypes":
-        raise ValueError("Hypes provider identities differ")
-    if hypes_codex.get("version") != hypes_claude.get("version"):
-        raise ValueError("Hypes provider versions differ")
-    if hypes_codex.get("license") != "Apache-2.0":
-        raise ValueError("Hypes Codex manifest license is invalid")
-    if hypes_claude.get("license") != "Apache-2.0":
-        raise ValueError("Hypes Claude manifest license is invalid")
-    if hypes_codex.get("author", {}).get("name") != PUBLIC_PUBLISHER:
-        raise ValueError("Hypes Codex author is invalid")
-    if hypes_claude.get("author", {}).get("name") != PUBLIC_PUBLISHER:
-        raise ValueError("Hypes Claude author is invalid")
-    if hypes_codex.get("description") != PACKAGE_DESCRIPTIONS["hypes"]:
-        raise ValueError("Hypes Codex description is invalid")
-    if hypes_claude.get("description") != PACKAGE_DESCRIPTIONS["hypes"]:
-        raise ValueError("Hypes Claude description is invalid")
-    if hypes_codex.get("skills") != "./skills/":
-        raise ValueError("Hypes skills path is invalid")
-    if "mcpServers" in hypes_codex or "apps" in hypes_codex:
-        raise ValueError("Hypes release must remain skills-only")
-    if "mcpServers" in hypes_claude:
-        raise ValueError("Hypes Claude release must remain skills-only")
     hypes_skill = (hypes_package / "skills/adapt-response/SKILL.md").read_text(
         encoding="utf-8"
     )
@@ -440,11 +633,6 @@ def validate_package_manifests() -> dict[str, str]:
     for retired in ("recommend-help", "run-hypes-task"):
         if (hypes_package / "skills" / retired).exists():
             raise ValueError(f"retired Hypes skill remains: {retired}")
-    hypes_version = hypes_codex.get("version")
-    if not isinstance(hypes_version, str) or not hypes_version.startswith(
-        "0.2.0+codex."
-    ):
-        raise ValueError("Hypes build version is invalid")
 
     return {
         name: _json(ROOT / "plugins" / name / ".codex-plugin/plugin.json")["version"]
@@ -475,9 +663,46 @@ def _package_tree_manifest(package: Path) -> dict[str, tuple[Any, ...]]:
     return manifest
 
 
+def _read_mcp_response(
+    process: subprocess.Popen[str],
+    *,
+    expected_id: int,
+    package_name: str,
+    timeout_seconds: float = 60.0,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if process.stdout is None:
+        raise TypeError("MCP validation process has no stdout pipe")
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout_seconds
+    responses: list[dict[str, Any]] = []
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError(
+                    f"{package_name} MCP response {expected_id} timed out; "
+                    f"response_ids={[item.get('id') for item in responses]}"
+                )
+            line = process.stdout.readline()
+            if not line:
+                raise ValueError(
+                    f"{package_name} MCP closed stdout before response {expected_id}; "
+                    f"response_ids={[item.get('id') for item in responses]}"
+                )
+            value = json.loads(line)
+            if not isinstance(value, dict):
+                raise TypeError(f"{package_name} MCP emitted a non-object response")
+            responses.append(value)
+            if value.get("id") == expected_id:
+                return value, responses
+    finally:
+        selector.close()
+
+
 def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
     package = ROOT / "plugins" / package_name
-    requests = (
+    requests = [
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -502,44 +727,111 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
             "method": "tools/list",
             "params": {},
         },
-    )
+    ]
     environment = os.environ.copy()
     environment.pop("VIRTUAL_ENV", None)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONDONTWRITEBYTECODE", None)
     environment.pop("CORPUS_ENABLE_SEMANTIC_CACHE_TOOLS", None)
+    for prefix in ("SENSE", "CORPUS", "HYPES"):
+        for suffix in ("TRANSPORT", "HOST", "PORT", "PATH"):
+            environment.pop(f"{prefix}_MCP_{suffix}", None)
     environment["SENSE_DATA_DIR"] = str(temporary_root / "Sense")
     environment["SENSE_PYTHON_ENV"] = str(temporary_root / "sense-python")
     environment["CORPUS_DATA_DIR"] = str(temporary_root / "Corpus")
     environment["CORPUS_PYTHON_ENV"] = str(temporary_root / "corpus-python")
+    environment["HYPES_DATA_ROOT"] = str(temporary_root / "Hypes")
+    environment["HYPES_PYTHON_ENV"] = str(temporary_root / "hypes-python")
 
-    completed = subprocess.run(
+    process = subprocess.Popen(
         [str(package / "launchers" / f"{package_name}-mcp")],
-        input="".join(json.dumps(request) + "\n" for request in requests),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        capture_output=True,
         env=environment,
-        timeout=180,
-        check=True,
+        bufsize=1,
     )
-    responses = [
-        json.loads(line) for line in completed.stdout.splitlines() if line.strip()
-    ]
-    initialize = next(item for item in responses if item.get("id") == 1)
-    tools = next(item for item in responses if item.get("id") == 2)["result"]["tools"]
+    if process.stdin is None:
+        process.kill()
+        raise TypeError("MCP validation process has no stdin pipe")
+    handshake_complete = False
+    try:
+        process.stdin.write(json.dumps(requests[0]) + "\n")
+        process.stdin.flush()
+        initialize, _ = _read_mcp_response(
+            process, expected_id=1, package_name=package_name
+        )
+        process.stdin.write(json.dumps(requests[1]) + "\n")
+        process.stdin.write(json.dumps(requests[2]) + "\n")
+        process.stdin.flush()
+        tool_response, _ = _read_mcp_response(
+            process, expected_id=2, package_name=package_name
+        )
+        try:
+            tools = tool_response["result"]["tools"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"{package_name} MCP tools/list response is invalid: {tool_response}"
+            ) from exc
+        handshake_complete = True
+    finally:
+        process.stdin.close()
+        try:
+            return_code = process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return_code = process.wait(timeout=10)
+        stderr = process.stderr.read() if process.stderr is not None else ""
+        if handshake_complete and return_code != 0:
+            raise ValueError(
+                f"{package_name} MCP launcher exited {return_code}: {stderr.strip()}"
+            )
     if (
         initialize["result"]["serverInfo"]["name"]
         != EXPECTED_SERVER_NAMES[package_name]
     ):
         raise ValueError(f"{package_name} MCP server identity is invalid")
+    tool_names = {tool.get("name") for tool in tools}
     if len(tools) != EXPECTED_TOOL_COUNTS[package_name]:
         raise ValueError(f"{package_name} MCP tool count is invalid")
+    if tool_names != EXPECTED_TOOL_NAMES[package_name]:
+        raise ValueError(
+            f"{package_name} MCP tools are invalid: "
+            f"expected={sorted(EXPECTED_TOOL_NAMES[package_name])}, "
+            f"actual={sorted(str(name) for name in tool_names)}"
+        )
     if not all(
         tool.get("inputSchema", {}).get("type") == "object"
         and tool.get("outputSchema", {}).get("type") == "object"
         for tool in tools
     ):
         raise ValueError(f"{package_name} MCP schemas are not object-shaped")
+    required_annotations = {"readOnlyHint", "destructiveHint", "openWorldHint"}
+    if not all(
+        required_annotations.issubset(tool.get("annotations", {})) for tool in tools
+    ):
+        raise ValueError(f"{package_name} MCP tool annotations are incomplete")
+
+
+def validate_sessionless_server_source(package_name: str) -> None:
+    source = (
+        ROOT / "plugins" / package_name / "src" / package_name / "mcp_server.py"
+    ).read_text(encoding="utf-8")
+    required = (
+        '"stdio"',
+        '"streamable-http"',
+        "stateless_http=True",
+        "json_response=True",
+        "127.0.0.1",
+        "is_loopback",
+    )
+    missing = [marker for marker in required if marker not in source]
+    if missing:
+        raise ValueError(
+            f"{package_name} MCP server is missing sessionless local HTTP guards: "
+            + ", ".join(missing)
+        )
 
 
 def _run_json(
@@ -697,6 +989,55 @@ def validate_corpus_first_run(temporary_root: Path) -> None:
         raise ValueError("Corpus data directory is not private")
 
 
+def validate_hypes_first_run(temporary_root: Path) -> None:
+    package = ROOT / "plugins/hypes"
+    environment = os.environ.copy()
+    environment.pop("VIRTUAL_ENV", None)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    environment["PYTHONPATH"] = str(package / "src")
+    environment["HYPES_DATA_ROOT"] = str(temporary_root / "Hypes")
+    status_call = """
+import asyncio
+import json
+import os
+from pathlib import Path
+
+from hypes.mcp_server import create_server
+
+server = create_server(Path(os.environ["HYPES_DATA_ROOT"]))
+response = asyncio.run(server.call_tool("hypes_status", {}))
+print(json.dumps(response.structured_content))
+"""
+    response = _run_json(
+        [str(temporary_root / "hypes-python/bin/python"), "-c", status_call],
+        environment=environment,
+    )
+    if response.get("ok") is not True:
+        raise ValueError("Hypes MCP status call failed")
+    status = response.get("result")
+    if not isinstance(status, dict):
+        raise TypeError("Hypes MCP status result is invalid")
+    if status.get("transport_session_state") is not False:
+        raise ValueError("Hypes MCP transport unexpectedly retains session state")
+    if status.get("persistent_application_state") is not True:
+        raise ValueError(
+            "Hypes did not report its explicit persistent application state"
+        )
+    if status.get("http_publication_ready") is not False:
+        raise ValueError(
+            "Hypes local package must not report remote publication readiness"
+        )
+
+    data_root = temporary_root / "Hypes"
+    database = data_root / "hypes.sqlite3"
+    if not data_root.is_dir() or not database.is_file():
+        raise ValueError("Hypes status did not create its isolated private store")
+    if stat.S_IMODE(data_root.stat().st_mode) != 0o700:
+        raise ValueError("Hypes data directory is not private")
+    if stat.S_IMODE(database.stat().st_mode) != 0o600:
+        raise ValueError("Hypes database is not private")
+
+
 def validate_runtime_smoke() -> None:
     packages_before = {
         package_name: _package_tree_manifest(ROOT / "plugins" / package_name)
@@ -707,7 +1048,11 @@ def validate_runtime_smoke() -> None:
     ) as temporary:
         root = Path(temporary)
         for package_name in MCP_PACKAGE_NAMES:
-            _mcp_handshake(package_name, root / f"{package_name}-mcp")
+            temporary_root = root / f"{package_name}-mcp"
+            _mcp_handshake(package_name, temporary_root)
+            validate_sessionless_server_source(package_name)
+            if package_name == "hypes":
+                validate_hypes_first_run(temporary_root)
         validate_sense_first_run(root / "sense-first-run")
         validate_corpus_first_run(root / "corpus-first-run")
     packages_after = {
@@ -762,6 +1107,7 @@ def validate_git_history() -> None:
 def main() -> None:
     validate_structure()
     validate_public_boundary()
+    validate_gateway_release()
     validate_marketplaces()
     versions = validate_package_manifests()
     validate_runtime_smoke()
