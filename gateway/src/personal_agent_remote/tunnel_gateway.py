@@ -20,7 +20,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route, get_route_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -292,6 +292,27 @@ def _proxy_response_headers(response: httpx.Response) -> dict[str, str]:
     }
 
 
+async def _proxy_response_body(response: httpx.Response):
+    try:
+        if response.is_stream_consumed:
+            yield response.content
+        else:
+            async for chunk in response.aiter_raw():
+                yield chunk
+    finally:
+        await response.aclose()
+
+
+def _streaming_proxy_response(response: httpx.Response) -> StreamingResponse:
+    """Forward response headers before a long-lived MCP event stream produces data."""
+
+    return StreamingResponse(
+        _proxy_response_body(response),
+        status_code=response.status_code,
+        headers=_proxy_response_headers(response),
+    )
+
+
 def create_gateway_app(
     settings: TunnelGatewaySettings | None = None,
     *,
@@ -376,22 +397,19 @@ def create_gateway_app(
                         status_code=503,
                     )
                 try:
-                    response = await client.request(
+                    upstream_request = client.build_request(
                         request.method,
                         target,
                         content=body,
                         headers=_proxy_headers(request),
                     )
+                    response = await client.send(upstream_request, stream=True)
                 except httpx.HTTPError:
                     return JSONResponse(
                         {"ok": False, "error": {"code": "product_unavailable"}},
                         status_code=502,
                     )
-                return Response(
-                    response.content,
-                    status_code=response.status_code,
-                    headers=_proxy_response_headers(response),
-                )
+                return _streaming_proxy_response(response)
 
             routes.extend(
                 (
