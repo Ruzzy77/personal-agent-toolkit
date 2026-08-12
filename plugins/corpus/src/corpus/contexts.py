@@ -1,4 +1,4 @@
-"""Task-scoped reusable context over immutable Corpus source units."""
+"""Saved context over immutable Corpus source units."""
 
 from __future__ import annotations
 

@@ -1,0 +1,12 @@
+interface:
+  display_name: "Use Sense"
+  short_description: "Use durable guidance for an important choice"
+  default_prompt: "Use $use-sense only if my Sense guidance could change this choice, then answer the subject directly."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "sense"
+      description: "Read or revise the private guidance kept in Sense"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true

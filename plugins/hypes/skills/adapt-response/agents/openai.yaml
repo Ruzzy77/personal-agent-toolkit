@@ -1,6 +1,6 @@
 interface:
   display_name: "Hypes"
-  short_description: "Clear answers, grounded progress, and useful questions"
-  default_prompt: "Use $adapt-response to give the result first, preserve the work thread, and ask only when it helps me learn or decide."
+  short_description: "Explanations that follow demonstrated understanding"
+  default_prompt: "Use $adapt-response only when a demonstrated understanding or correction should change the explanation, and answer the subject directly."
 policy:
   allow_implicit_invocation: true

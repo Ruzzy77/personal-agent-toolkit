@@ -1,6 +1,6 @@
 {
-  "content_sha256": "540f8dee0b2138238cd18f48c2f2cc4575fb4ddad8484ac4d5c221ea07914a7a",
+  "content_sha256": "82d0f78a1878159ab6f2157bae4c8819d8ae87379880fc755a399377b1fabe32",
   "format": "personal-agent-tunnel-gateway-release",
   "schema_version": 1,
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

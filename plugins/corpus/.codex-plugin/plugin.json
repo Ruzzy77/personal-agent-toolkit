@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "description": "Find the work context and original sources behind a task, then carry that context into later work.",
+  "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -12,7 +12,7 @@
     "documents",
     "corpus",
     "search",
-    "knowledge-work",
+    "source-reading",
     "local"
   ],
   "skills": "./skills/",
@@ -25,27 +25,27 @@
   },
   "interface": {
     "displayName": "Corpus",
-    "shortDescription": "Connect each task to its work context and sources",
-    "longDescription": "Corpus connects a task to the files, email, and completed AI work that belong to the same body of work, then opens the original sources needed now. Source-linked context can carry the work into later tasks. Registered files and provider records remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
+    "shortDescription": "Read current sources with saved context",
+    "longDescription": "Corpus connects saved questions and relationships to the files, email records, and earlier Codex or Claude conversations they came from, then opens the exact current sources needed now. Registered originals remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
       "Source reading",
       "Local indexing",
       "Linked sources",
-      "Linked completed tasks",
-      "Work-context discovery",
-      "Reusable context",
+      "Linked earlier conversations",
+      "Saved-context discovery",
+      "Source-linked questions and relationships",
       "Selected views without private source links"
     ],
     "brandColor": "#7357E8",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Show the work contexts and materials Corpus can help me continue.",
-      "Find which work context this task belongs to and open the original sources I need.",
-      "Show what Corpus actually used in this task."
+      "Show my saved Corpus contexts and their connected material.",
+      "Find the relevant context and open the exact current sources I need.",
+      "Show which Corpus sources informed this answer."
     ]
   },
-  "version": "0.10.0+codex.20260811051335"
+  "version": "0.10.0+codex.20260811185921"
 }

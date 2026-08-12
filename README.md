@@ -25,8 +25,9 @@ Claude can select them when a task calls for them:
   style, priorities, responsibility, or learning across completed work.
 - Corpus can be selected when a task needs to understand an ongoing body of work or locate,
   compare, and verify its original sources.
-- Hypes can be selected when a substantive response should fit the user's current purpose,
-  confirmed understanding, unresolved points, or decision responsibility.
+- Hypes can be selected when an explicit correction, confirmed understanding, unresolved concept,
+  or consequential choice should materially change the response. It should not load merely because
+  a response is substantive.
 
 Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
 personal context. Codex and Claude decide when to use a skill, so a relevant skill may not be used

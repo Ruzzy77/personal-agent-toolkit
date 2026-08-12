@@ -269,18 +269,20 @@ async def _validate_backend_tools(
             raise RuntimeError(f"{product} installed tool names overlap another product")
 
 
-def _proxy_headers(request: Request) -> dict[str, str]:
+def _proxy_headers(request: Request) -> list[tuple[str, str]]:
     allowed = {
         "accept",
         "content-type",
+        "mcp-method",
+        "mcp-name",
         "mcp-protocol-version",
         "mcp-session-id",
     }
-    return {
-        name: value
+    return [
+        (name, value)
         for name, value in request.headers.items()
-        if name.casefold() in allowed
-    }
+        if name.casefold() in allowed or name.casefold().startswith("mcp-param-")
+    ]
 
 
 def _proxy_response_headers(response: httpx.Response) -> dict[str, str]:

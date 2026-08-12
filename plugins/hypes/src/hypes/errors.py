@@ -6,7 +6,7 @@ from typing import Any
 
 
 class HypesError(Exception):
-    """A safe, structured failure that callers may show to the model."""
+    """A safe, structured failure that callers may return without private details."""
 
     def __init__(
         self,
@@ -24,7 +24,7 @@ class RevisionConflict(HypesError):
     def __init__(self, expected: int, current: int) -> None:
         super().__init__(
             "revision_conflict",
-            "the Hypes model changed; read the current revision before writing",
+            "the retained Hypes clues changed; read the current revision before writing",
             details={"expected_revision": expected, "current_revision": current},
         )
 

@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.6.0+codex.20260811051335",
-  "description": "Adapt responses and carry forward only stable, scoped explanation clues at natural commitment points.",
+  "version": "0.6.0+codex.20260811185921",
+  "description": "Adapt explanations using only narrowly evidenced understanding clues.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

@@ -1859,7 +1859,7 @@ class CorpusService:
             "authority": {
                 "source": "registered source bytes",
                 "extracted_projection": "source_units",
-                "request_time_interpretation": "host agent ephemeral task context",
+                "request_time_interpretation": "temporary interpretation for the current question",
             },
             "source_copy_retention": {
                 "default": "ephemeral",
@@ -4157,7 +4157,7 @@ class CorpusService:
             "candidates": candidates,
             "truncated_excerpt_count": truncated_excerpt_count,
             "notice": (
-                "Candidate excerpts may be truncated and require agent interpretation. "
+                "Candidate excerpts may be truncated and require interpretation. "
                 "Use corpus_read for exact source content."
             ),
         }
@@ -5334,7 +5334,7 @@ class CorpusService:
         claims: list[dict],
         completed_revision_ids: list[str] | None = None,
         progress_updates: list[dict] | None = None,
-        materializer_version: str = "corpus-agent-v1",
+        materializer_version: str = "corpus-reader-v1",
     ) -> dict:
         _require_semantic_commit_string(
             corpus_id,

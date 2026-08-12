@@ -70,7 +70,7 @@ class SourceRef(BaseModel):
 
 
 class ProfileSection(BaseModel):
-    """One replaceable part of the shared work profile."""
+    """One replaceable section of Sense guidance."""
 
     model_config = ConfigDict(extra="forbid")
 

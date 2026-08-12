@@ -31,7 +31,7 @@ from .errors import (
     SectionNotFoundError,
     SenseError,
 )
-from .exposure import _display_text
+from .exposure import _display_text, public_section_id, stored_section_id
 from .model import (
     ProfileDocument,
     ProfileSection,
@@ -46,13 +46,15 @@ READ_SCOPE = "sense:read"
 UPDATE_SCOPE = "sense:update"
 DELETE_SCOPE = "sense:delete"
 REMOTE_SERVER_INSTRUCTIONS = (
-    "Sense provides the authenticated user's shared work profile for choices that depend on "
-    "durable intent, responsibility, or lessons across different kinds of work. This remote "
-    "surface returns only ordinary profile sections and never returns source locators, sensitive "
-    "sections, revision history, local storage details, or section digests. It can update only "
-    "the public fields of an existing ordinary section while preserving hidden fields. Deletion "
-    "requires an exact, short-lived preview ticket and explicit user approval. "
-    "Project facts remain with the project or Corpus, and concept understanding remains with Hypes."
+    "Sense holds a small set of private guidance for important choices that recur in different "
+    "contexts. Use it only when that guidance could change a conclusion or when the authenticated "
+    "user asks to see or change it. The current request and current sources come first. Read only "
+    "relevant ordinary sections and reach an independent conclusion. This remote connection omits "
+    "source locators, sensitive sections, revision history, local storage details, and section "
+    "digests. It can update only public fields of an existing ordinary section. Deletion requires "
+    "an exact short-lived preview and explicit host confirmation. Project facts stay with the "
+    "project, continuing source-linked questions stay in Corpus, and narrow explanation clues stay "
+    "in Hypes."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -87,11 +89,32 @@ def _oauth_meta(*scopes: str) -> dict[str, Any]:
     return {"securitySchemes": [{"type": "oauth2", "scopes": list(scopes)}]}
 
 
-RemoteReadView = Literal["index", "sections"]
-RemoteSectionId = Annotated[str, Field(min_length=1, max_length=64)]
+RemoteReadView = Annotated[
+    Literal["index", "sections"],
+    Field(
+        description=(
+            "Use index to discover relevant ordinary sections; use sections only with explicit "
+            "section_ids returned by the index."
+        )
+    ),
+]
+RemoteSectionId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        description="Exact ordinary section id returned by sense_read or sense_overview.",
+    ),
+]
 IdempotencyKey = Annotated[
     str,
-    Field(pattern=r"^[a-zA-Z0-9._:-]{1,160}$"),
+    Field(
+        pattern=r"^[a-zA-Z0-9._:-]{1,160}$",
+        description=(
+            "Stable unique key for retrying this exact write; reusing it with different content "
+            "is rejected."
+        ),
+    ),
 ]
 
 
@@ -100,14 +123,31 @@ class RemotePublicSection(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    purpose: str = Field(min_length=1, max_length=320)
-    text: str = Field(min_length=1, max_length=12_000)
-    origins: list[Literal["user_set", "learned_from_work"]] = Field(
+    purpose: str = Field(
+        min_length=1,
+        max_length=320,
+        description="Which important choices this section is meant to inform.",
+    )
+    text: str = Field(
+        min_length=1,
+        max_length=12_000,
+        description="Complete replacement text for the ordinary section.",
+    )
+    origins: list[Literal["user_set", "learned_from_results"]] = Field(
         min_length=1,
         max_length=2,
+        description="Whether the guidance was user-set, learned from observed results, or both.",
     )
-    use_for: list[str] = Field(default_factory=list, max_length=16)
-    review_when: list[str] = Field(default_factory=list, max_length=12)
+    use_for: list[str] = Field(
+        default_factory=list,
+        max_length=16,
+        description="Bounded situations where this guidance should affect future choices.",
+    )
+    review_when: list[str] = Field(
+        default_factory=list,
+        max_length=12,
+        description="Concrete conditions that should trigger a later review of this guidance.",
+    )
 
 
 class RemoteRequestError(ValueError):
@@ -193,12 +233,12 @@ def _safe_call(operation: Callable[[], dict[str, Any]]) -> ToolResponse:
     except ProfileNotFoundError:
         return _failure(
             code="profile_not_found",
-            message="Sense work profile is not available for this account",
+            message="Sense data is not available for this account",
         )
     except SectionNotFoundError as exc:
         return _failure(
             code=exc.code,
-            message="Sense profile section was not found",
+            message="Sense section was not found",
             details=exc.details,
         )
     except RevisionConflictError as exc:
@@ -232,7 +272,7 @@ def _safe_call(operation: Callable[[], dict[str, Any]]) -> ToolResponse:
     except SenseError as exc:
         return _failure(
             code=exc.code,
-            message="Sense work profile is temporarily unavailable",
+            message="Sense is temporarily unavailable",
         )
     except Exception:  # noqa: BLE001 - remote responses must not expose internals
         return _failure(
@@ -270,10 +310,13 @@ def _public_section(
     exact_redactions: tuple[str, ...],
 ) -> dict[str, Any]:
     return {
-        "id": section.id,
+        "id": public_section_id(section.id),
         "purpose": _display_text(section.purpose, exact_redactions),
         "text": _display_text(section.text, exact_redactions),
-        "origins": list(section.origins),
+        "origins": [
+            "learned_from_results" if value == "learned_from_work" else value
+            for value in section.origins
+        ],
         "use_for": [_display_text(item, exact_redactions) for item in section.use_for],
         "review_when": [
             _display_text(item, exact_redactions) for item in section.review_when
@@ -302,7 +345,7 @@ def _remote_read(
     if view == "index":
         result["sections"] = [
             {
-                "id": section.id,
+                "id": public_section_id(section.id),
                 "purpose": _display_text(section.purpose, exact_redactions),
                 "use_for": [
                     _display_text(item, exact_redactions) for item in section.use_for
@@ -317,12 +360,13 @@ def _remote_read(
         raise RemoteRequestError("section_ids are required when view=sections")
     requested = list(dict.fromkeys(section_ids))
     sections: list[dict[str, Any]] = []
-    for section_id in requested:
+    for public_id in requested:
+        section_id = stored_section_id(public_id)
         section = ordinary_sections.get(section_id)
         if section is None:
             raise SectionNotFoundError(
-                "Sense profile section was not found",
-                details={"section_id": section_id},
+                "Sense section was not found",
+                details={"section_id": public_id},
             )
         sections.append(_public_section(section, exact_redactions=exact_redactions))
     result["sections"] = sections
@@ -376,12 +420,12 @@ def create_remote_server(
 
     @server.tool(
         name="sense_read",
-        title="Read Work Profile",
+        title="Read Sense",
         description=(
-            "Read the authenticated user's ordinary Sense work-profile sections. Start with "
-            "view=index, then use view=sections with explicit section ids. This remote surface "
-            "returns the profile revision needed for concurrency but does not expose sensitive "
-            "sections, source locators, local paths, revision history, or section digests."
+            "Use this when retained Sense guidance could change an important choice, or when the "
+            "user asks what Sense contains. Start with view=index, then read only the relevant "
+            "section ids. The result includes the current revision but omits sensitive sections, "
+            "source locators, local paths, revision history, and section digests."
         ),
         annotations=READ_ONLY,
         meta={**_oauth_meta(READ_SCOPE), "ui": {"visibility": ["model"]}},
@@ -403,11 +447,11 @@ def create_remote_server(
 
     @server.tool(
         name="sense_overview",
-        title="Show Work Profile",
+        title="Show Sense",
         description=(
-            "Return the read-only overview of the authenticated user's ordinary Sense profile. "
-            "The result omits sensitive sections, source locators, local paths, revision history, "
-            "and change tokens."
+            "Use this when the user asks to review all ordinary guidance kept in Sense. The result "
+            "omits sensitive sections, source locators, local paths, revision history, and change "
+            "tokens."
         ),
         annotations=READ_ONLY,
         meta={**_oauth_meta(READ_SCOPE), "ui": {"visibility": ["model"]}},
@@ -417,13 +461,13 @@ def create_remote_server(
 
     @server.tool(
         name="sense_update",
-        title="Update Work Profile Section",
+        title="Update Sense Section",
         description=(
-            "Replace only the public fields of one existing ordinary Sense section after an "
-            "explicit correction or a completed result changes future cross-work choices. Read "
-            "the current revision first and supply a unique idempotency key. Hidden source refs "
-            "and sensitivity remain unchanged. This cannot create a section, update a sensitive "
-            "section, broaden its use without trusted local review, or reveal hidden fields."
+            "Use this after an explicit correction or observed result establishes guidance that "
+            "should remain useful in other contexts. Do not store project facts, one-project notes, "
+            "or clues that belong in Corpus or Hypes. Replace only the public fields of one existing "
+            "ordinary section using the current revision and a unique idempotency key. Hidden fields "
+            "remain unchanged."
         ),
         annotations=WRITE,
         meta={
@@ -432,11 +476,31 @@ def create_remote_server(
         },
     )
     def sense_update(
-        expected_revision: Annotated[int, Field(ge=1)],
+        expected_revision: Annotated[
+            int,
+            Field(
+                ge=1,
+                description="Exact Sense revision returned by the preceding read.",
+            ),
+        ],
         idempotency_key: IdempotencyKey,
         section_id: RemoteSectionId,
-        previous_understanding: Annotated[str, Field(min_length=1, max_length=2000)],
-        changed_future_judgment: Annotated[str, Field(min_length=1, max_length=2000)],
+        previous_understanding: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=2000,
+                description="Concise statement of the section guidance that is being corrected.",
+            ),
+        ],
+        changed_future_judgment: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=2000,
+                description="How this correction should change important choices in other contexts.",
+            ),
+        ],
         updated_section: RemotePublicSection,
     ) -> ToolResponse:
         return _safe_call(
@@ -450,18 +514,26 @@ def create_remote_server(
                 section_id=section_id,
                 previous_understanding=previous_understanding,
                 changed_future_judgment=changed_future_judgment,
-                public_fields=updated_section.model_dump(mode="json"),
+                public_fields={
+                    **updated_section.model_dump(mode="json"),
+                    "origins": [
+                        "learned_from_work"
+                        if value == "learned_from_results"
+                        else value
+                        for value in updated_section.origins
+                    ],
+                },
             )
         )
 
     @server.tool(
         name="sense_delete_preview",
-        title="Preview Work Profile Deletion",
+        title="Preview Sense Deletion",
         description=(
-            "Show the exact ordinary section that would be removed from the current profile and "
-            "all retained revisions, then mint a short-lived signed delete ticket. This does not "
-            "change the profile revision. Review the preview with the user before deletion. The "
-            "response never includes source refs, sensitive content, paths, or section digests."
+            "Use this when the user asks to remove one ordinary Sense section. It shows the exact "
+            "section that would be removed from the current data and retained revisions, then "
+            "returns a short-lived signed ticket. Read-only; source refs, sensitive content, paths, "
+            "and section digests are omitted."
         ),
         annotations=READ_ONLY,
         meta={
@@ -500,13 +572,12 @@ def create_remote_server(
 
     @server.tool(
         name="sense_delete",
-        title="Delete Work Profile Section",
+        title="Delete Sense Section",
         description=(
-            "Permanently forget the exact ordinary section shown by sense_delete_preview from "
-            "the current profile and every retained revision. Call only after the user explicitly "
-            "approves that preview. Requires its unmodified short-lived ticket, exact revision, "
-            "and a unique idempotency key. The client platform, not a model-supplied boolean, "
-            "must collect the user's destructive-action confirmation."
+            "Use this only after sense_delete_preview and host confirmation for that exact preview. "
+            "It permanently removes the ordinary section from current data and retained revisions. "
+            "The unmodified short-lived ticket, exact revision, and a unique idempotency key are "
+            "required; model text cannot supply confirmation."
         ),
         annotations=DELETE,
         meta={

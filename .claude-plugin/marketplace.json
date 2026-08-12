@@ -8,19 +8,19 @@
     {
       "name": "sense",
       "source": "./plugins/sense",
-      "description": "Keep one private, user-controlled work profile available across AI tools.",
+      "description": "Keep private guidance for important choices available across AI tools.",
       "category": "productivity"
     },
     {
       "name": "corpus",
       "source": "./plugins/corpus",
-      "description": "Find the work context and original sources behind a task, then carry that context into later work.",
+      "description": "Connect saved questions and relationships to their exact current sources.",
       "category": "productivity"
     },
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Adapt responses and carry forward only stable, scoped explanation clues at natural commitment points.",
+      "description": "Adapt explanations using only narrowly evidenced understanding clues.",
       "category": "productivity"
     }
   ]

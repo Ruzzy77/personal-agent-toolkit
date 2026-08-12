@@ -1,6 +1,6 @@
 {
   "name": "sense",
-  "description": "Keep one private, user-controlled work profile available across AI tools.",
+  "description": "Keep private guidance for important choices available across AI tools.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -11,7 +11,7 @@
   "keywords": [
     "personalization",
     "collaboration",
-    "work-profile",
+    "guidance",
     "local"
   ],
   "skills": "./skills/",
@@ -24,23 +24,23 @@
   },
   "interface": {
     "displayName": "Sense",
-    "shortDescription": "Keep your work profile available across AI tools",
-    "longDescription": "Sense keeps collaboration preferences and durable lessons in one private profile that the user can review and revise. AI tools can use the same profile across different work, while project facts stay with their projects and source-specific context stays in Corpus. The profile remains on this Mac across plugin updates.",
+    "shortDescription": "Keep guidance for important choices private",
+    "longDescription": "Sense keeps a small set of user-controlled guidance for important choices that recur in different contexts. Current requests and sources take priority, project facts remain with their projects, and continuing source-linked questions remain in Corpus. Sense data stays on this Mac across plugin updates.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
-      "Private work profile",
-      "Cross-tool continuity",
+      "Private guidance",
+      "Continuity across AI tools",
       "User-controlled review and revision"
     ],
     "brandColor": "#0AAE98",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Show me the work profile you use when collaborating with me.",
-      "Show what Sense currently carries forward from completed work.",
-      "Show which guidance is affecting this task."
+      "Show what Sense currently remembers for important choices.",
+      "Use Sense only if it changes this decision.",
+      "Show which Sense guidance is relevant here."
     ]
   },
-  "version": "0.2.0+codex.20260811051335"
+  "version": "0.2.0+codex.20260811185921"
 }

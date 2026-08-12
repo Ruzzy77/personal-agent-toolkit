@@ -8,7 +8,12 @@ from typing import Any, Literal
 
 from . import BUILD_ID, __version__
 from .errors import ConfirmationRequiredError, MigrationStateError, SectionNotFoundError
-from .exposure import local_profile_index, section_view, work_profile_overview
+from .exposure import (
+    guidance_overview,
+    local_profile_index,
+    section_view,
+    stored_section_id,
+)
 from .migration import SenseMigrationBundle, validate_idempotency_key
 from .model import ProfileDocument, ProfileSection, section_sha256
 from .store import SenseStore
@@ -101,16 +106,26 @@ class SenseService:
         include_sources: bool = False,
     ) -> dict[str, Any]:
         stored = self.store.read()
-        result = self._summary(stored)
         if view == "index":
-            result["sections"] = local_profile_index(stored.profile)
-            result["controls"] = stored.profile.controls.model_dump(mode="json")
-            return result
+            return {
+                "revision": stored.profile.revision,
+                "sections": local_profile_index(stored.profile),
+            }
         if view == "full":
-            result["profile"] = stored.profile.model_dump(mode="json")
-            if not include_sources:
-                for section in result["profile"]["sections"]:
-                    section.pop("source_refs", None)
+            result = self._summary(stored)
+            result["profile"] = {
+                "schema_version": stored.profile.schema_version,
+                "revision": stored.profile.revision,
+                "sections": [
+                    section_view(
+                        section,
+                        include_sources=include_sources,
+                        include_change_token=False,
+                    )
+                    for section in stored.profile.sections
+                ],
+                "controls": stored.profile.controls.model_dump(mode="json"),
+            }
             return result
         if not section_ids:
             raise ValueError("section_ids are required when view=sections")
@@ -118,7 +133,8 @@ class SenseService:
             raise ValueError("no more than 12 sections may be read at once")
         requested = list(dict.fromkeys(section_ids))
         sections: list[dict[str, Any]] = []
-        for section_id in requested:
+        for public_id in requested:
+            section_id = stored_section_id(public_id)
             section = next(
                 (
                     candidate
@@ -129,8 +145,8 @@ class SenseService:
             )
             if section is None:
                 raise SectionNotFoundError(
-                    "Sense profile section was not found",
-                    details={"section_id": section_id},
+                    "Sense section was not found",
+                    details={"section_id": public_id},
                 )
             sections.append(
                 section_view(
@@ -139,8 +155,10 @@ class SenseService:
                     include_change_token=True,
                 )
             )
-        result["sections"] = sections
-        return result
+        return {
+            "revision": stored.profile.revision,
+            "sections": sections,
+        }
 
     @staticmethod
     def _changed_section_ids(
@@ -283,6 +301,7 @@ class SenseService:
         new_section: ProfileSection,
         trusted_user_action: bool = False,
     ) -> dict[str, Any]:
+        section_id = stored_section_id(section_id)
         if not previous_understanding.strip():
             raise ValueError("previous_understanding must explain the replaced view")
         if not changed_future_judgment.strip():
@@ -307,6 +326,7 @@ class SenseService:
         changed_future_judgment: str,
         public_fields: dict[str, Any],
     ) -> dict[str, Any]:
+        section_id = stored_section_id(section_id)
         return self.store.remote_revise_public(
             expected_revision=expected_revision,
             idempotency_key=idempotency_key,
@@ -323,6 +343,7 @@ class SenseService:
         section_id: str,
         principal_binding: str,
     ) -> dict[str, Any]:
+        section_id = stored_section_id(section_id)
         return self.store.remote_delete_preview(
             section_id=section_id,
             principal_binding=principal_binding,
@@ -354,6 +375,8 @@ class SenseService:
         confirm_profile_digest: str | None = None,
         trusted_user_action: bool = False,
     ) -> dict[str, Any]:
+        if section_id is not None:
+            section_id = stored_section_id(section_id)
         if action in {"inspect", "export"}:
             result = self.read(view="full", include_sources=True)
             result["format"] = "sense-profile-v1"
@@ -423,7 +446,7 @@ class SenseService:
 
     def overview(self) -> dict[str, Any]:
         stored = self.store.read()
-        return work_profile_overview(
+        return guidance_overview(
             stored.profile,
             lifecycle=stored.lifecycle,
             updated_at=stored.updated_at,

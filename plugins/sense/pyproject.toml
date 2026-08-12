@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sense"
 version = "0.2.0"
-description = "Keep one private, user-controlled work profile available across AI tools"
+description = "Keep private guidance for important choices available across AI tools"
 authors = [
   {name = "Ruzzy77"},
 ]
@@ -32,4 +32,4 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-sense = ["ui/work_profile/index.html"]
+sense = ["ui/guidance/index.html"]

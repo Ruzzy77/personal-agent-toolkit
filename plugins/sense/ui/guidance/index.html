@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Sense 작업 프로필</title>
+    <title>Sense에서 참고하는 내용</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -399,7 +399,7 @@
   <body>
     <main class="shell" id="app" aria-live="polite">
       <div class="profile">
-        <div class="empty">작업 프로필을 불러오는 중입니다.</div>
+        <div class="empty">Sense 내용을 불러오는 중입니다.</div>
       </div>
     </main>
 
@@ -456,7 +456,7 @@
         body.append(element("p", "section-text", section?.text ?? ""));
         const facts = element("div", "facts");
         facts.append(
-          fact("관련 작업", section?.related_work ?? []),
+          fact("관련 상황", section?.related_situations ?? []),
           fact("주의할 상황", section?.review_when ?? []),
           fact("출처", (section?.sources ?? []).map(sourceText))
         );
@@ -479,7 +479,7 @@
         const result = payload?.ok === true ? payload.result : payload;
         if (!result?.groups) {
           const message =
-            payload?.error?.message ?? "작업 프로필을 불러오지 못했습니다.";
+            payload?.error?.message ?? "Sense 내용을 불러오지 못했습니다.";
           const box = element("div", "profile");
           box.append(element("div", "error", message));
           app.replaceChildren(box);
@@ -490,7 +490,7 @@
         const hero = element("header", "hero");
         hero.append(
           element("div", "eyebrow", "Sense"),
-          element("h1", "", result.title ?? "작업 프로필"),
+          element("h1", "", result.title ?? "Sense에서 참고하는 내용"),
           element("p", "description", result.description ?? "")
         );
 
@@ -584,7 +584,7 @@
       if (openaiOutput) render(openaiOutput);
 
       rpcRequest("ui/initialize", {
-        appInfo: { name: "sense-work-profile", version: "0.1.2" },
+        appInfo: { name: "sense-guidance", version: "0.1.2" },
         appCapabilities: {},
         protocolVersion: "2026-01-26",
       })
@@ -596,7 +596,7 @@
               element(
                 "div",
                 "error",
-                "이 화면을 지원하는 앱에서 작업 프로필을 열어 주세요."
+                "이 화면을 지원하는 앱에서 Sense 내용을 열어 주세요."
               )
             );
             app.replaceChildren(box);

@@ -1,4 +1,4 @@
-"""Sense shared work-profile core."""
+"""Sense private-guidance core."""
 
 from importlib.metadata import PackageNotFoundError, version
 

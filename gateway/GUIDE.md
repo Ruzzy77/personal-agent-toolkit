@@ -120,6 +120,14 @@ not copy the local MCP launcher into the Chat package and does not add a gateway
 each raw developer connection in a fresh Chat. Test full skill-plus-app packaging separately on a
 ChatGPT surface that supports local marketplace plugins.
 
+A raw developer connection receives the MCP server instructions, tool descriptions, parameter
+schemas, and tool annotations, but not the product skill bundle. The three products therefore keep
+their basic routing boundaries in MCP metadata: when the product is relevant, when it should not be
+called, which read should precede a write, and when a destructive preview is required. This makes a
+raw connection usable and safer, but it does not reproduce a skill's full response composition,
+teaching behavior, or multi-call workflow. Treat the raw-connection check and the full plugin check
+as different evidence.
+
 ## Switch from local-only use, update, and roll back
 
 Enabling the gateway does not replace local Codex or Claude installation. Local tasks continue to

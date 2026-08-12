@@ -1,4 +1,4 @@
-"""Local MCP surface for the Sense work profile."""
+"""Local MCP surface for Sense."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .errors import SenseError
+from .exposure import stored_section_id
 from .model import (
     ProfileSection,
     ToolError,
@@ -25,19 +26,14 @@ from .model import (
 from .service import ControlAction, ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
-    "Sense keeps one private work profile that AI tools can use when working with the user. "
-    "It contains ways of working and lessons that remain useful across different tasks, not "
-    "project facts or raw conversation history. Follow the current user request first, and verify "
-    "project facts in the project's current sources and executed results. While the profile is a "
-    "preview, read it only when the user explicitly asks. After trusted activation, read it for "
-    "work that needs interpretation or a consequential choice. Do not repeat its wording "
-    "mechanically; use it "
-    "to form an independent view. Only revise the profile when a completed result or explicit "
-    "correction should change choices in other kinds of work. Work-specific facts, unresolved "
-    "questions, gaps, and source-linked interpretation belong with the project or Corpus. The "
-    "user's topic-, task-, or responsibility-specific concept understanding and explanation "
-    "effects belong to Hypes, not Sense or Corpus. "
-    "A preview profile is intentionally read-only until the user reviews and activates it."
+    "Sense holds a small set of private guidance for important choices that recur in different "
+    "contexts. Use it only when that guidance could change a conclusion or when the user asks to "
+    "see or change it. The current request and current sources always come first. Read only the "
+    "relevant sections and reach an independent conclusion rather than copying their wording. "
+    "Project facts stay with the project, continuing source-linked questions stay in the Corpus "
+    "chosen by the user, and narrow clues about understanding or explanation stay in Hypes. "
+    "Revise Sense only after an explicit correction or an observed result establishes guidance "
+    "that should remain useful elsewhere. A preview is read-only."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -61,19 +57,58 @@ PROFILE_CONTROL = ToolAnnotations(
 
 SectionId = Annotated[str, Field(min_length=1, max_length=64)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+PublicOrigin = Literal["user_set", "learned_from_results"]
 McpControlAction = Literal[
     "inspect",
     "export",
     "preview_forget",
     "preview_remove_database",
 ]
-PROFILE_UI_URI = "ui://sense/work-profile-v1.html"
-PROFILE_UI_RESOURCE = (
+GUIDANCE_UI_URI = "ui://sense/guidance-v1.html"
+GUIDANCE_UI_RESOURCE = (
     resources.files("sense")
     .joinpath("ui")
-    .joinpath("work_profile")
+    .joinpath("guidance")
     .joinpath("index.html")
 )
+
+
+class SenseSource(BaseModel):
+    """One bounded source locator accepted by the local Sense tools."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["conversation", "file", "corpus", "result"]
+    locator: str = Field(min_length=1, max_length=512)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    origin: PublicOrigin
+
+
+class SenseSection(BaseModel):
+    """One complete Sense section accepted by the local Sense tools."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=64)
+    purpose: str = Field(min_length=1, max_length=320)
+    text: str = Field(min_length=1, max_length=12_000)
+    origins: list[PublicOrigin] = Field(min_length=1, max_length=2)
+    use_for: list[str] = Field(default_factory=list, max_length=16)
+    review_when: list[str] = Field(default_factory=list, max_length=12)
+    sensitivity: Literal["ordinary", "sensitive"] = "ordinary"
+    source_refs: list[SenseSource] = Field(default_factory=list, max_length=12)
+
+    def to_stored(self) -> ProfileSection:
+        payload = self.model_dump(mode="json")
+        payload["id"] = stored_section_id(payload["id"])
+        payload["origins"] = [
+            "learned_from_work" if value == "learned_from_results" else value
+            for value in payload["origins"]
+        ]
+        for source in payload["source_refs"]:
+            if source["origin"] == "learned_from_results":
+                source["origin"] = "learned_from_work"
+        return ProfileSection.model_validate(payload)
 
 
 def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
@@ -121,10 +156,10 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     )
 
     @server.resource(
-        PROFILE_UI_URI,
-        name="sense-work-profile",
-        title="Sense Work Profile",
-        description="Read-only review screen for the shared work profile.",
+        GUIDANCE_UI_URI,
+        name="sense-guidance",
+        title="Sense Guidance",
+        description="Read-only view of the guidance kept in Sense.",
         mime_type="text/html;profile=mcp-app",
         meta={
             "ui": {
@@ -136,20 +171,18 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             }
         },
     )
-    def sense_work_profile_resource() -> str:
-        return PROFILE_UI_RESOURCE.read_text(encoding="utf-8")
+    def sense_guidance_resource() -> str:
+        return GUIDANCE_UI_RESOURCE.read_text(encoding="utf-8")
 
     @server.tool(
         name="sense_read",
-        title="Read Work Profile",
+        title="Read Sense",
         description=(
-            "Read the private shared work profile. Start with view=index, then request only the "
-            "relevant section ids. Use sense_overview when the user asks to review all non-sensitive "
-            "sections in one screen. Use view=full only for an explicit structured inspection or "
-            "repair that the review screen cannot support. The index never returns sensitive section "
-            "content. Source locators "
-            "are omitted unless include_sources=true is needed for a user-requested inspection or "
-            "repair. This does not modify the profile."
+            "Use this when retained Sense guidance could change an important choice, or when the "
+            "user asks what Sense contains. Start with view=index and read only the relevant "
+            "sections. Use sense_overview for a complete ordinary review and view=full only for "
+            "explicit inspection or repair. Sensitive text is absent from the index, and source "
+            "locators are omitted unless the user-requested inspection needs them. Read-only."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -172,22 +205,21 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="sense_overview",
-        title="Show Work Profile",
+        title="Show Sense",
         description=(
-            "Open a read-only review screen of the non-sensitive parts of the shared work profile "
-            "when the user asks what Sense currently uses. The screen shows where each part applies, "
-            "when to review it, and the kinds of sources behind it. It does not expose source "
-            "locators, digests, or sensitive section content, and it does not modify the profile."
+            "Use this when the user asks to review the ordinary guidance kept in Sense. The "
+            "read-only view shows each section, when it matters, and broad source types. It omits "
+            "source locators, digests, and sensitive sections."
         ),
         annotations=READ_ONLY,
         meta={
             "ui": {
-                "resourceUri": PROFILE_UI_URI,
+                "resourceUri": GUIDANCE_UI_URI,
                 "visibility": ["model"],
             },
-            "openai/outputTemplate": PROFILE_UI_URI,
-            "openai/toolInvocation/invoking": "작업 프로필을 불러오는 중…",
-            "openai/toolInvocation/invoked": "작업 프로필을 열었습니다.",
+            "openai/outputTemplate": GUIDANCE_UI_URI,
+            "openai/toolInvocation/invoking": "Sense 내용을 불러오는 중…",
+            "openai/toolInvocation/invoked": "Sense 내용을 열었습니다.",
         },
     )
     def sense_overview() -> ToolResponse:
@@ -195,15 +227,13 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="sense_revise",
-        title="Revise Work Profile",
+        title="Revise Sense",
         description=(
-            "Replace one whole profile section after an explicit user correction or completed "
-            "work shows that future choices in other kinds of work should change. Use the revision "
-            "and section digest returned by sense_read. The previous understanding and the "
-            "description of what should differ next time are required but are not stored. A "
-            "preview profile rejects all writes. This MCP call cannot authorize sensitive content "
-            "or broader use; those changes require a trusted local review surface. Do not store "
-            "concept mastery or helpful explanation patterns here; Hypes owns that state."
+            "Use this after an explicit correction or observed result establishes guidance that "
+            "should remain useful in other contexts. Do not save project facts, one-project notes, "
+            "or clues that belong in Corpus or Hypes. Replace one complete ordinary section using "
+            "the current revision and digest from sense_read. The change explanation is checked "
+            "but not stored. Preview data and sensitive sections cannot be changed here."
         ),
         annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},
@@ -214,7 +244,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         previous_section_sha256: Sha256,
         previous_understanding: Annotated[str, Field(min_length=1, max_length=2000)],
         changed_future_judgment: Annotated[str, Field(min_length=1, max_length=2000)],
-        new_section: ProfileSection,
+        new_section: SenseSection,
     ) -> ToolResponse:
         return _safe_call(
             lambda: service.revise(
@@ -223,20 +253,18 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                 previous_section_sha256=previous_section_sha256,
                 previous_understanding=previous_understanding,
                 changed_future_judgment=changed_future_judgment,
-                new_section=new_section,
+                new_section=new_section.to_stored(),
                 trusted_user_action=False,
             )
         )
 
     @server.tool(
         name="sense_control",
-        title="Manage Work Profile",
+        title="Manage Sense Data",
         description=(
-            "Inspect or export the full work profile, or show exactly what would be removed by "
-            "forgetting a section or deleting the Sense database. This tool cannot activate the "
-            "profile, forget a section, or remove data because a confirmation flag supplied by a "
-            "model does not prove the user's approval. Those actions require a trusted local "
-            "review surface."
+            "Use this only when the user asks to inspect, export, or remove Sense data. It can "
+            "show the full data or an exact removal preview. Activation and deletion require a "
+            "trusted local confirmation and cannot be authorized by model text."
         ),
         annotations=PROFILE_CONTROL,
         meta={"ui": {"visibility": ["model"]}},
@@ -244,25 +272,28 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     def sense_control(
         action: McpControlAction,
         section_id: SectionId | None = None,
-        replacement_section: ProfileSection | None = None,
+        replacement_section: SenseSection | None = None,
     ) -> ToolResponse:
         return _safe_call(
             lambda: service.control(
                 action=action,
                 section_id=section_id,
-                replacement_section=replacement_section,
+                replacement_section=(
+                    replacement_section.to_stored()
+                    if replacement_section is not None
+                    else None
+                ),
                 trusted_user_action=False,
             )
         )
 
     @server.tool(
         name="sense_status",
-        title="Check Work Profile Status",
+        title="Check Sense",
         description=(
-            "Show which Sense build is running, whether the profile is a preview or active, which "
-            "revision is current, how many older revisions remain, and whether the private files "
-            "have safe permissions. This checks only the local installation. Compare actual reads "
-            "from each AI tool when checking whether they use the same profile."
+            "Use this when the user asks about the running Sense version, activation, revision, or "
+            "local data protection, or when the connection needs diagnosis. It checks only this "
+            "local installation."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},

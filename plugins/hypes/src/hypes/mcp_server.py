@@ -1,4 +1,4 @@
-"""Stateless MCP surface for the Hypes personal cognitive model."""
+"""Stateless MCP surface for Hypes."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from pydantic import Field
 from . import __version__
 from .errors import HypesError
 from .model import (
+    ExplanationClueInput,
     RecheckBasis,
-    RelationDraft,
     RetentionBasis,
     ToolError,
     ToolFailure,
@@ -26,18 +26,17 @@ from .model import (
 from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
-    "Hypes adapts explanations using scoped, revisable clues about what the user understands and "
-    "which explanations helped. Read one exact topic, task, and responsibility scope by default; "
-    "inherit broader scopes only when explicitly requested. Never infer knowledge, "
-    "fatigue, agreement, preference, personality, health, or ability from silence or short replies. "
-    "Do not store transcripts, full answers, reasoning, sensitive traits, Sense guidance, Corpus "
-    "sources, or project facts. Keep provisional understanding in the current conversation. At a "
-    "task completion, handoff, or material conclusion, use hypes_revise automatically only when a "
-    "compact relation is stable, reusable, narrowly scoped, and likely to change a future explanation; "
-    "do not ask whether to save it. Use hypes_mark_recheck to suspend an existing active relation when "
-    "current evidence conflicts, without storing the competing claim or conversation. Read the current "
-    "revision before a write or deletion and use an idempotency key for every write. The MCP transport is "
-    "sessionless; no call may depend on a previous connection or server process."
+    "Hypes keeps narrow, revisable clues about concepts the user has demonstrated and about "
+    "explanations whose effect the user confirmed. Use it only when such a clue could materially "
+    "change the next explanation or when the user asks to inspect it. The current conversation "
+    "comes first. Never infer understanding, agreement, fatigue, preference, personality, health, "
+    "or ability from silence or brevity. Store no transcripts, full answers, hidden reasoning, "
+    "sensitive traits, project facts, Sense guidance, or Corpus sources. Retain a clue only after a "
+    "direct save request, explicit correction, demonstrated application, confirmed explanation "
+    "outcome, or repetition across separate conversations. A completed request or an explanation "
+    "written by the assistant is not evidence. Mark a conflicting active clue for recheck without "
+    "saving the competing claim. Read the current revision before a change and use an idempotency "
+    "key for every write."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -97,31 +96,36 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_read",
-        title="Read Cognitive Model",
+        title="Read Explanation Clues",
         description=(
-            "Read active explanation clues for one exact topic, task, and responsibility scope. "
-            "Missing task or responsibility values are part of that exact scope, not wildcards. "
-            "Set include_broader only when broader-scope inheritance is appropriate. Recheck-due "
-            "items are omitted unless explicitly "
-            "requested for inspection. Treat results as revisable clues, not facts about the whole "
-            "person. This does not modify the model."
+            "Use this when a retained clue could materially change the current explanation, or "
+            "when the user asks what Hypes contains. Read the narrowest matching topic, situation, "
+            "and responsibility. Missing scope values are exact, not wildcards. Include broader "
+            "scopes only deliberately. Recheck-due clues are omitted unless requested. Results are "
+            "revisable clues, not facts about the whole person. Read-only."
         ),
         annotations=READ_ONLY,
     )
     def hypes_read(
         topic: Annotated[str, Field(min_length=1, max_length=160)],
-        task: Annotated[str | None, Field(min_length=1, max_length=160)] = None,
+        situation: Annotated[str | None, Field(min_length=1, max_length=160)] = None,
         responsibility: Annotated[
             str | None, Field(min_length=1, max_length=160)
         ] = None,
-        include_broader: bool = False,
-        include_recheck: bool = False,
+        include_broader: Annotated[
+            bool,
+            Field(description="Include deliberately inherited broader scopes when true."),
+        ] = False,
+        include_recheck: Annotated[
+            bool,
+            Field(description="Include suspended recheck-due relations only for inspection."),
+        ] = False,
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> ToolResponse:
         return _safe_call(
             lambda: service.read(
                 topic=topic,
-                task=task,
+                task=situation,
                 responsibility=responsibility,
                 include_broader=include_broader,
                 include_recheck=include_recheck,
@@ -131,12 +135,12 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_mark_recheck",
-        title="Suspend a Cognitive Relation",
+        title="Pause an Explanation Clue",
         description=(
-            "Stop one existing active relation from shaping answers when an explicit correction, "
-            "incompatible application outcome, or current-conversation conflict makes it unreliable. "
-            "Store only the bounded reason, never the competing claim, transcript, full answer, or hidden "
-            "reasoning. Read first and supply the server-derived relation ref, exact revision, and a unique "
+            "Use this when current conversation evidence conflicts with one active clue. The basis "
+            "must be an explicit correction, incompatible application outcome, or direct conflict. "
+            "Store only the bounded reason, never the competing claim, transcript, full answer, or "
+            "hidden reasoning. Read first and supply the exact ref, revision, and a unique "
             "idempotency key."
         ),
         annotations=WRITE,
@@ -160,30 +164,46 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_revise",
-        title="Correct Cognitive Model",
+        title="Save an Explanation Clue",
         description=(
-            "Create, replace, reactivate, or resolve one durable relation. At task completion, handoff, "
-            "or a material conclusion, do this automatically when the relation is stable, reusable, "
-            "narrowly scoped, non-sensitive, and likely to change a future explanation. Do not ask the "
-            "user whether to save it. Never retain silence, brief assent, preferences, agreement, project "
-            "facts, transcripts, personality, health, or ability claims. Set retention_basis to distinguish "
-            "an explicit request from an agent-selected conversation conclusion. Read first and supply the "
-            "exact revision and a unique idempotency key."
+            "Use this only after a direct save request, explicit correction, demonstrated "
+            "application, confirmed explanation outcome, or repetition across separate "
+            "conversations. Save one compact exact-scope clue likely to change a later explanation. "
+            "A completed request, short assent, or explanation written by the assistant is not "
+            "evidence. Never retain preferences, agreement, project facts, transcripts, personality, "
+            "health, or ability claims. Read first and supply the exact revision and a unique "
+            "idempotency key."
         ),
         annotations=WRITE,
     )
     def hypes_revise(
         expected_revision: Annotated[int, Field(ge=0)],
         idempotency_key: Annotated[str, Field(pattern=r"^[a-zA-Z0-9._:-]{1,160}$")],
-        relation: RelationDraft,
-        retention_basis: RetentionBasis,
-        review_in_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
+        relation: ExplanationClueInput,
+        retention_basis: Annotated[
+            RetentionBasis,
+            Field(
+                description=(
+                    "Name the visible evidence: explicit_user_request, explicit_user_correction, "
+                    "demonstrated_application, confirmed_explanation_outcome, or "
+                    "repeated_across_conversations."
+                )
+            ),
+        ],
+        review_in_days: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                le=3650,
+                description="Optional bounded interval before this relation becomes due for review.",
+            ),
+        ] = None,
     ) -> ToolResponse:
         return _safe_call(
             lambda: service.revise(
                 expected_revision=expected_revision,
                 idempotency_key=idempotency_key,
-                relation=relation,
+                relation=relation.to_relation_draft(),
                 retention_basis=retention_basis,
                 review_in_days=review_in_days,
             )
@@ -191,11 +211,12 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_overview",
-        title="Inspect Cognitive Model",
+        title="Show Explanation Clues",
         description=(
-            "Show bounded retained relations, their exact scopes and refs, and counts for active and "
-            "recheck-due states. Use offset pagination to inspect everything. It never "
-            "returns raw conversation because none is stored."
+            "Use this when the user asks what Hypes retains or needs exact refs for removal. It "
+            "shows bounded clues, exact scopes and refs, and active or recheck-due counts. Use "
+            "pagination to inspect everything. Raw conversation is never returned because none is "
+            "stored."
         ),
         annotations=READ_ONLY,
     )
@@ -207,13 +228,11 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_preview_forget",
-        title="Preview Cognitive Model Deletion",
+        title="Preview Hypes Removal",
         description=(
-            "Show the exact active/recheck relations that would be removed, then mint a short-lived "
-            "signed forget ticket. The ticket carries all cross-call state explicitly and does not "
-            "create an MCP session. Stored-content digests bind the preview to the exact retained "
-            "relations. This preview does not "
-            "change the active-model revision."
+            "Use this when the user asks to remove retained Hypes clues. It shows the exact active "
+            "or recheck-due clues and returns a short-lived signed ticket bound to their stored "
+            "content. The preview is read-only."
         ),
         annotations=READ_ONLY,
     )
@@ -226,14 +245,12 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_forget",
-        title="Forget Cognitive Model Relations",
+        title="Remove Hypes Clues",
         description=(
-            "Remove the exact relation refs shown by "
-            "hypes_preview_forget after the user approves that preview. Requires the unmodified "
-            "short-lived ticket, its exact model revision, and a unique idempotency key. A "
-            "successful call removes the relation statements and explanations from the live "
-            "managed SQLite DB, WAL, and SHM files. Filesystem snapshots and external backups "
-            "remain subject to the deployment retention policy."
+            "Use this only after hypes_preview_forget and host confirmation for that exact preview. "
+            "It removes the shown refs using the unmodified short-lived ticket, exact revision, and "
+            "a unique idempotency key. External filesystem snapshots and backups remain outside "
+            "this deletion boundary."
         ),
         annotations=DELETE,
     )
@@ -252,13 +269,11 @@ def create_server(data_root: Path | None = None) -> MCPServer:
 
     @server.tool(
         name="hypes_status",
-        title="Check Hypes Status",
+        title="Check Hypes",
         description=(
-            "Show the running build and distinguish sessionless MCP transport from the explicit "
-            "persistent cognitive-model store. HTTP publication remains disabled until an OAuth "
-            "resource server binds each request to the authenticated user. Remote writes also need "
-            "a dedicated update scope, and the authorized calling surface must enforce Hypes' "
-            "automatic-retention gate for every request."
+            "Use this when the user asks about the running Hypes version or when the connection "
+            "needs diagnosis. It distinguishes the sessionless connection from the persistent "
+            "private store and reports whether remote publication remains disabled."
         ),
         annotations=READ_ONLY,
     )

@@ -1,4 +1,4 @@
-"""Deterministic Hypes cognitive-model operations."""
+"""Deterministic storage and retrieval for Hypes explanation clues."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 from . import __version__
 from .errors import HypesError, InvalidTicket
-from .model import CognitiveScope, RecheckBasis, RelationDraft, RetentionBasis
+from .model import RecheckBasis, RelationDraft, RetentionBasis, StoredScope
 from .store import HypesStore, _canonical, _digest, relation_ref
 
 try:
@@ -17,7 +17,7 @@ try:
 except ImportError:
     BUILD_ID = f"{__version__}+owner"
 
-AUTOMATIC_REVIEW_DAYS = 90
+EVIDENCE_REVIEW_DAYS = 90
 EXPLICIT_REVIEW_DAYS = 180
 
 
@@ -30,7 +30,7 @@ def _as_datetime(value: str) -> datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
-def _relation_payload(row: Any) -> dict[str, Any]:
+def _stored_relation_payload(row: Any) -> dict[str, Any]:
     return {
         "relation_id": row["relation_id"],
         "scope": json.loads(row["scope_json"]),
@@ -40,10 +40,24 @@ def _relation_payload(row: Any) -> dict[str, Any]:
     }
 
 
+def _public_scope(value: dict[str, Any]) -> dict[str, Any]:
+    """Present the legacy stored field as a plain situation."""
+
+    result = dict(value)
+    result["situation"] = result.pop("task", None)
+    return result
+
+
+def _relation_payload(row: Any) -> dict[str, Any]:
+    result = _stored_relation_payload(row)
+    result["scope"] = _public_scope(result["scope"])
+    return result
+
+
 def _relation_storage_digest(row: Any) -> str:
     return _digest(
         {
-            **_relation_payload(row),
+            **_stored_relation_payload(row),
             "status": row["status"],
             "retention_basis": row["retention_basis"],
             "recheck_basis": row["recheck_basis"],
@@ -62,8 +76,8 @@ class HypesService:
 
     @staticmethod
     def _scope_matches(
-        stored: CognitiveScope,
-        requested: CognitiveScope,
+        stored: StoredScope,
+        requested: StoredScope,
         *,
         include_broader: bool,
     ) -> bool:
@@ -118,7 +132,7 @@ class HypesService:
         include_recheck: bool = False,
         limit: int = 20,
     ) -> dict[str, Any]:
-        scope = CognitiveScope(topic=topic, task=task, responsibility=responsibility)
+        scope = StoredScope(topic=topic, task=task, responsibility=responsibility)
         now = _utcnow()
         with self.store.connect() as connection:
             rows = connection.execute(
@@ -129,7 +143,7 @@ class HypesService:
             ).fetchall()
             matches: list[dict[str, Any]] = []
             for row in rows:
-                stored = CognitiveScope.model_validate_json(row["scope_json"])
+                stored = StoredScope.model_validate_json(row["scope_json"])
                 if not self._scope_matches(
                     stored, scope, include_broader=include_broader
                 ):
@@ -142,16 +156,9 @@ class HypesService:
             matches.sort(key=lambda item: item["scope_match"] != "exact")
             return {
                 "revision": self.store.revision(connection),
-                "revision_boundary": (
-                    "This revision protects retained/recheck relations and explicit deletion."
-                ),
-                "scope": scope.model_dump(mode="json"),
+                "scope": _public_scope(scope.model_dump(mode="json")),
                 "include_broader": include_broader,
                 "relations": matches[:limit],
-                "use_boundary": (
-                    "Use active relations only as revisable explanation clues. Recheck-due "
-                    "relations do not shape an answer unless they are revised."
-                ),
             }
 
     def revise(
@@ -163,18 +170,40 @@ class HypesService:
         retention_basis: RetentionBasis,
         review_in_days: int | None = None,
     ) -> dict[str, Any]:
-        if retention_basis not in {
+        supported_bases = {
             "explicit_user_request",
-            "conversation_conclusion",
-        }:
+            "explicit_user_correction",
+            "demonstrated_application",
+            "confirmed_explanation_outcome",
+            "repeated_across_conversations",
+        }
+        if retention_basis not in supported_bases:
             raise HypesError(
                 "invalid_retention_basis", "unsupported retention basis"
+            )
+        relation = RelationDraft.model_validate(relation.model_dump(mode="json"))
+        explanation_kinds = {"helpful_explanation", "unhelpful_explanation"}
+        if relation.kind in explanation_kinds and retention_basis not in {
+            "explicit_user_request",
+            "confirmed_explanation_outcome",
+        }:
+            raise HypesError(
+                "retention_evidence_mismatch",
+                "an explanation relation requires a direct save request or confirmed explanation outcome",
+            )
+        if (
+            relation.kind not in explanation_kinds
+            and retention_basis == "confirmed_explanation_outcome"
+        ):
+            raise HypesError(
+                "retention_evidence_mismatch",
+                "confirmed explanation outcome is only valid for explanation relations",
             )
         if review_in_days is None:
             review_in_days = (
                 EXPLICIT_REVIEW_DAYS
                 if retention_basis == "explicit_user_request"
-                else AUTOMATIC_REVIEW_DAYS
+                else EVIDENCE_REVIEW_DAYS
             )
         if review_in_days < 1 or review_in_days > 3650:
             raise HypesError(
@@ -281,7 +310,7 @@ class HypesService:
             if current is None:
                 raise HypesError(
                     "relation_not_found",
-                    "the relation ref is not retained; read or inspect the model again",
+                    "the relation ref is not retained; read the current Hypes clues again",
                 )
             if current["status"] == "recheck_due":
                 result = {
@@ -338,9 +367,6 @@ class HypesService:
             next_offset = offset + len(items)
             return {
                 "revision": self.store.revision(connection),
-                "revision_boundary": (
-                    "This revision protects retained/recheck relations and explicit deletion."
-                ),
                 "counts": counts,
                 "topics": sorted(
                     {json.loads(row["scope_json"])["topic"] for row in all_rows}
@@ -350,8 +376,6 @@ class HypesService:
                 "limit": limit,
                 "next_offset": next_offset if next_offset < total else None,
                 "total_retained_items": total,
-                "stores_raw_conversation": False,
-                "transport_session_state": False,
             }
 
     def preview_forget(self, *, relation_refs: list[str] | None = None) -> dict[str, Any]:
@@ -435,7 +459,7 @@ class HypesService:
                 raise InvalidTicket()
             if payload.get("expected_revision") != expected_revision:
                 raise InvalidTicket(
-                    "the forget ticket targets a different model revision"
+                    "the removal ticket refers to a different Hypes revision"
                 )
             targets = payload.get("relation_targets")
             if not isinstance(targets, list) or not all(
@@ -484,7 +508,7 @@ class HypesService:
                 "build_id": BUILD_ID,
                 "schema_version": 5,
                 "revision": self.store.revision(connection),
-                "revision_boundary": "retained_model_recheck_and_explicit_deletion",
+                "revision_boundary": "retained_clues_recheck_and_removal",
                 "database_path": str(self.store.database_path),
                 "transport_session_state": False,
                 "persistent_application_state": True,

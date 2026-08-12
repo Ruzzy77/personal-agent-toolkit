@@ -1,4 +1,4 @@
-"""Private SQLite store for the shared Sense work profile."""
+"""Private SQLite storage for Sense."""
 
 from __future__ import annotations
 
@@ -215,7 +215,7 @@ class SenseStore:
             self._prepare_write_paths(create_database=True)
         else:
             if not self.database_path.is_file():
-                raise ProfileNotFoundError("Sense work profile has not been created")
+                raise ProfileNotFoundError("Sense data has not been created")
             if not self.lock_path.is_file():
                 raise UnsafeStorageError("Sense runtime lock is missing")
             _reject_symlink(self.lock_path)
@@ -239,11 +239,11 @@ class SenseStore:
 
     def _connect_write(self, *, create: bool = False) -> sqlite3.Connection:
         if not create and not self.database_path.is_file():
-            raise ProfileNotFoundError("Sense work profile has not been created")
+            raise ProfileNotFoundError("Sense data has not been created")
         lock_descriptor = self._acquire_lock(exclusive=True, create=create)
         try:
             if not create and not self.database_path.is_file():
-                raise ProfileNotFoundError("Sense work profile has not been created")
+                raise ProfileNotFoundError("Sense data has not been created")
             connection = sqlite3.connect(
                 self.database_path,
                 timeout=10,
@@ -282,12 +282,12 @@ class SenseStore:
 
     def _connect_read(self) -> sqlite3.Connection:
         if not self.database_path.is_file():
-            raise ProfileNotFoundError("Sense work profile has not been created")
+            raise ProfileNotFoundError("Sense data has not been created")
         _reject_symlink(self.database_path)
         lock_descriptor = self._acquire_lock(exclusive=False, create=False)
         try:
             if not self.database_path.is_file():
-                raise ProfileNotFoundError("Sense work profile has not been created")
+                raise ProfileNotFoundError("Sense data has not been created")
             connection = sqlite3.connect(
                 f"file:{self.database_path}?mode=ro",
                 uri=True,
@@ -323,7 +323,7 @@ class SenseStore:
     @staticmethod
     def _stored_from_row(row: sqlite3.Row | None) -> StoredProfile:
         if row is None:
-            raise ProfileNotFoundError("Sense work profile has not been created")
+            raise ProfileNotFoundError("Sense data has not been created")
         profile = ProfileDocument.model_validate(json.loads(row["profile_json"]))
         if profile.revision != row["revision"]:
             raise UnsafeStorageError("stored Sense revision is inconsistent")
@@ -372,7 +372,7 @@ class SenseStore:
                 if not replace_preview or existing["lifecycle"] != "preview":
                     connection.execute("ROLLBACK")
                     raise ProfileExistsError(
-                        "Sense already has a work profile",
+                        "Sense data already exists",
                         details={"lifecycle": existing["lifecycle"]},
                     )
                 current = self._load_current(connection)
@@ -473,7 +473,7 @@ class SenseStore:
             if section.id == section_id:
                 return section
         raise SectionNotFoundError(
-            "Sense profile section was not found",
+            "Sense section was not found",
             details={"section_id": section_id},
         )
 
@@ -851,7 +851,7 @@ class SenseStore:
             previous = self._find_section(current.profile, section_id)
             if previous.sensitivity != "ordinary":
                 raise SectionNotFoundError(
-                    "Sense profile section was not found",
+                    "Sense section was not found",
                     details={"section_id": section_id},
                 )
             replacement = ProfileSection.model_validate(
@@ -921,7 +921,7 @@ class SenseStore:
             section = self._find_section(current.profile, section_id)
             if section.sensitivity != "ordinary":
                 raise SectionNotFoundError(
-                    "Sense profile section was not found",
+                    "Sense section was not found",
                     details={"section_id": section_id},
                 )
             if len(current.profile.sections) == 1:
@@ -1161,7 +1161,7 @@ class SenseStore:
                 ):
                     connection.execute("ROLLBACK")
                     raise ValueError(
-                        "forget replacement cannot broaden related work; use sense_revise"
+                    "forget replacement cannot broaden related situations; use sense_revise"
                     )
                 if not set(replacement_section.origins).issubset(
                     set(previous_section.origins)

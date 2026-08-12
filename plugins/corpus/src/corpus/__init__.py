@@ -1,4 +1,4 @@
-"""Corpus connects tasks to their work context and original sources."""
+"""Corpus connects saved context to exact current sources."""
 
 from importlib.metadata import PackageNotFoundError, version
 

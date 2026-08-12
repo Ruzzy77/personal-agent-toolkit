@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.6.0+codex.20260811051335",
-  "description": "Adapt responses and carry forward only stable, scoped explanation clues at natural commitment points.",
+  "version": "0.6.0+codex.20260811185921",
+  "description": "Adapt explanations using only narrowly evidenced understanding clues.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -26,21 +26,21 @@
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "Clear, natural responses for what matters now",
-    "longDescription": "Hypes follows the user's understanding through a conversation and, at task completion, handoff, or a material conclusion, automatically carries forward only stable concept relationships and explanation clues for the exact topic, task, and responsibility. It does not ask whether to save or accumulate intermediate candidates. Hypes keeps no raw conversation and does not reduce the user to a general skill level or personality. Its MCP transport is sessionless, while the private cognitive model remains on this Mac across plugin updates.",
+    "longDescription": "Hypes adapts explanations from the visible conversation and retains a narrow clue only after a direct save request, correction, demonstrated application, confirmed explanation outcome, or repetition across conversations. A completed request or an explanation written by the assistant is not evidence. Hypes keeps no raw conversation and makes no general judgment about the user's skill or personality. Its private data remains on this Mac across plugin updates.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
       "Adaptive explanations",
-      "Scoped cognitive model",
+      "Narrow explanation clues",
       "User review and deletion"
     ],
     "brandColor": "#FF6A32",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Use Hypes to make this response clear, natural, and appropriately detailed.",
-      "Explain this without repeating what I already understand.",
-      "Tell me what materially changed, roughly where the work stands, and what remains."
+      "Explain this using what I have already shown I understand.",
+      "Explain this without repeating a distinction I have already applied.",
+      "Show what Hypes currently retains about this concept."
     ]
   }
 }

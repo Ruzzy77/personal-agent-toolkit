@@ -1,80 +1,45 @@
-# Corpus overview visual specification
+# Corpus overview visual
 
-Use this specification with the current `visualize` skill. The overview is a temporary personal
-workspace view, not a stored report or a new source of truth.
+The overview is a temporary personal view, not a stored report or a new source.
 
-## Information model
+## What to show
 
-Keep three layers legible without presenting them as a quality ladder:
+Keep three layers distinct:
 
-1. **Work contexts** — ongoing bodies of work described by their purpose, recurring output or
-   topic, current work interpretation, relationships, and open questions.
-2. **Connected materials** — the file collections, provider records, and completed agent work
-   linked to each work context. These links help locate originals; they are not copied content.
-3. **Source inventory** — supported documents split into:
-   - indexed;
-   - local but not indexed: `supported_documents - indexed_documents -
-     remote_supported_documents`, never below zero;
-   - remote: `remote_supported_documents`.
+1. **Saved contexts** — readable titles, purposes, relationships, and open questions.
+2. **Connected material** — file collections and provider records that point to originals.
+3. **Readable coverage** — indexed, local but not indexed, and remote documents.
 
-Show partial extraction as a condition on indexed documents, not as a fourth mutually exclusive
-inventory segment. Show active source-unit count as scale, not as a completion score.
+Partial extraction is a condition on indexed documents, not a separate category. Source-unit count
+shows only how much text is indexed; it says nothing about whether the material was interpreted.
 
-Group context item kinds for reading:
+Group saved items as:
 
-| Saved kind | User-facing group |
+| Stored kind | Label |
 |---|---|
-| `finding` | 현재 업무 해석 |
+| `finding` | 현재 해석 |
 | `relationship`, `difference` | 관계와 변화 |
 | `question`, `gap` | 확인할 것 |
 
-Keep the original item wording. A group with no items should say that no reusable item has been
-saved; do not infer that the underlying corpus lacks the information.
+Keep the original wording. An empty group means nothing has been saved in that group; it does not
+mean the sources contain nothing.
 
-## Composition
+## Layout
 
-Use one responsive surface with this reading order:
+Use one responsive view in this order:
 
-1. A compact list of active work contexts. Show each readable title and purpose, with the kinds of
-   materials connected to it. Do not select a context merely because it has more saved items.
-2. A selected-work strip with its purpose, recurring output types, related source collections, and
-   any material that must be read again. Selection must be keyboard accessible.
-3. Three semantic groups: current work interpretation, relations and changes, and questions or gaps.
-   Prefer readable text over badges. Show source counts only when they help choose what to verify.
-4. A small source-to-context relation:
+1. A compact list of active contexts with title, purpose, and connected material types.
+2. The selected context and anything that needs a fresh read.
+3. The three saved-item groups above.
+4. A collapsed coverage section with exact counts and last completed scan.
+5. A collapsed context section with saved-item, changed-source, and archived-context counts.
+6. One plainly labelled action to verify the selected item against exact current sources.
 
-   `indexed file sources + linked provider records → reusable context items`
+Do not add health scores, percentage gauges, leaderboards, decorative graphs, or a second dashboard.
+Do not imply that every indexed source has been interpreted.
 
-   This explains provenance; it must not imply that every source has been interpreted.
-5. A collapsed source-inventory section with the selected corpus's last completed scan and one
-   directly labelled horizontal bar for indexed, local-unindexed, and remote documents. Pair color
-   with labels and exact counts. Mark partial extraction separately.
-6. A collapsed context-state section:
-   - `active_item_count`: 저장한 내용;
-   - `stale_item_count`: 원문을 다시 읽을 내용;
-   - `archived_context_count`: 보관한 업무 맥락.
-   Treat stale as a review state inside active items, not a separate total to add to them. Show
-   archived context titles only when at least one exists. Do not add a replaced-item history view.
-7. One labelled action for the selected work context. It may ask Codex to continue that work and
-   read the exact sources needed now through `window.openai.sendFollowUpMessage`.
-
-Avoid a second dashboard, a document-count leaderboard, invented health scores, generic progress
-labels, and decorative graphs. The selected work context should remain the dominant object.
-
-## Freshness and boundaries
-
-- Label timestamps as the last saved scan or observation, not as “live”.
-- If `inventory_complete=false`, say “목록 확인 미완료”.
-- If context items are truncated, show the available count and say more items exist.
-- If stale counts are truncated, label them as a lower bound rather than an exact total.
-- Archived contexts are provenance, not current work interpretation.
-- Preserve the response audience. Do not invent omitted local-only corpora, local paths, or private
-  IDs.
-- Personal view may show the returned names, people, dates, amounts, and context text. Do not add
-  extra masking. General-view rules apply only when the user explicitly requests external reuse.
-
-## Accessibility and fallback
-
-Use semantic buttons, visible labels, direct values, and a screen-reader summary for the inventory
-bar. Support 736 px down to 320 px without horizontal scrolling. In a non-visual fallback, show one
-summary table and the same three semantic groups; do not dump raw JSON.
+Label timestamps as the last saved scan or observation, never live. Mark incomplete inventory,
+truncation, and lower-bound counts precisely. Preserve omitted local-only collections and private
+identifiers. Use semantic controls, visible labels, exact values, and no horizontal scrolling from
+736 px down to 320 px. A text fallback should use one summary table and the same three item groups,
+not raw JSON.

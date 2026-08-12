@@ -1,4 +1,4 @@
-"""Agent-friendly JSON CLI for Corpus operations."""
+"""JSON CLI for Corpus operations."""
 
 from __future__ import annotations
 

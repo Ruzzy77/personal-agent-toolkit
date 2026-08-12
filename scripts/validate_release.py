@@ -25,15 +25,9 @@ CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
 PACKAGE_DESCRIPTIONS = {
-    "sense": "Keep one private, user-controlled work profile available across AI tools.",
-    "corpus": (
-        "Find the work context and original sources behind a task, "
-        "then carry that context into later work."
-    ),
-    "hypes": (
-        "Adapt responses and carry forward only stable, scoped explanation "
-        "clues at natural commitment points."
-    ),
+    "sense": "Keep private guidance for important choices available across AI tools.",
+    "corpus": "Connect saved questions and relationships to their exact current sources.",
+    "hypes": "Adapt explanations using only narrowly evidenced understanding clues.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_NAMES = {
@@ -89,8 +83,8 @@ PACKAGE_REQUIRED_FILES = {
         "launchers/sense-readonly",
         "skills/update-sense/SKILL.md",
         "skills/update-sense/agents/openai.yaml",
-        "skills/work-with-user/SKILL.md",
-        "skills/work-with-user/agents/openai.yaml",
+        "skills/use-sense/SKILL.md",
+        "skills/use-sense/agents/openai.yaml",
     ),
     "corpus": (
         "NOTICE",
@@ -458,7 +452,7 @@ def validate_gateway_release() -> None:
     if sentinel != {
         "format": "personal-agent-tunnel-gateway-release",
         "schema_version": 1,
-        "version": "0.1.0",
+        "version": "0.1.1",
         "content_sha256": sentinel.get("content_sha256"),
     }:
         raise ValueError("gateway release sentinel is invalid")
@@ -618,16 +612,51 @@ def validate_package_manifests() -> dict[str, str]:
                 f"{package_name} uses a non-release build ID: {build_id}"
             )
     hypes_package = ROOT / "plugins/hypes"
-    hypes_skill = (hypes_package / "skills/adapt-response/SKILL.md").read_text(
-        encoding="utf-8"
+    hypes_skill = " ".join(
+        (hypes_package / "skills/adapt-response/SKILL.md")
+        .read_text(encoding="utf-8")
+        .split()
     )
     hypes_agent = (
         hypes_package / "skills/adapt-response/agents/openai.yaml"
     ).read_text(encoding="utf-8")
-    if "Revise the draft itself" not in hypes_skill:
-        raise ValueError("Hypes skill does not revise the actual response")
-    if "Make the language natural" not in hypes_skill:
-        raise ValueError("Hypes skill does not review language quality")
+    required_hypes_contract = {
+        "Answer the subject directly": "does not answer the subject directly",
+        "Preserve important facts, uncertainty, differences, risks, and responsibility": (
+            "does not preserve decision-relevant content"
+        ),
+        "The visible conversation is enough by default": (
+            "does not use the visible conversation as its default"
+        ),
+        "A completed request, short assent, unanswered question": (
+            "treats completion or assent as retention evidence"
+        ),
+        "Retain a clue only after one of these forms of evidence": (
+            "does not require visible retention evidence"
+        ),
+        "explanation written by the assistant is not evidence": (
+            "treats assistant-written output as user evidence"
+        ),
+        "`demonstrated_application`, `confirmed_explanation_outcome`, or "
+        "`repeated_across_conversations`": (
+            "does not expose the current retention bases"
+        ),
+        "Ask at most one focused question": (
+            "does not limit understanding checks"
+        ),
+        "Stop checking once the user applies the distinction": (
+            "does not stop after demonstrated understanding"
+        ),
+        "For a finished document, follow its genre, reader, and argument": (
+            "does not preserve finished-artifact guidance"
+        ),
+        "name only observable effects": (
+            "does not keep Hypes explanations observable"
+        ),
+    }
+    for marker, failure in required_hypes_contract.items():
+        if marker not in hypes_skill:
+            raise ValueError(f"Hypes skill {failure}")
     if "allow_implicit_invocation: true" not in hypes_agent:
         raise ValueError("Hypes skill does not allow implicit invocation")
     for retired in ("recommend-help", "run-hypes-task"):

@@ -1,6 +1,6 @@
 {
   "name": "sense",
-  "description": "Keep one private, user-controlled work profile available across AI tools.",
+  "description": "Keep private guidance for important choices available across AI tools.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -9,5 +9,5 @@
   "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.2.0+codex.20260811051335"
+  "version": "0.2.0+codex.20260811185921"
 }

@@ -1,4 +1,4 @@
-"""Bounded profile views for local and future remote surfaces."""
+"""Bounded views of the guidance kept in Sense."""
 
 from __future__ import annotations
 
@@ -9,12 +9,20 @@ from .model import ProfileDocument, ProfileSection, section_sha256
 
 SECTION_PRESENTATION = {
     "working-together": {
-        "title": "결정과 책임",
-        "group": "함께 일하기",
+        "title": "질문과 선택",
+        "group": "질문과 답",
+    },
+    "questions-and-choices": {
+        "title": "질문과 선택",
+        "group": "질문과 답",
     },
     "work-process": {
-        "title": "일을 진행하는 방식",
-        "group": "함께 일하기",
+        "title": "답의 범위와 확인",
+        "group": "질문과 답",
+    },
+    "scope-and-checking": {
+        "title": "답의 범위와 확인",
+        "group": "질문과 답",
     },
     "evidence-and-judgment": {
         "title": "자료를 읽는 기준",
@@ -25,28 +33,38 @@ SECTION_PRESENTATION = {
         "group": "자료와 표현",
     },
     "research-and-long-term-goals": {
-        "title": "연구와 장기 작업",
-        "group": "오래 이어갈 일",
+        "title": "관계 학습 연구",
+        "group": "오래 이어갈 기준",
     },
     "learning-across-work": {
-        "title": "작업에서 배우는 방식",
-        "group": "오래 이어갈 일",
+        "title": "무엇을 남길지",
+        "group": "오래 이어갈 기준",
+    },
+    "what-to-keep": {
+        "title": "무엇을 남길지",
+        "group": "오래 이어갈 기준",
     },
 }
-GROUP_ORDER = ("함께 일하기", "자료와 표현", "오래 이어갈 일", "그 밖의 내용")
+PUBLIC_SECTION_IDS = {
+    "working-together": "questions-and-choices",
+    "work-process": "scope-and-checking",
+    "learning-across-work": "what-to-keep",
+}
+STORED_SECTION_IDS = {value: key for key, value in PUBLIC_SECTION_IDS.items()}
+GROUP_ORDER = ("질문과 답", "자료와 표현", "오래 이어갈 기준", "그 밖의 내용")
 ORIGIN_LABELS = {
-    "user_set": "직접 설정",
-    "learned_from_work": "작업에서 배운 것",
+    "user_set": "사용자가 정함",
+    "learned_from_work": "경험에서 확인함",
 }
 SOURCE_LABELS = {
     ("user_set", "conversation"): "직접 확인한 대화",
     ("user_set", "file"): "직접 설정한 내용",
-    ("user_set", "corpus"): "직접 확인한 업무 자료",
-    ("user_set", "result"): "직접 확인한 작업 결과",
-    ("learned_from_work", "conversation"): "작업에서 확인한 대화",
-    ("learned_from_work", "file"): "작업을 통해 확인한 자료",
-    ("learned_from_work", "corpus"): "업무에서 이어 온 이해",
-    ("learned_from_work", "result"): "작업에서 확인한 결과",
+    ("user_set", "corpus"): "직접 확인한 자료 모음",
+    ("user_set", "result"): "직접 확인한 결과",
+    ("learned_from_work", "conversation"): "대화에서 확인함",
+    ("learned_from_work", "file"): "자료에서 확인함",
+    ("learned_from_work", "corpus"): "자료를 함께 읽으며 확인함",
+    ("learned_from_work", "result"): "결과에서 확인함",
 }
 DISPLAY_VALUE_END = r"""(?=(?:[.;,!?)}\]](?:\s|$))|["'<>`]|[\r\n]|$)"""
 DISPLAY_LOCATOR_PATTERNS = (
@@ -66,6 +84,14 @@ UNSAFE_DIRECTIONAL_CODEPOINTS = {
 }
 
 
+def public_section_id(value: str) -> str:
+    return PUBLIC_SECTION_IDS.get(value, value)
+
+
+def stored_section_id(value: str) -> str:
+    return STORED_SECTION_IDS.get(value, value)
+
+
 def section_view(
     section: ProfileSection,
     *,
@@ -73,6 +99,14 @@ def section_view(
     include_change_token: bool,
 ) -> dict[str, Any]:
     result = section.model_dump(mode="json")
+    result["id"] = public_section_id(section.id)
+    result["origins"] = [
+        "learned_from_results" if value == "learned_from_work" else value
+        for value in section.origins
+    ]
+    for source in result["source_refs"]:
+        if source["origin"] == "learned_from_work":
+            source["origin"] = "learned_from_results"
     if not include_sources:
         result.pop("source_refs", None)
     if include_change_token:
@@ -86,7 +120,7 @@ def local_profile_index(profile: ProfileDocument) -> list[dict[str, Any]]:
         if section.sensitivity == "sensitive":
             items.append(
                 {
-                    "id": section.id,
+                    "id": public_section_id(section.id),
                     "sensitivity": section.sensitivity,
                     "available_by_explicit_id": True,
                 }
@@ -94,7 +128,7 @@ def local_profile_index(profile: ProfileDocument) -> list[dict[str, Any]]:
             continue
         items.append(
             {
-                "id": section.id,
+                "id": public_section_id(section.id),
                 "purpose": section.purpose,
                 "use_for": section.use_for,
                 "sensitivity": section.sensitivity,
@@ -137,7 +171,7 @@ def _display_text(value: str, exact_redactions: tuple[str, ...]) -> str:
     return result
 
 
-def work_profile_overview(
+def guidance_overview(
     profile: ProfileDocument,
     *,
     lifecycle: str,
@@ -174,7 +208,7 @@ def work_profile_overview(
                 "purpose": _display_text(section.purpose, exact_redactions),
                 "text": _display_text(section.text, exact_redactions),
                 "origins": [ORIGIN_LABELS[origin] for origin in section.origins],
-                "related_work": [
+                "related_situations": [
                     _display_text(item, exact_redactions)
                     for item in section.use_for
                 ],
@@ -192,9 +226,9 @@ def work_profile_overview(
         if grouped[group]
     ]
     return {
-        "title": "작업 프로필",
+        "title": "Sense에서 참고하는 내용",
         "description": (
-            "여러 AI가 함께 일할 때 공통으로 참고하는 내용입니다. "
+            "여러 대화에서 중요한 선택에만 참고하는 기준입니다. "
             "대화 기록과 프로젝트 자료는 이곳에 복사하지 않습니다."
         ),
         "state": {
@@ -202,12 +236,12 @@ def work_profile_overview(
             "description": (
                 "지금은 요청할 때만 이 내용을 참고합니다."
                 if lifecycle == "preview"
-                else "해석하거나 선택할 일이 있는 작업에서 이 내용을 참고합니다."
+                else "중요한 선택에 도움이 될 때만 이 내용을 참고합니다."
             ),
         },
         "groups": groups,
         "recent_change": (
-            "처음 만든 작업 프로필입니다."
+            "처음 만든 내용입니다."
             if profile.revision == 1
             else ""
         ),
