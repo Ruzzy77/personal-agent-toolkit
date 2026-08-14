@@ -25,27 +25,27 @@
   },
   "interface": {
     "displayName": "Corpus",
-    "shortDescription": "Read current sources with saved context",
-    "longDescription": "Corpus connects saved questions and relationships to the files, email records, and earlier Codex or Claude conversations they came from, then opens the exact current sources needed now. Registered originals remain unchanged; indexes and saved context stay on this Mac. Archived contexts remain readable, and permanent deletion is not available.",
+    "shortDescription": "Use shared Context and continue local Work files",
+    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from the saved Context instead of rereading every Source, reads exact current indexed text only when needed, and can safely continue files in an explicitly connected remote-allowed Work Connection while the Mac is online. Local-only Source Connections remain local. Archived contexts remain readable, and permanent deletion is not available.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
-      "Source reading",
-      "Local indexing",
-      "Linked sources",
-      "Linked earlier conversations",
-      "Saved-context discovery",
-      "Source-linked questions and relationships",
-      "Selected views without private source links"
+      "Space and Context discovery",
+      "Context-scoped workflow guidance",
+      "Remote-safe Connection projection",
+      "Indexed Source search and exact reading",
+      "Local-only Source separation",
+      "Explicitly connected Work files",
+      "Version-checked file replacement and restore"
     ],
     "brandColor": "#7357E8",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Show my saved Corpus contexts and their connected material.",
-      "Find the relevant context and open the exact current sources I need.",
-      "Show which Corpus sources informed this answer."
+      "Show my Corpus Spaces and their available Context and Connections.",
+      "Use the relevant Context, then read only the exact Source text still needed.",
+      "Continue the Current File in my Corpus Work Connection."
     ]
   },
-  "version": "0.10.0+codex.20260811185921"
+  "version": "0.11.0+codex.20260814021004"
 }

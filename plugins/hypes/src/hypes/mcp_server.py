@@ -1,4 +1,4 @@
-"""Stateless MCP surface for Hypes."""
+"""Stateless MCP surface for the Hypes relationship model of the user."""
 
 from __future__ import annotations
 
@@ -6,37 +6,25 @@ import ipaddress
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any, ClassVar
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, TypeAdapter, model_validator
 
 from . import __version__
 from .errors import HypesError
-from .model import (
-    ExplanationClueInput,
-    RecheckBasis,
-    RetentionBasis,
-    ToolError,
-    ToolFailure,
-    ToolResponse,
-    ToolSuccess,
-)
+from .model import RewriteOperation, ToolError, ToolFailure, ToolResponse, ToolSuccess
 from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
-    "Hypes keeps narrow, revisable clues about concepts the user has demonstrated and about "
-    "explanations whose effect the user confirmed. Use it only when such a clue could materially "
-    "change the next explanation or when the user asks to inspect it. The current conversation "
-    "comes first. Never infer understanding, agreement, fatigue, preference, personality, health, "
-    "or ability from silence or brevity. Store no transcripts, full answers, hidden reasoning, "
-    "sensitive traits, project facts, Sense guidance, or Corpus sources. Retain a clue only after a "
-    "direct save request, explicit correction, demonstrated application, confirmed explanation "
-    "outcome, or repetition across separate conversations. A completed request or an explanation "
-    "written by the assistant is not evidence. Mark a conflicting active clue for recheck without "
-    "saving the competing claim. Read the current revision before a change and use an idempotency "
-    "key for every write."
+    "Hypes is the assistant's revisable relationship model of the user. Use it only when a current "
+    "relationship could change the answer "
+    "or when the interaction changes that model. The current message always takes "
+    "priority. Read only the relevant part, and do not expose its categories or use them as the "
+    "answer's structure. Rewrite only what actually changed; never store transcripts, project "
+    "facts, source material, credentials, direct identifiers, sensitive traits, or hidden "
+    "reasoning."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -45,18 +33,158 @@ READ_ONLY = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
-WRITE = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
-)
-DELETE = ToolAnnotations(
+REWRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=True,
-    idempotentHint=True,
+    idempotentHint=False,
     openWorldHint=False,
 )
+
+_READ_SEED_REF_PATTERN = r"^(?:node|pred)_[0-9a-f]{32}$"
+_PUBLIC_ERROR_DETAIL_VALUES: dict[str, dict[str, frozenset[str]]] = {
+    "reference_type_mismatch": {
+        "expected_type": frozenset({"node", "pred"}),
+    },
+}
+
+
+class _RuntimeArguments(BaseModel):
+    """Carry unsupported field detection through MCP's safe tool boundary."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+    public_fields: ClassVar[frozenset[str]] = frozenset()
+    unsupported_fields: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def capture_unsupported_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        cleaned = {key: item for key, item in value.items() if key in cls.public_fields}
+        cleaned["unsupported_fields"] = any(
+            key not in cls.public_fields for key in value
+        )
+        return cleaned
+
+    def model_dump_one_level(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in type(self).model_fields}
+
+
+class _ReadRuntimeArguments(_RuntimeArguments):
+    public_fields = frozenset(
+        {"focus", "seed_refs", "max_hops", "limit", "continuation"}
+    )
+    focus: Any = None
+    seed_refs: Any = None
+    max_hops: Any = 1
+    limit: Any = 50
+    continuation: Any = None
+
+
+class _RewriteRuntimeArguments(_RuntimeArguments):
+    public_fields = frozenset({"operations"})
+    operations: Any = None
+
+
+def _read_input_schema() -> dict[str, Any]:
+    """Return the strict schema advertised to MCP clients."""
+
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "focus": {
+                "anyOf": [
+                    {"type": "string", "minLength": 1, "maxLength": 1000},
+                    {"type": "null"},
+                ],
+                "default": None,
+                "description": "Expression used to find relevant nodes and predicates.",
+            },
+            "seed_refs": {
+                "anyOf": [
+                    {
+                        "type": "array",
+                        "items": {"type": "string", "pattern": _READ_SEED_REF_PATTERN},
+                        "maxItems": 50,
+                    },
+                    {"type": "null"},
+                ],
+                "default": None,
+                "description": "Persistent node or predicate refs from an earlier read.",
+            },
+            "max_hops": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2,
+                "default": 1,
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+            },
+            "continuation": {
+                "anyOf": [
+                    {
+                        "type": "string",
+                        "pattern": r"^outline-v1:[1-9][0-9]{0,9}$",
+                    },
+                    {"type": "null"},
+                ],
+                "default": None,
+                "description": (
+                    "Cursor returned by an earlier outline read. Use it only without "
+                    "focus or seed_refs."
+                ),
+            },
+        },
+    }
+
+
+def _rewrite_input_schema() -> dict[str, Any]:
+    """Return an operation-specific patch schema while runtime input stays opaque."""
+
+    operations = TypeAdapter(list[RewriteOperation]).json_schema()
+    definitions = operations.pop("$defs", {})
+    operations.update(
+        {
+            "minItems": 1,
+            "maxItems": 100,
+            "description": (
+                "One atomic list of put_node, put_predicate, put_edge, or delete objects."
+            ),
+        }
+    )
+    return {
+        "$defs": definitions,
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"operations": operations},
+        "required": ["operations"],
+    }
+
+
+def _set_advertised_input_schema(
+    server: MCPServer,
+    name: str,
+    schema: dict[str, Any],
+    runtime_arguments: type[_RuntimeArguments],
+) -> None:
+    """Set discovery schema without moving content validation outside `_safe_call`.
+
+    MCPServer currently derives runtime validation and discovery from one function
+    annotation model and has no public schema override. The runtime model therefore
+    carries raw field values to our safe service boundary while reducing unsupported
+    field names to a boolean; the strict client-facing schema remains fully advertised.
+    """
+
+    tool = server._tool_manager.get_tool(name)
+    if tool is None:  # pragma: no cover - registration immediately precedes this call
+        raise RuntimeError(f"MCP tool was not registered: {name}")
+    tool.parameters = schema
+    tool.fn_metadata.arg_model = runtime_arguments
 
 
 def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
@@ -68,17 +196,21 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
                 error=ToolError(
                     code=exc.code,
                     message=str(exc),
-                    details=exc.details,
+                    details=_public_error_details(exc),
                 )
             )
         )
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError):
         return ToolResponse(
             ToolFailure(
-                error=ToolError(code="invalid_request", message=str(exc), details={})
+                error=ToolError(
+                    code="invalid_request",
+                    message="invalid Hypes request",
+                    details={},
+                )
             )
         )
-    except Exception:  # noqa: BLE001 - tool responses must not expose internals
+    except Exception:  # noqa: BLE001 - public responses must not expose internals
         return ToolResponse(
             ToolFailure(
                 error=ToolError(
@@ -90,195 +222,98 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
         )
 
 
+def _public_error_details(error: HypesError) -> dict[str, str]:
+    """Return only fixed, non-caller-controlled error metadata."""
+
+    allowed_fields = _PUBLIC_ERROR_DETAIL_VALUES.get(error.code, {})
+    public: dict[str, str] = {}
+    for field, allowed_values in allowed_fields.items():
+        value = error.details.get(field)
+        if isinstance(value, str) and value in allowed_values:
+            public[field] = value
+    return public
+
+
+def _reject_unsupported_fields() -> Any:
+    raise HypesError(
+        "invalid_request",
+        "the Hypes request contains unsupported fields",
+    )
+
+
 def create_server(data_root: Path | None = None) -> MCPServer:
     service = HypesService(data_root)
     server = MCPServer("Hypes", version=__version__, instructions=SERVER_INSTRUCTIONS)
 
     @server.tool(
         name="hypes_read",
-        title="Read Explanation Clues",
+        title="Read User Relationship Model",
         description=(
-            "Use this when a retained clue could materially change the current explanation, or "
-            "when the user asks what Hypes contains. Read the narrowest matching topic, situation, "
-            "and responsibility. Missing scope values are exact, not wildcards. Include broader "
-            "scopes only deliberately. Recheck-due clues are omitted unless requested. Results are "
-            "revisable clues, not facts about the whole person. Read-only."
+            "Use this when the agent's current relationship model of the user could materially "
+            "change the response, or when the user asks what Hypes currently models. Search by a "
+            "relevant "
+            "expression or start from known node or predicate refs. With no focus or refs, return "
+            "a small model outline. Continue an outline with its returned cursor when needed. "
+            "Results are a revisable agent model, not user-approved guidance or source-linked "
+            "facts."
         ),
         annotations=READ_ONLY,
     )
     def hypes_read(
-        topic: Annotated[str, Field(min_length=1, max_length=160)],
-        situation: Annotated[str | None, Field(min_length=1, max_length=160)] = None,
-        responsibility: Annotated[
-            str | None, Field(min_length=1, max_length=160)
-        ] = None,
-        include_broader: Annotated[
-            bool,
-            Field(description="Include deliberately inherited broader scopes when true."),
-        ] = False,
-        include_recheck: Annotated[
-            bool,
-            Field(description="Include suspended recheck-due relations only for inspection."),
-        ] = False,
-        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        focus: Any = None,
+        seed_refs: Any = None,
+        max_hops: Any = 1,
+        limit: Any = 50,
+        continuation: Any = None,
+        unsupported_fields: bool = False,
     ) -> ToolResponse:
+        if unsupported_fields:
+            return _safe_call(_reject_unsupported_fields)
         return _safe_call(
             lambda: service.read(
-                topic=topic,
-                task=situation,
-                responsibility=responsibility,
-                include_broader=include_broader,
-                include_recheck=include_recheck,
+                focus=focus,
+                seed_refs=seed_refs,
+                max_hops=max_hops,
                 limit=limit,
+                continuation=continuation,
             )
         )
 
     @server.tool(
-        name="hypes_mark_recheck",
-        title="Pause an Explanation Clue",
+        name="hypes_rewrite",
+        title="Rewrite User Relationship Model",
         description=(
-            "Use this when current conversation evidence conflicts with one active clue. The basis "
-            "must be an explicit correction, incompatible application outcome, or direct conflict. "
-            "Store only the bounded reason, never the competing claim, transcript, full answer, or "
-            "hidden reasoning. Read first and supply the exact ref, revision, and a unique "
-            "idempotency key."
+            "Use this only when the interaction changed a reusable concept or relation in the "
+            "agent's relationship model of the user. Read the narrowest matching graph slice "
+            "first, then apply one atomic patch of node, predicate, and edge puts or deletes. A "
+            "'$...' ref "
+            "creates an object and may be used by later operations in the same patch; a persistent "
+            "ref replaces "
+            "that object. Delete incident edges in the same patch before deleting their nodes or "
+            "predicates. Do not write merely because a conversation turn completed."
         ),
-        annotations=WRITE,
+        annotations=REWRITE,
     )
-    def hypes_mark_recheck(
-        expected_revision: Annotated[int, Field(ge=0)],
-        idempotency_key: Annotated[str, Field(pattern=r"^[a-zA-Z0-9._:-]{1,160}$")],
-        relation_ref: Annotated[
-            str, Field(pattern=r"^rel_[a-f0-9]{64}$")
-        ],
-        recheck_basis: RecheckBasis,
+    def hypes_rewrite(
+        operations: Any = None,
+        unsupported_fields: bool = False,
     ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.mark_recheck(
-                expected_revision=expected_revision,
-                idempotency_key=idempotency_key,
-                relation_ref_value=relation_ref,
-                recheck_basis=recheck_basis,
-            )
-        )
+        if unsupported_fields:
+            return _safe_call(_reject_unsupported_fields)
+        return _safe_call(lambda: service.rewrite(operations=operations))
 
-    @server.tool(
-        name="hypes_revise",
-        title="Save an Explanation Clue",
-        description=(
-            "Use this only after a direct save request, explicit correction, demonstrated "
-            "application, confirmed explanation outcome, or repetition across separate "
-            "conversations. Save one compact exact-scope clue likely to change a later explanation. "
-            "A completed request, short assent, or explanation written by the assistant is not "
-            "evidence. Never retain preferences, agreement, project facts, transcripts, personality, "
-            "health, or ability claims. Read first and supply the exact revision and a unique "
-            "idempotency key."
-        ),
-        annotations=WRITE,
+    _set_advertised_input_schema(
+        server,
+        "hypes_read",
+        _read_input_schema(),
+        _ReadRuntimeArguments,
     )
-    def hypes_revise(
-        expected_revision: Annotated[int, Field(ge=0)],
-        idempotency_key: Annotated[str, Field(pattern=r"^[a-zA-Z0-9._:-]{1,160}$")],
-        relation: ExplanationClueInput,
-        retention_basis: Annotated[
-            RetentionBasis,
-            Field(
-                description=(
-                    "Name the visible evidence: explicit_user_request, explicit_user_correction, "
-                    "demonstrated_application, confirmed_explanation_outcome, or "
-                    "repeated_across_conversations."
-                )
-            ),
-        ],
-        review_in_days: Annotated[
-            int | None,
-            Field(
-                ge=1,
-                le=3650,
-                description="Optional bounded interval before this relation becomes due for review.",
-            ),
-        ] = None,
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.revise(
-                expected_revision=expected_revision,
-                idempotency_key=idempotency_key,
-                relation=relation.to_relation_draft(),
-                retention_basis=retention_basis,
-                review_in_days=review_in_days,
-            )
-        )
-
-    @server.tool(
-        name="hypes_overview",
-        title="Show Explanation Clues",
-        description=(
-            "Use this when the user asks what Hypes retains or needs exact refs for removal. It "
-            "shows bounded clues, exact scopes and refs, and active or recheck-due counts. Use "
-            "pagination to inspect everything. Raw conversation is never returned because none is "
-            "stored."
-        ),
-        annotations=READ_ONLY,
+    _set_advertised_input_schema(
+        server,
+        "hypes_rewrite",
+        _rewrite_input_schema(),
+        _RewriteRuntimeArguments,
     )
-    def hypes_overview(
-        offset: Annotated[int, Field(ge=0)] = 0,
-        limit: Annotated[int, Field(ge=1, le=100)] = 50,
-    ) -> ToolResponse:
-        return _safe_call(lambda: service.overview(offset=offset, limit=limit))
-
-    @server.tool(
-        name="hypes_preview_forget",
-        title="Preview Hypes Removal",
-        description=(
-            "Use this when the user asks to remove retained Hypes clues. It shows the exact active "
-            "or recheck-due clues and returns a short-lived signed ticket bound to their stored "
-            "content. The preview is read-only."
-        ),
-        annotations=READ_ONLY,
-    )
-    def hypes_preview_forget(
-        relation_refs: Annotated[list[str] | None, Field(max_length=50)] = None,
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.preview_forget(relation_refs=relation_refs)
-        )
-
-    @server.tool(
-        name="hypes_forget",
-        title="Remove Hypes Clues",
-        description=(
-            "Use this only after hypes_preview_forget and host confirmation for that exact preview. "
-            "It removes the shown refs using the unmodified short-lived ticket, exact revision, and "
-            "a unique idempotency key. External filesystem snapshots and backups remain outside "
-            "this deletion boundary."
-        ),
-        annotations=DELETE,
-    )
-    def hypes_forget(
-        expected_revision: Annotated[int, Field(ge=0)],
-        forget_ticket: Annotated[str, Field(min_length=32, max_length=32768)],
-        idempotency_key: Annotated[str, Field(pattern=r"^[a-zA-Z0-9._:-]{1,160}$")],
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.forget(
-                expected_revision=expected_revision,
-                forget_ticket=forget_ticket,
-                idempotency_key=idempotency_key,
-            )
-        )
-
-    @server.tool(
-        name="hypes_status",
-        title="Check Hypes",
-        description=(
-            "Use this when the user asks about the running Hypes version or when the connection "
-            "needs diagnosis. It distinguishes the sessionless connection from the persistent "
-            "private store and reports whether remote publication remains disabled."
-        ),
-        annotations=READ_ONLY,
-    )
-    def hypes_status() -> ToolResponse:
-        return _safe_call(service.status)
 
     return server
 
@@ -300,7 +335,8 @@ def main() -> None:
         loopback = False
     if not loopback:
         raise ValueError(
-            "HYPES_MCP_HOST must be loopback until an authenticated OAuth resource server is configured"
+            "HYPES_MCP_HOST must be loopback until an authenticated OAuth resource server is "
+            "configured"
         )
     mcp.run(
         transport="streamable-http",

@@ -4,13 +4,14 @@ Personal Agent Toolkit is local-first and ships with no user data.
 
 ## Sense
 
-Sense stores one private work profile on the user's machine. The profile contains durable ways of
-working and cross-work learning, not project files or raw conversation history.
+Sense stores one private set of user-controlled guidance on the user's machine. It covers durable
+intent, responsibility, and lessons that should affect important choices in different contexts,
+not project facts, project files, or raw conversation history.
 
-- The plugin package contains no default or active profile.
+- The plugin package contains no default or active guidance.
 - Import creates a read-only preview.
 - Activation requires an explicit local command with the reviewed revision and digest.
-- Sensitive persistence and broader profile use require explicit user confirmation.
+- Sensitive guidance and broader use require explicit user confirmation.
 - Plugin updates do not replace the private profile database.
 
 ## Corpus
@@ -24,6 +25,14 @@ Corpus indexes only sources the user explicitly registers.
   used to detect changes.
 - Exact provider content is read at request time and is not copied into the Corpus index.
 - Archived context remains readable. Destructive context purge is not currently provided.
+- A separately connected local work folder is writable only when the user explicitly registers it
+  for an active Corpus context. The local file remains the latest copy; Corpus does not upload or
+  maintain an offline cloud copy of the folder.
+- Work-folder replacement uses a freshly observed file version, stops on concurrent changes, and
+  keeps the previous bytes as a private recovery copy under the Corpus runtime. Recovery metadata
+  includes an expiry time, but this release does not yet run automatic recovery cleanup.
+- Hidden, sensitive, temporary, linked, and special files are excluded. Work-folder tools do not
+  delete, move, or execute files, and local root paths are not returned through the Chat surface.
 
 Some explicitly requested extraction operations may run outside the local machine when the Corpus
 execution policy allows it. Downloading cloud placeholder files uses network, disk, and local
@@ -31,35 +40,31 @@ storage. These actions are separate from ordinary local reads.
 
 ## Hypes
 
-Hypes combines the `adapt-response` skill with a sessionless local MCP server and a private
-cognitive-model database on the user's machine.
+Hypes combines the `use-user-model` skill with a sessionless local MCP server and a private,
+revisable relationship model of the user on the user's machine.
 
-- It changes the actual response rather than producing a separate recommendation or interface.
-- The private database stores compact concept relationships and explanation clues with an exact
-  topic, task, and responsibility scope. It does not store raw conversations, general ability
-  scores, personality, emotion, or sensitive traits.
-- Provisional understanding stays in the visible conversation. The database does not accumulate
-  intermediate candidates or observations.
-- At task completion, handoff, a material conclusion, or topic change, the calling agent may retain
-  one compact relation automatically only when it is stable, reusable, exactly scoped,
-  non-sensitive, and likely to change a future explanation. It does not ask the user whether to
-  save. Silence, brief assent, preferences, agreement, project facts, health, ability, personality,
-  transcripts, full answers, and hidden reasoning are excluded.
-- The retention basis distinguishes an explicit user request from an agent-selected conversation
-  conclusion. It records the route used; it does not prove that the caller interpreted the
-  conversation correctly.
-- Active relations keep their exact scope and a review-after boundary. Agent-selected conversation
-  conclusions are reviewed after 90 days by default; explicit retention requests are reviewed after
-  180 days by default. Conflicting or due-for-review relations remain visible for recheck instead of
-  silently influencing later responses. A recheck stores only the old relation and a bounded reason,
-  not the competing claim or conversation.
-- The MCP transport stores no connection or process session. Reads identify their exact scope;
-  retention, recheck, and deletion writes carry the expected active-model revision and idempotency
-  information. Only relations that pass the retention gate persist across processes.
-- Automatic skill selection is based on the current request, not background observation. Hypes does
-  not monitor the screen, keyboard, emotion, or unrelated conversations.
-- Reviewed working preferences that belong across kinds of work remain in Sense. Hypes does not
-  copy or update the Sense profile, and it does not copy Corpus sources or saved context.
+- The relationship model is the agent's current, revisable understanding of the user. It is not a
+  user-authored profile, an external evaluation, or a source of objective facts about the person.
+- The database stores agent-created Nodes, Predicates, and Edges. It does not store raw
+  conversations, full answers, task records, project facts, Corpus sources, Sense guidance, or
+  hidden reasoning.
+- Hypes reads only when the model could materially change the current response and writes only when
+  the interaction changed a reusable part of the agent's model. The skill can be selected
+  implicitly, but a conversation that neither depends on nor changes the model makes no Hypes call.
+  Ordinary conversation completion is not stored.
+- Current user input always takes priority over stored structure. The agent directly replaces or
+  deletes conflicting structure rather than adding review, evidence, confidence, or retention
+  records to every relation.
+- The MCP exposes only `hypes_read` and `hypes_rewrite`. A rewrite is one SQLite transaction and
+  either changes the complete requested graph patch or leaves the graph unchanged.
+- The local database is `hypes-ontology.sqlite3`. Earlier Hypes databases are not read, converted,
+  deleted, or included in the active model.
+- The Hypes data directory and database must be owned by the current user and use modes `0700` and
+  `0600`. Hypes refuses unsafe links, ownership, or permissions before it writes.
+- Automatic skill selection is based on the current request. Hypes does not monitor the screen,
+  keyboard, emotion, or unrelated conversations.
+- Sense continues to own durable user-set direction, while Corpus owns registered sources and
+  project relationships. Hypes does not copy either store.
 
 ## Private ChatGPT tunnel use
 
@@ -90,7 +95,7 @@ deletion boundaries; the gateway is not a cross-product profile or model router.
 
 The release repository must not contain:
 
-- Sense, Corpus, or Hypes runtime databases, or any Hypes cognitive-model data;
+- Sense, Corpus, or Hypes runtime databases, or any Hypes relationship-model data;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;

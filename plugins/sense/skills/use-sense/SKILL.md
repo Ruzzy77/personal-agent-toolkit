@@ -5,7 +5,8 @@ description: Use Sense when an important choice may depend on durable intent, re
 
 # Use Sense
 
-Sense is background for a choice, not a template for the answer.
+Sense is background for a choice, not a template for the answer. Do not turn its section names or
+wording into headings, lists, or policy language in the answer.
 
 1. Read `sense_read` with `view=index`, then only the sections that could change the choice. Reuse
    the same revision during a direct continuation.
@@ -21,12 +22,17 @@ Keep each kind of information in one place:
 
 - project facts and methods stay with the project;
 - continuing questions and source-linked relationships stay in the Corpus chosen by the user;
-- narrow clues about understanding or helpful explanations stay in Hypes;
+- the agent's revisable concepts and relations about the user stay in Hypes;
 - Sense keeps only guidance that should affect important choices in different contexts.
 
-Revise Sense only after an explicit correction or observed result establishes such guidance. Read
-the exact section first, preserve anything still valid, replace the whole section, and store no
-conversation text, hidden reasoning, or project facts.
+Revise Sense only when the user explicitly asks to save an explicit correction or observed result
+as such guidance. Read every affected section first, preserve anything still valid, and finish all
+replacement wording in the conversation before any write. Put all related final replacements into
+one `sense_preview_revision`, show the combined result when review is needed, and send one
+`sense_revise_batch` with a unique idempotency key. If the same section appears more than once,
+keep only its last final replacement. Do not call `sense_revise` sentence by sentence, create a
+second write while approval is pending, or retry a revision conflict in the same response. The saved
+revision must store no conversation text, hidden reasoning, or project facts.
 
 Use `sense_overview` when the user asks to review Sense. Use `sense_control` only for an explicit
 request to inspect, export, or remove Sense data.

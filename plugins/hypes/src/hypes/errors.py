@@ -6,7 +6,7 @@ from typing import Any
 
 
 class HypesError(Exception):
-    """A safe, structured failure that callers may return without private details."""
+    """A structured service failure whose public boundary sanitizes details."""
 
     def __init__(
         self,
@@ -20,34 +20,4 @@ class HypesError(Exception):
         self.details = details or {}
 
 
-class RevisionConflict(HypesError):
-    def __init__(self, expected: int, current: int) -> None:
-        super().__init__(
-            "revision_conflict",
-            "the retained Hypes clues changed; read the current revision before writing",
-            details={"expected_revision": expected, "current_revision": current},
-        )
-
-
-class ReplayConflict(HypesError):
-    def __init__(self) -> None:
-        super().__init__(
-            "idempotency_conflict",
-            "the idempotency key was already used with different input",
-        )
-
-
-class InvalidTicket(HypesError):
-    def __init__(self, message: str = "the forget ticket is invalid or expired") -> None:
-        super().__init__("invalid_forget_ticket", message)
-
-
-class DeletionCleanupPending(HypesError):
-    """The logical deletion committed but SQLite still needs a physical cleanup retry."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            "deletion_cleanup_pending",
-            "the relation deletion committed, but physical storage cleanup is still pending; "
-            "retry the same forget request with the same idempotency key",
-        )
+__all__ = ["HypesError"]

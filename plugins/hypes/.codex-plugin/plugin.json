@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.6.0+codex.20260811185921",
-  "description": "Adapt explanations using only narrowly evidenced understanding clues.",
+  "version": "0.7.0+codex.20260814021004",
+  "description": "Give the assistant a private, revisable relationship model of the user.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -11,9 +11,9 @@
   "license": "Apache-2.0",
   "keywords": [
     "personalization",
-    "response-quality",
-    "writing",
-    "clarity"
+    "agent-memory",
+    "user-model",
+    "ontology"
   ],
   "skills": "./skills/",
   "mcpServers": {
@@ -25,22 +25,22 @@
   },
   "interface": {
     "displayName": "Hypes",
-    "shortDescription": "Clear, natural responses for what matters now",
-    "longDescription": "Hypes adapts explanations from the visible conversation and retains a narrow clue only after a direct save request, correction, demonstrated application, confirmed explanation outcome, or repetition across conversations. A completed request or an explanation written by the assistant is not evidence. Hypes keeps no raw conversation and makes no general judgment about the user's skill or personality. Its private data remains on this Mac across plugin updates.",
+    "shortDescription": "A revisable relationship model of the user",
+    "longDescription": "Hypes gives the assistant a private, revisable relationship model of the user. It uses the relevant relationships only when they materially change an interpretation or choice. The user's current message always takes priority, and Hypes does not store raw conversations, direct identifiers, sensitive traits, Sense guidance, or Corpus source-linked context.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
-      "Adaptive explanations",
-      "Narrow explanation clues",
-      "User review and deletion"
+      "Relevant relationships for interpretation",
+      "Revisable concepts and relationships",
+      "Private local storage"
     ],
     "brandColor": "#FF6A32",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Explain this using what I have already shown I understand.",
-      "Explain this without repeating a distinction I have already applied.",
-      "Show what Hypes currently retains about this concept."
+      "Use your current relationship model of me when it materially changes this answer.",
+      "What relationships does Hypes currently model about me here?",
+      "Update your relationship model where this conversation changes how you understand me."
     ]
   }
 }

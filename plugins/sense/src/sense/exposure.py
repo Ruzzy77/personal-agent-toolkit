@@ -176,6 +176,7 @@ def guidance_overview(
     *,
     lifecycle: str,
     updated_at: str,
+    previous_profile: ProfileDocument | None = None,
 ) -> dict[str, Any]:
     """Return the source-free product view used by the review component."""
 
@@ -240,11 +241,7 @@ def guidance_overview(
             ),
         },
         "groups": groups,
-        "recent_change": (
-            "처음 만든 내용입니다."
-            if profile.revision == 1
-            else ""
-        ),
+        "recent_change": _recent_change(profile, previous_profile),
         "updated_at": updated_at,
         "privacy": [
             "대화 원문은 저장하지 않습니다.",
@@ -253,6 +250,49 @@ def guidance_overview(
             "각 앱의 대화 기억은 해당 앱이 관리합니다.",
         ],
     }
+
+
+def _recent_change(
+    profile: ProfileDocument,
+    previous_profile: ProfileDocument | None,
+) -> str:
+    if profile.revision == 1:
+        return "처음 만든 내용입니다."
+    if previous_profile is None:
+        return ""
+
+    previous_sections = {
+        section.id: section for section in previous_profile.sections
+    }
+    changed_titles: list[str] = []
+    current_ids: set[str] = set()
+    for section in profile.sections:
+        current_ids.add(section.id)
+        if section.sensitivity == "sensitive":
+            continue
+        if previous_sections.get(section.id) == section:
+            continue
+        title = SECTION_PRESENTATION.get(
+            section.id,
+            {"title": "추가로 참고할 내용"},
+        )["title"]
+        if title not in changed_titles:
+            changed_titles.append(title)
+
+    for section in previous_profile.sections:
+        if section.id in current_ids or section.sensitivity == "sensitive":
+            continue
+        title = SECTION_PRESENTATION.get(
+            section.id,
+            {"title": "추가로 참고할 내용"},
+        )["title"]
+        if title not in changed_titles:
+            changed_titles.append(title)
+
+    if not changed_titles:
+        return ""
+    quoted_titles = ", ".join(f"‘{title}’" for title in changed_titles)
+    return f"최근에는 {quoted_titles} 내용이 바뀌었습니다."
 
 
 def remote_profile_view(profile: ProfileDocument) -> dict[str, Any]:

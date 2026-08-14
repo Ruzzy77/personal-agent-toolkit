@@ -26,7 +26,9 @@ from .errors import (
     ContextNotFoundError,
     CorpusNotFoundError,
     MigrationRequiredError,
+    SpaceNotFoundError,
     UnsupportedSchemaError,
+    WorkspaceNotFoundError,
 )
 from .migrations import (
     backup_database_to_private_subdirectory,
@@ -40,6 +42,10 @@ from .schema import (
     CONTEXT_SCHEMA_VERSION,
     CORPUS_SCHEMA,
     CORPUS_SCHEMA_VERSION,
+    SPACE_SCHEMA,
+    SPACE_SCHEMA_VERSION,
+    WORKSPACE_SCHEMA,
+    WORKSPACE_SCHEMA_VERSION,
 )
 from .source_access import opened_source_root
 
@@ -112,7 +118,12 @@ def connect_readonly(path: Path) -> sqlite3.Connection:
 
 @contextmanager
 def _database_parent(path: Path) -> Iterator[int]:
-    if path.name in {"catalog.sqlite", "contexts.sqlite3"}:
+    if path.name in {
+        "catalog.sqlite",
+        "contexts.sqlite3",
+        "spaces.sqlite3",
+        "workspaces.sqlite3",
+    }:
         with private_directory(path.parent) as descriptor:
             yield descriptor
         return
@@ -242,6 +253,87 @@ def ensure_context_db(data_root: Path) -> Path:
     with closing(connect(path)) as connection, connection:
         connection.executescript(CONTEXT_SCHEMA)
         connection.execute(f"PRAGMA user_version = {CONTEXT_SCHEMA_VERSION}")
+    return path
+
+
+def _require_current_workspace_schema(path: Path) -> None:
+    try:
+        with closing(connect_readonly(path)) as connection:
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            rows = connection.execute("SELECT version FROM schema_info").fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise UnsupportedSchemaError(
+            "workspace database schema is not supported",
+            details={
+                "path": str(path),
+                "supported_version": WORKSPACE_SCHEMA_VERSION,
+            },
+        ) from exc
+    schema_version = int(rows[0]["version"]) if len(rows) == 1 else 0
+    if (
+        user_version == WORKSPACE_SCHEMA_VERSION
+        and schema_version == WORKSPACE_SCHEMA_VERSION
+    ):
+        return
+    raise UnsupportedSchemaError(
+        "workspace database schema is not supported",
+        details={
+            "path": str(path),
+            "current_version": max(user_version, schema_version),
+            "supported_version": WORKSPACE_SCHEMA_VERSION,
+        },
+    )
+
+
+def ensure_workspace_db(data_root: Path) -> Path:
+    path = data_root / "workspaces.sqlite3"
+    with private_directory(data_root, create=True) as parent_descriptor:
+        created = _ensure_private_database(path, parent_descriptor=parent_descriptor)
+    if not created:
+        _require_current_workspace_schema(path)
+        return path
+    with closing(connect(path)) as connection, connection:
+        connection.executescript(WORKSPACE_SCHEMA)
+        connection.execute(f"PRAGMA user_version = {WORKSPACE_SCHEMA_VERSION}")
+    return path
+
+
+def _require_current_space_schema(path: Path) -> None:
+    try:
+        with closing(connect_readonly(path)) as connection:
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            rows = connection.execute("SELECT version FROM schema_info").fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise UnsupportedSchemaError(
+            "space database schema is not supported",
+            details={
+                "path": str(path),
+                "supported_version": SPACE_SCHEMA_VERSION,
+            },
+        ) from exc
+    schema_version = int(rows[0]["version"]) if len(rows) == 1 else 0
+    if user_version == SPACE_SCHEMA_VERSION and schema_version == SPACE_SCHEMA_VERSION:
+        return
+    raise UnsupportedSchemaError(
+        "space database schema is not supported",
+        details={
+            "path": str(path),
+            "current_version": max(user_version, schema_version),
+            "supported_version": SPACE_SCHEMA_VERSION,
+        },
+    )
+
+
+def ensure_space_db(data_root: Path) -> Path:
+    path = data_root / "spaces.sqlite3"
+    with private_directory(data_root, create=True) as parent_descriptor:
+        created = _ensure_private_database(path, parent_descriptor=parent_descriptor)
+    if not created:
+        _require_current_space_schema(path)
+        return path
+    with closing(connect(path)) as connection, connection:
+        connection.executescript(SPACE_SCHEMA)
+        connection.execute(f"PRAGMA user_version = {SPACE_SCHEMA_VERSION}")
     return path
 
 
@@ -982,6 +1074,66 @@ def context_read_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
     if not path.exists():
         raise ContextNotFoundError("context database does not exist")
     _require_current_context_schema(path)
+    connection = connect_readonly(path)
+    try:
+        connection.execute("BEGIN")
+        yield connection
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+@contextmanager
+def space_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
+    path = ensure_space_db(data_root)
+    connection = connect(path)
+    try:
+        connection.execute("BEGIN")
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+@contextmanager
+def space_read_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
+    path = data_root / "spaces.sqlite3"
+    if not path.exists():
+        raise SpaceNotFoundError("space database does not exist")
+    _require_current_space_schema(path)
+    connection = connect_readonly(path)
+    try:
+        connection.execute("BEGIN")
+        yield connection
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+@contextmanager
+def workspace_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
+    path = ensure_workspace_db(data_root)
+    connection = connect(path)
+    try:
+        connection.execute("BEGIN")
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+@contextmanager
+def workspace_read_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
+    path = data_root / "workspaces.sqlite3"
+    if not path.exists():
+        raise WorkspaceNotFoundError("workspace database does not exist")
+    _require_current_workspace_schema(path)
     connection = connect_readonly(path)
     try:
         connection.execute("BEGIN")

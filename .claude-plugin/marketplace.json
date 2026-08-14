@@ -20,7 +20,7 @@
     {
       "name": "hypes",
       "source": "./plugins/hypes",
-      "description": "Adapt explanations using only narrowly evidenced understanding clues.",
+      "description": "Give the assistant a private, revisable relationship model of the user.",
       "category": "productivity"
     }
   ]

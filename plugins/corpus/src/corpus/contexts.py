@@ -1732,6 +1732,21 @@ class ContextService:
         self._require_read_budget(response)
         return response
 
+    def lifecycle_state(self, context_id: str) -> str:
+        """Return the persisted lifecycle state for an internal binding check."""
+
+        normalized_id = normalize_context_id(context_id)
+        if not self.database_path.exists():
+            raise ContextNotFoundError("context does not exist")
+        with context_read_connection(self.data_root) as connection:
+            row = connection.execute(
+                "SELECT state FROM contexts WHERE context_id = ?",
+                (normalized_id,),
+            ).fetchone()
+        if row is None:
+            raise ContextNotFoundError("context does not exist")
+        return str(row["state"])
+
     def _read_general(
         self,
         *,

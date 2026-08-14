@@ -1,4 +1,4 @@
 """Generated Sense provider-package identity."""
 
-PACKAGE_VERSION = "0.2.0"
-BUILD_ID = "0.2.0+codex.20260811185921"
+PACKAGE_VERSION = "0.2.1"
+BUILD_ID = "0.2.1+codex.20260814021004"

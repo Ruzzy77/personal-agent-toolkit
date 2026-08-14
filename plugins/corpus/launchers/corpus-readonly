@@ -44,7 +44,7 @@ for argument in "$@"; do
 
   if [ -z "$subcommand_name" ]; then
     case "$command_name" in
-      corpus|source|context)
+      corpus|space|source|context)
         subcommand_name=$argument
         ;;
     esac
@@ -54,7 +54,7 @@ done
 [ "$expect_data_root" = false ] || deny
 
 case "$command_name:$subcommand_name" in
-  corpus:list|overview:|status:|inventory:|search:|read:|source:list|source:fetch|context:list|context:show)
+  corpus:list|space:list|space:show|space:search|space:files|space:read|overview:|status:|inventory:|search:|read:|source:list|source:fetch|context:list|context:show)
     ;;
   *)
     deny

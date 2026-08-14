@@ -12,7 +12,7 @@ import stat
 import time
 import unicodedata
 import uuid
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from pathlib import Path
 
 from .adapter_registry import AdapterRegistry, build_default_registry
@@ -36,6 +36,7 @@ from .config import (
     is_within,
     normalize_corpus_id,
 )
+from .context_skills import ContextSkillService
 from .contexts import CONTEXT_MAX_LIMIT, ContextService
 from .database import (
     configure_corpus_source_scope,
@@ -60,6 +61,8 @@ from .errors import (
     SnapshotConflictError,
     SourceBoundaryError,
     SourceUnavailableError,
+    SpaceConflictError,
+    SpaceValidationError,
 )
 from .golden import (
     GoldenEvaluationError,
@@ -67,7 +70,7 @@ from .golden import (
     projection_observation_sha256,
     validate_golden_annotation,
 )
-from .locking import writer_lock
+from .locking import source_workspace_registry_lock, workspace_writer_lock, writer_lock
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -77,6 +80,13 @@ from .source_access import (
     relative_source_parts,
     source_root_identity,
 )
+from .spaces import (
+    SpaceService,
+    decode_space_reference,
+    encode_space_reference,
+    normalize_space_id,
+)
+from .workspaces import WORKSPACE_MAX_FILE_BYTES, WorkspaceService
 
 _MATERIALIZATION_RECEIPT_KEY_NAME = "materialization-receipt-hmac.key"
 _MATERIALIZATION_RECEIPT_KEY_BYTES = 32
@@ -96,6 +106,27 @@ CORPUS_INVENTORY_MAX_SERIALIZED_BYTES = 1024 * 1024
 CORPUS_SEARCH_EXCERPT_MAX_CHARS = 2_000
 CORPUS_SEARCH_EXCERPT_CONTEXT_BEFORE_CHARS = 400
 CORPUS_SEARCH_MAX_SERIALIZED_BYTES = 1024 * 1024
+SPACE_FILE_LIST_MODES = {"list_directory", "find"}
+SPACE_FILE_LIST_MAX_SERIALIZED_BYTES = 1024 * 1024
+SPACE_SEARCH_MAX_SERIALIZED_BYTES = 1024 * 1024
+SPACE_FILE_TEXT_EXTENSIONS = {
+    ".css",
+    ".csv",
+    ".html",
+    ".ini",
+    ".js",
+    ".json",
+    ".md",
+    ".py",
+    ".rst",
+    ".toml",
+    ".ts",
+    ".tsv",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 _MAX_READ_UNITS = 200
 _MAX_NEIGHBOR_SPAN = 10
 CORPUS_READ_MIN_CHARS = 1_000
@@ -200,17 +231,9 @@ def _safe_relative_inventory_path(value: object) -> bool:
         return False
     if value.startswith(("/", "\\")):
         return False
-    if (
-        len(value) >= 3
-        and value[0].isalpha()
-        and value[1] == ":"
-        and value[2] in {"/", "\\"}
-    ):
+    if len(value) >= 3 and value[0].isalpha() and value[1] == ":" and value[2] in {"/", "\\"}:
         return False
-    return all(
-        part not in {"", ".", ".."}
-        for part in value.replace("\\", "/").split("/")
-    )
+    return all(part not in {"", ".", ".."} for part in value.replace("\\", "/").split("/"))
 
 
 def _normalize_inventory_path_filter(value: str | None) -> str | None:
@@ -240,9 +263,8 @@ def _normalize_inventory_extension(value: str | None) -> str | None:
     normalized = value.strip().lower().removeprefix(".")
     if not normalized:
         return None
-    if (
-        len(normalized) > CORPUS_INVENTORY_MAX_EXTENSION_CHARS
-        or not all(character.isascii() and character.isalnum() for character in normalized)
+    if len(normalized) > CORPUS_INVENTORY_MAX_EXTENSION_CHARS or not all(
+        character.isascii() and character.isalnum() for character in normalized
     ):
         raise ConfigurationError(
             "inventory extension must be a lowercase alphanumeric suffix",
@@ -254,9 +276,7 @@ def _normalize_inventory_extension(value: str | None) -> str | None:
 
 
 def _revision_id(document_id: str, sha256: str) -> str:
-    value = hashlib.sha256(
-        f"work-corpus-revision-v1\0{document_id}\0{sha256}".encode()
-    ).hexdigest()
+    value = hashlib.sha256(f"work-corpus-revision-v1\0{document_id}\0{sha256}".encode()).hexdigest()
     return f"rev_{value[:32]}"
 
 
@@ -384,11 +404,7 @@ def _validate_receipt_key_stat(key_path: Path, key_stat: os.stat_result) -> None
     if stat.S_IMODE(key_stat.st_mode) != 0o600:
         raise _receipt_key_error(key_path, "unsafe_permissions")
     if key_stat.st_nlink != 1:
-        reason = (
-            "installation_in_progress"
-            if key_stat.st_nlink == 2
-            else "unexpected_link_count"
-        )
+        reason = "installation_in_progress" if key_stat.st_nlink == 2 else "unexpected_link_count"
         raise _receipt_key_error(key_path, reason)
     if key_stat.st_size != _MATERIALIZATION_RECEIPT_KEY_BYTES:
         raise _receipt_key_error(key_path, "invalid_length")
@@ -423,10 +439,7 @@ def _read_receipt_key(
     try:
         opened_stat = os.fstat(key_descriptor)
         _validate_receipt_key_stat(key_path, opened_stat)
-        if (
-            opened_stat.st_dev != path_stat.st_dev
-            or opened_stat.st_ino != path_stat.st_ino
-        ):
+        if opened_stat.st_dev != path_stat.st_dev or opened_stat.st_ino != path_stat.st_ino:
             raise _receipt_key_error(key_path, "path_changed_during_open")
         key = os.read(key_descriptor, _MATERIALIZATION_RECEIPT_KEY_BYTES + 1)
         closed_stat = os.fstat(key_descriptor)
@@ -520,9 +533,7 @@ def _materialization_receipt_key(data_root: Path, *, create: bool) -> bytes:
             raise _receipt_key_error(key_path, "missing")
 
         key = os.urandom(_MATERIALIZATION_RECEIPT_KEY_BYTES)
-        temporary_name = (
-            f".{_MATERIALIZATION_RECEIPT_KEY_NAME}.{uuid.uuid4().hex}.tmp"
-        )
+        temporary_name = f".{_MATERIALIZATION_RECEIPT_KEY_NAME}.{uuid.uuid4().hex}.tmp"
         temporary_descriptor: int | None = None
         try:
             temporary_descriptor = os.open(
@@ -839,13 +850,10 @@ def _bounded_semantic_commit_input(
         field="base_semantic_state_hash",
         maximum=64,
     )
-    if (
-        len(semantic_state_hash) != 64
-        or any(character not in "0123456789abcdef" for character in semantic_state_hash)
+    if len(semantic_state_hash) != 64 or any(
+        character not in "0123456789abcdef" for character in semantic_state_hash
     ):
-        raise SemanticCommitError(
-            "base_semantic_state_hash must be a lowercase SHA-256 digest"
-        )
+        raise SemanticCommitError("base_semantic_state_hash must be a lowercase SHA-256 digest")
     _require_semantic_commit_string(
         idempotency_key,
         field="idempotency_key",
@@ -862,8 +870,7 @@ def _bounded_semantic_commit_input(
         raise SemanticCommitError("claims must be a list")
     if len(claims) > SEMANTIC_COMMIT_MAX_CLAIMS:
         raise SemanticCommitError(
-            f"a semantic commit may contain at most {SEMANTIC_COMMIT_MAX_CLAIMS} "
-            "atomic claims",
+            f"a semantic commit may contain at most {SEMANTIC_COMMIT_MAX_CLAIMS} atomic claims",
             details={"claim_count": len(claims)},
         )
     if completed_revision_ids is None:
@@ -988,9 +995,7 @@ def _bounded_semantic_commit_input(
                 )
             _require_semantic_commit_string(
                 link.get("source_unit_id"),
-                field=(
-                    f"claims[{claim_index}].evidence[{evidence_index}].source_unit_id"
-                ),
+                field=(f"claims[{claim_index}].evidence[{evidence_index}].source_unit_id"),
                 maximum=SEMANTIC_COMMIT_MAX_IDENTIFIER_CHARS,
                 nonempty=True,
             )
@@ -1035,9 +1040,8 @@ def _bounded_semantic_commit_input(
             field=f"progress_updates[{progress_index}].batch_receipt",
             maximum=64,
         )
-        if (
-            len(batch_receipt) != 64
-            or any(character not in "0123456789abcdef" for character in batch_receipt)
+        if len(batch_receipt) != 64 or any(
+            character not in "0123456789abcdef" for character in batch_receipt
         ):
             raise SemanticCommitError(
                 "progress requires a valid server-issued batch_receipt",
@@ -1113,6 +1117,33 @@ class CorpusService:
             self.data_root,
             adapter_registry=self.adapter_registry,
         )
+        self.context_skills = ContextSkillService(
+            self.data_root,
+            contexts=self.contexts,
+        )
+        self.workspaces = WorkspaceService(
+            self.data_root,
+            contexts=self.contexts,
+        )
+        self.spaces = SpaceService(
+            self.data_root,
+            contexts=self.contexts,
+            context_skills=self.context_skills,
+            workspaces=self.workspaces,
+        )
+
+    def _require_source_outside_workspaces(self, source_root: Path) -> None:
+        # Let the existing source registration/rebind validation report a missing
+        # or otherwise invalid root with its established domain error.  This
+        # preflight only owns the editable-workspace overlap decision.
+        requested = source_root.expanduser().resolve(strict=False)
+        for workspace_root in self.workspaces.roots():
+            connected = workspace_root.expanduser().resolve(strict=False)
+            if is_within(requested, connected) or is_within(connected, requested):
+                raise SourceBoundaryError(
+                    "registered sources and editable work folders must not overlap",
+                    details={"reason": "workspace_root_overlap"},
+                )
 
     def _projection_uses_current_adapter(
         self,
@@ -1144,14 +1175,17 @@ class CorpusService:
         provider_kind: str = "filesystem",
         source_scope: dict | None = None,
     ) -> dict:
-        return register_corpus(
-            data_root=self.data_root,
-            corpus_id=corpus_id,
-            source_root=source_root,
-            execution_policy=execution_policy,
-            provider_kind=provider_kind,
-            source_scope=source_scope,
-        )
+        self._require_source_outside_workspaces(source_root)
+        with source_workspace_registry_lock(self.data_root):
+            self._require_source_outside_workspaces(source_root)
+            return register_corpus(
+                data_root=self.data_root,
+                corpus_id=corpus_id,
+                source_root=source_root,
+                execution_policy=execution_policy,
+                provider_kind=provider_kind,
+                source_scope=source_scope,
+            )
 
     def configure_source_scope(
         self,
@@ -1176,15 +1210,18 @@ class CorpusService:
     ) -> dict:
         corpus_id = normalize_corpus_id(corpus_id)
         get_corpus(self.data_root, corpus_id)
+        self._require_source_outside_workspaces(source_root)
         paths = self._paths(corpus_id)
         paths.ensure()
-        with writer_lock(paths.corpus_root / "writer.lock"):
-            return rebind_corpus_source_root(
-                data_root=self.data_root,
-                corpus_id=corpus_id,
-                source_root=source_root,
-                expected_source_root=expected_source_root,
-            )
+        with source_workspace_registry_lock(self.data_root):
+            self._require_source_outside_workspaces(source_root)
+            with writer_lock(paths.corpus_root / "writer.lock"):
+                return rebind_corpus_source_root(
+                    data_root=self.data_root,
+                    corpus_id=corpus_id,
+                    source_root=source_root,
+                    expected_source_root=expected_source_root,
+                )
 
     def corpora(self) -> list[dict]:
         return list_corpora(self.data_root)
@@ -1233,9 +1270,7 @@ class CorpusService:
             audience=audience,
             view="restricted",
         )
-        contexts_by_corpus: dict[str, list[dict]] = {
-            corpus["corpus_id"]: [] for corpus in corpora
-        }
+        contexts_by_corpus: dict[str, list[dict]] = {corpus["corpus_id"]: [] for corpus in corpora}
         archived_contexts_by_corpus: dict[str, list[dict]] = {
             corpus["corpus_id"]: [] for corpus in corpora
         }
@@ -1250,15 +1285,11 @@ class CorpusService:
                 audience=audience,
                 view="restricted",
             )
-            stale_item_count, stale_source_link_count = (
-                self._overview_stale_counts(detail["items"])
-            )
+            stale_item_count, stale_source_link_count = self._overview_stale_counts(detail["items"])
             context_view = {
                 **detail["context"],
                 "item_count": detail["total_matching"],
-                "items_truncated": (
-                    detail["total_matching"] > max_items_per_context
-                ),
+                "items_truncated": (detail["total_matching"] > max_items_per_context),
                 "items": [
                     self._overview_context_item(item)
                     for item in detail["items"][:max_items_per_context]
@@ -1304,9 +1335,7 @@ class CorpusService:
                 {
                     "corpus_id": corpus_id,
                     "display_name": (
-                        Path(source_root).name
-                        if audience == "local_cli"
-                        else corpus_id
+                        Path(source_root).name if audience == "local_cli" else corpus_id
                     ),
                     "execution_policy": corpus["execution_policy"],
                     "provider_kind": corpus["provider_kind"],
@@ -1314,21 +1343,14 @@ class CorpusService:
                     "source_root": source_root if audience == "local_cli" else None,
                     "source_index": {
                         "inventory_complete": bool(
-                            status["latest_scan"]
-                            and status["latest_scan"]["status"] == "complete"
+                            status["latest_scan"] and status["latest_scan"]["status"] == "complete"
                         ),
                         "scan_completed_at": (
-                            status["latest_scan"]["completed_at"]
-                            if status["latest_scan"]
-                            else None
+                            status["latest_scan"]["completed_at"] if status["latest_scan"] else None
                         ),
                         "documents": int(status["totals"]["documents"] or 0),
-                        "supported_documents": int(
-                            status["totals"]["supported_documents"] or 0
-                        ),
-                        "indexed_documents": int(
-                            status["totals"]["indexed_documents"] or 0
-                        ),
+                        "supported_documents": int(status["totals"]["supported_documents"] or 0),
+                        "indexed_documents": int(status["totals"]["indexed_documents"] or 0),
                         "remote_supported_documents": int(
                             status["document_states"].get(
                                 "supported:remote_only",
@@ -1354,15 +1376,12 @@ class CorpusService:
                     "context_lifecycle": {
                         "active_context_count": len(contexts),
                         "archived_context_count": len(archived_contexts),
-                        "active_item_count": sum(
-                            context["item_count"] for context in contexts
-                        ),
+                        "active_item_count": sum(context["item_count"] for context in contexts),
                         "stale_item_count": sum(
                             context["stale_item_count"] for context in contexts
                         ),
                         "stale_source_link_count": sum(
-                            context["stale_source_link_count"]
-                            for context in contexts
+                            context["stale_source_link_count"] for context in contexts
                         ),
                     },
                 }
@@ -1374,18 +1393,11 @@ class CorpusService:
             "corpora": corpus_views,
             "context_lifecycle": {
                 "active_context_count": len(active_contexts),
-                "archived_context_count": archived_context_listing[
-                    "total_matching"
-                ],
-                "active_item_count": sum(
-                    context["item_count"] for context in active_contexts
-                ),
-                "stale_item_count": sum(
-                    context["stale_item_count"] for context in active_contexts
-                ),
+                "archived_context_count": archived_context_listing["total_matching"],
+                "active_item_count": sum(context["item_count"] for context in active_contexts),
+                "stale_item_count": sum(context["stale_item_count"] for context in active_contexts),
                 "stale_source_link_count": sum(
-                    context["stale_source_link_count"]
-                    for context in active_contexts
+                    context["stale_source_link_count"] for context in active_contexts
                 ),
             },
         }
@@ -1463,18 +1475,959 @@ class CorpusService:
         confirm_general_release_approval: bool = False,
         audience: str = "local_cli",
     ) -> dict:
-        return self.contexts.update(
-            action=action,
-            context_id=context_id,
-            expected_version=expected_version,
-            payload=payload,
-            confirm_persistent_context_write=confirm_persistent_context_write,
-            confirm_general_release_approval=confirm_general_release_approval,
-            audience=audience,
-        )
+        def update_context() -> dict:
+            return self.contexts.update(
+                action=action,
+                context_id=context_id,
+                expected_version=expected_version,
+                payload=payload,
+                confirm_persistent_context_write=confirm_persistent_context_write,
+                confirm_general_release_approval=confirm_general_release_approval,
+                audience=audience,
+            )
+
+        if action == "archive":
+            with workspace_writer_lock(self.data_root):
+                return update_context()
+        return update_context()
 
     def context_migrate(self) -> dict:
         return self.contexts.migrate()
+
+    def context_skill_read(
+        self,
+        *,
+        context_id: str,
+        audience: str = "local_cli",
+    ) -> dict:
+        return {
+            "context_id": context_id,
+            "skill": self.context_skills.read(
+                context_id=context_id,
+                audience=audience,
+            ),
+        }
+
+    def context_skill_set(
+        self,
+        *,
+        context_id: str,
+        skill_file: Path,
+        expected_version: str,
+        confirm_context_skill_write: bool,
+    ) -> dict:
+        return self.context_skills.set(
+            context_id=context_id,
+            skill_file=skill_file,
+            expected_version=expected_version,
+            confirm_context_skill_write=confirm_context_skill_write,
+        )
+
+    def context_skill_remove(
+        self,
+        *,
+        context_id: str,
+        expected_version: str,
+        confirm_context_skill_remove: bool,
+    ) -> dict:
+        return self.context_skills.remove(
+            context_id=context_id,
+            expected_version=expected_version,
+            confirm_context_skill_remove=confirm_context_skill_remove,
+        )
+
+    def space_list(
+        self,
+        *,
+        audience: str = "local_cli",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        return self.spaces.list(
+            audience=audience,
+            limit=limit,
+            offset=offset,
+        )
+
+    def space_get(
+        self,
+        *,
+        space_id: str,
+        audience: str = "local_cli",
+        context_limit: int = 100,
+        context_offset: int = 0,
+    ) -> dict:
+        return self.spaces.get(
+            space_id=space_id,
+            audience=audience,
+            context_limit=context_limit,
+            context_offset=context_offset,
+        )
+
+    def space_context_plan(
+        self,
+        *,
+        space_id: str,
+        mode: str = "auto",
+    ) -> dict:
+        return self.spaces.context_plan(space_id=space_id, mode=mode)
+
+    def space_context_apply(
+        self,
+        *,
+        space_id: str,
+        mode: str,
+        action: str,
+        expected_input_sha256: str,
+        payload: dict | None,
+        confirm_context_write: bool,
+    ) -> dict:
+        return self.spaces.context_apply(
+            space_id=space_id,
+            mode=mode,
+            action=action,
+            expected_input_sha256=expected_input_sha256,
+            payload=payload,
+            confirm_context_write=confirm_context_write,
+        )
+
+    @staticmethod
+    def _space_content_capability(
+        *,
+        relative_path: str,
+        kind: str,
+        size: int,
+        residency_state: str,
+        indexed: bool = False,
+    ) -> str:
+        if kind == "directory":
+            return "directory"
+        if residency_state == "remote_only":
+            return "local_work_only"
+        if indexed:
+            return "indexed_text"
+        if size > WORKSPACE_MAX_FILE_BYTES:
+            return "local_work_only"
+        return (
+            "text_inline"
+            if Path(relative_path).suffix.lower() in SPACE_FILE_TEXT_EXTENSIONS
+            else "bytes_inline"
+        )
+
+    @staticmethod
+    def _space_connection_response(
+        resolved: dict,
+        *,
+        work_folder: dict | None = None,
+    ) -> dict:
+        connection = dict(resolved["connection"])
+        if work_folder is not None:
+            connection.update(
+                {
+                    "connection_state": work_folder["connection_state"],
+                    "connection_reason": work_folder["connection_reason"],
+                    "current_file": work_folder["current_file"],
+                    "generation": work_folder["generation"],
+                    "write_state": (
+                        "unknown" if work_folder["connection_state"] == "connected" else None
+                    ),
+                }
+            )
+        return {
+            "space_id": resolved["space"]["space_id"],
+            "connection": connection,
+        }
+
+    @staticmethod
+    def _bounded_space_response(
+        response: dict,
+        *,
+        maximum_bytes: int,
+        surface: str,
+    ) -> dict:
+        serialized_bytes = len(encode_json(response).encode())
+        if serialized_bytes > maximum_bytes:
+            raise BudgetExceededError(
+                f"{surface} response exceeds the serialized response budget",
+                details={
+                    "serialized_bytes": serialized_bytes,
+                    "maximum_serialized_bytes": maximum_bytes,
+                },
+            )
+        return response
+
+    def space_search(
+        self,
+        *,
+        space_id: str,
+        query: str,
+        connection_id: str | None = None,
+        limit: int = 20,
+        audience: str = "local_cli",
+    ) -> dict:
+        canonical_space_id = normalize_space_id(space_id)
+        canonical_connection_id = (
+            normalize_space_id(connection_id) if connection_id is not None else None
+        )
+        if isinstance(limit, bool) or not 1 <= limit <= _MAX_SEARCH_RESULTS:
+            raise SpaceValidationError(
+                "Space search limit is outside the supported range",
+                details={"limit": limit, "maximum": _MAX_SEARCH_RESULTS},
+            )
+        resolved_connections = self.spaces.resolve_source_connections(
+            space_id=canonical_space_id,
+            connection_id=canonical_connection_id,
+            audience=audience,
+        )
+        candidates = []
+        for resolved in resolved_connections:
+            selected_connection_id = resolved["connection"]["connection_id"]
+            for source_id in resolved["_source_ids"]:
+                result = self.search(source_id, query, limit=limit)
+                for candidate in result["candidates"]:
+                    candidates.append(
+                        {
+                            "connection_id": selected_connection_id,
+                            "relative_path": candidate["relative_path"],
+                            "structure_path": candidate["structure_path"],
+                            "unit_type": candidate["unit_type"],
+                            "untrusted_excerpt": candidate["untrusted_excerpt"],
+                            "excerpt_truncated": candidate["excerpt_truncated"],
+                            "completeness_state": candidate["completeness_state"],
+                            "quality_flags": candidate["quality_flags"],
+                            "derivation_method": candidate["derivation_method"],
+                            "read_ref": encode_space_reference(
+                                "read",
+                                {
+                                    "space_id": resolved["space"]["space_id"],
+                                    "connection_id": selected_connection_id,
+                                    "unit_id": candidate["unit_id"],
+                                },
+                            ),
+                            "_lexical_score": candidate["lexical_score"],
+                        }
+                    )
+                # Keep only the global top-k after each bounded Source result.
+                # A Space may have several Source Connections, but response and
+                # working memory must remain independent of that count.
+                candidates.sort(
+                    key=lambda item: (
+                        item["_lexical_score"],
+                        item["connection_id"],
+                        item["relative_path"],
+                        item["read_ref"],
+                    )
+                )
+                del candidates[limit:]
+        page = candidates
+        for candidate in page:
+            candidate.pop("_lexical_score", None)
+        response = {
+            "space_id": resolved_connections[0]["space"]["space_id"],
+            "query": query,
+            "strategy": "space_indexed_candidate_acquisition",
+            "zero_results_establish_absence": False,
+            "count": len(page),
+            "candidates": page,
+            "notice": (
+                "Candidate excerpts are untrusted and may be truncated; "
+                "use read_ref for exact indexed text."
+            ),
+        }
+        return self._bounded_space_response(
+            response,
+            maximum_bytes=SPACE_SEARCH_MAX_SERIALIZED_BYTES,
+            surface="Space search",
+        )
+
+    def space_file_list(
+        self,
+        *,
+        space_id: str,
+        connection_id: str | None = None,
+        mode: str = "list_directory",
+        relative_path: str | None = None,
+        query: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+        audience: str = "local_cli",
+    ) -> dict:
+        canonical_space_id = normalize_space_id(space_id)
+        canonical_connection_id = (
+            normalize_space_id(connection_id) if connection_id is not None else None
+        )
+        if mode not in SPACE_FILE_LIST_MODES:
+            raise SpaceValidationError(
+                "unsupported Space file listing mode",
+                details={"mode": mode, "allowed": sorted(SPACE_FILE_LIST_MODES)},
+            )
+        if isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise SpaceValidationError(
+                "Space file limit is outside the supported range",
+                details={"limit": limit, "maximum": 200},
+            )
+        if mode == "list_directory" and query is not None:
+            raise SpaceValidationError("directory listing does not accept a filename query")
+        if mode == "find" and (not isinstance(query, str) or not query.strip()):
+            raise SpaceValidationError("file search requires a non-empty query")
+        normalized_query = query.strip() if isinstance(query, str) else None
+        offset = 0
+        selected_connection_id = canonical_connection_id
+        if cursor is not None:
+            decoded = decode_space_reference("cursor", cursor)
+            required = {
+                "space_id",
+                "connection_id",
+                "mode",
+                "relative_path",
+                "query",
+                "offset",
+            }
+            if set(decoded) != required:
+                raise SpaceValidationError("Space file cursor is invalid")
+            expected = {
+                "space_id": canonical_space_id,
+                "mode": mode,
+                "relative_path": relative_path,
+                "query": normalized_query,
+            }
+            if any(decoded[field] != value for field, value in expected.items()):
+                raise SpaceConflictError(
+                    "Space file cursor does not match the current request",
+                    details={"reason": "cursor_request_mismatch"},
+                )
+            if (
+                canonical_connection_id is not None
+                and decoded["connection_id"] != canonical_connection_id
+            ):
+                raise SpaceConflictError(
+                    "Space file cursor does not match the selected Connection",
+                    details={"reason": "cursor_connection_mismatch"},
+                )
+            selected_connection_id = decoded["connection_id"]
+            offset = decoded["offset"]
+            if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+                raise SpaceValidationError("Space file cursor is invalid")
+
+        resolved = self.spaces.resolve_connection(
+            space_id=canonical_space_id,
+            connection_id=selected_connection_id,
+            audience=audience,
+            capability="read",
+        )
+        selected_connection_id = resolved["connection"]["connection_id"]
+        workspace_id = resolved["_workspace_id"]
+        entries: list[dict] = []
+        total_matching: int | None
+        work_folder: dict | None = None
+        listing_truncated = False
+        if workspace_id is not None:
+            listing = self.workspaces.files(
+                workspace_id=workspace_id,
+                relative_path=relative_path,
+                path_contains=normalized_query if mode == "find" else None,
+                limit=limit,
+                offset=offset,
+                audience=audience,
+                recursive=mode == "find",
+            )
+            for entry in listing["entries"]:
+                entries.append(
+                    {
+                        **entry,
+                        "content_capability": self._space_content_capability(
+                            relative_path=entry["relative_path"],
+                            kind=entry["kind"],
+                            size=entry["size"],
+                            residency_state=entry["residency_state"],
+                        ),
+                    }
+                )
+            has_more = bool(listing["has_more"])
+            next_offset = listing["next_offset"]
+            total_matching = listing["total_matching"]
+            listing_truncated = bool(listing["listing_truncated"])
+            work_folder = listing["work_folder"]
+            if listing_truncated and not has_more and next_offset is None:
+                # The bounded v1 walker knows that unseen entries exist but
+                # cannot yet produce a safe continuation beyond its scan cap.
+                # Do not falsely report completion.
+                has_more = None
+            skipped = listing["skipped"]
+        else:
+            if mode != "find":
+                raise SpaceValidationError(
+                    "indexed Source-only Connections support filename search, "
+                    "not live directory listing",
+                    details={"connection_id": selected_connection_id},
+                )
+            source_ids = resolved["_source_ids"]
+            if len(source_ids) != 1:
+                raise SpaceValidationError(
+                    "file search requires a Connection with one indexed Source"
+                )
+            inventory = self.inventory(
+                source_ids[0],
+                path_contains=normalized_query,
+                eligibility_state="supported",
+                residency_state="all",
+                index_state="all",
+                limit=limit,
+                offset=offset,
+            )
+            for document in inventory["documents"]:
+                indexed = document["active_projection_id"] is not None
+                entries.append(
+                    {
+                        "relative_path": document["relative_path"],
+                        "kind": "file",
+                        "size": document["logical_size"],
+                        "modified_ns": document["modified_ns"],
+                        "residency_state": document["residency_state"],
+                        "index_state": document["index_state"],
+                        "content_capability": self._space_content_capability(
+                            relative_path=document["relative_path"],
+                            kind="file",
+                            size=document["logical_size"],
+                            residency_state=document["residency_state"],
+                            indexed=indexed,
+                        ),
+                    }
+                )
+            has_more = bool(inventory["has_more"])
+            next_offset = inventory["next_offset"]
+            total_matching = inventory["total_matching"]
+            skipped = None
+
+        next_cursor = None
+        if has_more is True and isinstance(next_offset, int):
+            next_cursor = encode_space_reference(
+                "cursor",
+                {
+                    "space_id": resolved["space"]["space_id"],
+                    "connection_id": selected_connection_id,
+                    "mode": mode,
+                    "relative_path": relative_path,
+                    "query": normalized_query,
+                    "offset": next_offset,
+                },
+            )
+        response = {
+            **self._space_connection_response(resolved, work_folder=work_folder),
+            "mode": mode,
+            "relative_path": relative_path,
+            "query": normalized_query,
+            "returned_count": len(entries),
+            "total_matching": total_matching,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "listing_truncated": listing_truncated,
+            "entries": entries,
+            "skipped": skipped,
+        }
+        return self._bounded_space_response(
+            response,
+            maximum_bytes=SPACE_FILE_LIST_MAX_SERIALIZED_BYTES,
+            surface="Space file listing",
+        )
+
+    def space_file_read(
+        self,
+        *,
+        space_id: str,
+        connection_id: str | None = None,
+        relative_path: str | None = None,
+        read_ref: str | None = None,
+        encoding: str = "utf8",
+        max_bytes: int = WORKSPACE_MAX_FILE_BYTES,
+        neighbor_span: int = 0,
+        max_chars: int = CORPUS_READ_DEFAULT_CHARS,
+        audience: str = "local_cli",
+    ) -> dict:
+        canonical_space_id = normalize_space_id(space_id)
+        canonical_connection_id = (
+            normalize_space_id(connection_id) if connection_id is not None else None
+        )
+        if read_ref is not None and relative_path is not None:
+            raise SpaceValidationError("choose either read_ref or relative_path")
+        if read_ref is not None:
+            payload = decode_space_reference("read", read_ref)
+            if set(payload) != {"space_id", "connection_id", "unit_id"}:
+                raise SpaceValidationError("Space read reference is invalid")
+            if payload["space_id"] != canonical_space_id or (
+                canonical_connection_id is not None
+                and payload["connection_id"] != canonical_connection_id
+            ):
+                raise SpaceConflictError(
+                    "Space read reference does not match the current request",
+                    details={"reason": "read_ref_request_mismatch"},
+                )
+            resolved = self.spaces.resolve_connection(
+                space_id=canonical_space_id,
+                connection_id=payload["connection_id"],
+                audience=audience,
+                capability="source",
+            )
+            indexed = None
+            selected_source_id = None
+            for source_id in resolved["_source_ids"]:
+                candidate = self.read_units(
+                    source_id,
+                    [payload["unit_id"]],
+                    neighbor_span=neighbor_span,
+                    max_chars=max_chars,
+                )
+                if candidate["units"]:
+                    if indexed is not None:
+                        raise SpaceConflictError(
+                            "Space read reference is ambiguous after Source rebinding",
+                            details={"reason": "read_ref_ambiguous"},
+                        )
+                    indexed = candidate
+                    selected_source_id = source_id
+            if indexed is None or selected_source_id is None:
+                raise SpaceConflictError(
+                    "Space read reference no longer belongs to the selected Connection",
+                    details={"reason": "read_ref_binding_changed"},
+                )
+            units = []
+            for unit in indexed["units"]:
+                units.append(
+                    {
+                        "connection_id": resolved["connection"]["connection_id"],
+                        "relative_path": unit["relative_path"],
+                        "structure_path": unit["structure_path"],
+                        "unit_type": unit["unit_type"],
+                        "requested": unit["requested"],
+                        "dependency_state": unit["dependency_state"],
+                        "untrusted_content": unit["untrusted_content"],
+                        "read_ref": encode_space_reference(
+                            "read",
+                            {
+                                "space_id": resolved["space"]["space_id"],
+                                "connection_id": resolved["connection"]["connection_id"],
+                                "unit_id": unit["unit_id"],
+                            },
+                        ),
+                    }
+                )
+            return {
+                **self._space_connection_response(resolved),
+                "source_kind": "indexed_source",
+                "count": len(units),
+                "units": units,
+                "content_is_untrusted": True,
+            }
+
+        resolved = self.spaces.resolve_connection(
+            space_id=canonical_space_id,
+            connection_id=canonical_connection_id,
+            audience=audience,
+            capability="read",
+        )
+        workspace_id = resolved["_workspace_id"]
+        if workspace_id is None:
+            raise SpaceValidationError(
+                "Source-only Connection reads require a read_ref returned by Space search"
+            )
+        live = self.workspaces.read(
+            workspace_id=workspace_id,
+            relative_path=relative_path,
+            encoding=encoding,
+            max_bytes=max_bytes,
+            audience=audience,
+        )
+        file_info = dict(live["file"])
+        file_info["content_capability"] = self._space_content_capability(
+            relative_path=file_info["relative_path"],
+            kind="file",
+            size=file_info["size"],
+            residency_state="resident",
+        )
+        return {
+            **self._space_connection_response(resolved, work_folder=live["work_folder"]),
+            "source_kind": "live_file",
+            "file": file_info,
+            "encoding": live["encoding"],
+            "content": live["content"],
+            "content_is_untrusted": True,
+        }
+
+    def space_file_write(
+        self,
+        *,
+        space_id: str,
+        relative_path: str,
+        content: str,
+        content_encoding: str,
+        expected_version: str,
+        connection_id: str | None = None,
+        make_current: bool = False,
+        audience: str = "local_cli",
+    ) -> dict:
+        resolved = self.spaces.resolve_connection(
+            space_id=space_id,
+            connection_id=connection_id,
+            audience=audience,
+            capability="write",
+        )
+        result = self.workspaces.write(
+            workspace_id=resolved["_workspace_id"],
+            relative_path=relative_path,
+            content=content,
+            content_encoding=content_encoding,
+            expected_version=expected_version,
+            make_current=make_current,
+            audience=audience,
+        )
+        return {
+            **self._space_connection_response(
+                resolved,
+                work_folder=result["work_folder"],
+            ),
+            "file": result["file"],
+            "created": result["created"],
+            "recovery_id": result["recovery_id"],
+            "undo_available": result["undo_available"],
+            "index_state": result["index_state"],
+        }
+
+    def space_file_select_current(
+        self,
+        *,
+        space_id: str,
+        relative_path: str,
+        expected_generation: int,
+        connection_id: str | None = None,
+        audience: str = "local_cli",
+    ) -> dict:
+        resolved = self.spaces.resolve_connection(
+            space_id=space_id,
+            connection_id=connection_id,
+            audience=audience,
+            capability="write",
+        )
+        result = self.workspaces.select_current(
+            workspace_id=resolved["_workspace_id"],
+            relative_path=relative_path,
+            expected_generation=expected_generation,
+            audience=audience,
+        )
+        return {
+            **self._space_connection_response(
+                resolved,
+                work_folder=result["work_folder"],
+            ),
+            "file": result["file"],
+            "generation": result["work_folder"]["generation"],
+            "current_file": result["work_folder"]["current_file"],
+        }
+
+    def space_file_restore(
+        self,
+        *,
+        space_id: str,
+        recovery_id: str,
+        expected_version: str,
+        connection_id: str | None = None,
+        audience: str = "local_cli",
+    ) -> dict:
+        resolved = self.spaces.resolve_connection(
+            space_id=space_id,
+            connection_id=connection_id,
+            audience=audience,
+            capability="write",
+        )
+        result = self.workspaces.restore(
+            workspace_id=resolved["_workspace_id"],
+            recovery_id=recovery_id,
+            expected_version=expected_version,
+            audience=audience,
+        )
+        return {
+            **self._space_connection_response(
+                resolved,
+                work_folder=result["work_folder"],
+            ),
+            "file": result["file"],
+            "recovery_id": result["recovery_id"],
+            "restored": result["restored"],
+            "recovery_metadata_recorded": result["recovery_metadata_recorded"],
+            "index_state": result["index_state"],
+        }
+
+    def space_migration_plan(self, *, policy: object = None) -> dict:
+        return self.spaces.migration_plan(policy=policy)
+
+    def space_migration_apply(
+        self,
+        *,
+        expected_input_sha256: str,
+        confirm_apply: bool,
+        policy: object = None,
+    ) -> dict:
+        return self.spaces.migration_apply(
+            expected_input_sha256=expected_input_sha256,
+            confirm_apply=confirm_apply,
+            policy=policy,
+        )
+
+    def space_migration_rollback(
+        self,
+        *,
+        migration_id: str,
+        expected_input_sha256: str,
+        confirm_rollback: bool,
+    ) -> dict:
+        return self.spaces.migration_rollback(
+            migration_id=migration_id,
+            expected_input_sha256=expected_input_sha256,
+            confirm_rollback=confirm_rollback,
+        )
+
+    def space_identifier_cutover_plan(self, *, policy: object = None) -> dict:
+        return self.spaces.identifier_cutover_plan(policy=policy)
+
+    def space_identifier_cutover_apply(
+        self,
+        *,
+        expected_input_sha256: str,
+        confirm_apply: bool,
+        policy: object = None,
+    ) -> dict:
+        return self.spaces.identifier_cutover_apply(
+            expected_input_sha256=expected_input_sha256,
+            confirm_apply=confirm_apply,
+            policy=policy,
+        )
+
+    def space_identifier_cutover_rollback(
+        self,
+        *,
+        cutover_id: str,
+        expected_input_sha256: str,
+        confirm_rollback: bool,
+    ) -> dict:
+        return self.spaces.identifier_cutover_rollback(
+            cutover_id=cutover_id,
+            expected_input_sha256=expected_input_sha256,
+            confirm_rollback=confirm_rollback,
+        )
+
+    def workspace_connect(
+        self,
+        *,
+        workspace_id: str | None = None,
+        context_id: str | None = None,
+        display_name: str | None = None,
+        root: Path,
+        execution_policy: str,
+    ) -> dict:
+        return self.workspaces.connect(
+            workspace_id=workspace_id,
+            context_id=context_id,
+            display_name=display_name,
+            root=root,
+            execution_policy=execution_policy,
+        )
+
+    def workspace_disconnect(
+        self,
+        *,
+        workspace_id: str,
+        expected_generation: int,
+        confirm_disconnect: bool,
+    ) -> dict:
+        return self.workspaces.disconnect(
+            workspace_id=workspace_id,
+            expected_generation=expected_generation,
+            confirm_disconnect=confirm_disconnect,
+        )
+
+    def workspace_list(self, *, audience: str = "local_cli") -> dict:
+        return self.workspaces.list(audience=audience)
+
+    def workspace_status(
+        self,
+        *,
+        workspace_id: str,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.status(
+            workspace_id=workspace_id,
+            audience=audience,
+        )
+
+    def workspace_files(
+        self,
+        *,
+        workspace_id: str,
+        relative_path: str | None = None,
+        path_contains: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.files(
+            workspace_id=workspace_id,
+            relative_path=relative_path,
+            path_contains=path_contains,
+            limit=limit,
+            offset=offset,
+            audience=audience,
+        )
+
+    def workspace_read(
+        self,
+        *,
+        workspace_id: str,
+        relative_path: str | None = None,
+        encoding: str = "utf8",
+        max_bytes: int = 2 * 1024 * 1024,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.read(
+            workspace_id=workspace_id,
+            relative_path=relative_path,
+            encoding=encoding,
+            max_bytes=max_bytes,
+            audience=audience,
+        )
+
+    def workspace_select_current(
+        self,
+        *,
+        workspace_id: str,
+        relative_path: str,
+        expected_generation: int,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.select_current(
+            workspace_id=workspace_id,
+            relative_path=relative_path,
+            expected_generation=expected_generation,
+            audience=audience,
+        )
+
+    def workspace_write(
+        self,
+        *,
+        workspace_id: str,
+        relative_path: str,
+        content: str,
+        content_encoding: str,
+        expected_version: str,
+        make_current: bool = True,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.write(
+            workspace_id=workspace_id,
+            relative_path=relative_path,
+            content=content,
+            content_encoding=content_encoding,
+            expected_version=expected_version,
+            make_current=make_current,
+            audience=audience,
+        )
+
+    def workspace_restore(
+        self,
+        *,
+        workspace_id: str,
+        recovery_id: str,
+        expected_version: str,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.workspaces.restore(
+            workspace_id=workspace_id,
+            recovery_id=recovery_id,
+            expected_version=expected_version,
+            audience=audience,
+        )
+
+    @staticmethod
+    def _workspace_state_matches_document(state: object, document: dict) -> bool:
+        return bool(
+            getattr(state, "state", None) == "ready"
+            and getattr(state, "size", None) == document["logical_size"]
+            and getattr(state, "modified_ns", None) == document["modified_ns"]
+            and getattr(state, "changed_ns", None) == document["changed_ns"]
+            and getattr(state, "device", None) == document["device"]
+            and getattr(state, "inode", None) == document["inode"]
+            and getattr(state, "mode", None) == document["mode"]
+            and getattr(state, "flags", None) == document["flags"]
+            and int(document["is_dataless"]) == 0
+        )
+
+    def _reconcile_workspace_index_changes(self, corpus_id: str) -> int:
+        """Clear durable dirty paths only after scan/extraction is current."""
+
+        guard = self.workspaces.promoted_source_guard(corpus_id)
+        if guard is None or not guard["changes"]:
+            return 0
+        from . import workspace_access
+
+        current_paths: set[str] = set()
+        try:
+            with (
+                workspace_access.opened_workspace_root(
+                    guard["root"],
+                    guard["identity"],
+                ) as root_descriptor,
+                corpus_read_connection(self.data_root, corpus_id) as connection,
+            ):
+                latest_scan = connection.execute(
+                    """
+                    SELECT status FROM scan_runs ORDER BY rowid DESC LIMIT 1
+                    """
+                ).fetchone()
+                for relative_path in sorted(guard["changes"])[:256]:
+                    row = connection.execute(
+                        """
+                        SELECT d.*, r.source_size AS revision_source_size,
+                               r.source_modified_ns AS revision_source_modified_ns,
+                               r.source_changed_ns AS revision_source_changed_ns,
+                               r.source_device AS revision_source_device,
+                               r.source_inode AS revision_source_inode,
+                               p.projection_id AS active_projection_id,
+                               p.adapter_id AS projection_adapter_id,
+                               p.adapter_version AS projection_adapter_version,
+                               p.config_hash AS projection_config_hash
+                        FROM documents d
+                        LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
+                        LEFT JOIN extraction_projections p
+                          ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                        WHERE d.relative_path_nfc = ? AND d.deleted_at IS NULL
+                        LIMIT 1
+                        """,
+                        (unicodedata.normalize("NFC", relative_path),),
+                    ).fetchone()
+                    if row is None:
+                        if latest_scan is not None and latest_scan["status"] == "complete":
+                            current_paths.add(relative_path)
+                        continue
+                    document = dict(row)
+                    try:
+                        state = workspace_access.workspace_file_state_from_root_descriptor(
+                            root_descriptor,
+                            relative_path,
+                        )
+                    except CorpusError:
+                        continue
+                    if not self._workspace_state_matches_document(state, document):
+                        continue
+                    if document["eligibility_state"] != "supported":
+                        current_paths.add(relative_path)
+                        continue
+                    index_state, _reasons = self._document_index_state(document)
+                    if index_state == "current":
+                        current_paths.add(relative_path)
+        except CorpusError:
+            return 0
+        return self.workspaces.clear_index_changes(
+            corpus_id=corpus_id,
+            relative_paths=current_paths,
+        )
 
     def export_context_migration_bundle(
         self,
@@ -1586,7 +2539,8 @@ class CorpusService:
         with writer_lock(paths.corpus_root / "writer.lock"):
             result = scan_corpus(self.data_root, corpus_id)
             result["snapshot"] = self._publish_snapshot(corpus_id)
-            return result
+        self._reconcile_workspace_index_changes(corpus_id)
+        return result
 
     def cleanup_source_copies(
         self,
@@ -1619,14 +2573,11 @@ class CorpusService:
                 canonical_reference_rows = [
                     row
                     for row in legacy_reference_rows
-                    if row["immutable_blob_ref"]
-                    == _canonical_legacy_blob_ref(row["sha256"])
+                    if row["immutable_blob_ref"] == _canonical_legacy_blob_ref(row["sha256"])
                 ]
                 present_digests = set(cleanup.canonical_blob_digests)
                 missing_legacy_references = sum(
-                    1
-                    for row in canonical_reference_rows
-                    if row["sha256"] not in present_digests
+                    1 for row in canonical_reference_rows if row["sha256"] not in present_digests
                 )
                 if confirm_delete:
                     for row in canonical_reference_rows:
@@ -1791,8 +2742,7 @@ class CorpusService:
                 queue = {
                     row["state"]: row["count"]
                     for row in connection.execute(
-                        "SELECT state, COUNT(*) AS count "
-                        "FROM interpretation_queue GROUP BY state"
+                        "SELECT state, COUNT(*) AS count FROM interpretation_queue GROUP BY state"
                     )
                 }
                 semantic_claims = {
@@ -2016,9 +2966,7 @@ class CorpusService:
             ).fetchall()
 
         path_filter_key = (
-            normalized_path_filter.casefold()
-            if normalized_path_filter is not None
-            else None
+            normalized_path_filter.casefold() if normalized_path_filter is not None else None
         )
         documents = []
         for row in rows:
@@ -2028,24 +2976,13 @@ class CorpusService:
                     "inventory contains an unsafe relative document locator",
                     details={"document_id": document["document_id"]},
                 )
-            if (
-                eligibility_state != "all"
-                and document["eligibility_state"] != eligibility_state
-            ):
+            if eligibility_state != "all" and document["eligibility_state"] != eligibility_state:
                 continue
-            if (
-                residency_state != "all"
-                and document["residency_state"] != residency_state
-            ):
+            if residency_state != "all" and document["residency_state"] != residency_state:
                 continue
-            if normalized_extension is not None and (
-                document["extension"] != normalized_extension
-            ):
+            if normalized_extension is not None and (document["extension"] != normalized_extension):
                 continue
-            if (
-                max_logical_bytes is not None
-                and document["logical_size"] > max_logical_bytes
-            ):
+            if max_logical_bytes is not None and document["logical_size"] > max_logical_bytes:
                 continue
             if path_filter_key is not None and path_filter_key not in (
                 unicodedata.normalize(
@@ -2055,9 +2992,7 @@ class CorpusService:
             ):
                 continue
 
-            document_index_state, refresh_reasons = self._document_index_state(
-                document
-            )
+            document_index_state, refresh_reasons = self._document_index_state(document)
             if index_state != "all" and document_index_state != index_state:
                 continue
             documents.append(
@@ -2072,9 +3007,7 @@ class CorpusService:
                     "eligibility_state": document["eligibility_state"],
                     "current_revision_id": document["current_revision_id"],
                     "active_projection_id": document["active_projection_id"],
-                    "projection_completeness": document[
-                        "projection_completeness"
-                    ],
+                    "projection_completeness": document["projection_completeness"],
                     "index_state": document_index_state,
                     "refresh_reasons": refresh_reasons,
                 }
@@ -2093,12 +3026,8 @@ class CorpusService:
                 "inventory_complete": bool(
                     latest_scan is not None and latest_scan["status"] == "complete"
                 ),
-                "current_snapshot_id": (
-                    snapshot["snapshot_id"] if snapshot else None
-                ),
-                "snapshot_coverage_state": (
-                    snapshot["coverage_state"] if snapshot else None
-                ),
+                "current_snapshot_id": (snapshot["snapshot_id"] if snapshot else None),
+                "snapshot_coverage_state": (snapshot["coverage_state"] if snapshot else None),
             },
             "filters": {
                 "path_contains": normalized_path_filter,
@@ -2132,9 +3061,7 @@ class CorpusService:
                     "offset": offset,
                     "returned_document_count": len(page),
                     "serialized_bytes": serialized_bytes,
-                    "maximum_serialized_bytes": (
-                        CORPUS_INVENTORY_MAX_SERIALIZED_BYTES
-                    ),
+                    "maximum_serialized_bytes": (CORPUS_INVENTORY_MAX_SERIALIZED_BYTES),
                     "retry_with_lower": ["limit"],
                     "retry_with_narrower": [
                         "path_contains",
@@ -2211,12 +3138,8 @@ class CorpusService:
         normalized = extension.strip().lower().removeprefix(".")
         if not normalized:
             return ""
-        if (
-            len(normalized) > CORPUS_INVENTORY_MAX_EXTENSION_CHARS
-            or not all(
-                character.isascii() and character.isalnum()
-                for character in normalized
-            )
+        if len(normalized) > CORPUS_INVENTORY_MAX_EXTENSION_CHARS or not all(
+            character.isascii() and character.isalnum() for character in normalized
         ):
             return None
         return normalized
@@ -2358,10 +3281,7 @@ class CorpusService:
                 result["pending_remote"] += 1
             if document["logical_size"] > max_file_bytes:
                 result["too_large"] += 1
-            if (
-                not document["is_dataless"]
-                and document["logical_size"] <= max_file_bytes
-            ):
+            if not document["is_dataless"] and document["logical_size"] <= max_file_bytes:
                 result["refreshable"] += 1
         return result
 
@@ -2452,9 +3372,7 @@ class CorpusService:
                     result["source_copy_retention"] = "cleanup_failed"
                     result["source_copy_cleanup"] = cleanup_failure
             result["outcome"] = (
-                "refreshed"
-                if result["state"] in {"indexed", "already_indexed"}
-                else "selected"
+                "refreshed" if result["state"] in {"indexed", "already_indexed"} else "selected"
             )
             attempted_results.append(result)
             if exact_selection:
@@ -2483,11 +3401,7 @@ class CorpusService:
             "results": results,
             "summary": {
                 **{
-                    state: sum(
-                        1
-                        for result in attempted_results
-                        if result["state"] == state
-                    )
+                    state: sum(1 for result in attempted_results if result["state"] == state)
                     for state in ("indexed", "already_indexed", "failed")
                 },
                 "source_copy_cleanup_failed": sum(
@@ -2526,9 +3440,7 @@ class CorpusService:
         if document_ids is not None and (
             len(document_ids) > _MAX_INGEST_DOCUMENT_IDS
             or any(
-                not isinstance(document_id, str)
-                or not document_id
-                or len(document_id) > 200
+                not isinstance(document_id, str) or not document_id or len(document_id) > 200
                 for document_id in document_ids
             )
         ):
@@ -2565,6 +3477,7 @@ class CorpusService:
                 timeout_seconds=timeout_seconds,
             )
             result["snapshot"] = self._publish_snapshot(corpus_id)
+        self._reconcile_workspace_index_changes(corpus_id)
         return {
             "corpus_id": corpus_id,
             **result,
@@ -2580,17 +3493,14 @@ class CorpusService:
         overlaps = [
             name
             for name, runtime_root in runtime_roots.items()
-            if is_within(runtime_root, source_root)
-            or is_within(source_root, runtime_root)
+            if is_within(runtime_root, source_root) or is_within(source_root, runtime_root)
         ]
         if overlaps:
             raise SourceBoundaryError(
                 "runtime data and source roots must not overlap",
                 details={
                     "source_root": str(source_root),
-                    "runtime_roots": {
-                        name: str(runtime_roots[name]) for name in overlaps
-                    },
+                    "runtime_roots": {name: str(runtime_roots[name]) for name in overlaps},
                 },
             )
         return paths
@@ -2640,6 +3550,7 @@ class CorpusService:
                 )
             snapshot = self._publish_snapshot(corpus_id)
 
+        self._reconcile_workspace_index_changes(corpus_id)
         scan.pop("source_root", None)
         change_counts = dict(scan.get("change_counts", {}))
         inventory = {
@@ -2649,9 +3560,7 @@ class CorpusService:
             "files": scan["files"],
             "dataless_files": scan["dataless_files"],
             "logical_bytes": scan["logical_bytes"],
-            "supported_files": int(
-                scan.get("eligibility_counts", {}).get("supported", 0)
-            ),
+            "supported_files": int(scan.get("eligibility_counts", {}).get("supported", 0)),
             "completeness_failure_count": scan["completeness_failure_count"],
             "changed_documents": int(scan.get("changed_documents", 0)),
             "change_counts": change_counts,
@@ -2731,12 +3640,8 @@ class CorpusService:
                 "selected_logical_bytes": ingested["selected_logical_bytes"],
                 "skipped": ingested["skipped"],
                 "results": ingested["results"],
-                "source_copy_cleanup_failed": refresh_summary[
-                    "source_copy_cleanup_failed"
-                ],
-                "abandoned_staging_cleanup": ingested["policy"][
-                    "abandoned_staging_cleanup"
-                ],
+                "source_copy_cleanup_failed": refresh_summary["source_copy_cleanup_failed"],
+                "abandoned_staging_cleanup": ingested["policy"]["abandoned_staging_cleanup"],
             },
             "pending": {
                 "remaining": remaining,
@@ -2783,9 +3688,7 @@ class CorpusService:
                 """
             ).fetchall()
             supported_count = len(supported_rows)
-            inventory_manifest = [
-                dict(supported_document) for supported_document in supported_rows
-            ]
+            inventory_manifest = [dict(supported_document) for supported_document in supported_rows]
             inventory_set_hash = hashlib.sha256(
                 encode_json(inventory_manifest).encode()
             ).hexdigest()
@@ -2802,9 +3705,7 @@ class CorpusService:
             )
             revision_set_hash = hashlib.sha256(revision_manifest.encode()).hexdigest()
             projection_set_hash = hashlib.sha256(projection_manifest.encode()).hexdigest()
-            has_partial_projection = any(
-                row["completeness_state"] != "complete" for row in rows
-            )
+            has_partial_projection = any(row["completeness_state"] != "complete" for row in rows)
             latest_scan = connection.execute(
                 """
                 SELECT scan_id, status
@@ -2813,10 +3714,7 @@ class CorpusService:
                 LIMIT 1
                 """
             ).fetchone()
-            has_incomplete_scan = bool(
-                latest_scan is None
-                or latest_scan["status"] != "complete"
-            )
+            has_incomplete_scan = bool(latest_scan is None or latest_scan["status"] != "complete")
             completeness_failure_counts: dict[tuple[str, str], int] = {}
             if latest_scan is not None:
                 completeness_issues = connection.execute(
@@ -2842,9 +3740,7 @@ class CorpusService:
                 ).fetchall()
                 for issue in completeness_issues:
                     try:
-                        structural_locator = json.loads(
-                            issue["structural_locator_json"]
-                        )
+                        structural_locator = json.loads(issue["structural_locator_json"])
                     except (TypeError, json.JSONDecodeError):
                         structural_locator = {}
                     relative_path = (
@@ -2860,9 +3756,7 @@ class CorpusService:
                         raw_path = details.get("path") if isinstance(details, dict) else None
                         if isinstance(raw_path, str):
                             try:
-                                relative_path = Path(raw_path).relative_to(
-                                    source_root
-                                ).as_posix()
+                                relative_path = Path(raw_path).relative_to(source_root).as_posix()
                             except ValueError:
                                 relative_path = None
                     if not isinstance(relative_path, str) or not relative_path:
@@ -2874,9 +3768,7 @@ class CorpusService:
                     else:
                         relative_path = (
                             "/".join(
-                                segment
-                                for segment in path_segments
-                                if segment not in ("", ".")
+                                segment for segment in path_segments if segment not in ("", ".")
                             )
                             or "."
                         )
@@ -2896,9 +3788,7 @@ class CorpusService:
                     "locator_sha256": locator_sha256,
                     "count": count,
                 }
-                for (code, locator_sha256), count in sorted(
-                    completeness_failure_counts.items()
-                )
+                for (code, locator_sha256), count in sorted(completeness_failure_counts.items())
             ]
             completeness_failure_scope_fingerprint = hashlib.sha256(
                 encode_json(completeness_failure_scope).encode()
@@ -2957,9 +3847,7 @@ class CorpusService:
                 "coverage_state": coverage_state,
                 "coverage_gaps": coverage_gaps,
                 "completeness_failure_scope": completeness_failure_scope,
-                "completeness_failure_scope_fingerprint": (
-                    completeness_failure_scope_fingerprint
-                ),
+                "completeness_failure_scope_fingerprint": (completeness_failure_scope_fingerprint),
                 "projection_completeness": [
                     {
                         "projection_id": row["projection_id"],
@@ -2998,8 +3886,7 @@ class CorpusService:
                     latest_payload = {}
                 reuse_latest_snapshot = (
                     latest_payload.get("snapshot_id") == latest_snapshot["snapshot_id"]
-                    and latest_payload.get("publication_state_hash")
-                    == publication_state_hash
+                    and latest_payload.get("publication_state_hash") == publication_state_hash
                 )
 
             now = utc_now()
@@ -3008,10 +3895,7 @@ class CorpusService:
             else:
                 publication_nonce = uuid.uuid4().hex
                 snapshot_digest = hashlib.sha256(
-                    (
-                        f"state={publication_state_hash}\n"
-                        f"publication={publication_nonce}"
-                    ).encode()
+                    (f"state={publication_state_hash}\npublication={publication_nonce}").encode()
                 ).hexdigest()
                 snapshot_id = f"snap_{snapshot_digest[:32]}"
                 connection.execute(
@@ -3061,9 +3945,7 @@ class CorpusService:
                                 "publication_state_hash": publication_state_hash,
                                 "inventory_set_hash": inventory_set_hash,
                                 "coverage_gaps": coverage_gaps,
-                                "completeness_failure_scope": (
-                                    completeness_failure_scope
-                                ),
+                                "completeness_failure_scope": (completeness_failure_scope),
                                 "completeness_failure_scope_fingerprint": (
                                     completeness_failure_scope_fingerprint
                                 ),
@@ -3083,9 +3965,7 @@ class CorpusService:
             "publication_state_hash": publication_state_hash,
             "coverage_gaps": coverage_gaps,
             "completeness_failure_scope": completeness_failure_scope,
-            "completeness_failure_scope_fingerprint": (
-                completeness_failure_scope_fingerprint
-            ),
+            "completeness_failure_scope_fingerprint": (completeness_failure_scope_fingerprint),
         }
 
     def _ingest_document(
@@ -3125,9 +4005,7 @@ class CorpusService:
                 details={
                     "document_id": document["document_id"],
                     "relative_path": document["relative_path"],
-                    "existing_sqlite_index_unchanged": bool(
-                        document.get("current_revision_id")
-                    ),
+                    "existing_sqlite_index_unchanged": bool(document.get("current_revision_id")),
                     "source_error": exc.details,
                 },
             ) from exc
@@ -3936,9 +4814,7 @@ class CorpusService:
                 """,
                 (revision_id,),
             )
-            registry_issues = [
-                (issue, issue.to_dict()) for issue in extraction.issues
-            ]
+            registry_issues = [(issue, issue.to_dict()) for issue in extraction.issues]
             for ordinal, unit in enumerate(extraction.units, start=1):
                 structure = unit.to_dict()["structure_path"]
                 for issue in unit.issues:
@@ -4039,15 +4915,90 @@ class CorpusService:
                 "count": 0,
             }
         fts_query = '"' + normalized.replace('"', '""') + '"'
-        with corpus_read_connection(self.data_root, corpus_id) as connection:
+        guard = self.workspaces.promoted_source_guard(corpus_id)
+        workspace_context = nullcontext(None)
+        if guard is not None:
+            from . import workspace_access
+
+            workspace_context = workspace_access.opened_workspace_root(
+                guard["root"],
+                guard["identity"],
+            )
+        with (
+            workspace_context as workspace_root_descriptor,
+            corpus_read_connection(self.data_root, corpus_id) as connection,
+        ):
             connection.create_function(
                 "corpus_projection_is_current",
                 4,
                 self._projection_uses_current_adapter,
                 deterministic=True,
             )
-            rows = connection.execute(
+            live_clause = ""
+            if guard is not None:
+                observation_cache: dict[str, object] = {}
+
+                def workspace_observation_is_current(
+                    relative_path: str,
+                    logical_size: int,
+                    modified_ns: int,
+                    changed_ns: int,
+                    device: int,
+                    inode: int,
+                    mode: int,
+                    flags: int,
+                    is_dataless: int,
+                ) -> int:
+                    canonical = unicodedata.normalize("NFC", relative_path)
+                    if canonical in guard["changes"]:
+                        return 0
+                    try:
+                        state = observation_cache.get(canonical)
+                        if state is None:
+                            state = workspace_access.workspace_file_state_from_root_descriptor(
+                                workspace_root_descriptor,
+                                canonical,
+                            )
+                            observation_cache[canonical] = state
+                        return int(
+                            self._workspace_state_matches_document(
+                                state,
+                                {
+                                    "logical_size": logical_size,
+                                    "modified_ns": modified_ns,
+                                    "changed_ns": changed_ns,
+                                    "device": device,
+                                    "inode": inode,
+                                    "mode": mode,
+                                    "flags": flags,
+                                    "is_dataless": is_dataless,
+                                },
+                            )
+                        )
+                    except (CorpusError, OSError, TypeError, ValueError):
+                        return 0
+
+                connection.create_function(
+                    "corpus_workspace_observation_is_current",
+                    9,
+                    workspace_observation_is_current,
+                    deterministic=False,
+                )
+                live_clause = """
+                  AND corpus_workspace_observation_is_current(
+                          d.relative_path,
+                          d.logical_size,
+                          d.modified_ns,
+                          d.changed_ns,
+                          d.device,
+                          d.inode,
+                          d.mode,
+                          d.flags,
+                          d.is_dataless
+                      ) = 1
                 """
+            rows = connection.execute(
+                f"""
                 SELECT f.unit_id, f.document_id, f.relative_path, f.structure_path,
                        instr(u.normalized_content, ?) AS literal_position,
                        LENGTH(CAST(u.normalized_content AS BLOB))
@@ -4078,6 +5029,7 @@ class CorpusService:
                   AND r.source_changed_ns = d.changed_ns
                   AND r.source_device = d.device
                   AND r.source_inode = d.inode
+                  {live_clause}
                 ORDER BY bm25(source_units_fts)
                 LIMIT ?
                 """,
@@ -4093,8 +5045,7 @@ class CorpusService:
                 excerpt_start = (
                     max(
                         1,
-                        literal_position
-                        - CORPUS_SEARCH_EXCERPT_CONTEXT_BEFORE_CHARS,
+                        literal_position - CORPUS_SEARCH_EXCERPT_CONTEXT_BEFORE_CHARS,
                     )
                     if literal_position > 0
                     else 1
@@ -4115,9 +5066,7 @@ class CorpusService:
                     "excerpt_probe": excerpt_probe,
                     "excerpt_start": excerpt_start,
                     "generation": (
-                        "literal_query_window"
-                        if literal_position > 0
-                        else "bounded_content_prefix"
+                        "literal_query_window" if literal_position > 0 else "bounded_content_prefix"
                     ),
                     "source_content_bytes": row["source_content_bytes"],
                 }
@@ -4139,9 +5088,7 @@ class CorpusService:
             )
             if excerpt_truncated:
                 truncated_excerpt_count += 1
-            item["untrusted_excerpt"] = excerpt_probe[
-                :CORPUS_SEARCH_EXCERPT_MAX_CHARS
-            ]
+            item["untrusted_excerpt"] = excerpt_probe[:CORPUS_SEARCH_EXCERPT_MAX_CHARS]
             item["excerpt_truncated"] = excerpt_truncated
             item["excerpt_max_characters"] = CORPUS_SEARCH_EXCERPT_MAX_CHARS
             item["excerpt_generation"] = excerpt["generation"]
@@ -4168,9 +5115,7 @@ class CorpusService:
                 details={
                     "candidate_count": len(candidates),
                     "serialized_bytes": serialized_bytes,
-                    "maximum_serialized_bytes": (
-                        CORPUS_SEARCH_MAX_SERIALIZED_BYTES
-                    ),
+                    "maximum_serialized_bytes": (CORPUS_SEARCH_MAX_SERIALIZED_BYTES),
                 },
             )
         return response
@@ -4231,11 +5176,7 @@ class CorpusService:
                 requested_ids,
             ).fetchall()
             seed_by_id = {row["unit_id"]: row for row in seed_rows}
-            seeds = [
-                seed_by_id[unit_id]
-                for unit_id in requested_ids
-                if unit_id in seed_by_id
-            ]
+            seeds = [seed_by_id[unit_id] for unit_id in requested_ids if unit_id in seed_by_id]
             selected_ids: list[str] = []
             selected: set[str] = set()
             for seed in seeds:
@@ -4298,12 +5239,8 @@ class CorpusService:
                 """,
                 selected_ids,
             ).fetchall()
-            selected_content_chars = sum(
-                row["content_chars"] for row in inventory_rows
-            )
-            selected_payload_bytes = sum(
-                row["payload_bytes"] for row in inventory_rows
-            )
+            selected_content_chars = sum(row["content_chars"] for row in inventory_rows)
+            selected_payload_bytes = sum(row["payload_bytes"] for row in inventory_rows)
             if (
                 selected_content_chars > max_chars
                 or selected_payload_bytes > CORPUS_READ_MAX_SERIALIZED_BYTES
@@ -4316,9 +5253,7 @@ class CorpusService:
                         "selected_content_chars": selected_content_chars,
                         "max_chars": max_chars,
                         "selected_payload_bytes": selected_payload_bytes,
-                        "maximum_serialized_bytes": (
-                            CORPUS_READ_MAX_SERIALIZED_BYTES
-                        ),
+                        "maximum_serialized_bytes": (CORPUS_READ_MAX_SERIALIZED_BYTES),
                     },
                 )
 
@@ -4332,6 +5267,14 @@ class CorpusService:
                        projection.adapter_version,
                        projection.config_hash AS projection_config_hash,
                        d.extension AS document_extension,
+                       d.logical_size AS document_logical_size,
+                       d.modified_ns AS document_modified_ns,
+                       d.changed_ns AS document_changed_ns,
+                       d.device AS document_device,
+                       d.inode AS document_inode,
+                       d.mode AS document_mode,
+                       d.flags AS document_flags,
+                       d.is_dataless AS document_is_dataless,
                        CASE WHEN
                            r.source_size = d.logical_size
                            AND r.source_modified_ns = d.modified_ns
@@ -4352,11 +5295,53 @@ class CorpusService:
                 selected_ids,
             ).fetchall()
             row_by_id = {row["unit_id"]: row for row in body_rows}
-            rows = [
-                row_by_id[unit_id]
-                for unit_id in selected_ids
-                if unit_id in row_by_id
-            ]
+            rows = [row_by_id[unit_id] for unit_id in selected_ids if unit_id in row_by_id]
+        promoted_live_current: dict[str, bool] = {}
+        guard = self.workspaces.promoted_source_guard(corpus_id)
+        if guard is not None:
+            from . import workspace_access
+
+            try:
+                with workspace_access.opened_workspace_root(
+                    guard["root"],
+                    guard["identity"],
+                ) as root_descriptor:
+                    for row in rows:
+                        relative_path = unicodedata.normalize(
+                            "NFC",
+                            row["relative_path"],
+                        )
+                        if relative_path in promoted_live_current:
+                            continue
+                        if relative_path in guard["changes"]:
+                            promoted_live_current[relative_path] = False
+                            continue
+                        try:
+                            live_state = workspace_access.workspace_file_state_from_root_descriptor(
+                                root_descriptor,
+                                relative_path,
+                            )
+                            promoted_live_current[relative_path] = (
+                                self._workspace_state_matches_document(
+                                    live_state,
+                                    {
+                                        "logical_size": row["document_logical_size"],
+                                        "modified_ns": row["document_modified_ns"],
+                                        "changed_ns": row["document_changed_ns"],
+                                        "device": row["document_device"],
+                                        "inode": row["document_inode"],
+                                        "mode": row["document_mode"],
+                                        "flags": row["document_flags"],
+                                        "is_dataless": row["document_is_dataless"],
+                                    },
+                                )
+                            )
+                        except CorpusError:
+                            promoted_live_current[relative_path] = False
+            except CorpusError:
+                promoted_live_current = {
+                    unicodedata.normalize("NFC", row["relative_path"]): False for row in rows
+                }
         units = []
         for row in rows:
             item = dict(row)
@@ -4367,6 +5352,22 @@ class CorpusService:
             item["quality_flags"] = json.loads(item.pop("quality_flags_json"))
             item["requested"] = item["unit_id"] in requested
             source_observation_current = bool(item.pop("source_observation_current"))
+            relative_path_nfc = unicodedata.normalize("NFC", item["relative_path"])
+            live_source_observation_current = promoted_live_current.get(
+                relative_path_nfc,
+                True,
+            )
+            for field in (
+                "document_logical_size",
+                "document_modified_ns",
+                "document_changed_ns",
+                "document_device",
+                "document_inode",
+                "document_mode",
+                "document_flags",
+                "document_is_dataless",
+            ):
+                item.pop(field)
             projection_current = self._projection_uses_current_adapter(
                 item.pop("document_extension"),
                 item["adapter_id"],
@@ -4375,7 +5376,7 @@ class CorpusService:
             )
             if item["revision_id"] != item["current_revision_id"]:
                 item["dependency_state"] = "stale_source_revision"
-            elif not source_observation_current:
+            elif not source_observation_current or not live_source_observation_current:
                 item["dependency_state"] = "stale_source_observation"
             elif item["projection_id"] != item["active_projection_id"]:
                 item["dependency_state"] = "stale_extraction_projection"
@@ -4424,9 +5425,7 @@ class CorpusService:
                     "base_snapshot_id": None,
                     "semantic_state": _semantic_state(connection),
                     "excluded_outdated": 0,
-                    "semantic_materialization_state": (
-                        "optional_explicit_maintenance"
-                    ),
+                    "semantic_materialization_state": ("optional_explicit_maintenance"),
                 }
             rows = connection.execute(
                 """
@@ -4581,10 +5580,7 @@ class CorpusService:
                     "checkpoint reconciliation queue changed since inspection",
                     details={"queue_id": queue_id},
                 )
-            if (
-                row["state"] != "pending"
-                or row["reason"] != "source_observation_reconfirmed"
-            ):
+            if row["state"] != "pending" or row["reason"] != "source_observation_reconfirmed":
                 raise SemanticCommitError(
                     "checkpoint reconciliation only accepts the historical "
                     "pending reconfirmation state",
@@ -4751,9 +5747,7 @@ class CorpusService:
                     },
                 ) from exc
             queue_updates = (
-                semantic_result.get("queue_updates")
-                if isinstance(semantic_result, dict)
-                else None
+                semantic_result.get("queue_updates") if isinstance(semantic_result, dict) else None
             )
             matching_updates = (
                 [
@@ -4767,8 +5761,7 @@ class CorpusService:
             if (
                 not isinstance(semantic_result, dict)
                 or semantic_result.get("commit_id") != updated_by_commit_id
-                or semantic_result.get("base_snapshot_id")
-                != semantic_commit["base_snapshot_id"]
+                or semantic_result.get("base_snapshot_id") != semantic_commit["base_snapshot_id"]
                 or len(matching_updates) != 1
                 or matching_updates[0].get("revision_id") != row["revision_id"]
                 or matching_updates[0].get("state") != "complete"
@@ -5148,13 +6141,9 @@ class CorpusService:
                         "selected_unit_count": len(selected_inventory),
                         "selected_unit_payload_bytes": selected_unit_payload_bytes,
                         "extraction_issue_count": issue_inventory["issue_count"],
-                        "extraction_issue_payload_bytes": issue_inventory[
-                            "stored_payload_bytes"
-                        ],
+                        "extraction_issue_payload_bytes": issue_inventory["stored_payload_bytes"],
                         "stored_payload_bytes": stored_payload_bytes,
-                        "maximum_serialized_bytes": (
-                            INTERPRETATION_MATERIAL_MAX_SERIALIZED_BYTES
-                        ),
+                        "maximum_serialized_bytes": (INTERPRETATION_MATERIAL_MAX_SERIALIZED_BYTES),
                         "retry_with_lower": ["max_units", "max_chars"],
                     },
                 )
@@ -5316,9 +6305,7 @@ class CorpusService:
                         "returned_unit_count": len(units),
                         "extraction_issue_count": len(issues),
                         "serialized_bytes": serialized_bytes,
-                        "maximum_serialized_bytes": (
-                            INTERPRETATION_MATERIAL_MAX_SERIALIZED_BYTES
-                        ),
+                        "maximum_serialized_bytes": (INTERPRETATION_MATERIAL_MAX_SERIALIZED_BYTES),
                         "retry_with_lower": ["max_units", "max_chars"],
                     },
                 )
@@ -5489,8 +6476,7 @@ class CorpusService:
                 client_refs.add(client_ref)
                 if not body or len(body) > SEMANTIC_COMMIT_MAX_BODY_CHARS:
                     raise SemanticCommitError(
-                        "claim body must contain "
-                        f"1-{SEMANTIC_COMMIT_MAX_BODY_CHARS} characters",
+                        f"claim body must contain 1-{SEMANTIC_COMMIT_MAX_BODY_CHARS} characters",
                         details={"claim_index": claim_index},
                     )
                 assessment = claim.get("claim_assessment", "unresolved")
@@ -5509,9 +6495,7 @@ class CorpusService:
                 evidence = claim.get("evidence", [])
                 if (
                     not isinstance(evidence, list)
-                    or not 1
-                    <= len(evidence)
-                    <= SEMANTIC_COMMIT_MAX_EVIDENCE_PER_CLAIM
+                    or not 1 <= len(evidence) <= SEMANTIC_COMMIT_MAX_EVIDENCE_PER_CLAIM
                 ):
                     raise SemanticCommitError(
                         "each claim requires "
@@ -5616,9 +6600,7 @@ class CorpusService:
                         "semantic input projection is no longer available",
                         details={"revision_id": revision_id},
                     )
-                descriptor = self.adapter_registry.resolve(
-                    projection_row["extension"]
-                ).descriptor
+                descriptor = self.adapter_registry.resolve(projection_row["extension"]).descriptor
                 if (
                     projection_row["adapter_id"],
                     projection_row["adapter_version"],
@@ -5639,8 +6621,7 @@ class CorpusService:
                 if (
                     unit["revision_id"] not in snapshot_revisions
                     or unit["revision_id"] != unit["current_revision_id"]
-                    or unit["projection_id"]
-                    != snapshot_projection_by_revision[unit["revision_id"]]
+                    or unit["projection_id"] != snapshot_projection_by_revision[unit["revision_id"]]
                     or unit["projection_id"] != unit["active_projection_id"]
                 ):
                     raise SnapshotConflictError(
@@ -5744,12 +6725,8 @@ class CorpusService:
                         },
                     )
                 batch_receipt = str(update.get("batch_receipt", ""))
-                if (
-                    len(batch_receipt) != 64
-                    or any(
-                        character not in "0123456789abcdef"
-                        for character in batch_receipt
-                    )
+                if len(batch_receipt) != 64 or any(
+                    character not in "0123456789abcdef" for character in batch_receipt
                 ):
                     raise SemanticCommitError(
                         "progress requires a valid server-issued batch_receipt",
@@ -5783,19 +6760,17 @@ class CorpusService:
                     processed_through_ordinal=processed_through,
                     units=receipt_units,
                 )
-                if (
-                    len(receipt_units) != processed_through - processed_from + 1
-                    or not hmac.compare_digest(batch_receipt, expected_receipt)
+                if len(
+                    receipt_units
+                ) != processed_through - processed_from + 1 or not hmac.compare_digest(
+                    batch_receipt, expected_receipt
                 ):
                     raise SemanticCommitError(
                         "progress does not match the server-issued material batch",
                         details={"progress_index": progress_index},
                     )
                 note = update.get("note")
-                if (
-                    note is not None
-                    and len(str(note)) > SEMANTIC_COMMIT_MAX_STATUS_CHARS
-                ):
+                if note is not None and len(str(note)) > SEMANTIC_COMMIT_MAX_STATUS_CHARS:
                     raise SemanticCommitError(
                         "progress note may contain at most "
                         f"{SEMANTIC_COMMIT_MAX_STATUS_CHARS} characters",
@@ -5946,10 +6921,7 @@ class CorpusService:
                     for value in previous_checkpoint.get("processed_ordinal_ranges", [])
                     if isinstance(value, list) and len(value) == 2
                 ]
-                if (
-                    ranges
-                    and ranges[-1][1] + 1 == progress["processed_from_ordinal"]
-                ):
+                if ranges and ranges[-1][1] + 1 == progress["processed_from_ordinal"]:
                     ranges[-1][1] = progress["processed_through_ordinal"]
                 else:
                     ranges.append(
@@ -5968,9 +6940,7 @@ class CorpusService:
                     "projection_id": progress["projection_id"],
                     "processed_ordinal_ranges": ranges,
                     "remaining_ordinal_ranges": remaining,
-                    "next_ordinal": (
-                        progress["next_ordinal"] if progress["has_more"] else None
-                    ),
+                    "next_ordinal": (progress["next_ordinal"] if progress["has_more"] else None),
                     "total_units": progress["total_units"],
                     "updated_by_commit_id": commit_id,
                 }
@@ -6081,21 +7051,15 @@ class CorpusService:
                         current = False
                     state = queue_row["state"] or "untracked"
                     coverage_state = state if current else "outdated"
-                    queue_coverage[coverage_state] = (
-                        queue_coverage.get(coverage_state, 0) + 1
-                    )
+                    queue_coverage[coverage_state] = queue_coverage.get(coverage_state, 0) + 1
             claims = []
             orientation_by_document: dict[str, dict] = {}
             context_payload_bytes = 4_096
             if snapshot is not None:
                 has_query = bool(query and query.strip())
-                fts_query = (
-                    '"' + query.strip().replace('"', '""') + '"' if has_query else None
-                )
+                fts_query = '"' + query.strip().replace('"', '""') + '"' if has_query else None
                 surfaced_by = (
-                    "semantic_claim_lexical_acquisition"
-                    if has_query
-                    else "recent_semantic_claims"
+                    "semantic_claim_lexical_acquisition" if has_query else "recent_semantic_claims"
                 )
                 page_size = max(50, min(400, limit * 2))
                 offset = 0
@@ -6453,33 +7417,21 @@ class CorpusService:
                             + link_inventory["stored_payload_bytes"]
                         )
                         projected_payload_bytes = (
-                            context_payload_bytes
-                            + candidate_stored_payload_bytes
+                            context_payload_bytes + candidate_stored_payload_bytes
                         )
-                        if (
-                            projected_payload_bytes
-                            > SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES
-                        ):
+                        if projected_payload_bytes > SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES:
                             raise BudgetExceededError(
                                 "semantic context exceeds the serialized response budget",
                                 details={
                                     "requested_limit": limit,
                                     "returned_claim_count": len(claims),
-                                    "candidate_claim_id": claim_inventory[
-                                        "claim_id"
-                                    ],
-                                    "candidate_evidence_count": link_inventory[
-                                        "link_count"
-                                    ],
-                                    "response_bytes_before_candidate": (
-                                        context_payload_bytes
-                                    ),
+                                    "candidate_claim_id": claim_inventory["claim_id"],
+                                    "candidate_evidence_count": link_inventory["link_count"],
+                                    "response_bytes_before_candidate": (context_payload_bytes),
                                     "candidate_stored_payload_bytes": (
                                         candidate_stored_payload_bytes
                                     ),
-                                    "projected_payload_bytes": (
-                                        projected_payload_bytes
-                                    ),
+                                    "projected_payload_bytes": (projected_payload_bytes),
                                     "maximum_serialized_bytes": (
                                         SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES
                                     ),
@@ -6503,9 +7455,7 @@ class CorpusService:
                         claim["scope_and_conditions"] = json.loads(
                             claim.pop("scope_and_conditions_json")
                         )
-                        claim["time_window"] = json.loads(
-                            claim.pop("time_window_json")
-                        )
+                        claim["time_window"] = json.loads(claim.pop("time_window_json"))
                         links = connection.execute(
                             """
                             SELECT e.*, u.source_anchor_json, u.projection_id,
@@ -6537,20 +7487,12 @@ class CorpusService:
                                 "config_hash",
                             ):
                                 link.pop(internal_field)
-                            link["source_span"] = json.loads(
-                                link.pop("source_span_json")
-                            )
-                            link["applicability"] = json.loads(
-                                link.pop("applicability_json")
-                            )
-                            link["source_anchor"] = json.loads(
-                                link.pop("source_anchor_json")
-                            )
+                            link["source_span"] = json.loads(link.pop("source_span_json"))
+                            link["applicability"] = json.loads(link.pop("applicability_json"))
+                            link["source_anchor"] = json.loads(link.pop("source_anchor_json"))
                             claim["evidence"].append(link)
-                            projection_materialization = (
-                                materialization_by_projection.get(
-                                    link["projection_id"]
-                                )
+                            projection_materialization = materialization_by_projection.get(
+                                link["projection_id"]
                             )
                             if projection_materialization is None:
                                 queue_row = connection.execute(
@@ -6563,20 +7505,17 @@ class CorpusService:
                                 ).fetchone()
                                 projection_materialization = {
                                     "state": (
-                                        queue_row["state"]
-                                        if queue_row is not None
-                                        else "untracked"
+                                        queue_row["state"] if queue_row is not None else "untracked"
                                     ),
                                     "checkpoint": (
                                         json.loads(queue_row["checkpoint_json"])
-                                        if queue_row is not None
-                                        and queue_row["checkpoint_json"]
+                                        if queue_row is not None and queue_row["checkpoint_json"]
                                         else None
                                     ),
                                 }
-                                materialization_by_projection[
-                                    link["projection_id"]
-                                ] = projection_materialization
+                                materialization_by_projection[link["projection_id"]] = (
+                                    projection_materialization
+                                )
                             orientation = orientation_by_document.setdefault(
                                 link["document_id"],
                                 {
@@ -6597,12 +7536,8 @@ class CorpusService:
                                         "claim_id": claim["claim_id"],
                                         "body": claim["body"],
                                         "subject": claim["subject"],
-                                        "claim_assessment": claim[
-                                            "claim_assessment"
-                                        ],
-                                        "temporal_applicability": claim[
-                                            "temporal_applicability"
-                                        ],
+                                        "claim_assessment": claim["claim_assessment"],
+                                        "temporal_applicability": claim["temporal_applicability"],
                                         "contest_state": claim["contest_state"],
                                     }
                                 )
@@ -6624,18 +7559,13 @@ class CorpusService:
                             )
                             + 4_096
                         )
-                        if (
-                            context_payload_bytes
-                            > SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES
-                        ):
+                        if context_payload_bytes > SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES:
                             raise BudgetExceededError(
                                 "semantic context exceeds the serialized response budget",
                                 details={
                                     "requested_limit": limit,
                                     "returned_claim_count": len(claims),
-                                    "document_orientation_count": len(
-                                        orientation_by_document
-                                    ),
+                                    "document_orientation_count": len(orientation_by_document),
                                     "serialized_bytes_with_reserved_overhead": (
                                         context_payload_bytes
                                     ),
@@ -6652,6 +7582,7 @@ class CorpusService:
                         break
             claim_revision_count = 0
             if snapshot is not None:
+
                 def projection_is_current(
                     extension: str,
                     adapter_id: str,
@@ -6792,9 +7723,7 @@ class CorpusService:
                 "snapshot_revisions_with_valid_claims": claim_revision_count,
                 "snapshot_document_count": snapshot["document_count"] if snapshot else 0,
                 "snapshot_revisions_without_valid_claims": (
-                    snapshot["document_count"] - claim_revision_count
-                    if snapshot
-                    else 0
+                    snapshot["document_count"] - claim_revision_count if snapshot else 0
                 ),
                 "claims_returned": len(claims),
                 "corpus_wide_absence_supported": False,
@@ -6813,9 +7742,7 @@ class CorpusService:
                     "returned_claim_count": len(claims),
                     "document_orientation_count": len(orientation_by_document),
                     "serialized_bytes": serialized_bytes,
-                    "maximum_serialized_bytes": (
-                        SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES
-                    ),
+                    "maximum_serialized_bytes": (SEMANTIC_CONTEXT_MAX_SERIALIZED_BYTES),
                     "retry_with_lower": ["limit"],
                     "retry_with_narrower_query": True,
                 },
@@ -6923,9 +7850,7 @@ class CorpusService:
                         observation["unit_type_counts"].get(unit["unit_type"], 0) + 1
                     )
                     observation["derivation_method_counts"][unit["derivation_method"]] = (
-                        observation["derivation_method_counts"].get(
-                            unit["derivation_method"], 0
-                        )
+                        observation["derivation_method_counts"].get(unit["derivation_method"], 0)
                         + 1
                     )
                 if unit_rows:
@@ -6953,9 +7878,7 @@ class CorpusService:
                         "severity": issue["severity"],
                         "code": issue["code"],
                         "details": json.loads(issue["details_json"]),
-                        "structural_locator": json.loads(
-                            issue["structural_locator_json"]
-                        ),
+                        "structural_locator": json.loads(issue["structural_locator_json"]),
                     }
                     for issue in connection.execute(
                         """
@@ -6968,34 +7891,24 @@ class CorpusService:
                         (row["projection_id"],),
                     )
                 ]
-                observation["projection_observation_sha256"] = (
-                    projection_observation_sha256(
-                        [
-                            {
-                                "ordinal": unit["ordinal"],
-                                "unit_type": unit["unit_type"],
-                                "content_sha256": recomputed_content_hashes[index],
-                                "derivation_method": unit["derivation_method"],
-                                "structure_path": json.loads(
-                                    unit["structure_path_json"]
-                                ),
-                                "geometry": json.loads(unit["geometry_json"]),
-                                "confidence": unit["confidence"],
-                                "quality_flags": json.loads(
-                                    unit["quality_flags_json"]
-                                ),
-                                "issues": json.loads(
-                                    unit["extraction_issues_json"]
-                                ),
-                            }
-                            for index, unit in enumerate(unit_rows)
-                        ],
-                        projection_issues=projection_issues,
-                    )
+                observation["projection_observation_sha256"] = projection_observation_sha256(
+                    [
+                        {
+                            "ordinal": unit["ordinal"],
+                            "unit_type": unit["unit_type"],
+                            "content_sha256": recomputed_content_hashes[index],
+                            "derivation_method": unit["derivation_method"],
+                            "structure_path": json.loads(unit["structure_path_json"]),
+                            "geometry": json.loads(unit["geometry_json"]),
+                            "confidence": unit["confidence"],
+                            "quality_flags": json.loads(unit["quality_flags_json"]),
+                            "issues": json.loads(unit["extraction_issues_json"]),
+                        }
+                        for index, unit in enumerate(unit_rows)
+                    ],
+                    projection_issues=projection_issues,
                 )
-                observation["issue_codes"] = sorted(
-                    {issue["code"] for issue in projection_issues}
-                )
+                observation["issue_codes"] = sorted({issue["code"] for issue in projection_issues})
         return evaluate_projection_observation(annotation, observation)
 
     def doctor(self, corpus_id: str | None = None) -> dict:

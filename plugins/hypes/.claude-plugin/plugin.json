@@ -1,7 +1,7 @@
 {
   "name": "hypes",
-  "version": "0.6.0+codex.20260811185921",
-  "description": "Adapt explanations using only narrowly evidenced understanding clues.",
+  "version": "0.7.0+codex.20260814021004",
+  "description": "Give the assistant a private, revisable relationship model of the user.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

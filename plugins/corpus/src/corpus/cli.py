@@ -9,7 +9,12 @@ import sys
 from pathlib import Path
 
 from .config import default_data_root
-from .errors import ContextValidationError, CorpusError
+from .errors import (
+    ContextValidationError,
+    CorpusError,
+    SpaceValidationError,
+    WorkspaceValidationError,
+)
 from .golden import load_golden_annotation
 from .service import (
     CORPUS_INVENTORY_DEFAULT_LIMIT,
@@ -24,6 +29,11 @@ from .service import (
 from .session_sources import (
     SESSION_SOURCE_FETCH_DEFAULT_CHARS,
     SESSION_SOURCE_FETCH_MAX_CHARS,
+)
+from .workspaces import (
+    WORKSPACE_DEFAULT_FILE_LIMIT,
+    WORKSPACE_MAX_ENCODED_CONTENT_CHARS,
+    WORKSPACE_MAX_FILE_BYTES,
 )
 
 SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?i?b)?\s*$", re.IGNORECASE)
@@ -77,6 +87,62 @@ def load_json_object(path_value: str) -> dict:
             details={"payload_file": path_value},
         )
     return value
+
+
+def load_space_policy(path_value: str | None) -> dict | None:
+    if path_value is None:
+        return None
+    try:
+        with Path(path_value).open(encoding="utf-8") as stream:
+            value = json.load(stream)
+    except (OSError, UnicodeError) as exc:
+        raise SpaceValidationError(
+            "Space migration policy file could not be read",
+            details={"policy_file": path_value},
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise SpaceValidationError(
+            "Space migration policy file must contain valid JSON",
+            details={
+                "policy_file": path_value,
+                "line": exc.lineno,
+                "column": exc.colno,
+            },
+        ) from exc
+    if not isinstance(value, dict):
+        raise SpaceValidationError(
+            "Space migration policy file must contain a JSON object",
+            details={"policy_file": path_value},
+        )
+    return value
+
+
+def load_workspace_content(path: Path) -> str:
+    """Read a bounded UTF-8 text carrier for one workspace write."""
+
+    try:
+        with path.open("rb") as stream:
+            encoded = stream.read(WORKSPACE_MAX_ENCODED_CONTENT_CHARS + 1)
+    except OSError as exc:
+        raise WorkspaceValidationError(
+            "work folder content file could not be read",
+            details={"content_file": str(path)},
+        ) from exc
+    if len(encoded) > WORKSPACE_MAX_ENCODED_CONTENT_CHARS:
+        raise WorkspaceValidationError(
+            "work folder content file is too large",
+            details={
+                "content_file": str(path),
+                "maximum_bytes": WORKSPACE_MAX_ENCODED_CONTENT_CHARS,
+            },
+        )
+    try:
+        return encoded.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise WorkspaceValidationError(
+            "work folder content file must contain UTF-8 text",
+            details={"content_file": str(path)},
+        ) from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -153,6 +219,354 @@ def build_parser() -> argparse.ArgumentParser:
         help="Current registered root; the command stops if it does not match.",
     )
     corpus_commands.add_parser("list", help="List registered corpora.")
+
+    space = commands.add_parser(
+        "space",
+        help="View contexts and connected locations as canonical Spaces.",
+    )
+    space_commands = space.add_subparsers(dest="space_command", required=True)
+    space_list = space_commands.add_parser("list", help="List active Spaces.")
+    space_list.add_argument("--limit", type=int, default=100)
+    space_list.add_argument("--offset", type=int, default=0)
+    space_show = space_commands.add_parser(
+        "show",
+        help="Show one Space, its Context, and its Connections.",
+    )
+    space_show.add_argument("--id", required=True, dest="space_id")
+    space_show.add_argument("--context-limit", type=int, default=100)
+    space_show.add_argument("--context-offset", type=int, default=0)
+    space_search = space_commands.add_parser(
+        "search",
+        help="Search indexed Source Connections in one Space.",
+    )
+    space_search.add_argument("--id", required=True, dest="space_id")
+    space_search.add_argument("--connection", dest="connection_id")
+    space_search.add_argument("--query", required=True)
+    space_search.add_argument("--limit", type=int, default=20)
+    space_files = space_commands.add_parser(
+        "files",
+        help="List a live directory or find filenames in one Connection.",
+    )
+    space_files.add_argument("--id", required=True, dest="space_id")
+    space_files.add_argument("--connection", dest="connection_id")
+    space_files.add_argument(
+        "--mode",
+        choices=("list_directory", "find"),
+        default="list_directory",
+    )
+    space_files.add_argument("--path", dest="relative_path")
+    space_files.add_argument("--query")
+    space_files.add_argument("--cursor")
+    space_files.add_argument("--limit", type=int, default=100)
+    space_read = space_commands.add_parser(
+        "read",
+        help="Read a live Work file or an exact indexed read reference.",
+    )
+    space_read.add_argument("--id", required=True, dest="space_id")
+    space_read.add_argument("--connection", dest="connection_id")
+    space_read_target = space_read.add_mutually_exclusive_group()
+    space_read_target.add_argument("--path", dest="relative_path")
+    space_read_target.add_argument("--read-ref")
+    space_read.add_argument("--encoding", choices=("utf8", "base64"), default="utf8")
+    space_read.add_argument(
+        "--max-bytes",
+        type=parse_size,
+        default=WORKSPACE_MAX_FILE_BYTES,
+    )
+    space_read.add_argument("--neighbor-span", type=int, default=0)
+    space_read.add_argument("--max-chars", type=int, default=CORPUS_READ_DEFAULT_CHARS)
+    space_write = space_commands.add_parser(
+        "write",
+        help="Create or replace one file in a writable Space Connection.",
+    )
+    space_write.add_argument("--id", required=True, dest="space_id")
+    space_write.add_argument("--connection", dest="connection_id")
+    space_write.add_argument("--path", required=True, dest="relative_path")
+    space_write.add_argument("--content-file", required=True, type=Path)
+    space_write.add_argument(
+        "--content-encoding",
+        choices=("utf8", "base64"),
+        default="utf8",
+    )
+    space_write.add_argument("--expected-version", required=True)
+    space_write.add_argument("--make-current", action="store_true")
+    space_select = space_commands.add_parser(
+        "select-current",
+        help="Select one existing file as a Connection's current file.",
+    )
+    space_select.add_argument("--id", required=True, dest="space_id")
+    space_select.add_argument("--connection", dest="connection_id")
+    space_select.add_argument("--path", required=True, dest="relative_path")
+    space_select.add_argument("--expected-generation", required=True, type=int)
+    space_restore = space_commands.add_parser(
+        "restore",
+        help="Restore one unchanged replacement through its recovery ID.",
+    )
+    space_restore.add_argument("--id", required=True, dest="space_id")
+    space_restore.add_argument("--connection", dest="connection_id")
+    space_restore.add_argument("--recovery-id", required=True)
+    space_restore.add_argument("--expected-version", required=True)
+    space_context = space_commands.add_parser(
+        "context",
+        help="Plan or apply a local Context build or refresh for one Space.",
+    )
+    space_context_action = space_context.add_mutually_exclusive_group(required=True)
+    space_context_action.add_argument(
+        "--plan",
+        action="store_true",
+        help="Inspect Context changes without writing.",
+    )
+    space_context_action.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply one confirmed item update or checkpoint advance.",
+    )
+    space_context.add_argument("--id", required=True, dest="space_id")
+    space_context.add_argument(
+        "--mode",
+        choices=("auto", "build", "refresh"),
+        default="auto",
+    )
+    space_context.add_argument(
+        "--action",
+        choices=("append", "supersede", "advance_checkpoint"),
+    )
+    space_context.add_argument(
+        "--expected-input-sha256",
+        help="Exact hash returned by the Context plan.",
+    )
+    space_context.add_argument(
+        "--payload-file",
+        help="JSON Context items for append or supersede; use - for stdin.",
+    )
+    space_context.add_argument(
+        "--confirm-context-write",
+        action="store_true",
+        help="Confirm the persistent Context update.",
+    )
+    space_migrate = space_commands.add_parser(
+        "migrate",
+        help="Plan, apply, or roll back the local canonical Space registry migration.",
+    )
+    space_migration_action = space_migrate.add_mutually_exclusive_group(required=True)
+    space_migration_action.add_argument(
+        "--plan",
+        action="store_true",
+        help="Return the deterministic read-only migration plan.",
+    )
+    space_migration_action.add_argument(
+        "--apply",
+        action="store_true",
+        help="Materialize the planned active Space registry.",
+    )
+    space_migration_action.add_argument(
+        "--rollback",
+        metavar="MIGRATION_ID",
+        help="Roll back one prepared or completed Space registry migration.",
+    )
+    space_migrate.add_argument(
+        "--expected-input-sha256",
+        help="Exact input hash returned by --plan; required for apply and rollback.",
+    )
+    space_migrate.add_argument(
+        "--policy-file",
+        help="JSON declarations for every Context and Connection Access Scope.",
+    )
+    space_migrate.add_argument(
+        "--confirm-apply",
+        action="store_true",
+        help="Confirm a registry-only apply that does not change user files.",
+    )
+    space_migrate.add_argument(
+        "--confirm-rollback",
+        action="store_true",
+        help="Confirm removal of the registry rows created by the selected migration.",
+    )
+    space_cutover = space_commands.add_parser(
+        "cutover",
+        help="Replace source registry names with immutable source IDs without aliases.",
+    )
+    space_cutover_action = space_cutover.add_mutually_exclusive_group(required=True)
+    space_cutover_action.add_argument(
+        "--plan",
+        action="store_true",
+        help="Return the deterministic read-only identifier cutover plan.",
+    )
+    space_cutover_action.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the exact planned identifier cutover.",
+    )
+    space_cutover_action.add_argument(
+        "--rollback",
+        metavar="CUTOVER_ID",
+        help="Roll back one completed identifier cutover after drift checks.",
+    )
+    space_cutover.add_argument(
+        "--expected-input-sha256",
+        help="Exact input hash returned by --plan; required for apply and rollback.",
+    )
+    space_cutover.add_argument(
+        "--policy-file",
+        help="JSON replacements for archived Context IDs that still use a source name.",
+    )
+    space_cutover.add_argument(
+        "--confirm-apply",
+        action="store_true",
+        help="Confirm private registry and runtime-name changes; source files are unchanged.",
+    )
+    space_cutover.add_argument(
+        "--confirm-rollback",
+        action="store_true",
+        help="Confirm restoration of the prior private identifiers.",
+    )
+
+    workspace = commands.add_parser(
+        "workspace",
+        help="Manage explicitly connected local work folders.",
+    )
+    workspace_commands = workspace.add_subparsers(
+        dest="workspace_command",
+        required=True,
+    )
+    workspace_connect = workspace_commands.add_parser(
+        "connect",
+        help="Connect one editable local folder to an existing context.",
+    )
+    workspace_connect.add_argument("--id", dest="workspace_id")
+    workspace_connect.add_argument(
+        "--context",
+        dest="context_id",
+        help="Defaults to the work-folder name.",
+    )
+    workspace_connect.add_argument(
+        "--name",
+        dest="display_name",
+        help="Defaults to the work-folder name.",
+    )
+    workspace_connect.add_argument("--root", required=True, type=Path)
+    workspace_connect.add_argument(
+        "--execution-policy",
+        choices=("local_only", "external_host_allowed"),
+        required=True,
+    )
+    workspace_commands.add_parser("list", help="List connected work folders.")
+
+    workspace_status = workspace_commands.add_parser(
+        "status",
+        help="Report one work folder connection and current-file state.",
+    )
+    workspace_status.add_argument("--id", required=True, dest="workspace_id")
+
+    workspace_files = workspace_commands.add_parser(
+        "files",
+        help="List bounded files and directories beneath a connected work folder.",
+    )
+    workspace_files.add_argument("--id", required=True, dest="workspace_id")
+    workspace_files.add_argument(
+        "--path",
+        dest="relative_path",
+        help="Optional relative directory to list.",
+    )
+    workspace_files.add_argument(
+        "--path-contains",
+        help="NFC-normalized literal substring of a relative file path.",
+    )
+    workspace_files.add_argument(
+        "--limit",
+        type=int,
+        default=WORKSPACE_DEFAULT_FILE_LIMIT,
+    )
+    workspace_files.add_argument("--offset", type=int, default=0)
+
+    workspace_read = workspace_commands.add_parser(
+        "read",
+        help="Read one relative file, or the selected current file.",
+    )
+    workspace_read.add_argument("--id", required=True, dest="workspace_id")
+    workspace_read.add_argument("--path", dest="relative_path")
+    workspace_read.add_argument(
+        "--encoding",
+        choices=("utf8", "base64"),
+        default="utf8",
+    )
+    workspace_read.add_argument(
+        "--max-bytes",
+        type=parse_size,
+        default=WORKSPACE_MAX_FILE_BYTES,
+    )
+
+    workspace_write = workspace_commands.add_parser(
+        "write",
+        help="Create or replace one relative file with optimistic concurrency.",
+    )
+    workspace_write.add_argument("--id", required=True, dest="workspace_id")
+    workspace_write.add_argument("--path", required=True, dest="relative_path")
+    workspace_write.add_argument(
+        "--content-file",
+        required=True,
+        type=Path,
+        help="Read the UTF-8 or base64 text carrier from this file.",
+    )
+    workspace_write.add_argument(
+        "--content-encoding",
+        choices=("utf8", "base64"),
+        default="utf8",
+    )
+    workspace_write.add_argument(
+        "--expected-version",
+        required=True,
+        help="Observed file version, or 'absent' for a new file.",
+    )
+    workspace_write.add_argument(
+        "--make-current",
+        action="store_true",
+        help="Select the successfully written file as the current file.",
+    )
+
+    workspace_restore = workspace_commands.add_parser(
+        "restore",
+        help="Restore one unchanged file from a replacement recovery copy.",
+    )
+    workspace_restore.add_argument("--id", required=True, dest="workspace_id")
+    workspace_restore.add_argument("--recovery-id", required=True)
+    workspace_restore.add_argument(
+        "--expected-version",
+        required=True,
+        help="The unchanged version returned by the write operation.",
+    )
+
+    workspace_select = workspace_commands.add_parser(
+        "select-current",
+        help="Select an existing relative file as the current file.",
+    )
+    workspace_select.add_argument("--id", required=True, dest="workspace_id")
+    workspace_select.add_argument("--path", required=True, dest="relative_path")
+    workspace_select.add_argument(
+        "--expected-generation",
+        required=True,
+        type=int,
+    )
+
+    workspace_disconnect = workspace_commands.add_parser(
+        "disconnect",
+        help="Disconnect a work folder without changing its local files.",
+    )
+    workspace_disconnect.add_argument(
+        "--id",
+        required=True,
+        dest="workspace_id",
+    )
+    workspace_disconnect.add_argument(
+        "--expected-generation",
+        required=True,
+        type=int,
+    )
+    workspace_disconnect.add_argument(
+        "--confirm-disconnect",
+        action="store_true",
+        help="Confirm removal of the Corpus connection only.",
+    )
 
     overview = commands.add_parser(
         "overview",
@@ -515,6 +929,53 @@ def build_parser() -> argparse.ArgumentParser:
     context_archive.add_argument("--id", required=True, dest="context_id")
     context_archive.add_argument("--expected-version", required=True, type=int)
 
+    context_skill = context_commands.add_parser(
+        "skill",
+        help="Read or change the approved workflow guidance attached to one Context.",
+    )
+    context_skill_commands = context_skill.add_subparsers(
+        dest="context_skill_command",
+        required=True,
+    )
+    context_skill_show = context_skill_commands.add_parser(
+        "show",
+        help="Read the Context Skill and its current version token.",
+    )
+    context_skill_show.add_argument("--id", required=True, dest="context_id")
+
+    context_skill_set = context_skill_commands.add_parser(
+        "set",
+        help="Copy one reviewed SKILL.md into the private Context skill folder.",
+    )
+    context_skill_set.add_argument("--id", required=True, dest="context_id")
+    context_skill_set.add_argument(
+        "--skill-file",
+        required=True,
+        type=Path,
+        help="Reviewed, remote-safe SKILL.md to copy into the Context.",
+    )
+    context_skill_set.add_argument(
+        "--expected-version",
+        required=True,
+        help="Current Context Skill version, or 'absent' when creating it.",
+    )
+    context_skill_set.add_argument(
+        "--confirm-context-skill-write",
+        action="store_true",
+        help="Confirm that this guidance may be returned to Chat for the selected Context.",
+    )
+
+    context_skill_remove = context_skill_commands.add_parser(
+        "remove",
+        help="Remove the approved Context Skill without changing source files.",
+    )
+    context_skill_remove.add_argument("--id", required=True, dest="context_id")
+    context_skill_remove.add_argument("--expected-version", required=True)
+    context_skill_remove.add_argument(
+        "--confirm-context-skill-remove",
+        action="store_true",
+    )
+
     context_commands.add_parser(
         "migrate",
         help="Explicitly migrate the private named-context database.",
@@ -588,26 +1049,14 @@ def execute(args: argparse.Namespace) -> dict | list:
                 source_scope=source_scope,
             )
         if args.corpus_command == "scope":
-            if args.clear and (
-                args.exclude_directory_name or args.exclude_path_prefix
-            ):
-                raise ContextValidationError(
-                    "--clear cannot be combined with exclusion values"
-                )
-            if not args.clear and not (
-                args.exclude_directory_name or args.exclude_path_prefix
-            ):
-                raise ContextValidationError(
-                    "source scope requires an exclusion value or --clear"
-                )
+            if args.clear and (args.exclude_directory_name or args.exclude_path_prefix):
+                raise ContextValidationError("--clear cannot be combined with exclusion values")
+            if not args.clear and not (args.exclude_directory_name or args.exclude_path_prefix):
+                raise ContextValidationError("source scope requires an exclusion value or --clear")
             return service.configure_source_scope(
                 corpus_id=args.corpus_id,
-                exclude_directory_names=(
-                    [] if args.clear else args.exclude_directory_name
-                ),
-                exclude_path_prefixes=(
-                    [] if args.clear else args.exclude_path_prefix
-                ),
+                exclude_directory_names=([] if args.clear else args.exclude_directory_name),
+                exclude_path_prefixes=([] if args.clear else args.exclude_path_prefix),
             )
         if args.corpus_command == "rebind-root":
             return service.rebind_source_root(
@@ -616,6 +1065,252 @@ def execute(args: argparse.Namespace) -> dict | list:
                 expected_source_root=args.expected_root,
             )
         return {"corpora": service.corpora()}
+    if args.command == "space":
+        if args.space_command == "list":
+            return service.space_list(
+                audience="local_cli",
+                limit=args.limit,
+                offset=args.offset,
+            )
+        if args.space_command == "show":
+            return service.space_get(
+                space_id=args.space_id,
+                audience="local_cli",
+                context_limit=args.context_limit,
+                context_offset=args.context_offset,
+            )
+        if args.space_command == "search":
+            return service.space_search(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                query=args.query,
+                limit=args.limit,
+                audience="local_cli",
+            )
+        if args.space_command == "files":
+            return service.space_file_list(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                mode=args.mode,
+                relative_path=args.relative_path,
+                query=args.query,
+                cursor=args.cursor,
+                limit=args.limit,
+                audience="local_cli",
+            )
+        if args.space_command == "read":
+            return service.space_file_read(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                relative_path=args.relative_path,
+                read_ref=args.read_ref,
+                encoding=args.encoding,
+                max_bytes=args.max_bytes,
+                neighbor_span=args.neighbor_span,
+                max_chars=args.max_chars,
+                audience="local_cli",
+            )
+        if args.space_command == "write":
+            return service.space_file_write(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                relative_path=args.relative_path,
+                content=load_workspace_content(args.content_file),
+                content_encoding=args.content_encoding,
+                expected_version=args.expected_version,
+                make_current=args.make_current,
+                audience="local_cli",
+            )
+        if args.space_command == "select-current":
+            return service.space_file_select_current(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                relative_path=args.relative_path,
+                expected_generation=args.expected_generation,
+                audience="local_cli",
+            )
+        if args.space_command == "restore":
+            return service.space_file_restore(
+                space_id=args.space_id,
+                connection_id=args.connection_id,
+                recovery_id=args.recovery_id,
+                expected_version=args.expected_version,
+                audience="local_cli",
+            )
+        if args.space_command == "context":
+            if args.plan:
+                if (
+                    args.action is not None
+                    or args.expected_input_sha256 is not None
+                    or args.payload_file is not None
+                    or args.confirm_context_write
+                ):
+                    raise SpaceValidationError("Context plan cannot include apply arguments")
+                return service.space_context_plan(
+                    space_id=args.space_id,
+                    mode=args.mode,
+                )
+            if args.action is None or args.expected_input_sha256 is None:
+                raise SpaceValidationError(
+                    "Context apply requires --action and --expected-input-sha256"
+                )
+            if args.action == "advance_checkpoint":
+                if args.payload_file is not None:
+                    raise SpaceValidationError("checkpoint advance does not accept --payload-file")
+                payload = None
+            else:
+                if args.payload_file is None:
+                    raise SpaceValidationError("Context item apply requires --payload-file")
+                payload = load_json_object(args.payload_file)
+            return service.space_context_apply(
+                space_id=args.space_id,
+                mode=args.mode,
+                action=args.action,
+                expected_input_sha256=args.expected_input_sha256,
+                payload=payload,
+                confirm_context_write=args.confirm_context_write,
+            )
+        if args.space_command == "migrate":
+            policy = load_space_policy(args.policy_file)
+            if args.plan:
+                if (
+                    args.expected_input_sha256 is not None
+                    or args.confirm_apply
+                    or args.confirm_rollback
+                ):
+                    raise SpaceValidationError(
+                        "Space migration plan cannot include apply or rollback arguments"
+                    )
+                return service.space_migration_plan(policy=policy)
+            if args.expected_input_sha256 is None:
+                raise SpaceValidationError(
+                    "Space migration apply and rollback require --expected-input-sha256"
+                )
+            if args.apply:
+                if args.confirm_rollback:
+                    raise SpaceValidationError(
+                        "Space migration apply cannot include --confirm-rollback"
+                    )
+                return service.space_migration_apply(
+                    expected_input_sha256=args.expected_input_sha256,
+                    confirm_apply=args.confirm_apply,
+                    policy=policy,
+                )
+            if policy is not None:
+                raise SpaceValidationError("Space migration rollback does not accept --policy-file")
+            if args.confirm_apply:
+                raise SpaceValidationError(
+                    "Space migration rollback cannot include --confirm-apply"
+                )
+            return service.space_migration_rollback(
+                migration_id=args.rollback,
+                expected_input_sha256=args.expected_input_sha256,
+                confirm_rollback=args.confirm_rollback,
+            )
+        if args.space_command == "cutover":
+            policy = load_space_policy(args.policy_file)
+            if args.plan:
+                if (
+                    args.expected_input_sha256 is not None
+                    or args.confirm_apply
+                    or args.confirm_rollback
+                ):
+                    raise SpaceValidationError(
+                        "Source identifier cutover plan cannot include apply or rollback arguments"
+                    )
+                return service.space_identifier_cutover_plan(policy=policy)
+            if args.expected_input_sha256 is None:
+                raise SpaceValidationError(
+                    "Source identifier cutover apply and rollback require --expected-input-sha256"
+                )
+            if args.apply:
+                if args.confirm_rollback:
+                    raise SpaceValidationError(
+                        "Source identifier cutover apply cannot include --confirm-rollback"
+                    )
+                return service.space_identifier_cutover_apply(
+                    expected_input_sha256=args.expected_input_sha256,
+                    confirm_apply=args.confirm_apply,
+                    policy=policy,
+                )
+            if policy is not None:
+                raise SpaceValidationError(
+                    "Source identifier cutover rollback does not accept --policy-file"
+                )
+            if args.confirm_apply:
+                raise SpaceValidationError(
+                    "Source identifier cutover rollback cannot include --confirm-apply"
+                )
+            return service.space_identifier_cutover_rollback(
+                cutover_id=args.rollback,
+                expected_input_sha256=args.expected_input_sha256,
+                confirm_rollback=args.confirm_rollback,
+            )
+        raise AssertionError(f"unhandled space command: {args.space_command}")
+    if args.command == "workspace":
+        if args.workspace_command == "connect":
+            return service.workspace_connect(
+                workspace_id=args.workspace_id,
+                context_id=args.context_id,
+                display_name=args.display_name,
+                root=args.root,
+                execution_policy=args.execution_policy,
+            )
+        if args.workspace_command == "list":
+            return service.workspace_list(audience="local_cli")
+        if args.workspace_command == "status":
+            return service.workspace_status(
+                workspace_id=args.workspace_id,
+                audience="local_cli",
+            )
+        if args.workspace_command == "files":
+            return service.workspace_files(
+                workspace_id=args.workspace_id,
+                relative_path=args.relative_path,
+                path_contains=args.path_contains,
+                limit=args.limit,
+                offset=args.offset,
+                audience="local_cli",
+            )
+        if args.workspace_command == "read":
+            return service.workspace_read(
+                workspace_id=args.workspace_id,
+                relative_path=args.relative_path,
+                encoding=args.encoding,
+                max_bytes=args.max_bytes,
+                audience="local_cli",
+            )
+        if args.workspace_command == "write":
+            return service.workspace_write(
+                workspace_id=args.workspace_id,
+                relative_path=args.relative_path,
+                content=load_workspace_content(args.content_file),
+                content_encoding=args.content_encoding,
+                expected_version=args.expected_version,
+                make_current=args.make_current,
+                audience="local_cli",
+            )
+        if args.workspace_command == "restore":
+            return service.workspace_restore(
+                workspace_id=args.workspace_id,
+                recovery_id=args.recovery_id,
+                expected_version=args.expected_version,
+                audience="local_cli",
+            )
+        if args.workspace_command == "select-current":
+            return service.workspace_select_current(
+                workspace_id=args.workspace_id,
+                relative_path=args.relative_path,
+                expected_generation=args.expected_generation,
+                audience="local_cli",
+            )
+        if args.workspace_command == "disconnect":
+            return service.workspace_disconnect(
+                workspace_id=args.workspace_id,
+                expected_generation=args.expected_generation,
+                confirm_disconnect=args.confirm_disconnect,
+            )
+        raise AssertionError(f"unhandled workspace command: {args.workspace_command}")
     if args.command == "overview":
         return service.overview(
             audience="local_cli",
@@ -715,9 +1410,7 @@ def execute(args: argparse.Namespace) -> dict | list:
                 max_chars=args.max_chars,
                 audience="local_cli",
             )
-        raise AssertionError(
-            f"unhandled source command: {args.source_command}"
-        )
+        raise AssertionError(f"unhandled source command: {args.source_command}")
     if args.command == "context":
         if args.context_command == "list":
             return service.context_read(
@@ -755,9 +1448,7 @@ def execute(args: argparse.Namespace) -> dict | list:
                 expected_version=args.expected_version,
                 payload=load_json_object(args.payload_file),
                 confirm_persistent_context_write=True,
-                confirm_general_release_approval=(
-                    args.confirm_general_release
-                ),
+                confirm_general_release_approval=(args.confirm_general_release),
                 audience="local_cli",
             )
         if args.context_command == "archive":
@@ -769,11 +1460,29 @@ def execute(args: argparse.Namespace) -> dict | list:
                 confirm_persistent_context_write=True,
                 audience="local_cli",
             )
+        if args.context_command == "skill":
+            if args.context_skill_command == "show":
+                return service.context_skill_read(
+                    context_id=args.context_id,
+                    audience="local_cli",
+                )
+            if args.context_skill_command == "set":
+                return service.context_skill_set(
+                    context_id=args.context_id,
+                    skill_file=args.skill_file,
+                    expected_version=args.expected_version,
+                    confirm_context_skill_write=args.confirm_context_skill_write,
+                )
+            if args.context_skill_command == "remove":
+                return service.context_skill_remove(
+                    context_id=args.context_id,
+                    expected_version=args.expected_version,
+                    confirm_context_skill_remove=args.confirm_context_skill_remove,
+                )
+            raise AssertionError(f"unhandled context skill command: {args.context_skill_command}")
         if args.context_command == "migrate":
             return service.context_migrate()
-        raise AssertionError(
-            f"unhandled context command: {args.context_command}"
-        )
+        raise AssertionError(f"unhandled context command: {args.context_command}")
     if args.command == "interpretation-queue":
         return service.interpretation_queue(
             args.corpus,
@@ -798,9 +1507,7 @@ def execute(args: argparse.Namespace) -> dict | list:
     if args.command == "semantic-context":
         return service.semantic_context(args.corpus, query=args.query, limit=args.limit)
     if args.command == "evaluate-golden":
-        return service.evaluate_extraction_golden(
-            load_golden_annotation(args.annotation)
-        )
+        return service.evaluate_extraction_golden(load_golden_annotation(args.annotation))
     if args.command == "doctor":
         return service.doctor(args.corpus)
     raise AssertionError(f"unhandled command: {args.command}")

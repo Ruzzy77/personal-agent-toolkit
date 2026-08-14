@@ -101,7 +101,7 @@ product's tunnel. Verify the discovered tools before continuing:
 
 - Sense exposes Sense tools only.
 - Corpus exposes Corpus tools only.
-- Hypes exposes Hypes tools only.
+- Hypes exposes only `hypes_read` and `hypes_rewrite`, with the current `use-user-model` skill.
 
 Copy each created connection's `plugin_asdk_app_...` technical id from its browser URL. Build one
 marketplace containing only those independently installable product plugins:

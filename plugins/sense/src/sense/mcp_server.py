@@ -17,23 +17,21 @@ from . import __version__
 from .errors import SenseError
 from .exposure import stored_section_id
 from .model import (
+    MAX_REVISION_CHANGES,
     ProfileSection,
+    SectionRevision,
     ToolError,
     ToolFailure,
     ToolResponse,
     ToolSuccess,
 )
-from .service import ControlAction, ReadView, SenseService
+from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
-    "Sense holds a small set of private guidance for important choices that recur in different "
-    "contexts. Use it only when that guidance could change a conclusion or when the user asks to "
-    "see or change it. The current request and current sources always come first. Read only the "
-    "relevant sections and reach an independent conclusion rather than copying their wording. "
-    "Project facts stay with the project, continuing source-linked questions stay in the Corpus "
-    "chosen by the user, and narrow clues about understanding or explanation stay in Hypes. "
-    "Revise Sense only after an explicit correction or an observed result establishes guidance "
-    "that should remain useful elsewhere. A preview is read-only."
+    "Use Sense only when durable guidance could change an important choice or when the user asks "
+    "to inspect or change it. The current request and current sources take priority. Sense informs "
+    "the judgment but does not supply the wording or structure of the answer. Change Sense only at "
+    "the user's explicit request."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -48,6 +46,12 @@ PROFILE_WRITE = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=False,
 )
+PROFILE_IDEMPOTENT_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 PROFILE_CONTROL = ToolAnnotations(
     readOnlyHint=True,
     destructiveHint=False,
@@ -57,6 +61,16 @@ PROFILE_CONTROL = ToolAnnotations(
 
 SectionId = Annotated[str, Field(min_length=1, max_length=64)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+IdempotencyKey = Annotated[
+    str,
+    Field(
+        pattern=r"^[a-zA-Z0-9._:-]{1,160}$",
+        description=(
+            "Stable unique key for this exact batch; an exact retry returns the first result and "
+            "different input with the same key is rejected."
+        ),
+    ),
+]
 PublicOrigin = Literal["user_set", "learned_from_results"]
 McpControlAction = Literal[
     "inspect",
@@ -109,6 +123,27 @@ class SenseSection(BaseModel):
             if source["origin"] == "learned_from_results":
                 source["origin"] = "learned_from_work"
         return ProfileSection.model_validate(payload)
+
+
+class SenseRevisionChange(BaseModel):
+    """One final complete-section replacement in a local batch revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section_id: SectionId
+    previous_section_sha256: Sha256
+    previous_understanding: str = Field(min_length=1, max_length=2000)
+    changed_future_judgment: str = Field(min_length=1, max_length=2000)
+    new_section: SenseSection
+
+    def to_stored(self) -> SectionRevision:
+        return SectionRevision(
+            section_id=stored_section_id(self.section_id),
+            previous_section_sha256=self.previous_section_sha256,
+            previous_understanding=self.previous_understanding,
+            changed_future_judgment=self.changed_future_judgment,
+            new_section=self.new_section.to_stored(),
+        )
 
 
 def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
@@ -229,11 +264,14 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="sense_revise",
         title="Revise Sense",
         description=(
-            "Use this after an explicit correction or observed result establishes guidance that "
+            "Use this only when the user asks to save an explicit correction or observed result "
+            "as guidance that "
             "should remain useful in other contexts. Do not save project facts, one-project notes, "
-            "or clues that belong in Corpus or Hypes. Replace one complete ordinary section using "
-            "the current revision and digest from sense_read. The change explanation is checked "
-            "but not stored. Preview data and sensitive sections cannot be changed here."
+            "or user-model relations that belong in Hypes. This compatibility tool replaces one "
+            "isolated ordinary section. Do not call it repeatedly in one response; use "
+            "sense_preview_revision and sense_revise_batch for related changes. The section digest "
+            "prevents overwriting that section if it changed. Preview data and sensitive sections "
+            "cannot be changed here."
         ),
         annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},
@@ -254,6 +292,65 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                 previous_understanding=previous_understanding,
                 changed_future_judgment=changed_future_judgment,
                 new_section=new_section.to_stored(),
+                trusted_user_action=False,
+            )
+        )
+
+    @server.tool(
+        name="sense_preview_revision",
+        title="Preview Sense Revision",
+        description=(
+            "Use this after all final section wording is complete and before saving related Sense "
+            "changes. It validates every target, keeps only the last replacement for a duplicated "
+            "section id, and shows one combined diff without writing. Unrelated sections may "
+            "have changed since the read; a target section conflict rejects the whole preview. "
+            "Read-only."
+        ),
+        annotations=READ_ONLY,
+        meta={"ui": {"visibility": ["model"]}},
+    )
+    def sense_preview_revision(
+        expected_revision: Annotated[int, Field(ge=1)],
+        changes: Annotated[
+            list[SenseRevisionChange],
+            Field(min_length=1, max_length=MAX_REVISION_CHANGES),
+        ],
+    ) -> ToolResponse:
+        return _safe_call(
+            lambda: service.preview_revision(
+                expected_revision=expected_revision,
+                changes=[change.to_stored() for change in changes],
+                trusted_user_action=False,
+            )
+        )
+
+    @server.tool(
+        name="sense_revise_batch",
+        title="Revise Sense Sections",
+        description=(
+            "Use this once when the user asks to save all related final Sense wording, normally "
+            "after one combined "
+            "sense_preview_revision. It replaces one or more complete ordinary sections in a "
+            "single all-or-nothing revision and creates one write approval. The last replacement "
+            "for a duplicated section id wins. A target section conflict writes nothing. Use one "
+            "unique idempotency key for the exact batch, and do not retry conflicts automatically."
+        ),
+        annotations=PROFILE_IDEMPOTENT_WRITE,
+        meta={"ui": {"visibility": ["model"]}},
+    )
+    def sense_revise_batch(
+        expected_revision: Annotated[int, Field(ge=1)],
+        idempotency_key: IdempotencyKey,
+        changes: Annotated[
+            list[SenseRevisionChange],
+            Field(min_length=1, max_length=MAX_REVISION_CHANGES),
+        ],
+    ) -> ToolResponse:
+        return _safe_call(
+            lambda: service.revise_batch(
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+                changes=[change.to_stored() for change in changes],
                 trusted_user_action=False,
             )
         )
@@ -321,7 +418,8 @@ def main() -> None:
         loopback = False
     if not loopback:
         raise ValueError(
-            "SENSE_MCP_HOST must be loopback until an authenticated OAuth resource server is configured"
+            "SENSE_MCP_HOST must be loopback until an authenticated OAuth resource server "
+            "is configured"
         )
     mcp.run(
         transport="streamable-http",

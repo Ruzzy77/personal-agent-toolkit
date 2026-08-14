@@ -13,10 +13,9 @@ import struct
 import subprocess
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAMES = ("sense", "corpus", "hypes")
@@ -24,50 +23,50 @@ MCP_PACKAGE_NAMES = PACKAGE_NAMES
 CLAUDE_PACKAGE_NAMES = PACKAGE_NAMES
 MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
+GATEWAY_SOURCE_REPOSITORY = "owners/remote-runtime"
+GIT_OBJECT_ID_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 PACKAGE_DESCRIPTIONS = {
     "sense": "Keep private guidance for important choices available across AI tools.",
     "corpus": "Connect saved questions and relationships to their exact current sources.",
-    "hypes": "Adapt explanations using only narrowly evidenced understanding clues.",
+    "hypes": "Give the assistant a private, revisable relationship model of the user.",
 }
 HOST_MARKER_FILES = {".codex-marketplace-install.json"}
 EXPECTED_TOOL_NAMES = {
     "sense": {
         "sense_read",
         "sense_overview",
+        "sense_preview_revision",
         "sense_revise",
+        "sense_revise_batch",
         "sense_control",
         "sense_status",
     },
     "corpus": {
-        "corpus_list",
-        "corpus_overview",
-        "corpus_status",
-        "corpus_inventory",
-        "corpus_search_candidates",
-        "corpus_read",
-        "corpus_source_read",
-        "corpus_source_fetch",
-        "corpus_source_update",
-        "context_read",
-        "context_update",
-        "corpus_sync",
-        "corpus_scan",
-        "corpus_refresh",
+        "corpus_space_list",
+        "corpus_space_get",
+        "corpus_space_search",
+        "corpus_file_list",
+        "corpus_file_read",
+        "corpus_file_write",
+        "corpus_file_select_current",
+        "corpus_file_restore",
     },
     "hypes": {
         "hypes_read",
-        "hypes_mark_recheck",
-        "hypes_revise",
-        "hypes_overview",
-        "hypes_preview_forget",
-        "hypes_forget",
-        "hypes_status",
+        "hypes_rewrite",
     },
 }
-EXPECTED_TOOL_COUNTS = {
-    name: len(tools) for name, tools in EXPECTED_TOOL_NAMES.items()
-}
+EXPECTED_TOOL_COUNTS = {name: len(tools) for name, tools in EXPECTED_TOOL_NAMES.items()}
 EXPECTED_SERVER_NAMES = {"sense": "Sense", "corpus": "Corpus", "hypes": "Hypes"}
+EXPECTED_SKILL_NAMES = {
+    "sense": {"update-sense", "use-sense"},
+    "corpus": {
+        "investigate-corpus",
+        "show-corpus-overview",
+        "work-in-corpus-folder",
+    },
+    "hypes": {"use-user-model"},
+}
 PACKAGE_LAUNCHERS = {
     "sense": ("sense", "sense-mcp", "sense-readonly"),
     "corpus": ("corpus", "corpus-mcp", "corpus-readonly"),
@@ -98,6 +97,8 @@ PACKAGE_REQUIRED_FILES = {
         "skills/show-corpus-overview/SKILL.md",
         "skills/show-corpus-overview/agents/openai.yaml",
         "skills/show-corpus-overview/references/overview-visual-spec.md",
+        "skills/work-in-corpus-folder/SKILL.md",
+        "skills/work-in-corpus-folder/agents/openai.yaml",
     ),
     "hypes": (
         "assets/icon.png",
@@ -110,8 +111,8 @@ PACKAGE_REQUIRED_FILES = {
         "src/hypes/store.py",
         "src/hypes/service.py",
         "src/hypes/mcp_server.py",
-        "skills/adapt-response/SKILL.md",
-        "skills/adapt-response/agents/openai.yaml",
+        "skills/use-user-model/SKILL.md",
+        "skills/use-user-model/agents/openai.yaml",
     ),
 }
 EXPECTED_TOP_LEVEL = {
@@ -285,8 +286,7 @@ def validate_structure() -> None:
                 for launcher_name in PACKAGE_LAUNCHERS[package_name]
             )
         required.extend(
-            package / relative
-            for relative in PACKAGE_REQUIRED_FILES[package_name]
+            package / relative for relative in PACKAGE_REQUIRED_FILES[package_name]
         )
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
@@ -430,8 +430,14 @@ def validate_gateway_release() -> None:
         "tunnel_service.py",
     }
     module_root = gateway / "src/personal_agent_remote"
-    if {path.name for path in module_root.iterdir()} != expected_modules:
-        raise ValueError("gateway package contains the wrong runtime modules")
+    actual_modules = {path.name for path in module_root.iterdir()}
+    if actual_modules != expected_modules:
+        missing = sorted(expected_modules - actual_modules)
+        unexpected = sorted(actual_modules - expected_modules)
+        raise ValueError(
+            "gateway package contains the wrong runtime modules; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
     expected_launchers = {
         "personal-agent-tunnel",
         "personal-agent-tunnel-gateway",
@@ -449,15 +455,76 @@ def validate_gateway_release() -> None:
             if marker not in text:
                 raise ValueError(f"gateway launcher is missing {marker}: {launcher}")
     sentinel = _json(gateway / ".personal-agent-gateway-release.json")
-    if sentinel != {
-        "format": "personal-agent-tunnel-gateway-release",
-        "schema_version": 1,
-        "version": "0.1.1",
-        "content_sha256": sentinel.get("content_sha256"),
+    if set(sentinel) != {
+        "content_sha256",
+        "format",
+        "schema_version",
+        "source",
+        "version",
     }:
+        raise ValueError("gateway release sentinel is invalid")
+    source = sentinel.get("source")
+    if (
+        sentinel.get("format") != "personal-agent-tunnel-gateway-release"
+        or sentinel.get("schema_version") != 2
+        or sentinel.get("version") != "0.2.0"
+        or not isinstance(sentinel.get("content_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", sentinel["content_sha256"]) is None
+        or not isinstance(source, dict)
+        or set(source) != {"clean", "commit", "repository"}
+        or source.get("repository") != GATEWAY_SOURCE_REPOSITORY
+        or not isinstance(source.get("commit"), str)
+        or GIT_OBJECT_ID_RE.fullmatch(source["commit"]) is None
+        or source.get("clean") is not True
+    ):
         raise ValueError("gateway release sentinel is invalid")
     if sentinel["content_sha256"] != _gateway_content_digest(gateway):
         raise ValueError("gateway release content digest is invalid")
+
+    if ROOT.name == "public" and ROOT.parent.name == "distribution":
+        source_root = ROOT.parent.parent / GATEWAY_SOURCE_REPOSITORY
+        if source_root.exists():
+            environment = dict(os.environ)
+            environment["GIT_OPTIONAL_LOCKS"] = "0"
+
+            def git_output(*arguments: str) -> str:
+                try:
+                    result = subprocess.run(
+                        ["git", "-C", str(source_root), *arguments],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        env=environment,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    raise ValueError(
+                        "gateway source Git provenance is unavailable"
+                    ) from exc
+                if result.returncode != 0:
+                    raise ValueError("gateway source Git provenance is unavailable")
+                return result.stdout.strip()
+
+            try:
+                repository_root = Path(
+                    git_output("rev-parse", "--show-toplevel")
+                ).resolve(strict=True)
+                expected_source_root = source_root.resolve(strict=True)
+            except OSError as exc:
+                raise ValueError(
+                    "gateway source Git provenance is unavailable"
+                ) from exc
+            if repository_root != expected_source_root:
+                raise ValueError("gateway source is not its Git repository root")
+            if git_output("rev-parse", "--verify", "HEAD^{commit}") != source["commit"]:
+                raise ValueError("gateway source commit does not match the release")
+            if git_output(
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+            ):
+                raise ValueError("gateway source Git tree is not clean")
 
 
 def validate_marketplaces() -> None:
@@ -597,6 +664,16 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} Claude manifest does not use .mcp.json")
         if codex.get("skills") != "./skills/":
             raise ValueError(f"{package_name} Codex skills path is invalid")
+        skill_names = {
+            path.parent.name
+            for path in (package / "skills").glob("*/SKILL.md")
+            if path.is_file()
+        }
+        if skill_names != EXPECTED_SKILL_NAMES[package_name]:
+            raise ValueError(
+                f"{package_name} public skill inventory is invalid: "
+                f"{', '.join(sorted(skill_names))}"
+            )
         interface = codex.get("interface", {})
         if interface.get("composerIcon") != "./assets/icon.png":
             raise ValueError(f"{package_name} Codex composer icon is invalid")
@@ -605,52 +682,53 @@ def validate_package_manifests() -> dict[str, str]:
 
     for package_name, build_id in build_ids.items():
         if any(
-            marker in build_id.casefold()
-            for marker in ("test", "validation", "audit")
+            marker in build_id.casefold() for marker in ("test", "validation", "audit")
         ):
-            raise ValueError(
-                f"{package_name} uses a non-release build ID: {build_id}"
-            )
+            raise ValueError(f"{package_name} uses a non-release build ID: {build_id}")
     hypes_package = ROOT / "plugins/hypes"
     hypes_skill = " ".join(
-        (hypes_package / "skills/adapt-response/SKILL.md")
+        (hypes_package / "skills/use-user-model/SKILL.md")
         .read_text(encoding="utf-8")
         .split()
     )
     hypes_agent = (
-        hypes_package / "skills/adapt-response/agents/openai.yaml"
+        hypes_package / "skills/use-user-model/agents/openai.yaml"
     ).read_text(encoding="utf-8")
     required_hypes_contract = {
         "Answer the subject directly": "does not answer the subject directly",
-        "Preserve important facts, uncertainty, differences, risks, and responsibility": (
+        "Keep the facts that change the answer": (
             "does not preserve decision-relevant content"
         ),
-        "The visible conversation is enough by default": (
+        "Treat the visible conversation as sufficient by default": (
             "does not use the visible conversation as its default"
         ),
-        "A completed request, short assent, unanswered question": (
-            "treats completion or assent as retention evidence"
+        "Use `hypes_read` when": (
+            "does not limit ontology reads to material response changes"
         ),
-        "Retain a clue only after one of these forms of evidence": (
-            "does not require visible retention evidence"
+        "current interaction changes a reusable concept or relation": (
+            "does not notice interactions that change the user model"
         ),
-        "explanation written by the assistant is not evidence": (
-            "treats assistant-written output as user evidence"
+        "Make no Hypes call": ("does not stay out of unrelated conversations"),
+        "The user's current message always takes priority": (
+            "does not give the current message priority over the model"
         ),
-        "`demonstrated_application`, `confirmed_explanation_outcome`, or "
-        "`repeated_across_conversations`": (
-            "does not expose the current retention bases"
+        "Call `hypes_rewrite` only when": (
+            "does not limit writes to changes in the agent's user model"
         ),
-        "Ask at most one focused question": (
-            "does not limit understanding checks"
+        "Do not write merely because a turn or task completed": (
+            "writes ordinary conversation completion into the ontology"
         ),
-        "Stop checking once the user applies the distinction": (
-            "does not stop after demonstrated understanding"
+        "Prefer rewriting over accumulation": (
+            "does not prefer model rewriting over accumulation"
         ),
-        "For a finished document, follow its genre, reader, and argument": (
+        "never the transcript": (
+            "does not exclude conversation transcripts from the ontology"
+        ),
+        "Ask at most one focused question": ("does not limit understanding checks"),
+        "For a finished artifact, follow its genre, reader, and argument": (
             "does not preserve finished-artifact guidance"
         ),
-        "name only observable effects": (
+        "describe only observable effects": (
             "does not keep Hypes explanations observable"
         ),
     }
@@ -659,7 +737,7 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"Hypes skill {failure}")
     if "allow_implicit_invocation: true" not in hypes_agent:
         raise ValueError("Hypes skill does not allow implicit invocation")
-    for retired in ("recommend-help", "run-hypes-task"):
+    for retired in ("adapt-response", "recommend-help", "run-hypes-task"):
         if (hypes_package / "skills" / retired).exists():
             raise ValueError(f"retired Hypes skill remains: {retired}")
 
@@ -785,6 +863,7 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
         process.kill()
         raise TypeError("MCP validation process has no stdin pipe")
     handshake_complete = False
+    corpus_space_list_response: dict[str, Any] | None = None
     try:
         process.stdin.write(json.dumps(requests[0]) + "\n")
         process.stdin.flush()
@@ -803,6 +882,27 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
             raise ValueError(
                 f"{package_name} MCP tools/list response is invalid: {tool_response}"
             ) from exc
+        if package_name == "corpus":
+            process.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "corpus_space_list",
+                            "arguments": {},
+                        },
+                    }
+                )
+                + "\n"
+            )
+            process.stdin.flush()
+            corpus_space_list_response, _ = _read_mcp_response(
+                process,
+                expected_id=3,
+                package_name=package_name,
+            )
         handshake_complete = True
     finally:
         process.stdin.close()
@@ -841,6 +941,18 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
         required_annotations.issubset(tool.get("annotations", {})) for tool in tools
     ):
         raise ValueError(f"{package_name} MCP tool annotations are incomplete")
+    if package_name == "corpus":
+        try:
+            structured = corpus_space_list_response["result"]["structuredContent"]
+            surface_revision = structured["result"]["surface_revision"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "corpus_space_list did not return a structured surface revision"
+            ) from exc
+        if structured.get("ok") is not True or surface_revision != "space-v2":
+            raise ValueError(
+                "Corpus public package must expose surface_revision=space-v2"
+            )
 
 
 def validate_sessionless_server_source(package_name: str) -> None:
@@ -1025,7 +1137,7 @@ def validate_hypes_first_run(temporary_root: Path) -> None:
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONPATH"] = str(package / "src")
     environment["HYPES_DATA_ROOT"] = str(temporary_root / "Hypes")
-    status_call = """
+    read_call = """
 import asyncio
 import json
 import os
@@ -1034,33 +1146,23 @@ from pathlib import Path
 from hypes.mcp_server import create_server
 
 server = create_server(Path(os.environ["HYPES_DATA_ROOT"]))
-response = asyncio.run(server.call_tool("hypes_status", {}))
+response = asyncio.run(server.call_tool("hypes_read", {}))
 print(json.dumps(response.structured_content))
 """
     response = _run_json(
-        [str(temporary_root / "hypes-python/bin/python"), "-c", status_call],
+        [str(temporary_root / "hypes-python/bin/python"), "-c", read_call],
         environment=environment,
     )
     if response.get("ok") is not True:
-        raise ValueError("Hypes MCP status call failed")
-    status = response.get("result")
-    if not isinstance(status, dict):
-        raise TypeError("Hypes MCP status result is invalid")
-    if status.get("transport_session_state") is not False:
-        raise ValueError("Hypes MCP transport unexpectedly retains session state")
-    if status.get("persistent_application_state") is not True:
-        raise ValueError(
-            "Hypes did not report its explicit persistent application state"
-        )
-    if status.get("http_publication_ready") is not False:
-        raise ValueError(
-            "Hypes local package must not report remote publication readiness"
-        )
+        raise ValueError("Hypes MCP read call failed")
+    graph = response.get("result")
+    if graph != {"nodes": [], "predicates": [], "edges": [], "continuation": None}:
+        raise ValueError("Hypes first read did not return an empty ontology")
 
     data_root = temporary_root / "Hypes"
-    database = data_root / "hypes.sqlite3"
+    database = data_root / "hypes-ontology.sqlite3"
     if not data_root.is_dir() or not database.is_file():
-        raise ValueError("Hypes status did not create its isolated private store")
+        raise ValueError("Hypes read did not create its isolated private store")
     if stat.S_IMODE(data_root.stat().st_mode) != 0o700:
         raise ValueError("Hypes data directory is not private")
     if stat.S_IMODE(database.stat().st_mode) != 0o600:

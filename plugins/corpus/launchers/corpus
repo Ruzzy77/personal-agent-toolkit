@@ -40,6 +40,7 @@ from pathlib import Path
 
 from corpus.config import default_data_root, is_within, open_private_directory
 from corpus.database import list_corpora
+from corpus.workspaces import list_workspace_roots
 
 
 def normalized_absolute(path: Path, *, require_absolute: bool) -> Path:
@@ -74,7 +75,7 @@ def option_value(arguments: list[str], option: str) -> str | None:
     return None
 
 
-def registration_source(arguments: list[str]) -> Path | None:
+def pending_registration_root(arguments: list[str]) -> Path | None:
     position = 0
     while position < len(arguments):
         argument = arguments[position]
@@ -86,7 +87,8 @@ def registration_source(arguments: list[str]) -> Path | None:
             position += 1
         else:
             break
-    if arguments[position : position + 2] != ["corpus", "add"]:
+    command = arguments[position : position + 2]
+    if command not in (["corpus", "add"], ["workspace", "connect"]):
         return None
     value = option_value(arguments[position + 2 :], "--root")
     return Path(value) if value else None
@@ -106,25 +108,25 @@ try:
         require_absolute=True,
     )
     resolved_environment_root = resolved_absolute(environment_path)
-    source_paths = [
+    protected_paths = [
         Path(corpus["source_root"])
         for corpus in list_corpora(data_root)
     ]
-    pending_source = registration_source(cli_arguments)
-    if pending_source is not None:
-        source_paths.append(pending_source)
+    protected_paths.extend(list_workspace_roots(data_root))
+    pending_root = pending_registration_root(cli_arguments)
+    if pending_root is not None:
+        protected_paths.append(pending_root)
 
-    for source_path in source_paths:
-        source_root = normalized_absolute(
-            source_path,
+    for protected_path in protected_paths:
+        protected_root = normalized_absolute(
+            protected_path,
             require_absolute=False,
         )
-        resolved_source_root = resolved_absolute(source_path)
-        if roots_overlap(environment_root, source_root) or roots_overlap(
-            resolved_environment_root,
-            resolved_source_root,
+        resolved_protected_root = resolved_absolute(protected_path)
+        if roots_overlap(environment_root, protected_root) or roots_overlap(
+            resolved_environment_root, resolved_protected_root
         ):
-            raise ValueError("runtime and registered source roots overlap")
+            raise ValueError("runtime and protected content roots overlap")
 
     descriptor = open_private_directory(environment_path, create=True)
 except Exception:

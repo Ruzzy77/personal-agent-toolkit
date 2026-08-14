@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypes"
-version = "0.6.0"
-description = "Adaptive explanations and a scoped personal cognitive model"
+version = "0.7.0"
+description = "A persistent, revisable relationship model of the user"
 authors = [
   {name = "Ruzzy77"},
 ]
@@ -22,14 +22,12 @@ hypes-mcp = "hypes.mcp_server:main"
 
 [dependency-groups]
 dev = [
-  "jsonschema[format]>=4.23,<5",
+  "jsonschema>=4.23,<5",
   "pytest>=8.3,<9",
-  "rfc8785>=0.1.4,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hypes"]
-exclude = ["/src/hypes/harness/**"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

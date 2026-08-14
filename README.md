@@ -2,32 +2,34 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-A local-first toolkit that helps AI work with the user's preferences, return to original sources,
-and present each response in a form that suits the task. The marketplace currently contains:
+A local-first toolkit that keeps guidance for important choices private, returns to original
+sources, and helps AI adapt only when its current understanding of the user matters. The
+marketplace currently contains:
 
-- **Sense** carries one private, user-controlled work profile across AI tools.
+- **Sense** keeps a small set of private, user-controlled guidance for important choices available
+  across AI tools.
 - **Corpus** connects a task to the files, email, and completed AI work that belong with it, then
   opens the original sources needed now.
-- **Hypes** adapts substantive responses and questions to what the user understands, needs to
-  decide, and is trying to do, and carries forward only stable, scoped explanation clues at
-  natural commitment points.
+- **Hypes** gives an agent a private, revisable relationship model of the user, then uses only the
+  relevant relationships to change later interpretation, explanation, and choice.
 
 This repository contains plugin code, manifests, assets, and dependency locks, but no user data. It
-does not contain a Sense profile, Corpus catalog or index, Hypes cognitive-model database, source
-documents, saved context, provider conversations, credentials, or runtime databases.
+does not contain active Sense guidance, a Corpus catalog or index, a Hypes relationship-model
+database, source documents, saved context, provider conversations, credentials, or runtime
+databases.
 
 ## When the plugins run
 
 The user does not need to name a plugin on every request. Once installed and enabled, Codex or
 Claude can select them when a task calls for them:
 
-- Sense can be selected when substantive work depends on the user's intent, working
-  style, priorities, responsibility, or learning across completed work.
+- Sense can be selected when an important choice may depend on durable intent, responsibility, or
+  a lesson that remains useful in different contexts.
 - Corpus can be selected when a task needs to understand an ongoing body of work or locate,
   compare, and verify its original sources.
-- Hypes can be selected when an explicit correction, confirmed understanding, unresolved concept,
-  or consequential choice should materially change the response. It should not load merely because
-  a response is substantive.
+- Hypes can be selected when the agent's current model of the user could materially change an
+  interpretation, explanation, question, or choice, or when the interaction changes that model.
+  It should not load merely because a response is substantive.
 
 Simple retrieval, literal transformations, and direct one-step actions should not load unrelated
 personal context. Codex and Claude decide when to use a skill, so a relevant skill may not be used
@@ -134,8 +136,9 @@ See OpenAI's documentation for
 
 ### Sense
 
-Sense intentionally starts without a profile. Copy the example, replace its placeholder text with
-your own reviewed preferences, and import it as a read-only preview.
+Sense intentionally starts without active guidance. Copy the example, replace its placeholder text
+with the small set of guidance you want important choices to use, and import it as a read-only
+preview.
 
 ```sh
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
@@ -157,7 +160,7 @@ After reviewing the exact preview, activate the revision and digest returned by 
 ```
 
 Activation is deliberately a local user action. An AI tool cannot activate, forget, or remove the
-profile on the user's behalf.
+guidance on the user's behalf.
 
 ### Corpus
 
@@ -171,88 +174,75 @@ Corpus also starts empty. Register only a folder you want Corpus to search:
 ```
 
 Then ask the AI tool what work contexts Corpus can help continue, or ask it to connect the current
-task to its files, email, completed AI work, and exact source passages. Source files remain
-read-only. Indexes and saved context are private runtime data outside this repository.
+task to its files, email, completed AI work, and exact source passages. Registered source files
+remain read-only. Indexes and saved context are private runtime data outside this repository.
+
+For drafts and other results that Chat and local Work should edit in the same place, first create or
+choose an active named context, then connect a separate local work folder:
+
+```sh
+./plugins/corpus/launchers/corpus workspace connect \
+  --id my-drafts \
+  --context ACTIVE_CONTEXT_ID \
+  --name "My drafts" \
+  --root /absolute/path/to/my-drafts \
+  --execution-policy external_host_allowed
+```
+
+Only this explicitly connected folder is writable. Its local files remain the latest copy, and the
+Mac and local Corpus connection must be available when Chat reads or writes them. Existing files
+are replaced only from a freshly observed version; concurrent local changes stop the write rather
+than being overwritten. Corpus keeps a private recovery copy for a successful replacement. It does
+not provide file deletion, move, execution, offline cloud copies, or multi-device merging.
 
 ### Hypes
 
-Hypes works in the background on substantive tasks. It writes the actual response with the detail
-the task needs, removes repeated context and process-heavy wording, adds explanation only when it
-helps, and keeps important facts, uncertainty, and decisions the user must make. Explicit wording
-or explanation corrections in the current conversation should affect the next relevant response.
-When the user proposes a direction, Hypes compares its value, risks, reversibility, and likely
-failure costs instead of opening with unsupported agreement or praise.
+Hypes maintains the agent's private, revisable relationship model of the user. It is not a profile
+written by the user or an artifact for outside use. The whole graph implicitly means “this is how
+the agent currently understands the user.”
 
-During the conversation, Hypes follows what the user has established they understand, what remains
-unclear, the current decision, and how earlier explanations were received. It may ask one brief
-question when a foundational concept will shape later work, a misunderstanding could change an
-important choice, or a short probe can replace a long explanation. The question can ask the user
-to choose a distinction, apply the idea, or explain it briefly in their own words.
+The model is represented as an ontology with only three structural kinds: Node, Predicate, and
+Edge. The agent creates the actual concepts and relationship types, and can replace or delete them
+when its model changes. It does not attach evidence, retention, review, or confidence
+infrastructure to every relation.
 
-The response to that question changes the next explanation. Hypes moves on when the user can apply
-the idea, explains only the missing connection when needed, and stops asking when the user wants to
-proceed or has limited attention. Native choices or a canvas may be used when they genuinely reduce
-review effort, but simple requests stay in the conversation.
+Hypes reads only when the user model could materially change the current response. It uses the
+relevant graph slice to interpret terms, decide which relationships can be assumed, choose where an
+explanation should start, or identify the one question that matters. The user's current message
+always overrides the stored graph, and ordinary responses do not announce that Hypes was used.
 
-It does not replace the result with project-management or engineering narration, turn a bounded
-edit into a research or governance program, list routine Git and test details, or weaken every main
-point with a reflexive caveat. Necessary limits stay where they materially affect interpretation or
-action, and the writing keeps the voice and structure of its actual genre.
+Hypes writes only when the interaction changed a reusable concept or relation in the agent's model
+of the user. It first reads the relevant existing structure and does not store a turn merely because
+the task completed. It prefers replacing, merging, and deleting existing structure over
+accumulating another memory note, and stores no transcript, full answer, task record, project fact,
+Corpus source, Sense guidance, or hidden reasoning.
 
-Agent-written drafts remain agent-written. A user's direction, selection, edit request, or
-permission to proceed is not described as user authorship or line-by-line approval unless the user
-explicitly adopts that wording or claim.
+This is conditional background behavior, not continuous monitoring: the skill may be selected
+without a named request, but no Hypes tool is called when a conversation neither depends on nor
+changes the user model.
+
+The local MCP exposes two tools:
+
+- `hypes_read` searches Node and Predicate names, aliases, and descriptions, then reads a bounded
+  graph neighborhood.
+- `hypes_rewrite` applies Node, Predicate, and Edge puts or deletes as one atomic graph patch.
 
 Start a new task or session after installation. Codex or Claude can select Hypes without a named
-request. To test explicit invocation, use:
-
-```text
-Use Hypes to make this response clear, natural, and appropriately detailed.
-```
-
-Hypes adds no fixed panel or separate writing-style choice. When its MCP is available, it keeps a
-small private cognitive-model database outside the plugin package. The database contains compact
-concept relationships and explanation clues with an exact topic, task, and responsibility scope;
-it does not contain raw conversations, a general ability score, personality, or sensitive traits.
-
-Provisional understanding stays in the visible conversation while work is underway. At task
-completion, handoff, a material conclusion, or topic change, the calling agent may use
-`hypes_revise` automatically when one compact relation is stable, reusable, exactly scoped,
-non-sensitive, and likely to change a future explanation. It does not ask whether to save and does
-not accumulate intermediate candidates. Silence, brief assent, preferences, agreement, project
-facts, health, ability, personality, transcripts, full answers, and hidden reasoning are not
-retention evidence. Agent-selected conversation conclusions are reviewed after 90 days by default;
-relations the user explicitly asks Hypes to retain are reviewed after 180 days by default.
-
-If current evidence conflicts with an active relation, `hypes_mark_recheck` suspends the old
-relation without storing the competing claim or conversation. Conflicting or due-for-review
-relations remain visible for inspection but do not silently influence an answer.
-
-The MCP transport is sessionless. Reads carry their exact scope; relation retention, recheck, and
-deletion writes carry the expected active-model revision and idempotency information. No call relies
-on a previous connection or server process. Only relations that pass the retention gate persist
-across processes.
-If the MCP is unavailable, Hypes falls back to what is established in the visible conversation.
-Simple retrieval, literal transformations, and direct one-step actions do not need it, and Codex or
-Claude may not select it on every relevant response.
-
-To check what Hypes took into account, ask “What do you currently believe I understand, and what
-still seems unclear?” or “What did Hypes change in this response?” It will distinguish the visible
-conversation from active stored clues, show recheck items when relevant, and will not invent an
-earlier draft or display a score, personality profile, checklist, or internal process report.
+request. To inspect or correct the model, ask “How do you currently understand me here?” or state
+the correction directly. The answer should make clear that the graph is the agent's current,
+revisable view rather than a user-approved fact.
 
 ## Data boundary
 
 By default on macOS:
 
-- Sense stores its private profile under `~/Library/Application Support/Sense/`.
+- Sense stores its private guidance as one profile under `~/Library/Application Support/Sense/`.
 - Corpus stores its catalog, indexes, and context under
   `~/Library/Application Support/Corpus/`.
 - Provider-linked records remain with their original providers. Corpus stores limited record
   details and reads exact visible content only when explicitly requested.
-- Hypes stores its compact private cognitive model under
-  `~/Library/Application Support/Hypes/`. It stores no raw conversation, and all retained model
-  state is available to the overview and deletion flow.
+- Hypes stores its private relationship model under `~/Library/Application Support/Hypes/` in
+  `hypes-ontology.sqlite3`. It stores no raw conversation or previous Hypes database content.
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 

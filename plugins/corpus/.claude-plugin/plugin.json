@@ -9,5 +9,5 @@
   "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
   "mcpServers": "./.mcp.json",
-  "version": "0.10.0+codex.20260811185921"
+  "version": "0.11.0+codex.20260814021004"
 }

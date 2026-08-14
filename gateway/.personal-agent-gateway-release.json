@@ -1,6 +1,11 @@
 {
-  "content_sha256": "82d0f78a1878159ab6f2157bae4c8819d8ae87379880fc755a399377b1fabe32",
+  "content_sha256": "ef64c3b9c50e8dbd19108cc6a505b616a667fe0d4ad458764d94a362ddda7f9a",
   "format": "personal-agent-tunnel-gateway-release",
-  "schema_version": 1,
-  "version": "0.1.1"
+  "schema_version": 2,
+  "source": {
+    "clean": true,
+    "commit": "9bec40c416c0d2440fd9dadb1f6894d27fe91ac4",
+    "repository": "owners/remote-runtime"
+  },
+  "version": "0.2.0"
 }

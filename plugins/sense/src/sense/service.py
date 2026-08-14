@@ -11,11 +11,12 @@ from .errors import ConfirmationRequiredError, MigrationStateError, SectionNotFo
 from .exposure import (
     guidance_overview,
     local_profile_index,
+    public_section_id,
     section_view,
     stored_section_id,
 )
 from .migration import SenseMigrationBundle, validate_idempotency_key
-from .model import ProfileDocument, ProfileSection, section_sha256
+from .model import ProfileDocument, ProfileSection, SectionRevision, section_sha256
 from .store import SenseStore
 
 ReadView = Literal["index", "sections", "full"]
@@ -315,6 +316,73 @@ class SenseService:
         )
         return self._summary(stored)
 
+    @staticmethod
+    def _public_revision_result(result: dict[str, Any]) -> dict[str, Any]:
+        public = dict(result)
+        for key in (
+            "target_section_ids",
+            "changed_section_ids",
+            "already_current_section_ids",
+        ):
+            if key in public:
+                public[key] = [public_section_id(value) for value in public[key]]
+        return public
+
+    def preview_revision(
+        self,
+        *,
+        expected_revision: int,
+        changes: list[SectionRevision],
+        trusted_user_action: bool = False,
+    ) -> dict[str, Any]:
+        preview = self.store.preview_revise_batch(
+            expected_revision=expected_revision,
+            changes=changes,
+            user_confirmed=trusted_user_action,
+        )
+        diff = self._profile_diff(
+            preview.current.profile,
+            preview.proposed_profile,
+        )
+        for changed in diff["changed_sections"]:
+            changed["section_id"] = public_section_id(changed["section_id"])
+        return {
+            "expected_revision": expected_revision,
+            "current_revision": preview.current.profile.revision,
+            "proposed_revision": preview.proposed_profile.revision,
+            "target_section_ids": [
+                public_section_id(value) for value in preview.target_section_ids
+            ],
+            "changed_section_ids": [
+                public_section_id(value) for value in preview.changed_section_ids
+            ],
+            "already_current_section_ids": [
+                public_section_id(value)
+                for value in preview.already_current_section_ids
+            ],
+            "superseded_change_count": preview.superseded_change_count,
+            "revisions_since_read": (
+                preview.current.profile.revision - expected_revision
+            ),
+            "diff": diff,
+        }
+
+    def revise_batch(
+        self,
+        *,
+        expected_revision: int,
+        idempotency_key: str,
+        changes: list[SectionRevision],
+        trusted_user_action: bool = False,
+    ) -> dict[str, Any]:
+        result = self.store.revise_batch(
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            changes=changes,
+            user_confirmed=trusted_user_action,
+        )
+        return self._public_revision_result(result)
+
     def remote_update(
         self,
         *,
@@ -446,8 +514,20 @@ class SenseService:
 
     def overview(self) -> dict[str, Any]:
         stored = self.store.read()
+        previous_profile = None
+        if stored.profile.revision > 1:
+            previous_revision = stored.profile.revision - 1
+            previous_profile = next(
+                (
+                    revision.profile
+                    for revision in self.store.revision_history()
+                    if revision.profile.revision == previous_revision
+                ),
+                None,
+            )
         return guidance_overview(
             stored.profile,
             lifecycle=stored.lifecycle,
             updated_at=stored.updated_at,
+            previous_profile=previous_profile,
         )

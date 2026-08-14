@@ -1,6 +1,0 @@
-interface:
-  display_name: "Hypes"
-  short_description: "Explanations that follow demonstrated understanding"
-  default_prompt: "Use $adapt-response only when a demonstrated understanding or correction should change the explanation, and answer the subject directly."
-policy:
-  allow_implicit_invocation: true

@@ -38,9 +38,11 @@ from .migration import (
     validate_idempotency_key,
 )
 from .model import (
+    MAX_REVISION_CHANGES,
     Lifecycle,
     ProfileDocument,
     ProfileSection,
+    SectionRevision,
     canonical_json_bytes,
     content_sha256,
     section_sha256,
@@ -110,13 +112,27 @@ class StoredRevision:
     current: bool
 
 
+@dataclass(frozen=True)
+class RevisionPreview:
+    current: StoredProfile
+    proposed_profile: ProfileDocument
+    target_section_ids: tuple[str, ...]
+    changed_section_ids: tuple[str, ...]
+    already_current_section_ids: tuple[str, ...]
+    superseded_change_count: int
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def default_data_root() -> Path:
     configured = os.environ.get(DATA_ROOT_ENV)
-    raw = Path(configured) if configured else Path.home() / "Library/Application Support/Sense"
+    raw = (
+        Path(configured)
+        if configured
+        else Path.home() / "Library/Application Support/Sense"
+    )
     expanded = raw.expanduser()
     if not expanded.is_absolute():
         raise UnsafeStorageError(
@@ -535,6 +551,99 @@ class SenseStore:
             )
 
     @staticmethod
+    def _normalize_section_revisions(
+        changes: list[SectionRevision],
+    ) -> tuple[list[SectionRevision], int]:
+        if not changes:
+            raise ValueError("at least one section revision is required")
+        if len(changes) > MAX_REVISION_CHANGES:
+            raise ValueError(
+                f"no more than {MAX_REVISION_CHANGES} section revisions are allowed"
+            )
+        latest_by_section: dict[str, SectionRevision] = {}
+        for change in changes:
+            latest_by_section[change.section_id] = change
+        normalized = [
+            latest_by_section[section_id] for section_id in sorted(latest_by_section)
+        ]
+        return normalized, len(changes) - len(normalized)
+
+    @classmethod
+    def _prepare_revision_preview(
+        cls,
+        current: StoredProfile,
+        *,
+        expected_revision: int,
+        changes: list[SectionRevision],
+        superseded_change_count: int,
+        user_confirmed: bool,
+    ) -> RevisionPreview:
+        if expected_revision < 1:
+            raise ValueError("expected_revision must be at least 1")
+        if expected_revision > current.profile.revision:
+            raise RevisionConflictError(
+                "Sense profile is older than the requested revision",
+                details={
+                    "expected_revision": expected_revision,
+                    "current_revision": current.profile.revision,
+                },
+            )
+
+        replacements: dict[str, ProfileSection] = {}
+        already_current: list[str] = []
+        conflicts: list[str] = []
+        for change in changes:
+            previous = cls._find_section(current.profile, change.section_id)
+            if previous == change.new_section:
+                already_current.append(change.section_id)
+                continue
+            if section_sha256(previous) != change.previous_section_sha256:
+                conflicts.append(change.section_id)
+                continue
+            cls._require_sensitive_confirmation(
+                previous,
+                change.new_section,
+                user_confirmed=user_confirmed,
+            )
+            replacements[change.section_id] = change.new_section
+
+        if conflicts:
+            raise RevisionConflictError(
+                "One or more Sense sections changed after they were read",
+                details={
+                    "expected_revision": expected_revision,
+                    "current_revision": current.profile.revision,
+                    "section_ids": sorted(conflicts),
+                },
+            )
+
+        changed_section_ids = tuple(sorted(replacements))
+        if changed_section_ids:
+            sections = [
+                replacements.get(section.id, section)
+                for section in current.profile.sections
+            ]
+            proposed = ProfileDocument.model_validate(
+                current.profile.model_copy(
+                    update={
+                        "revision": current.profile.revision + 1,
+                        "sections": sections,
+                    }
+                ).model_dump(mode="json")
+            )
+        else:
+            proposed = current.profile
+
+        return RevisionPreview(
+            current=current,
+            proposed_profile=proposed,
+            target_section_ids=tuple(change.section_id for change in changes),
+            changed_section_ids=changed_section_ids,
+            already_current_section_ids=tuple(sorted(already_current)),
+            superseded_change_count=superseded_change_count,
+        )
+
+    @staticmethod
     def _replay_operation(
         connection: sqlite3.Connection,
         *,
@@ -754,11 +863,20 @@ class SenseStore:
     ) -> StoredProfile:
         if new_section.id != section_id:
             raise ValueError("replacement section id must match section_id")
+        if expected_revision < 1:
+            raise ValueError("expected_revision must be at least 1")
         with closing(self._connect_write()) as connection:
             self._begin_exclusive(connection)
             current = self._load_current(connection)
             self._require_active(current)
-            self._require_revision(current, expected_revision)
+            if expected_revision > current.profile.revision:
+                raise RevisionConflictError(
+                    "Sense profile is older than the requested revision",
+                    details={
+                        "expected_revision": expected_revision,
+                        "current_revision": current.profile.revision,
+                    },
+                )
             previous = self._find_section(current.profile, section_id)
             if section_sha256(previous) != previous_section_sha256:
                 connection.execute("ROLLBACK")
@@ -796,6 +914,95 @@ class SenseStore:
             self._checkpoint(connection)
         self._secure_runtime_files()
         return self.read()
+
+    def preview_revise_batch(
+        self,
+        *,
+        expected_revision: int,
+        changes: list[SectionRevision],
+        user_confirmed: bool,
+    ) -> RevisionPreview:
+        normalized, superseded_change_count = self._normalize_section_revisions(changes)
+        with closing(self._connect_read()) as connection:
+            current = self._load_current(connection)
+            self._require_active(current)
+            return self._prepare_revision_preview(
+                current,
+                expected_revision=expected_revision,
+                changes=normalized,
+                superseded_change_count=superseded_change_count,
+                user_confirmed=user_confirmed,
+            )
+
+    def revise_batch(
+        self,
+        *,
+        expected_revision: int,
+        idempotency_key: str,
+        changes: list[SectionRevision],
+        user_confirmed: bool,
+    ) -> dict[str, Any]:
+        validate_idempotency_key(idempotency_key)
+        normalized, superseded_change_count = self._normalize_section_revisions(changes)
+        request = {
+            "expected_revision": expected_revision,
+            "changes": [change.model_dump(mode="json") for change in changes],
+        }
+        with closing(self._connect_write()) as connection:
+            self._begin_exclusive(connection)
+            replay = self._replay_operation(
+                connection,
+                operation="revise_batch_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+            )
+            if replay is not None:
+                connection.execute("COMMIT")
+                return replay
+
+            current = self._load_current(connection)
+            self._require_active(current)
+            preview = self._prepare_revision_preview(
+                current,
+                expected_revision=expected_revision,
+                changes=normalized,
+                superseded_change_count=superseded_change_count,
+                user_confirmed=user_confirmed,
+            )
+            if preview.changed_section_ids:
+                self._archive_current(connection, current)
+                self._replace_current(
+                    connection,
+                    lifecycle=current.lifecycle,
+                    profile=preview.proposed_profile,
+                )
+                self._prune_history(connection)
+                effect = "sections_updated"
+            else:
+                effect = "no_change"
+
+            result = {
+                "revision": preview.proposed_profile.revision,
+                "effect": effect,
+                "target_section_ids": list(preview.target_section_ids),
+                "changed_section_ids": list(preview.changed_section_ids),
+                "already_current_section_ids": list(
+                    preview.already_current_section_ids
+                ),
+                "superseded_change_count": preview.superseded_change_count,
+                "replayed": False,
+            }
+            self._record_operation_replay(
+                connection,
+                operation="revise_batch_v1",
+                idempotency_key=idempotency_key,
+                request=request,
+                response=result,
+            )
+            connection.execute("COMMIT")
+            self._checkpoint(connection)
+        self._secure_runtime_files()
+        return result
 
     def remote_revise_public(
         self,

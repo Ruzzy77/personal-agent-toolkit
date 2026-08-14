@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work in Corpus Folder"
+  short_description: "Create and revise files shared with local Work"
+  default_prompt: "Use $work-in-corpus-folder to continue this task in my connected Corpus work folder."

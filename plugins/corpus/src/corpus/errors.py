@@ -37,6 +37,38 @@ class ContextValidationError(CorpusError):
     code = "context_validation_error"
 
 
+class SpaceNotFoundError(CorpusError):
+    code = "space_not_found"
+
+
+class SpaceValidationError(CorpusError):
+    code = "space_validation"
+
+
+class SpaceConflictError(CorpusError):
+    code = "space_conflict"
+
+
+class WorkspaceNotFoundError(CorpusError):
+    code = "workspace_not_found"
+
+
+class WorkspaceValidationError(CorpusError):
+    code = "workspace_validation"
+
+
+class WorkspaceBoundaryError(CorpusError):
+    code = "workspace_boundary"
+
+
+class WorkspaceUnavailableError(CorpusError):
+    code = "workspace_unavailable"
+
+
+class WorkspaceConflictError(CorpusError):
+    code = "workspace_conflict"
+
+
 class PolicyDeniedError(CorpusError):
     code = "policy_denied"
 

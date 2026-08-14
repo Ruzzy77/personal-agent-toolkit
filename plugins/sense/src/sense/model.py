@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, m
 
 SCHEMA_VERSION = 1
 MAX_SECTIONS = 24
+MAX_REVISION_CHANGES = 12
 MAX_SECTION_TEXT_CHARS = 12_000
 MAX_PROFILE_BYTES = 256 * 1024
 SECTION_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -40,7 +41,7 @@ class SourceRef(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def require_typed_locator(self) -> "SourceRef":
+    def require_typed_locator(self) -> SourceRef:
         locator = self.locator
         if self.kind == "file":
             if re.fullmatch(r"git:[0-9a-f]{40}:[^\x00\r\n]+", locator):
@@ -126,12 +127,45 @@ class ProfileDocument(BaseModel):
     controls: ProfileControls = Field(default_factory=ProfileControls)
 
     @model_validator(mode="after")
-    def unique_sections_and_bounded_profile(self) -> "ProfileDocument":
+    def unique_sections_and_bounded_profile(self) -> ProfileDocument:
         ids = [section.id for section in self.sections]
         if len(ids) != len(set(ids)):
             raise ValueError("profile section ids must be unique")
         if len(canonical_json_bytes(self)) > MAX_PROFILE_BYTES:
             raise ValueError("profile exceeds the private store size limit")
+        return self
+
+
+class SectionRevision(BaseModel):
+    """One final section replacement inside an atomic profile revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section_id: str = Field(min_length=1, max_length=64)
+    previous_section_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    previous_understanding: str = Field(min_length=1, max_length=2000)
+    changed_future_judgment: str = Field(min_length=1, max_length=2000)
+    new_section: ProfileSection
+
+    @field_validator("section_id")
+    @classmethod
+    def validate_section_id(cls, value: str) -> str:
+        if SECTION_ID_RE.fullmatch(value) is None:
+            raise ValueError("section id must use lowercase hyphen-case")
+        return value
+
+    @field_validator("previous_understanding", "changed_future_judgment")
+    @classmethod
+    def require_explanation(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("revision explanations must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def replacement_id_matches_target(self) -> SectionRevision:
+        if self.new_section.id != self.section_id:
+            raise ValueError("replacement section id must match section_id")
         return self
 
 

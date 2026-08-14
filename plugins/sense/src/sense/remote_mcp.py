@@ -46,15 +46,12 @@ READ_SCOPE = "sense:read"
 UPDATE_SCOPE = "sense:update"
 DELETE_SCOPE = "sense:delete"
 REMOTE_SERVER_INSTRUCTIONS = (
-    "Sense holds a small set of private guidance for important choices that recur in different "
-    "contexts. Use it only when that guidance could change a conclusion or when the authenticated "
-    "user asks to see or change it. The current request and current sources come first. Read only "
-    "relevant ordinary sections and reach an independent conclusion. This remote connection omits "
-    "source locators, sensitive sections, revision history, local storage details, and section "
-    "digests. It can update only public fields of an existing ordinary section. Deletion requires "
-    "an exact short-lived preview and explicit host confirmation. Project facts stay with the "
-    "project, continuing source-linked questions stay in Corpus, and narrow explanation clues stay "
-    "in Hypes."
+    "Use Sense only when durable guidance could change an important choice or when the "
+    "authenticated user asks to inspect or change it. The current request and current sources take "
+    "priority. Sense informs the judgment but does not supply the wording or structure of the "
+    "answer. The remote connection exposes only ordinary sections and omits source locators and "
+    "sensitive content. Changes require an explicit request, and deletion requires an exact "
+    "preview and host confirmation."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -464,10 +461,10 @@ def create_remote_server(
         title="Update Sense Section",
         description=(
             "Use this after an explicit correction or observed result establishes guidance that "
-            "should remain useful in other contexts. Do not store project facts, one-project notes, "
-            "or clues that belong in Corpus or Hypes. Replace only the public fields of one existing "
-            "ordinary section using the current revision and a unique idempotency key. Hidden fields "
-            "remain unchanged."
+            "should remain useful in other contexts. Do not store project facts, one-project "
+            "notes, or user-model relations that belong in Hypes. Replace only the public fields "
+            "of one existing ordinary section using the current revision and a unique idempotency "
+            "key. Hidden fields remain unchanged."
         ),
         annotations=WRITE,
         meta={
@@ -498,7 +495,9 @@ def create_remote_server(
             Field(
                 min_length=1,
                 max_length=2000,
-                description="How this correction should change important choices in other contexts.",
+                description=(
+                    "How this correction should change important choices in other contexts."
+                ),
             ),
         ],
         updated_section: RemotePublicSection,
@@ -532,8 +531,8 @@ def create_remote_server(
         description=(
             "Use this when the user asks to remove one ordinary Sense section. It shows the exact "
             "section that would be removed from the current data and retained revisions, then "
-            "returns a short-lived signed ticket. Read-only; source refs, sensitive content, paths, "
-            "and section digests are omitted."
+            "returns a short-lived signed ticket. Read-only; source refs, sensitive content, "
+            "paths, and section digests are omitted."
         ),
         annotations=READ_ONLY,
         meta={
@@ -574,10 +573,10 @@ def create_remote_server(
         name="sense_delete",
         title="Delete Sense Section",
         description=(
-            "Use this only after sense_delete_preview and host confirmation for that exact preview. "
-            "It permanently removes the ordinary section from current data and retained revisions. "
-            "The unmodified short-lived ticket, exact revision, and a unique idempotency key are "
-            "required; model text cannot supply confirmation."
+            "Use this only after sense_delete_preview and host confirmation for that exact "
+            "preview. It permanently removes the ordinary section from current data and retained "
+            "revisions. The unmodified short-lived ticket, exact revision, and a unique "
+            "idempotency key are required; model text cannot supply confirmation."
         ),
         annotations=DELETE,
         meta={

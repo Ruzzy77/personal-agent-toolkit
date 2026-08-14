@@ -36,37 +36,28 @@ LOCAL_PRODUCT_TOOLS = {
             "sense_read",
             "sense_overview",
             "sense_revise",
+            "sense_preview_revision",
+            "sense_revise_batch",
             "sense_control",
             "sense_status",
         }
     ),
     "corpus": frozenset(
         {
-            "corpus_list",
-            "corpus_overview",
-            "corpus_status",
-            "corpus_inventory",
-            "corpus_search_candidates",
-            "corpus_read",
-            "corpus_source_read",
-            "corpus_source_fetch",
-            "corpus_source_update",
-            "context_read",
-            "context_update",
-            "corpus_sync",
-            "corpus_scan",
-            "corpus_refresh",
+            "corpus_space_list",
+            "corpus_space_get",
+            "corpus_space_search",
+            "corpus_file_list",
+            "corpus_file_read",
+            "corpus_file_write",
+            "corpus_file_select_current",
+            "corpus_file_restore",
         }
     ),
     "hypes": frozenset(
         {
             "hypes_read",
-            "hypes_mark_recheck",
-            "hypes_revise",
-            "hypes_overview",
-            "hypes_preview_forget",
-            "hypes_forget",
-            "hypes_status",
+            "hypes_rewrite",
         }
     ),
 }

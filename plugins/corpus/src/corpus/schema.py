@@ -4,6 +4,8 @@ CATALOG_SCHEMA_VERSION = 1
 CORPUS_SCHEMA_VERSION = 4
 EXTRACTION_SCHEMA_VERSION = 4
 CONTEXT_SCHEMA_VERSION = 5
+WORKSPACE_SCHEMA_VERSION = 1
+SPACE_SCHEMA_VERSION = 1
 
 PROVENANCE_GUARD_SCHEMA = """
 CREATE TRIGGER IF NOT EXISTS guard_documents_current_revision_insert
@@ -285,6 +287,208 @@ CREATE TABLE IF NOT EXISTS context_release_items (
 
 CREATE INDEX IF NOT EXISTS idx_context_release_items_item
     ON context_release_items(item_id, release_id);
+"""
+
+WORKSPACE_SCHEMA = """
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_info (
+    version INTEGER NOT NULL
+);
+INSERT INTO schema_info(version)
+SELECT 1
+WHERE NOT EXISTS (SELECT 1 FROM schema_info);
+
+CREATE TABLE IF NOT EXISTS workspaces (
+    workspace_id TEXT PRIMARY KEY,
+    context_id TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    root_path_nfc TEXT NOT NULL UNIQUE,
+    root_device INTEGER NOT NULL,
+    root_inode INTEGER NOT NULL,
+    execution_policy TEXT NOT NULL
+        CHECK (execution_policy IN ('local_only', 'external_host_allowed')),
+    current_relative_path TEXT,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workspace_recoveries (
+    recovery_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    operation TEXT NOT NULL
+        CHECK (operation IN ('create', 'replace', 'trash', 'move')),
+    relative_path TEXT NOT NULL,
+    recovery_relative_path TEXT,
+    base_version_token TEXT,
+    result_version_token TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL
+        CHECK (state IN ('prepared', 'available', 'restored', 'discarded')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_recoveries_workspace_state
+    ON workspace_recoveries(workspace_id, state, created_at, recovery_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_recoveries_expiry
+    ON workspace_recoveries(state, expires_at)
+    WHERE expires_at IS NOT NULL;
+"""
+
+SPACE_SCHEMA = """
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_info (
+    version INTEGER NOT NULL
+);
+INSERT INTO schema_info(version)
+SELECT 1
+WHERE NOT EXISTS (SELECT 1 FROM schema_info);
+
+CREATE TABLE IF NOT EXISTS resources (
+    resource_uid TEXT PRIMARY KEY,
+    resource_kind TEXT NOT NULL
+        CHECK (resource_kind IN ('filesystem', 'provider')),
+    provider_kind TEXT NOT NULL,
+    root_path TEXT,
+    root_path_nfc TEXT UNIQUE,
+    root_device INTEGER,
+    root_inode INTEGER,
+    locator_json TEXT NOT NULL DEFAULT '{}',
+    source_scope_json TEXT NOT NULL
+        DEFAULT '{"exclude_directory_names":[],"exclude_path_prefixes":[]}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+        (resource_kind = 'filesystem'
+         AND root_path IS NOT NULL
+         AND root_path_nfc IS NOT NULL
+         AND root_device IS NOT NULL
+         AND root_inode IS NOT NULL)
+        OR
+        (resource_kind = 'provider'
+         AND root_path IS NULL
+         AND root_path_nfc IS NULL
+         AND root_device IS NULL
+         AND root_inode IS NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS spaces (
+    space_uid TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('active', 'archived')),
+    context_id TEXT UNIQUE,
+    context_access_scope TEXT NOT NULL
+        CHECK (context_access_scope IN ('local_only', 'remote_allowed')),
+    context_status TEXT NOT NULL
+        CHECK (context_status IN ('ready', 'refresh_needed', 'refreshing', 'error')),
+    context_status_reason TEXT,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connections (
+    connection_uid TEXT PRIMARY KEY,
+    space_uid TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    resource_uid TEXT NOT NULL,
+    source_role INTEGER NOT NULL CHECK (source_role IN (0, 1)),
+    work_role INTEGER NOT NULL CHECK (work_role IN (0, 1)),
+    access_scope TEXT NOT NULL
+        CHECK (access_scope IN ('local_only', 'remote_allowed')),
+    permission TEXT NOT NULL
+        CHECK (permission IN ('read_only', 'read_write')),
+    index_mode TEXT NOT NULL
+        CHECK (index_mode IN ('indexed', 'not_indexed')),
+    primary_work INTEGER NOT NULL DEFAULT 0 CHECK (primary_work IN (0, 1)),
+    current_relative_path TEXT,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(space_uid, connection_id),
+    UNIQUE(space_uid, resource_uid),
+    FOREIGN KEY(space_uid) REFERENCES spaces(space_uid) ON DELETE CASCADE,
+    FOREIGN KEY(resource_uid) REFERENCES resources(resource_uid),
+    CHECK (source_role = 1 OR work_role = 1),
+    CHECK (work_role = 1 OR permission = 'read_only'),
+    CHECK (source_role = 1 OR index_mode = 'not_indexed'),
+    CHECK (work_role = 1 OR primary_work = 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_primary_work
+    ON connections(space_uid)
+    WHERE primary_work = 1;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_writable_resource
+    ON connections(resource_uid)
+    WHERE permission = 'read_write';
+CREATE INDEX IF NOT EXISTS idx_connections_space
+    ON connections(space_uid, connection_id);
+
+CREATE TABLE IF NOT EXISTS connection_recoveries (
+    recovery_id TEXT PRIMARY KEY,
+    connection_uid TEXT NOT NULL,
+    operation TEXT NOT NULL
+        CHECK (operation IN ('create', 'replace', 'trash', 'move')),
+    relative_path TEXT NOT NULL,
+    recovery_relative_path TEXT,
+    base_version_token TEXT,
+    result_version_token TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL
+        CHECK (state IN ('prepared', 'available', 'restored', 'discarded')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT,
+    FOREIGN KEY(connection_uid)
+        REFERENCES connections(connection_uid) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_connection_recoveries_connection_state
+    ON connection_recoveries(connection_uid, state, created_at, recovery_id);
+CREATE INDEX IF NOT EXISTS idx_connection_recoveries_expiry
+    ON connection_recoveries(state, expires_at)
+    WHERE expires_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS space_migration_receipts (
+    migration_id TEXT PRIMARY KEY,
+    input_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL
+        CHECK (state IN ('prepared', 'applying', 'complete', 'rolled_back')),
+    plan_json TEXT NOT NULL,
+    rollback_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_space_migration_active
+    ON space_migration_receipts((1))
+    WHERE state IN ('prepared', 'applying', 'complete');
+CREATE INDEX IF NOT EXISTS idx_space_migration_input
+    ON space_migration_receipts(input_sha256, created_at, migration_id);
+
+CREATE TABLE IF NOT EXISTS source_identifier_cutovers (
+    cutover_id TEXT PRIMARY KEY,
+    input_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL
+        CHECK (state IN ('prepared', 'applying', 'complete', 'rolled_back')),
+    plan_json TEXT NOT NULL,
+    rollback_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_identifier_cutover_active
+    ON source_identifier_cutovers((1))
+    WHERE state IN ('prepared', 'applying', 'complete');
+CREATE INDEX IF NOT EXISTS idx_source_identifier_cutover_input
+    ON source_identifier_cutovers(input_sha256, created_at, cutover_id);
 """
 
 CORPUS_SCHEMA = """

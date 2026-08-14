@@ -11,9 +11,10 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import ConfigurationError, SourceBoundaryError
+from .errors import ConfigurationError, SourceBoundaryError, WorkspaceValidationError
 
 CORPUS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+WORKSPACE_ID_RE = CORPUS_ID_RE
 EXECUTION_POLICIES = {"local_only", "external_host_allowed"}
 SOURCE_SCOPE_MAX_DIRECTORY_NAMES = 32
 SOURCE_SCOPE_MAX_PATH_PREFIXES = 64
@@ -42,6 +43,18 @@ def normalize_corpus_id(corpus_id: str) -> str:
         raise ConfigurationError(
             "corpus id must be 1-64 lowercase letters, digits, dots, underscores, or hyphens",
             details={"corpus_id": corpus_id, "normalized": normalized},
+        )
+    return normalized
+
+
+def normalize_workspace_id(workspace_id: str) -> str:
+    if not isinstance(workspace_id, str):
+        raise WorkspaceValidationError("workspace id must be a string")
+    normalized = workspace_id.strip().lower().replace(" ", "-")
+    if not WORKSPACE_ID_RE.fullmatch(normalized):
+        raise WorkspaceValidationError(
+            "workspace id must be 1-64 lowercase letters, digits, dots, underscores, or hyphens",
+            details={"workspace_id": workspace_id, "normalized": normalized},
         )
     return normalized
 
@@ -513,6 +526,131 @@ class RuntimePaths:
                 path=self.runtime,
             )
             os.close(runtime_descriptor)
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
+
+@dataclass(frozen=True)
+class WorkspaceRuntimePaths:
+    """Private Corpus-owned files used to stage and recover workspace writes."""
+
+    data_root: Path
+    workspace_id: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "workspace_id",
+            normalize_workspace_id(self.workspace_id),
+        )
+
+    @property
+    def workspace_db(self) -> Path:
+        return self.data_root / "workspaces.sqlite3"
+
+    @property
+    def runtime_root(self) -> Path:
+        return self.data_root / "workspace-runtime"
+
+    @property
+    def workspace_root(self) -> Path:
+        return self.runtime_root / self.workspace_id
+
+    @property
+    def recovery(self) -> Path:
+        return self.workspace_root / "recovery"
+
+    @property
+    def staging(self) -> Path:
+        return self.workspace_root / "staging"
+
+    @property
+    def trash(self) -> Path:
+        return self.workspace_root / "trash"
+
+    @contextmanager
+    def open_workspace_root(self) -> Iterator[int]:
+        descriptors: list[int] = []
+        try:
+            data_descriptor = open_private_directory(self.data_root)
+            descriptors.append(data_descriptor)
+            runtime_descriptor = _open_directory_at(
+                data_descriptor,
+                "workspace-runtime",
+                path=self.runtime_root,
+                create=False,
+                require_private=True,
+            )
+            descriptors.append(runtime_descriptor)
+            workspace_descriptor = _open_directory_at(
+                runtime_descriptor,
+                self.workspace_id,
+                path=self.workspace_root,
+                create=False,
+                require_private=True,
+            )
+            descriptors.append(workspace_descriptor)
+            yield workspace_descriptor
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
+    @contextmanager
+    def open_workspace_directory(self, name: str) -> Iterator[int]:
+        allowed = {
+            "recovery": self.recovery,
+            "staging": self.staging,
+            "trash": self.trash,
+        }
+        try:
+            path = allowed[name]
+        except KeyError as exc:
+            raise _runtime_path_error(
+                self.workspace_root / name,
+                "unknown_owned_directory",
+            ) from exc
+        with self.open_workspace_root() as workspace_descriptor:
+            child_descriptor = _open_directory_at(
+                workspace_descriptor,
+                name,
+                path=path,
+                create=False,
+                require_private=True,
+            )
+            try:
+                yield child_descriptor
+            finally:
+                os.close(child_descriptor)
+
+    def ensure(self) -> None:
+        descriptors: list[int] = []
+        try:
+            data_descriptor = open_private_directory(self.data_root, create=True)
+            descriptors.append(data_descriptor)
+            runtime_descriptor = ensure_private_directory_at(
+                data_descriptor,
+                "workspace-runtime",
+                path=self.runtime_root,
+            )
+            descriptors.append(runtime_descriptor)
+            workspace_descriptor = ensure_private_directory_at(
+                runtime_descriptor,
+                self.workspace_id,
+                path=self.workspace_root,
+            )
+            descriptors.append(workspace_descriptor)
+            for name, path in (
+                ("recovery", self.recovery),
+                ("staging", self.staging),
+                ("trash", self.trash),
+            ):
+                child_descriptor = ensure_private_directory_at(
+                    workspace_descriptor,
+                    name,
+                    path=path,
+                )
+                os.close(child_descriptor)
         finally:
             for descriptor in reversed(descriptors):
                 os.close(descriptor)

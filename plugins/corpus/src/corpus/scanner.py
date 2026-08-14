@@ -159,8 +159,7 @@ def _scan_error_errno(error: BaseException) -> int | None:
     if isinstance(error, CorpusError):
         reason = error.details.get("reason")
         if isinstance(reason, str) and any(
-            reason.startswith(prefix)
-            for prefix in ("open_failed:", "stat_failed:")
+            reason.startswith(prefix) for prefix in ("open_failed:", "stat_failed:")
         ):
             try:
                 return int(reason.rsplit(":", 1)[1])
@@ -275,18 +274,25 @@ def _record_regular_file(
     is_dataless = bool(flags & SF_DATALESS)
     residency_state = "remote_only" if is_dataless else "resident"
     allocated_size = int(getattr(entry_stat, "st_blocks", 0) * 512)
-    document_id = stable_document_id(corpus_id, relative_path_nfc)
     now = utc_now()
 
     previous = connection.execute(
         """
-        SELECT logical_size, modified_ns, changed_ns, device, inode,
+        SELECT document_id, logical_size, modified_ns, changed_ns, device, inode,
                current_revision_id, deleted_at, residency_state,
                eligibility_state
-        FROM documents WHERE document_id = ?
+        FROM documents WHERE relative_path = ?
         """,
-        (document_id,),
+        (relative_path,),
     ).fetchone()
+    # A one-time source identifier cutover may change the namespace used for
+    # newly discovered document IDs. Existing paths retain their opaque IDs so
+    # revisions, projections, Context links, and snapshots remain intact.
+    document_id = (
+        previous["document_id"]
+        if previous is not None
+        else stable_document_id(corpus_id, relative_path_nfc)
+    )
     metadata_changed = bool(
         previous
         and (
@@ -466,14 +472,10 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                 },
                 structural_locator=_scan_issue_locator_from_relative("."),
             )
-            stack: list[
-                tuple[tuple[str, ...], tuple[os.stat_result, ...]]
-            ] = []
+            stack: list[tuple[tuple[str, ...], tuple[os.stat_result, ...]]] = []
         else:
             initial_source_root_identity = source_root_identity(root_descriptor)
-            root_owner = open_directories.enter_context(
-                _OwnedDescriptor(root_descriptor)
-            )
+            root_owner = open_directories.enter_context(_OwnedDescriptor(root_descriptor))
             stack = [((), ())]
 
         while stack:
@@ -533,9 +535,7 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             )
                         ),
                     },
-                    structural_locator=_scan_issue_locator_from_relative(
-                        directory_relative
-                    ),
+                    structural_locator=_scan_issue_locator_from_relative(directory_relative),
                 )
                 continue
 
@@ -582,9 +582,7 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                                 )
                             ),
                         },
-                        structural_locator=_scan_issue_locator_from_relative(
-                            directory_relative
-                        ),
+                        structural_locator=_scan_issue_locator_from_relative(directory_relative),
                     )
                     continue
 
@@ -632,9 +630,7 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                                     )
                                 ),
                             },
-                            structural_locator=_scan_issue_locator_from_relative(
-                                relative_path
-                            ),
+                            structural_locator=_scan_issue_locator_from_relative(relative_path),
                         )
                         continue
 
@@ -646,9 +642,7 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             code="symlink_skipped",
                             message="Symbolic links are not followed.",
                             details={"path": str(entry_path)},
-                            structural_locator=_scan_issue_locator_from_relative(
-                                relative_path
-                            ),
+                            structural_locator=_scan_issue_locator_from_relative(relative_path),
                         )
                         continue
                     if stat.S_ISDIR(entry_stat.st_mode):
@@ -659,17 +653,12 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             or relative_path_nfc.startswith(f"{prefix}/")
                             for prefix in excluded_path_prefixes
                         )
-                        if (
-                            entry_name_nfc in excluded_directory_names
-                            or excluded_by_prefix
-                        ):
+                        if entry_name_nfc in excluded_directory_names or excluded_by_prefix:
                             summary.excluded_directories += 1
                             continue
                         # Keep identities, not open descriptors, in the width-first
                         # work queue. Reopening at pop time validates every ancestor.
-                        stack.append(
-                            (entry_parts, (*expected_chain, entry_stat))
-                        )
+                        stack.append((entry_parts, (*expected_chain, entry_stat)))
                         continue
                     if not stat.S_ISREG(entry_stat.st_mode):
                         summary.special_files_skipped += 1
@@ -679,9 +668,7 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             code="special_file_skipped",
                             message="Only regular files are indexed.",
                             details={"path": str(entry_path), "mode": entry_stat.st_mode},
-                            structural_locator=_scan_issue_locator_from_relative(
-                                relative_path
-                            ),
+                            structural_locator=_scan_issue_locator_from_relative(relative_path),
                         )
                         continue
 
