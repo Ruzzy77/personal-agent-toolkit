@@ -94,31 +94,18 @@ Load or restart that one LaunchAgent, then check `http://127.0.0.1:18180/healthz
 the selected products and reports `product_runtime: installed-plugin`. Routine child output is
 discarded; bounded errors go to `~/Library/Logs/PersonalAgentTunnel/gateway.stderr.log`.
 
-## Connect ChatGPT and package only what you use
+## Connect ChatGPT and test each product
 
 In ChatGPT developer settings, create one app per selected product, choose Tunnel, and select that
 product's tunnel. Verify the discovered tools before continuing:
 
 - Sense exposes Sense tools only.
 - Corpus exposes Corpus tools only.
-- Hypes exposes only `hypes_read` and `hypes_rewrite`, with the current `use-user-model` skill.
+- Hypes exposes only `hypes_read`, `hypes_rewrite`, and their MCP metadata. The `use-user-model`
+  skill is loaded only by a separately prepared full plugin package, not by this raw connection.
 
-Copy each created connection's `plugin_asdk_app_...` technical id from its browser URL. Build one
-marketplace containing only those independently installable product plugins:
-
-```text
-uv --project owners/remote-runtime run python \
-  owners/remote-runtime/plugin_release/build.py \
-  --connection-mode tunnel \
-  --sense-app-id plugin_asdk_app_<sense> \
-  --hypes-app-id plugin_asdk_app_<hypes> \
-  --plugin-validator /path/to/plugin-creator/scripts/validate_plugin.py
-```
-
-Tunnel mode copies each selected product's existing local-tool skill and its app binding. It does
-not copy the local MCP launcher into the Chat package and does not add a gateway plugin. First test
-each raw developer connection in a fresh Chat. Test full skill-plus-app packaging separately on a
-ChatGPT surface that supports local marketplace plugins.
+Test each raw private developer connection in a fresh Chat before relying on it. This public gateway
+release supports that connection-level check directly.
 
 A raw developer connection receives the MCP server instructions, tool descriptions, parameter
 schemas, and tool annotations, but not the product skill bundle. The three products therefore keep
@@ -127,6 +114,10 @@ called, which read should precede a write, and when a destructive preview is req
 raw connection usable and safer, but it does not reproduce a skill's full response composition,
 teaching behavior, or multi-call workflow. Treat the raw-connection check and the full plugin check
 as different evidence.
+
+Full skill-plus-app marketplace packaging is a separately reviewed maintainer and source workflow.
+Its builder and source inputs are not shipped in this public checkout. When a maintainer prepares
+such a package, test it separately on a ChatGPT surface that supports local marketplace plugins.
 
 ## Switch from local-only use, update, and roll back
 

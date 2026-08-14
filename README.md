@@ -117,11 +117,11 @@ returns to local-only use without removing Sense, Corpus, Hypes, or their state.
 update, rerun the gateway installer and restart that LaunchAgent so the selected installed roots and
 reviewed tool surface are refreshed.
 
-The package builder creates a private marketplace containing only the selected product entries and
-their own connection ids. It does not create a gateway plugin or a model-selected router. Test each
-developer connection in a fresh Chat. Separately test the full skill-plus-app package on a ChatGPT
-surface that supports local marketplace plugins; a working MCP connection alone does not prove that
-ordinary Chat loads the local skill bundle.
+This public checkout supports testing each raw developer connection in a fresh Chat. It does not
+ship the separately reviewed maintainer/source workflow that packages local skill bundles with app
+bindings. If a maintainer prepares such a full skill-plus-app package, test it separately on a
+ChatGPT surface that supports local marketplace plugins; a working MCP connection alone does not
+prove that ordinary Chat loads the local skill bundle.
 
 Private developer registration is not public submission. Public directory distribution remains a
 separate review process for each independently installable product.
@@ -257,7 +257,10 @@ and credential patterns, empty-state behavior, Sense preview activation, Corpus 
 Hypes private-store permissions, skill structure and implicit-selection metadata, and real MCP
 `initialize` plus `tools/list` handshakes for all three plugins. It also checks that product HTTP
 listeners remain sessionless and loopback-only and that the optional gateway contains no product
-runtime, connection id, credential, or user data.
+runtime, connection id, credential, or user data. Each generated package records the exact clean
+owner commit used to build it; when the sibling owner repositories are available, validation checks
+those records against their current Git checkouts without accepting hidden index or Git environment
+overrides.
 
 ## License
 
@@ -268,6 +271,6 @@ are installed separately and retain their own licenses; see
 ---
 
 이 저장소는 Sense, Corpus, Hypes와 이후 추가될 독립 플러그인의 공통 배포 채널입니다.
-플러그인 코드와 설치 정보만 들어 있으며 개인 작업 프로필, 원문, 색인, 대화 상태,
-자격 증명, 실행 중 생성되는 데이터베이스는 포함하지 않습니다. 각 플러그인의 데이터와
-실행 경계는 분리되고 새 설치는 빈 상태로 시작합니다.
+플러그인 코드와 설치 정보만 들어 있으며 Sense 지침, Corpus 원문·색인·맥락, Hypes 관계 모델,
+자격 증명, 실행 중 생성되는 데이터베이스는 포함하지 않습니다. 각 플러그인의 데이터와 실행
+경계는 분리되고 새 설치는 빈 상태로 시작합니다.

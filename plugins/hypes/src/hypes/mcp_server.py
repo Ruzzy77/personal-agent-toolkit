@@ -18,13 +18,42 @@ from .model import RewriteOperation, ToolError, ToolFailure, ToolResponse, ToolS
 from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
-    "Hypes is the assistant's revisable relationship model of the user. Use it only when a current "
-    "relationship could change the answer "
-    "or when the interaction changes that model. The current message always takes "
-    "priority. Read only the relevant part, and do not expose its categories or use them as the "
-    "answer's structure. Rewrite only what actually changed; never store transcripts, project "
-    "facts, source material, credentials, direct identifiers, sensitive traits, or hidden "
-    "reasoning."
+    "Hypes is the assistant's revisable relationship model of the user. Use the first matching "
+    "branch for the current interaction. (1) If a literal output explicitly takes a stored term or "
+    "relation as input and has no separate reusable change or generalization, read only that "
+    "structure and never rewrite task-local terms, equivalences, facts, alternatives, or instructions. "
+    "(2) If the interaction directly states the reusable relation to "
+    "create, or corrects, replaces, or deletes one, read the existing slice and then rewrite it; a "
+    "request for the agent to derive a generalization uses branch 3. (3) "
+    "If the request "
+    "explicitly asks to generalize several stored relations into a reusable higher-level relation, "
+    "read the source edges and then write only the minimal synthesized reusable structure. Reuse a "
+    "predicate when it fits and create one only when needed; never copy a task, event, subject, or "
+    "source fact. (4) If an existing relation could materially change a non-literal "
+    "interpretation, explanation, question, or choice, read and apply it without rewriting; this "
+    "includes a stored criterion that could select between live alternatives. A request to inspect "
+    "the model uses a bounded read. (5) Otherwise make no Hypes call. Use known relevant refs; "
+    "otherwise every ordinary read starts with one to three short anchors. It is complete when it returns "
+    "the stored object needed by its branch. Applying, choosing by, correcting, replacing, deleting, "
+    "or generalizing a relationship requires the relevant edge; direct inspection or literal use of "
+    "one node or predicate may complete without an edge. When read_state is present and a relationship "
+    "is required, follow next_action_if_relationship_required; complete_if_relevant completes only for "
+    "a needed returned edge and otherwise stops without widening. When the branch needs a relationship "
+    "and an outline returns candidates, take only the relevant node_id and predicate_id values and pass "
+    "them as seed_refs in one follow-up "
+    "read before answering or rewriting. When read_state is absent, use that same follow-up after "
+    "exactly one small outline read. Stop without unrelated reads when no candidate or required edge "
+    "is found. Use "
+    "continuation_action only for an explicit request to inspect the whole model. "
+    "Branch 2 may create an explicitly stated reusable relation after confirming no old structure; "
+    "branch 3 requires actually read source edges. The current message always controls the answer "
+    "but does not itself authorize a rewrite. Never announce that you will read or check the model "
+    "or tools; return only the requested output. Task-local output premises never authorize a "
+    "rewrite; branches 2 and 3 write only the separately stated or derived reusable structure. Read "
+    "only relevant structure and do not expose its categories. Prefer one "
+    "coherent replacement patch over accumulation. Use reusable aliases, but never store transcripts, "
+    "task or project facts, source material, credentials, direct identifiers, sensitive traits, or "
+    "hidden reasoning."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -41,6 +70,21 @@ REWRITE = ToolAnnotations(
 )
 
 _READ_SEED_REF_PATTERN = r"^(?:node|pred)_[0-9a-f]{32}$"
+_READ_MODES = frozenset(
+    {"focused", "seeded", "focused_seeded", "outline", "outline_continuation"}
+)
+_SLICE_STATES = frozenset({"empty", "objects_without_edges", "edges_present"})
+_RELATIONSHIP_NEXT_ACTIONS = frozenset(
+    {
+        "one_outline",
+        "read_relevant_returned_seed_refs",
+        "stop_without_widening",
+        "complete_if_relevant",
+    }
+)
+_CONTINUATION_ACTIONS = frozenset(
+    {"none", "continue_only_for_explicit_full_inspection"}
+)
 _PUBLIC_ERROR_DETAIL_VALUES: dict[str, dict[str, frozenset[str]]] = {
     "reference_type_mismatch": {
         "expected_type": frozenset({"node", "pred"}),
@@ -99,7 +143,10 @@ def _read_input_schema() -> dict[str, Any]:
                     {"type": "null"},
                 ],
                 "default": None,
-                "description": "Expression used to find relevant nodes and predicates.",
+                "description": (
+                    "One to three short anchors likely to occur in a stored name, alias, or "
+                    "description; do not paste the full request."
+                ),
             },
             "seed_refs": {
                 "anyOf": [
@@ -222,6 +269,75 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
         )
 
 
+def _read_result_with_state(
+    service: HypesService,
+    *,
+    focus: Any,
+    seed_refs: Any,
+    max_hops: Any,
+    limit: Any,
+    continuation: Any,
+) -> dict[str, Any]:
+    """Add slice-local navigation state after the service validates one read."""
+
+    result = service.read(
+        focus=focus,
+        seed_refs=seed_refs,
+        max_hops=max_hops,
+        limit=limit,
+        continuation=continuation,
+    )
+
+    has_focus = focus is not None
+    has_seeds = bool(seed_refs)
+    if continuation is not None:
+        read_mode = "outline_continuation"
+    elif has_focus and has_seeds:
+        read_mode = "focused_seeded"
+    elif has_focus:
+        read_mode = "focused"
+    elif has_seeds:
+        read_mode = "seeded"
+    else:
+        read_mode = "outline"
+
+    if result["edges"]:
+        slice_state = "edges_present"
+    elif result["nodes"] or result["predicates"]:
+        slice_state = "objects_without_edges"
+    else:
+        slice_state = "empty"
+
+    if slice_state == "edges_present":
+        next_action = "complete_if_relevant"
+    elif read_mode in {"seeded", "focused_seeded"}:
+        next_action = "stop_without_widening"
+    elif slice_state == "objects_without_edges":
+        next_action = "read_relevant_returned_seed_refs"
+    elif read_mode == "focused":
+        next_action = "one_outline"
+    else:
+        next_action = "stop_without_widening"
+
+    read_state = {
+        "read_mode": read_mode,
+        "slice_state": slice_state,
+        "next_action_if_relationship_required": next_action,
+        "continuation_action": (
+            "continue_only_for_explicit_full_inspection"
+            if result["continuation"] is not None
+            else "none"
+        ),
+    }
+    assert read_state["read_mode"] in _READ_MODES
+    assert read_state["slice_state"] in _SLICE_STATES
+    assert (
+        read_state["next_action_if_relationship_required"] in _RELATIONSHIP_NEXT_ACTIONS
+    )
+    assert read_state["continuation_action"] in _CONTINUATION_ACTIONS
+    return {**result, "read_state": read_state}
+
+
 def _public_error_details(error: HypesError) -> dict[str, str]:
     """Return only fixed, non-caller-controlled error metadata."""
 
@@ -249,13 +365,26 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="hypes_read",
         title="Read User Relationship Model",
         description=(
-            "Use this when the agent's current relationship model of the user could materially "
-            "change the response, or when the user asks what Hypes currently models. Search by a "
-            "relevant "
-            "expression or start from known node or predicate refs. With no focus or refs, return "
-            "a small model outline. Continue an outline with its returned cursor when needed. "
-            "Results are a revisable agent model, not user-approved guidance or source-linked "
-            "facts."
+            "Read the narrowest relationship slice needed by the decision order: an explicitly "
+            "named stored input to a literal-only output with no separate reusable change or "
+            "generalization; existing structure before an explicit reusable "
+            "change; source edges before an explicit reusable generalization; a relation that could "
+            "materially change a non-literal response or choice; or a user request to inspect the "
+            "model. Do not read for an unrelated request. Use one to three short anchors likely to "
+            "occur in a stored name, alias, or description, or start from known node or predicate "
+            "refs. A read is complete when it returns the stored object needed by its branch. Applying, "
+            "choosing by, correcting, replacing, deleting, or generalizing a relationship requires the "
+            "relevant edge; direct inspection or literal use of one node or predicate may complete "
+            "without an edge. When read_state is present and a relationship is required, follow "
+            "next_action_if_relationship_required; complete_if_relevant completes only for a needed "
+            "returned edge and otherwise stops without widening. When the branch needs a relationship "
+            "and an outline returns candidates, take only the relevant node_id and predicate_id values "
+            "and pass them as seed_refs in one "
+            "follow-up read before answering or rewriting. When read_state is absent, use that same "
+            "follow-up after exactly one small outline read. Stop without unrelated reads when no "
+            "candidate or required edge is found. "
+            "Follow continuation_action only when the user asks to inspect the whole model. Results "
+            "are a revisable agent model, not user-approved guidance or source-linked facts."
         ),
         annotations=READ_ONLY,
     )
@@ -270,7 +399,8 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         if unsupported_fields:
             return _safe_call(_reject_unsupported_fields)
         return _safe_call(
-            lambda: service.read(
+            lambda: _read_result_with_state(
+                service,
                 focus=focus,
                 seed_refs=seed_refs,
                 max_hops=max_hops,
@@ -283,10 +413,17 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="hypes_rewrite",
         title="Rewrite User Relationship Model",
         description=(
-            "Use this only when the interaction changed a reusable concept or relation in the "
-            "agent's relationship model of the user. Read the narrowest matching graph slice "
-            "first, then apply one atomic patch of node, predicate, and edge puts or deletes. A "
-            "'$...' ref "
+            "Use this only after the decision order selects an explicit reusable relation change or "
+            "an explicit reusable generalization of several source edges that were actually read. "
+            "For a correction, first confirm the existing slice. For a generalization, write only "
+            "the minimal reusable higher-level structure, reusing a predicate when it fits and "
+            "creating one only when needed; never copy the current task, event, subject, or source "
+            "fact. A literal output's task-local terms, equivalences, facts, "
+            "alternatives, or instructions must never be written, even when they conflict with the "
+            "graph. Reading and applying an existing relation does not itself justify a rewrite. "
+            "Apply one atomic patch of node, predicate, and edge puts or deletes. "
+            "Give created or replaced nodes and predicates a few short, reusable retrieval aliases, "
+            "never conversation details or project facts. A '$...' ref "
             "creates an object and may be used by later operations in the same patch; a persistent "
             "ref replaces "
             "that object. Delete incident edges in the same patch before deleting their nodes or "

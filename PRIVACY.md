@@ -12,7 +12,7 @@ not project facts, project files, or raw conversation history.
 - Import creates a read-only preview.
 - Activation requires an explicit local command with the reviewed revision and digest.
 - Sensitive guidance and broader use require explicit user confirmation.
-- Plugin updates do not replace the private profile database.
+- Plugin updates do not replace the private guidance database.
 
 ## Corpus
 
@@ -52,9 +52,10 @@ revisable relationship model of the user on the user's machine.
   the interaction changed a reusable part of the agent's model. The skill can be selected
   implicitly, but a conversation that neither depends on nor changes the model makes no Hypes call.
   Ordinary conversation completion is not stored.
-- Current user input always takes priority over stored structure. The agent directly replaces or
-  deletes conflicting structure rather than adding review, evidence, confidence, or retention
-  records to every relation.
+- Current user input always takes priority over stored structure. When that input actually changes
+  a reusable relation, the agent replaces or deletes the old structure rather than adding review,
+  evidence, confidence, or retention records to every relation. Task-local facts and wording are
+  not written back as changes to the relationship model.
 - The MCP exposes only `hypes_read` and `hypes_rewrite`. A rewrite is one SQLite transaction and
   either changes the complete requested graph patch or leaves the graph unchanged.
 - The local database is `hypes-ontology.sqlite3`. Earlier Hypes databases are not read, converted,

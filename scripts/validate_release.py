@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -14,7 +15,8 @@ import subprocess
 import tempfile
 import time
 import tomllib
-from pathlib import Path
+import unicodedata
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,32 @@ MARKETPLACE_NAME = "personal-agent-toolkit"
 PUBLIC_PUBLISHER = "Ruzzy77"
 GATEWAY_SOURCE_REPOSITORY = "owners/remote-runtime"
 GIT_OBJECT_ID_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+BUILD_IDENTITY_FIELDS = frozenset(
+    {
+        "PACKAGE_VERSION",
+        "BUILD_ID",
+        "SOURCE_REPOSITORY",
+        "SOURCE_COMMIT",
+        "SOURCE_CLEAN",
+    }
+)
+GIT_SAFE_CONFIG = (
+    "core.trustctime=true",
+    "core.checkStat=default",
+    "core.ignoreStat=false",
+    "core.fileMode=true",
+    "core.fsmonitor=false",
+    "core.untrackedCache=false",
+    "core.ignoreCase=false",
+    "core.precomposeUnicode=false",
+    "core.symlinks=true",
+    "core.autocrlf=false",
+    "core.eol=lf",
+    f"core.attributesFile={os.devnull}",
+    f"core.excludesFile={os.devnull}",
+)
+REGULAR_GIT_MODES = frozenset({"100644", "100755"})
+REQUIREMENT_NAME_RE = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 PACKAGE_DESCRIPTIONS = {
     "sense": "Keep private guidance for important choices available across AI tools.",
     "corpus": "Connect saved questions and relationships to their exact current sources.",
@@ -129,6 +157,7 @@ EXPECTED_TOP_LEVEL = {
     "examples",
     "gateway",
     "plugins",
+    "ruff.toml",
     "scripts",
 }
 FORBIDDEN_PARTS = {
@@ -236,9 +265,7 @@ def validate_structure() -> None:
         "__pycache__",
         *HOST_MARKER_FILES,
     }
-    actual_top_level = {
-        path.name for path in ROOT.iterdir() if path.name not in ignored_top_level
-    }
+    actual_top_level = {path.name for path in ROOT.iterdir() if path.name not in ignored_top_level}
     if actual_top_level != EXPECTED_TOP_LEVEL:
         missing = sorted(EXPECTED_TOP_LEVEL - actual_top_level)
         extra = sorted(actual_top_level - EXPECTED_TOP_LEVEL)
@@ -250,6 +277,7 @@ def validate_structure() -> None:
         ROOT / "README.md",
         ROOT / "PRIVACY.md",
         ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "ruff.toml",
         ROOT / "assets/personal-agent-toolkit-banner.png",
         ROOT / "examples/sense-profile.example.json",
         ROOT / ".agents/plugins/marketplace.json",
@@ -269,6 +297,7 @@ def validate_structure() -> None:
                 package / "LICENSE",
                 package / "NOTICE",
                 package / ".codex-plugin/plugin.json",
+                package / "src" / package_name / "_build.py",
             ]
         )
         if package_name in CLAUDE_PACKAGE_NAMES:
@@ -285,17 +314,14 @@ def validate_structure() -> None:
                 package / "launchers" / launcher_name
                 for launcher_name in PACKAGE_LAUNCHERS[package_name]
             )
-        required.extend(
-            package / relative for relative in PACKAGE_REQUIRED_FILES[package_name]
-        )
+        required.extend(package / relative for relative in PACKAGE_REQUIRED_FILES[package_name])
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     if missing:
         raise ValueError(f"release is missing required files: {', '.join(missing)}")
     banner = ROOT / "assets/personal-agent-toolkit-banner.png"
     if _png_size(banner) != EXPECTED_BANNER_SIZE:
         raise ValueError(
-            "README banner has the wrong dimensions: "
-            f"{_png_size(banner)} != {EXPECTED_BANNER_SIZE}"
+            f"README banner has the wrong dimensions: {_png_size(banner)} != {EXPECTED_BANNER_SIZE}"
         )
     for package_name in PACKAGE_NAMES:
         package = ROOT / "plugins" / package_name
@@ -329,9 +355,7 @@ def validate_structure() -> None:
         package_license = (ROOT / "plugins" / package_name / "LICENSE").read_bytes()
         if package_license != root_license:
             raise ValueError(f"{package_name} LICENSE differs from the root license")
-        package_notice = (ROOT / "plugins" / package_name / "NOTICE").read_text(
-            encoding="utf-8"
-        )
+        package_notice = (ROOT / "plugins" / package_name / "NOTICE").read_text(encoding="utf-8")
         if "Copyright 2026" not in package_notice:
             raise ValueError(f"{package_name} NOTICE has no copyright line")
 
@@ -345,9 +369,7 @@ def validate_public_boundary() -> None:
             raise ValueError(f"Finder metadata is publishable: {relative}")
         if FORBIDDEN_PARTS.intersection(parts):
             raise ValueError(f"private or generated path is publishable: {relative}")
-        if folded == ".env" or (
-            folded.startswith(".env.") and folded != ".env.example"
-        ):
+        if folded == ".env" or (folded.startswith(".env.") and folded != ".env.example"):
             raise ValueError(f"environment file is publishable: {relative}")
         if folded.endswith(FORBIDDEN_SUFFIXES):
             raise ValueError(f"runtime database is publishable: {relative}")
@@ -395,8 +417,469 @@ def _gateway_content_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _git_environment() -> dict[str, str]:
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    return environment
+
+
+def _git_base_command() -> list[str]:
+    command = ["git"]
+    for value in GIT_SAFE_CONFIG:
+        command.extend(("-c", value))
+    return command
+
+
+def _resolved_source_root(source_root: Path, *, subject: str) -> Path:
+    try:
+        return source_root.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"{subject} source Git provenance is unavailable") from exc
+
+
+def _git_command(source_root: Path, *arguments: str) -> list[str]:
+    resolved_root = source_root.resolve(strict=True)
+    return [
+        *_git_base_command(),
+        "-C",
+        str(resolved_root),
+        f"--work-tree={resolved_root}",
+        *arguments,
+    ]
+
+
+def _unbound_git_bytes(source_root: Path, *arguments: str) -> bytes:
+    try:
+        resolved_root = source_root.resolve(strict=True)
+        result = subprocess.run(
+            [*_git_base_command(), "-C", str(resolved_root), *arguments],
+            check=False,
+            capture_output=True,
+            timeout=10,
+            env=_git_environment(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("source Git provenance is unavailable") from exc
+    if result.returncode != 0:
+        raise ValueError("source Git provenance is unavailable")
+    return result.stdout
+
+
+def _git_bytes(source_root: Path, *arguments: str) -> bytes:
+    try:
+        result = subprocess.run(
+            _git_command(source_root, *arguments),
+            check=False,
+            capture_output=True,
+            timeout=10,
+            env=_git_environment(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("source Git provenance is unavailable") from exc
+    if result.returncode != 0:
+        raise ValueError("source Git provenance is unavailable")
+    return result.stdout
+
+
+def _git_ignore_source(source_root: Path, relative: str, *, subject: str) -> str | None:
+    input_bytes = relative.encode("utf-8") + b"\0"
+    try:
+        result = subprocess.run(
+            _git_command(source_root, "check-ignore", "-v", "-z", "--stdin"),
+            check=False,
+            capture_output=True,
+            input=input_bytes,
+            timeout=10,
+            env=_git_environment(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"{subject} source Git provenance is unavailable") from exc
+    if result.returncode == 1 and result.stdout == b"":
+        return None
+    if result.returncode != 0 or not isinstance(result.stdout, bytes):
+        raise ValueError(f"{subject} source Git provenance is unavailable")
+    fields = result.stdout.split(b"\0")
+    if len(fields) != 5 or fields[-1] != b"" or fields[3] != input_bytes[:-1]:
+        raise ValueError(f"{subject} source Git ignore result is invalid")
+    if fields[2].startswith(b"!"):
+        return None
+    try:
+        return fields[0].decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"{subject} source Git ignore result is invalid") from exc
+
+
+def _git_output(source_root: Path, *arguments: str) -> str:
+    try:
+        return _git_bytes(source_root, *arguments).decode("utf-8").strip()
+    except UnicodeError as exc:
+        raise ValueError("source Git provenance is unavailable") from exc
+
+
+def _require_exact_repository_root(source_root: Path, *, subject: str) -> Path:
+    resolved_root = _resolved_source_root(source_root, subject=subject)
+    try:
+        raw_repository_root = _unbound_git_bytes(
+            resolved_root,
+            "rev-parse",
+            "--show-toplevel",
+        ).decode("utf-8")
+        repository_root = Path(raw_repository_root.strip()).resolve(strict=True)
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"{subject} source Git provenance is unavailable") from exc
+    if repository_root != resolved_root:
+        raise ValueError(f"{subject} source is not its Git repository root")
+    return resolved_root
+
+
+def _validate_source_checkout(
+    source_root: Path,
+    *,
+    expected_commit: str,
+    subject: str,
+) -> None:
+    resolved_root = _require_exact_repository_root(source_root, subject=subject)
+
+    first_tree = _validate_source_snapshot(
+        resolved_root,
+        expected_commit=expected_commit,
+        subject=subject,
+    )
+    second_tree = _validate_source_snapshot(
+        resolved_root,
+        expected_commit=expected_commit,
+        subject=subject,
+    )
+    if second_tree != first_tree:
+        raise ValueError(f"{subject} source changed during validation")
+
+
+def _validate_source_snapshot(
+    source_root: Path,
+    *,
+    expected_commit: str,
+    subject: str,
+) -> dict[str, tuple[str, str]]:
+    resolved_root = _require_exact_repository_root(source_root, subject=subject)
+    if _git_output(resolved_root, "rev-parse", "--verify", "HEAD^{commit}") != expected_commit:
+        raise ValueError(f"{subject} source commit does not match the release")
+
+    index = _git_bytes(source_root, "ls-files", "-v", "-z")
+    if index and not index.endswith(b"\0"):
+        raise ValueError(f"{subject} source Git index is invalid")
+    entries = index[:-1].split(b"\0") if index else []
+    if any(
+        len(entry) < 3 or entry[1:2] != b" " or not entry.startswith(b"H ") for entry in entries
+    ):
+        raise ValueError(f"{subject} source Git index uses hidden or unsupported flags")
+
+    commit_tree = _source_commit_tree(resolved_root, expected_commit, subject=subject)
+    if _source_index_tree(resolved_root, subject=subject) != commit_tree:
+        raise ValueError(f"{subject} source Git tree is not clean")
+    for relative, (mode, object_id) in commit_tree.items():
+        path, _metadata = _exact_source_file(resolved_root, relative, subject=subject)
+        data, metadata = _read_raw_source_file(
+            path,
+            relative,
+            subject=subject,
+        )
+        if bool(metadata.st_mode & 0o111) != (mode == "100755"):
+            raise ValueError(f"{subject} source Git tree is not clean")
+        if data != _git_bytes(resolved_root, "cat-file", "blob", object_id):
+            raise ValueError(f"{subject} source Git tree is not clean")
+
+    _require_safe_local_excludes(resolved_root, subject=subject)
+    _require_tracked_ignore_files(
+        resolved_root,
+        commit_tree,
+        subject=subject,
+    )
+    if _git_bytes(
+        resolved_root,
+        "ls-files",
+        "--others",
+        "--exclude-per-directory=.gitignore",
+        "-z",
+    ):
+        raise ValueError(f"{subject} source Git tree is not clean")
+    if _source_index_tree(resolved_root, subject=subject) != commit_tree:
+        raise ValueError(f"{subject} source Git tree is not clean")
+    if _git_output(resolved_root, "rev-parse", "--verify", "HEAD^{commit}") != expected_commit:
+        raise ValueError(f"{subject} source changed during validation")
+    _require_exact_repository_root(resolved_root, subject=subject)
+    return commit_tree
+
+
+def _require_safe_local_excludes(source_root: Path, *, subject: str) -> None:
+    raw_path = _git_output(source_root, "rev-parse", "--git-path", "info/exclude")
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = source_root / path
+    if not path.exists():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{subject} source Git tree is not clean")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"{subject} source Git tree is not clean") from exc
+    if any(line and not line.startswith("#") for line in lines):
+        raise ValueError(f"{subject} source Git tree is not clean")
+
+
+def _require_tracked_ignore_files(
+    source_root: Path,
+    commit_tree: dict[str, tuple[str, str]],
+    *,
+    subject: str,
+) -> None:
+    tracked_ignore_files = {
+        relative for relative in commit_tree if PurePosixPath(relative).name == ".gitignore"
+    }
+    pending: list[tuple[Path, str]] = [(source_root, "")]
+    while pending:
+        directory, prefix = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError as exc:
+            raise ValueError(f"{subject} source Git tree is not clean") from exc
+        for entry in entries:
+            if not prefix and entry.name == ".git":
+                continue
+            relative = f"{prefix}/{entry.name}" if prefix else entry.name
+            if entry.name.casefold() == ".gitignore" and (
+                entry.name != ".gitignore" or relative not in tracked_ignore_files
+            ):
+                raise ValueError(f"{subject} source Git tree is not clean")
+        for entry in entries:
+            if not prefix and entry.name == ".git":
+                continue
+            try:
+                is_directory = entry.is_dir(follow_symlinks=False)
+            except OSError as exc:
+                raise ValueError(f"{subject} source Git tree is not clean") from exc
+            if not is_directory:
+                continue
+            relative = f"{prefix}/{entry.name}" if prefix else entry.name
+            if _git_ignore_source(source_root, relative, subject=subject) in tracked_ignore_files:
+                continue
+            pending.append((Path(entry.path), relative))
+
+
+def _source_commit_tree(
+    source_root: Path,
+    commit: str,
+    *,
+    subject: str,
+) -> dict[str, tuple[str, str]]:
+    output = _git_bytes(source_root, "ls-tree", "-r", "-z", "--full-tree", commit)
+    if output and not output.endswith(b"\0"):
+        raise ValueError(f"{subject} source Git tree is invalid")
+    tree: dict[str, tuple[str, str]] = {}
+    for raw_entry in output[:-1].split(b"\0") if output else []:
+        try:
+            metadata, raw_path = raw_entry.split(b"\t", 1)
+            mode_bytes, object_type, object_id = metadata.split(b" ", 2)
+            relative = raw_path.decode("utf-8")
+            mode = mode_bytes.decode("ascii")
+            object_id_text = object_id.decode("ascii")
+        except (UnicodeError, ValueError) as exc:
+            raise ValueError(f"{subject} source Git tree is invalid") from exc
+        normalized = PurePosixPath(relative)
+        if (
+            normalized.as_posix() != relative
+            or normalized.is_absolute()
+            or any(part in {"", ".", ".."} for part in normalized.parts)
+            or unicodedata.normalize("NFC", relative) != relative
+            or object_type != b"blob"
+            or mode not in REGULAR_GIT_MODES
+            or GIT_OBJECT_ID_RE.fullmatch(object_id_text) is None
+            or relative in tree
+        ):
+            raise ValueError(f"{subject} source Git tree is invalid")
+        tree[relative] = (mode, object_id_text)
+    return tree
+
+
+def _source_index_tree(
+    source_root: Path,
+    *,
+    subject: str,
+) -> dict[str, tuple[str, str]]:
+    output = _git_bytes(source_root, "ls-files", "--stage", "-z")
+    if output and not output.endswith(b"\0"):
+        raise ValueError(f"{subject} source Git index is invalid")
+    index: dict[str, tuple[str, str]] = {}
+    for raw_entry in output[:-1].split(b"\0") if output else []:
+        try:
+            metadata, raw_path = raw_entry.split(b"\t", 1)
+            mode_bytes, object_id, stage = metadata.split(b" ", 2)
+            relative = raw_path.decode("utf-8")
+            mode = mode_bytes.decode("ascii")
+            object_id_text = object_id.decode("ascii")
+        except (UnicodeError, ValueError) as exc:
+            raise ValueError(f"{subject} source Git index is invalid") from exc
+        if (
+            stage != b"0"
+            or mode not in REGULAR_GIT_MODES
+            or GIT_OBJECT_ID_RE.fullmatch(object_id_text) is None
+            or relative in index
+        ):
+            raise ValueError(f"{subject} source Git index is invalid")
+        index[relative] = (mode, object_id_text)
+    return index
+
+
+def _exact_source_file(
+    source_root: Path,
+    relative: str,
+    *,
+    subject: str,
+) -> tuple[Path, os.stat_result]:
+    current = source_root
+    parts = PurePosixPath(relative).parts
+    for index, part in enumerate(parts):
+        try:
+            with os.scandir(current) as scanner:
+                entry = next(
+                    (candidate for candidate in scanner if candidate.name == part),
+                    None,
+                )
+        except OSError as exc:
+            raise ValueError(f"{subject} source Git tree is not clean") from exc
+        if entry is None:
+            raise ValueError(f"{subject} source Git tree is not clean")
+        if index != len(parts) - 1:
+            if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                raise ValueError(f"{subject} source Git tree is not clean")
+            current = Path(entry.path)
+            continue
+        try:
+            return Path(entry.path), entry.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError(f"{subject} source Git tree is not clean") from exc
+    raise ValueError(f"{subject} source Git tree is not clean")
+
+
+def _read_raw_source_file(
+    path: Path,
+    relative: str,
+    *,
+    subject: str,
+) -> tuple[bytes, os.stat_result]:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"{subject} source Git tree is not clean") from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{subject} source Git tree is not clean")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+    def identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+
+    if identity(before) != identity(after):
+        raise ValueError(f"{subject} source Git tree is not clean")
+    return b"".join(chunks), before
+
+
+def _read_package_build_identity(
+    package_name: str,
+    *,
+    base_version: str,
+    build_version: str,
+) -> dict[str, object]:
+    path = ROOT / "plugins" / package_name / "src" / package_name / "_build.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise ValueError(f"{package_name} build identity is invalid") from exc
+
+    expected_docstring = f"Generated {package_name.title()} provider-package identity."
+    if len(tree.body) != len(BUILD_IDENTITY_FIELDS) + 1:
+        raise ValueError(f"{package_name} build identity is invalid")
+    docstring = tree.body[0]
+    if (
+        not isinstance(docstring, ast.Expr)
+        or not isinstance(docstring.value, ast.Constant)
+        or docstring.value.value != expected_docstring
+    ):
+        raise ValueError(f"{package_name} build identity is invalid")
+
+    values: dict[str, object] = {}
+    for statement in tree.body[1:]:
+        if (
+            not isinstance(statement, ast.Assign)
+            or len(statement.targets) != 1
+            or not isinstance(statement.targets[0], ast.Name)
+            or not isinstance(statement.value, ast.Constant)
+        ):
+            raise ValueError(f"{package_name} build identity is invalid")
+        name = statement.targets[0].id
+        if name in values:
+            raise ValueError(f"{package_name} build identity is invalid")
+        values[name] = statement.value.value
+    if set(values) != BUILD_IDENTITY_FIELDS:
+        raise ValueError(f"{package_name} build identity is invalid")
+
+    expected_repository = f"owners/{package_name}"
+    commit = values.get("SOURCE_COMMIT")
+    if (
+        values.get("PACKAGE_VERSION") != base_version
+        or values.get("BUILD_ID") != build_version
+        or values.get("SOURCE_REPOSITORY") != expected_repository
+        or not isinstance(commit, str)
+        or GIT_OBJECT_ID_RE.fullmatch(commit) is None
+        or values.get("SOURCE_CLEAN") is not True
+    ):
+        raise ValueError(f"{package_name} build identity is invalid")
+
+    if ROOT.name == "public" and ROOT.parent.name == "distribution":
+        source_root = ROOT.parent.parent / expected_repository
+        if source_root.exists():
+            _validate_source_checkout(
+                source_root,
+                expected_commit=commit,
+                subject=package_name,
+            )
+    return values
+
+
 def validate_gateway_release() -> None:
     gateway = ROOT / "gateway"
+    gateway_metadata = gateway.lstat()
+    if not stat.S_ISDIR(gateway_metadata.st_mode):
+        raise ValueError("gateway release root is invalid")
     expected_root = {
         ".personal-agent-gateway-release.json",
         "GUIDE.md",
@@ -410,17 +893,62 @@ def validate_gateway_release() -> None:
     }
     if {path.name for path in gateway.iterdir()} != expected_root:
         raise ValueError("gateway release root is invalid")
-    project = tomllib.loads((gateway / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]
+    expected_tree = {
+        ".personal-agent-gateway-release.json",
+        "GUIDE.md",
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+        "launchers",
+        "launchers/personal-agent-tunnel",
+        "launchers/personal-agent-tunnel-gateway",
+        "launchers/personal-agent-tunnel-service",
+        "pyproject.toml",
+        "src",
+        "src/personal_agent_remote",
+        "src/personal_agent_remote/__init__.py",
+        "src/personal_agent_remote/installed_products.py",
+        "src/personal_agent_remote/tunnel.py",
+        "src/personal_agent_remote/tunnel_gateway.py",
+        "src/personal_agent_remote/tunnel_service.py",
+        "uv.lock",
+    }
+    actual_tree = {path.relative_to(gateway).as_posix() for path in gateway.rglob("*")}
+    if actual_tree != expected_tree:
+        missing = sorted(expected_tree - actual_tree)
+        unexpected = sorted(actual_tree - expected_tree)
+        raise ValueError(
+            f"gateway release tree is invalid; missing={missing}, unexpected={unexpected}"
+        )
+    expected_directories = {
+        "launchers",
+        "src",
+        "src/personal_agent_remote",
+    }
+    for relative in expected_tree:
+        metadata = (gateway / relative).lstat()
+        if relative in expected_directories:
+            valid_type = stat.S_ISDIR(metadata.st_mode)
+        else:
+            valid_type = stat.S_ISREG(metadata.st_mode)
+        if not valid_type:
+            raise ValueError(f"gateway release entry has the wrong type: {relative}")
+    project = tomllib.loads((gateway / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     if project.get("name") != "personal-agent-tunnel-gateway":
         raise ValueError("gateway package identity is invalid")
     dependencies = project.get("dependencies")
-    if not isinstance(dependencies, list) or any(
-        value.split("=", 1)[0].casefold() in PACKAGE_NAMES
-        for value in dependencies
-        if isinstance(value, str)
+    if not isinstance(dependencies, list) or not all(
+        isinstance(value, str) for value in dependencies
     ):
+        raise ValueError("gateway package dependencies are invalid")
+    dependency_names: set[str] = set()
+    for value in dependencies:
+        match = REQUIREMENT_NAME_RE.match(value)
+        if match is None:
+            raise ValueError("gateway package dependencies are invalid")
+        dependency_names.add(re.sub(r"[-_.]+", "-", match.group(1)).casefold())
+    product_names = {re.sub(r"[-_.]+", "-", name).casefold() for name in PACKAGE_NAMES}
+    if dependency_names.intersection(product_names):
         raise ValueError("gateway package must not install product packages")
     expected_modules = {
         "__init__.py",
@@ -484,47 +1012,11 @@ def validate_gateway_release() -> None:
     if ROOT.name == "public" and ROOT.parent.name == "distribution":
         source_root = ROOT.parent.parent / GATEWAY_SOURCE_REPOSITORY
         if source_root.exists():
-            environment = dict(os.environ)
-            environment["GIT_OPTIONAL_LOCKS"] = "0"
-
-            def git_output(*arguments: str) -> str:
-                try:
-                    result = subprocess.run(
-                        ["git", "-C", str(source_root), *arguments],
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        env=environment,
-                    )
-                except (OSError, subprocess.TimeoutExpired) as exc:
-                    raise ValueError(
-                        "gateway source Git provenance is unavailable"
-                    ) from exc
-                if result.returncode != 0:
-                    raise ValueError("gateway source Git provenance is unavailable")
-                return result.stdout.strip()
-
-            try:
-                repository_root = Path(
-                    git_output("rev-parse", "--show-toplevel")
-                ).resolve(strict=True)
-                expected_source_root = source_root.resolve(strict=True)
-            except OSError as exc:
-                raise ValueError(
-                    "gateway source Git provenance is unavailable"
-                ) from exc
-            if repository_root != expected_source_root:
-                raise ValueError("gateway source is not its Git repository root")
-            if git_output("rev-parse", "--verify", "HEAD^{commit}") != source["commit"]:
-                raise ValueError("gateway source commit does not match the release")
-            if git_output(
-                "status",
-                "--porcelain=v1",
-                "--untracked-files=all",
-                "--ignore-submodules=none",
-            ):
-                raise ValueError("gateway source Git tree is not clean")
+            _validate_source_checkout(
+                source_root,
+                expected_commit=source["commit"],
+                subject="gateway",
+            )
 
 
 def validate_marketplaces() -> None:
@@ -573,9 +1065,7 @@ def validate_package_manifests() -> dict[str, str]:
         codex = _json(package / ".codex-plugin/plugin.json")
         claude = _json(package / ".claude-plugin/plugin.json")
         mcp = _json(package / ".mcp.json")
-        project = tomllib.loads(
-            (package / "pyproject.toml").read_text(encoding="utf-8")
-        )["project"]
+        project = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))["project"]
 
         if codex.get("name") != package_name or claude.get("name") != package_name:
             raise ValueError(f"{package_name} provider identities differ")
@@ -588,9 +1078,7 @@ def validate_package_manifests() -> dict[str, str]:
         if project.get("license") != "Apache-2.0":
             raise ValueError(f"{package_name} Python package license is invalid")
         if project.get("license-files") != ["LICENSE", "NOTICE"]:
-            raise ValueError(
-                f"{package_name} Python package must include LICENSE and NOTICE"
-            )
+            raise ValueError(f"{package_name} Python package must include LICENSE and NOTICE")
         if codex.get("author", {}).get("name") != PUBLIC_PUBLISHER:
             raise ValueError(f"{package_name} Codex author is not public")
         if claude.get("author", {}).get("name") != PUBLIC_PUBLISHER:
@@ -602,23 +1090,26 @@ def validate_package_manifests() -> dict[str, str]:
 
         base_version = project.get("version")
         build_version = codex.get("version")
+        if not isinstance(base_version, str) or not base_version:
+            raise ValueError(f"{package_name} base version is invalid")
         prefix = f"{base_version}+codex."
         if not isinstance(build_version, str) or not build_version.startswith(prefix):
             raise ValueError(f"{package_name} build version is invalid")
+        _read_package_build_identity(
+            package_name,
+            base_version=base_version,
+            build_version=build_version,
+        )
         build_ids[package_name] = build_version.removeprefix(prefix)
         dependencies = project.get("dependencies")
         if not isinstance(dependencies, list) or not any(
-            isinstance(value, str) and value.startswith("mcp>=2")
-            for value in dependencies
+            isinstance(value, str) and value.startswith("mcp>=2") for value in dependencies
         ):
             raise ValueError(f"{package_name} does not require MCP SDK 2.x")
         if not any(
-            isinstance(value, str) and value.startswith("pydantic>=2")
-            for value in dependencies
+            isinstance(value, str) and value.startswith("pydantic>=2") for value in dependencies
         ):
-            raise ValueError(
-                f"{package_name} does not declare its Pydantic 2.x dependency"
-            )
+            raise ValueError(f"{package_name} does not declare its Pydantic 2.x dependency")
         lock_text = (package / "uv.lock").read_text(encoding="utf-8")
         if 'name = "mcp"' not in lock_text:
             raise ValueError(f"{package_name} lockfile does not contain MCP")
@@ -632,9 +1123,7 @@ def validate_package_manifests() -> dict[str, str]:
 
         codex_servers = codex.get("mcpServers")
         if not isinstance(codex_servers, dict) or set(codex_servers) != {package_name}:
-            raise ValueError(
-                f"{package_name} Codex manifest must expose one MCP server"
-            )
+            raise ValueError(f"{package_name} Codex manifest must expose one MCP server")
         codex_server = codex_servers[package_name]
         if codex_server != {
             "command": f"./launchers/{package_name}-mcp",
@@ -644,16 +1133,11 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} Codex MCP command is invalid")
         if "apps" in codex:
             raise ValueError(
-                f"{package_name} must not include a remote app registration "
-                "in this local release"
+                f"{package_name} must not include a remote app registration in this local release"
             )
         claude_servers = mcp.get("mcpServers")
-        if not isinstance(claude_servers, dict) or set(claude_servers) != {
-            package_name
-        }:
-            raise ValueError(
-                f"{package_name} Claude manifest must expose one MCP server"
-            )
+        if not isinstance(claude_servers, dict) or set(claude_servers) != {package_name}:
+            raise ValueError(f"{package_name} Claude manifest must expose one MCP server")
         server = claude_servers[package_name]
         if server != {
             "command": f"${{CLAUDE_PLUGIN_ROOT}}/launchers/{package_name}-mcp",
@@ -665,9 +1149,7 @@ def validate_package_manifests() -> dict[str, str]:
         if codex.get("skills") != "./skills/":
             raise ValueError(f"{package_name} Codex skills path is invalid")
         skill_names = {
-            path.parent.name
-            for path in (package / "skills").glob("*/SKILL.md")
-            if path.is_file()
+            path.parent.name for path in (package / "skills").glob("*/SKILL.md") if path.is_file()
         }
         if skill_names != EXPECTED_SKILL_NAMES[package_name]:
             raise ValueError(
@@ -681,56 +1163,50 @@ def validate_package_manifests() -> dict[str, str]:
             raise ValueError(f"{package_name} Codex logo is invalid")
 
     for package_name, build_id in build_ids.items():
-        if any(
-            marker in build_id.casefold() for marker in ("test", "validation", "audit")
-        ):
+        if any(marker in build_id.casefold() for marker in ("test", "validation", "audit")):
             raise ValueError(f"{package_name} uses a non-release build ID: {build_id}")
     hypes_package = ROOT / "plugins/hypes"
     hypes_skill = " ".join(
-        (hypes_package / "skills/use-user-model/SKILL.md")
-        .read_text(encoding="utf-8")
-        .split()
+        (hypes_package / "skills/use-user-model/SKILL.md").read_text(encoding="utf-8").split()
     )
-    hypes_agent = (
-        hypes_package / "skills/use-user-model/agents/openai.yaml"
-    ).read_text(encoding="utf-8")
+    hypes_agent = (hypes_package / "skills/use-user-model/agents/openai.yaml").read_text(
+        encoding="utf-8"
+    )
     required_hypes_contract = {
         "Answer the subject directly": "does not answer the subject directly",
-        "Keep the facts that change the answer": (
-            "does not preserve decision-relevant content"
-        ),
+        "Keep the facts that change the answer": ("does not preserve decision-relevant content"),
         "Treat the visible conversation as sufficient by default": (
             "does not use the visible conversation as its default"
         ),
-        "Use `hypes_read` when": (
+        "existing relation could materially change a": (
             "does not limit ontology reads to material response changes"
         ),
-        "current interaction changes a reusable concept or relation": (
+        "directly states the reusable relation to create": (
             "does not notice interactions that change the user model"
         ),
         "Make no Hypes call": ("does not stay out of unrelated conversations"),
         "The user's current message always takes priority": (
             "does not give the current message priority over the model"
         ),
-        "Call `hypes_rewrite` only when": (
+        "Branches 2 and 3 write only": (
             "does not limit writes to changes in the agent's user model"
+        ),
+        "next_action_if_relationship_required": (
+            "does not follow bounded relationship-read recovery"
+        ),
+        "task-local terms, equivalences, facts": (
+            "does not keep task-local premises out of the relationship model"
         ),
         "Do not write merely because a turn or task completed": (
             "writes ordinary conversation completion into the ontology"
         ),
-        "Prefer rewriting over accumulation": (
-            "does not prefer model rewriting over accumulation"
-        ),
-        "never the transcript": (
-            "does not exclude conversation transcripts from the ontology"
-        ),
+        "Prefer rewriting over accumulation": ("does not prefer model rewriting over accumulation"),
+        "never the transcript": ("does not exclude conversation transcripts from the ontology"),
         "Ask at most one focused question": ("does not limit understanding checks"),
         "For a finished artifact, follow its genre, reader, and argument": (
             "does not preserve finished-artifact guidance"
         ),
-        "describe only observable effects": (
-            "does not keep Hypes explanations observable"
-        ),
+        "describe only observable effects": ("does not keep Hypes explanations observable"),
     }
     for marker, failure in required_hypes_contract.items():
         if marker not in hypes_skill:
@@ -748,7 +1224,13 @@ def validate_package_manifests() -> dict[str, str]:
 
 
 def _package_tree_manifest(package: Path) -> dict[str, tuple[Any, ...]]:
-    manifest: dict[str, tuple[Any, ...]] = {}
+    root_metadata = package.lstat()
+    if stat.S_ISLNK(root_metadata.st_mode):
+        manifest: dict[str, tuple[Any, ...]] = {".": ("symlink", os.readlink(package))}
+    elif stat.S_ISDIR(root_metadata.st_mode):
+        manifest = {".": ("directory", stat.S_IMODE(root_metadata.st_mode))}
+    else:
+        manifest = {".": ("other", stat.S_IMODE(root_metadata.st_mode))}
     for path in sorted(
         package.rglob("*"),
         key=lambda candidate: candidate.relative_to(package).as_posix(),
@@ -757,11 +1239,15 @@ def _package_tree_manifest(package: Path) -> dict[str, tuple[Any, ...]]:
         if path.is_symlink():
             manifest[relative] = ("symlink", os.readlink(path))
         elif path.is_dir():
-            manifest[relative] = ("directory",)
+            manifest[relative] = (
+                "directory",
+                stat.S_IMODE(path.stat().st_mode),
+            )
         elif path.is_file():
             data = path.read_bytes()
             manifest[relative] = (
                 "file",
+                stat.S_IMODE(path.stat().st_mode),
                 len(data),
                 hashlib.sha256(data).hexdigest(),
             )
@@ -867,15 +1353,11 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
     try:
         process.stdin.write(json.dumps(requests[0]) + "\n")
         process.stdin.flush()
-        initialize, _ = _read_mcp_response(
-            process, expected_id=1, package_name=package_name
-        )
+        initialize, _ = _read_mcp_response(process, expected_id=1, package_name=package_name)
         process.stdin.write(json.dumps(requests[1]) + "\n")
         process.stdin.write(json.dumps(requests[2]) + "\n")
         process.stdin.flush()
-        tool_response, _ = _read_mcp_response(
-            process, expected_id=2, package_name=package_name
-        )
+        tool_response, _ = _read_mcp_response(process, expected_id=2, package_name=package_name)
         try:
             tools = tool_response["result"]["tools"]
         except (KeyError, TypeError) as exc:
@@ -913,13 +1395,8 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
             return_code = process.wait(timeout=10)
         stderr = process.stderr.read() if process.stderr is not None else ""
         if handshake_complete and return_code != 0:
-            raise ValueError(
-                f"{package_name} MCP launcher exited {return_code}: {stderr.strip()}"
-            )
-    if (
-        initialize["result"]["serverInfo"]["name"]
-        != EXPECTED_SERVER_NAMES[package_name]
-    ):
+            raise ValueError(f"{package_name} MCP launcher exited {return_code}: {stderr.strip()}")
+    if initialize["result"]["serverInfo"]["name"] != EXPECTED_SERVER_NAMES[package_name]:
         raise ValueError(f"{package_name} MCP server identity is invalid")
     tool_names = {tool.get("name") for tool in tools}
     if len(tools) != EXPECTED_TOOL_COUNTS[package_name]:
@@ -937,9 +1414,7 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
     ):
         raise ValueError(f"{package_name} MCP schemas are not object-shaped")
     required_annotations = {"readOnlyHint", "destructiveHint", "openWorldHint"}
-    if not all(
-        required_annotations.issubset(tool.get("annotations", {})) for tool in tools
-    ):
+    if not all(required_annotations.issubset(tool.get("annotations", {})) for tool in tools):
         raise ValueError(f"{package_name} MCP tool annotations are incomplete")
     if package_name == "corpus":
         try:
@@ -950,15 +1425,13 @@ def _mcp_handshake(package_name: str, temporary_root: Path) -> None:
                 "corpus_space_list did not return a structured surface revision"
             ) from exc
         if structured.get("ok") is not True or surface_revision != "space-v2":
-            raise ValueError(
-                "Corpus public package must expose surface_revision=space-v2"
-            )
+            raise ValueError("Corpus public package must expose surface_revision=space-v2")
 
 
 def validate_sessionless_server_source(package_name: str) -> None:
-    source = (
-        ROOT / "plugins" / package_name / "src" / package_name / "mcp_server.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "plugins" / package_name / "src" / package_name / "mcp_server.py").read_text(
+        encoding="utf-8"
+    )
     required = (
         '"stdio"',
         '"streamable-http"',
@@ -1072,9 +1545,7 @@ def validate_corpus_first_run(temporary_root: Path) -> None:
     temporary_root.mkdir(parents=True, mode=0o700)
     source_root.mkdir(mode=0o700)
     source = source_root / "note.md"
-    source.write_text(
-        "# Example\n\nA synthetic first-run document.\n", encoding="utf-8"
-    )
+    source.write_text("# Example\n\nA synthetic first-run document.\n", encoding="utf-8")
     source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
 
     environment = os.environ.copy()
@@ -1156,7 +1627,18 @@ print(json.dumps(response.structured_content))
     if response.get("ok") is not True:
         raise ValueError("Hypes MCP read call failed")
     graph = response.get("result")
-    if graph != {"nodes": [], "predicates": [], "edges": [], "continuation": None}:
+    if graph != {
+        "nodes": [],
+        "predicates": [],
+        "edges": [],
+        "continuation": None,
+        "read_state": {
+            "read_mode": "outline",
+            "slice_state": "empty",
+            "next_action_if_relationship_required": "stop_without_widening",
+            "continuation_action": "none",
+        },
+    }:
         raise ValueError("Hypes first read did not return an empty ontology")
 
     data_root = temporary_root / "Hypes"
@@ -1201,8 +1683,7 @@ def validate_runtime_smoke() -> None:
                 if before.get(relative) != after.get(relative)
             )
         raise ValueError(
-            "runtime smoke changed the public package projection: "
-            + ", ".join(changed[:12])
+            "runtime smoke changed the public package projection: " + ", ".join(changed[:12])
         )
 
 

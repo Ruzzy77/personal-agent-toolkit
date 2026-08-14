@@ -375,31 +375,38 @@ class HypesService:
         }
 
     @staticmethod
-    def _fts_query(focus: str) -> str | None:
-        tokens = _FOCUS_TOKEN.findall(focus.casefold())
+    def _fts_queries(focus: str) -> tuple[str, ...]:
+        tokens = list(dict.fromkeys(_FOCUS_TOKEN.findall(focus.casefold())))[:16]
         if not tokens:
-            return None
+            return ()
         # Tokens come from a conservative Unicode word matcher; quoting makes the
         # generated expression data rather than caller-controlled FTS syntax.
-        return " AND ".join(f'"{token}"*' for token in tokens[:16])
+        terms = [f'"{token}"*' for token in tokens]
+        exact = " AND ".join(terms)
+        if len(terms) == 1:
+            return (exact,)
+        return exact, " OR ".join(terms)
 
     @staticmethod
     def _focus_seeds(
         connection: sqlite3.Connection, focus: str, *, limit: int
     ) -> list[tuple[str, str]]:
-        query = HypesService._fts_query(focus)
-        if query is None:
+        queries = HypesService._fts_queries(focus)
+        if not queries:
             return []
-        seeds: list[tuple[float, str, str]] = []
-        for kind, table in (("node", "nodes_fts"), ("pred", "predicates_fts")):
-            rows = connection.execute(
-                f"SELECT ref, bm25({table}) AS rank FROM {table} "
-                f"WHERE {table} MATCH ? ORDER BY rank, ref LIMIT ?",
-                (query, limit),
-            ).fetchall()
-            seeds.extend((float(row["rank"]), kind, row["ref"]) for row in rows)
-        seeds.sort(key=lambda item: (item[0], item[1], item[2]))
-        return [(kind, ref) for _, kind, ref in seeds[:limit]]
+        for query in queries:
+            seeds: list[tuple[float, str, str]] = []
+            for kind, table in (("node", "nodes_fts"), ("pred", "predicates_fts")):
+                rows = connection.execute(
+                    f"SELECT ref, bm25({table}) AS rank FROM {table} "
+                    f"WHERE {table} MATCH ? ORDER BY rank, ref LIMIT ?",
+                    (query, limit),
+                ).fetchall()
+                seeds.extend((float(row["rank"]), kind, row["ref"]) for row in rows)
+            if seeds:
+                seeds.sort(key=lambda item: (item[0], item[1], item[2]))
+                return [(kind, ref) for _, kind, ref in seeds[:limit]]
+        return []
 
     @staticmethod
     def _outline_seeds(
