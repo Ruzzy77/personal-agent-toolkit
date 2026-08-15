@@ -8,7 +8,9 @@ description: Show a read-only view of saved Corpus contexts, their connected fil
 Call `corpus_space_list`. Show readable Space titles and Context purposes first, followed by visible
 Connections, their Role, Access Scope, Permission, connection state, and Current File when present.
 Open a Space with `corpus_space_get` only when the user asks for its Context items. Do not choose a
-Space merely because it contains more items.
+Space merely because it contains more items. Omit `context_limit` and `context_offset` on the
+initial call. `context_limit` counts Context items, not characters, and must stay between 1 and
+100. If `has_more` is true, pass `next_offset` as `context_offset` to read the next page.
 
 Keep three things distinct:
 

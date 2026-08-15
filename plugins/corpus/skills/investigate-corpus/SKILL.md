@@ -12,7 +12,10 @@ shape of the answer.
 
 1. If the user names a Corpus Space, open that one with `corpus_space_get`. Otherwise use
    `corpus_space_list`, choose only when one clearly matches, and ask only if several remain
-   genuinely plausible.
+   genuinely plausible. Omit `context_limit` and `context_offset` on the initial
+   `corpus_space_get` call. `context_limit` counts Context items, not characters, and must stay
+   between 1 and 100. If `has_more` is true, pass `next_offset` as `context_offset` to read the
+   next page.
 2. Start from the saved Context. It is the reusable working understanding assembled from the
    connected material, so do not reread every Source file when it already answers the request.
 3. If the selected Context returns `skill.provenance=user_approved_context_skill`, follow its
