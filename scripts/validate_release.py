@@ -1181,7 +1181,7 @@ def validate_package_manifests() -> dict[str, str]:
         "existing relation could materially change a": (
             "does not limit ontology reads to material response changes"
         ),
-        "directly states the reusable relation to create": (
+        "current interaction itself supplies or asserts a reusable relation": (
             "does not notice interactions that change the user model"
         ),
         "Make no Hypes call": ("does not stay out of unrelated conversations"),
@@ -1194,8 +1194,12 @@ def validate_package_manifests() -> dict[str, str]:
         "next_action_if_relationship_required": (
             "does not follow bounded relationship-read recovery"
         ),
-        "task-local terms, equivalences, facts": (
+        "Task-local terms, instructions, facts, definitions, equivalences": (
             "does not keep task-local premises out of the relationship model"
+        ),
+        "fallback and end Hypes without rewriting": ("does not keep absence fallbacks read-only"),
+        "Never call `hypes_rewrite` as the first Hypes call": (
+            "does not require a same-response read before rewriting"
         ),
         "Do not write merely because a turn or task completed": (
             "writes ordinary conversation completion into the ontology"
