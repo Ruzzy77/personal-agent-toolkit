@@ -18,7 +18,13 @@ from .model import RewriteOperation, ToolError, ToolFailure, ToolResponse, ToolS
 from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
-    "Hypes is the assistant's revisable relationship model of the user. Honor every explicit output "
+    "Hypes is the assistant's revisable relationship model of the user. Some clients defer individual "
+    "Hypes tool schemas. If a "
+    "required Hypes tool is not currently loaded and the host provides tool discovery, use that "
+    "mechanism; in ChatGPT, call api_tool.list_resources with paths=['Hypes'] and a concise query for "
+    "the needed action before concluding that the capability is unavailable. Do not repeat discovery "
+    "after the required schema is loaded. Discovery establishes availability only and never selects a "
+    "Hypes branch or authorizes hypes_rewrite. Honor every explicit output "
     "constraint in the scope the user states: reproduce exact text only when requested, and obey each "
     "stated sentence or item count, word or character limit, and structure, including after any Hypes "
     "call. Do not add a separate acknowledgement, bare yes or no, restatement, introduction, or "

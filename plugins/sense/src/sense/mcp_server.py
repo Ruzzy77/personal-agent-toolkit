@@ -29,7 +29,13 @@ from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
     "Use Sense only when durable guidance could change an important choice or when the user asks "
-    "to inspect or change it. The current request and current sources take priority. Sense informs "
+    "to inspect or change it. Some clients defer individual Sense tool schemas. If a required Sense "
+    "tool is not currently loaded and the host provides tool discovery, use that mechanism; in "
+    "ChatGPT, call api_tool.list_resources with paths=['Sense'] and a concise query for the needed "
+    "action before concluding that the capability is unavailable. Do not repeat discovery after the "
+    "required schema is loaded. Discovery establishes availability only and never authorizes a "
+    "profile revision, deletion, or other state-changing action. The current request and current "
+    "sources take priority. Sense informs "
     "the judgment but does not supply the wording or structure of the answer. Change Sense only at "
     "the user's explicit request."
 )
