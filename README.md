@@ -61,27 +61,35 @@ The gateway is toolkit infrastructure, not a fourth plugin. It never creates a c
 namespace. A user may select Sense only, Corpus plus Hypes, or all three; local and Chat surfaces
 continue to register and call each selected product independently.
 
-## Install from a checkout
+## Install
 
-Clone this repository and run the commands from its root.
+Install from this published repository, or from a local checkout when developing the toolkit
+itself. Both paths register the same `personal-agent-toolkit` marketplace, and a marketplace name
+can be registered only once.
 
 ### Codex
 
 ```sh
-codex plugin marketplace add .
+codex plugin marketplace add Ruzzy77/personal-agent-toolkit
 codex plugin add sense@personal-agent-toolkit
 codex plugin add corpus@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 ```
 
+To install from a local checkout instead, clone this repository and run
+`codex plugin marketplace add .` from its root in place of the first command.
+
 ### Claude Code
 
 ```sh
-claude plugin marketplace add .
+claude plugin marketplace add Ruzzy77/personal-agent-toolkit
 claude plugin install sense@personal-agent-toolkit --scope user
 claude plugin install corpus@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 ```
+
+To install from a local checkout instead, clone this repository and run
+`claude plugin marketplace add .` from its root in place of the first command.
 
 Start a new task or session after installing or updating a plugin.
 
@@ -131,6 +139,38 @@ See OpenAI's documentation for
 [developer testing](https://developers.openai.com/plugins/deploy/connect-chatgpt),
 [plugin packaging](https://developers.openai.com/plugins/build/plugins), and
 [public submission](https://developers.openai.com/plugins/deploy/submission).
+
+## Update an installed plugin
+
+A marketplace registered from this published repository serves what has been pushed to `main`, so
+a local rebuild becomes visible only after it is committed and pushed. Refresh the marketplace
+snapshot first, then update each plugin.
+
+### Codex
+
+```sh
+codex plugin marketplace upgrade personal-agent-toolkit
+codex plugin add hypes@personal-agent-toolkit
+```
+
+Codex has no separate plugin update command; installing again from the refreshed snapshot applies
+the new version.
+
+### Claude Code
+
+```sh
+claude plugin marketplace update personal-agent-toolkit
+claude plugin update hypes@personal-agent-toolkit --scope user
+```
+
+A marketplace registered from a local checkout is read from that directory instead, so rebuilding
+into the checkout replaces the refresh step.
+
+Removing a marketplace also uninstalls every plugin installed from it. Moving an existing
+registration between a local checkout and this published repository therefore means removing the
+marketplace, adding the new source, and installing the plugins again.
+
+Start a new task or session after installing or updating a plugin.
 
 ## First use
 
