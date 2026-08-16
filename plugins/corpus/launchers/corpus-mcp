@@ -7,7 +7,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
 if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
-  exec "$PROJECT_ROOT/.venv/bin/python" -m corpus.mcp_server
+  exec "$PROJECT_ROOT/.venv/bin/python" -m corpus.mcp_server_bounded
 fi
 
 PYTHON_ENV_ROOT="${CORPUS_PYTHON_ENV:-$HOME/Library/Caches/Corpus/python-env}"
@@ -94,4 +94,4 @@ UV_PROJECT_ENVIRONMENT="$PYTHON_ENV_ROOT" \
     --no-install-project
 
 PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
-  exec "$PYTHON_ENV_ROOT/bin/python" -m corpus.mcp_server
+  exec "$PYTHON_ENV_ROOT/bin/python" -m corpus.mcp_server_bounded

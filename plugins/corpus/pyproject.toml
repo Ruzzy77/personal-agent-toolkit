@@ -32,7 +32,7 @@ dev = [
 
 [project.scripts]
 corpus = "corpus.cli:main"
-corpus-mcp = "corpus.mcp_server:main"
+corpus-mcp = "corpus.mcp_server_bounded:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
