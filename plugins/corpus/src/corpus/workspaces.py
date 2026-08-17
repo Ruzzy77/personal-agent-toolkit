@@ -2247,6 +2247,184 @@ class WorkspaceService:
                 ),
             }
 
+    def delete(
+        self,
+        *,
+        workspace_id: str,
+        relative_path: str,
+        expected_version: str,
+        expected_content_sha256: str,
+        confirm_delete: bool,
+        audience: str = "local_cli",
+    ) -> dict[str, Any]:
+        """Delete one completely read file if its path and content are unchanged."""
+
+        self._validate_expected_version(expected_version)
+        if expected_version == WORKSPACE_EXPECTED_ABSENT:
+            raise WorkspaceValidationError("delete requires an observed v1 version")
+        if not isinstance(expected_content_sha256, str) or re.fullmatch(
+            r"[0-9a-f]{64}", expected_content_sha256
+        ) is None:
+            raise WorkspaceValidationError("expected_content_sha256 is invalid")
+        if confirm_delete is not True:
+            raise WorkspaceValidationError("file deletion requires explicit confirmation")
+
+        access = _workspace_access()
+        canonical = access.normalize_workspace_relative_path(relative_path)
+        with workspace_writer_lock(self.data_root):
+            row = self._load_row(workspace_id, audience=audience)
+            self._require_connected(row)
+            paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
+            paths.ensure()
+            root = Path(row["root_path"])
+            identity = self._identity(row)
+            source_corpus_id = self._source_corpus_id_for_row(row)
+            if source_corpus_id is not None:
+                self._prepare_index_change(
+                    row=row,
+                    paths=paths,
+                    source_corpus_id=source_corpus_id,
+                    relative_path=canonical,
+                    operation="delete",
+                    expected_version=expected_version,
+                    intended_sha256=expected_content_sha256,
+                )
+
+            deleted = False
+            try:
+                with (
+                    access.opened_workspace_root(root, identity) as root_descriptor,
+                    access.opened_workspace_parent(
+                        root_descriptor,
+                        canonical,
+                    ) as (parent_descriptor, _canonical_name, existing_raw_name),
+                ):
+                    if existing_raw_name is None:
+                        raise WorkspaceConflictError(
+                            "work folder file no longer exists",
+                            details={"relative_path": canonical, "reason": "missing"},
+                        )
+                    descriptor = os.open(
+                        existing_raw_name,
+                        os.O_RDONLY
+                        | getattr(os, "O_CLOEXEC", 0)
+                        | getattr(os, "O_NOFOLLOW", 0),
+                        dir_fd=parent_descriptor,
+                    )
+                    try:
+                        before = access.workspace_file_observation_from_descriptor(
+                            descriptor,
+                            relative_path=canonical,
+                            max_bytes=WORKSPACE_MAX_FILE_BYTES,
+                        )
+                        current_path = os.stat(
+                            existing_raw_name,
+                            dir_fd=parent_descriptor,
+                            follow_symlinks=False,
+                        )
+                        if (
+                            current_path.st_dev != before.device
+                            or current_path.st_ino != before.inode
+                        ):
+                            raise WorkspaceConflictError(
+                                "work folder file changed before deletion",
+                                details={
+                                    "relative_path": canonical,
+                                    "reason": "delete_source_changed",
+                                },
+                            )
+                        if before.version_token != expected_version:
+                            raise WorkspaceConflictError(
+                                "work folder file changed before deletion",
+                                details={
+                                    "relative_path": canonical,
+                                    "reason": "stale_version",
+                                    "current_version": before.version_token,
+                                },
+                            )
+                        if before.sha256 != expected_content_sha256:
+                            raise WorkspaceConflictError(
+                                "work folder file content does not match the completed read",
+                                details={
+                                    "relative_path": canonical,
+                                    "reason": "content_digest_mismatch",
+                                },
+                            )
+                        try:
+                            os.unlink(existing_raw_name, dir_fd=parent_descriptor)
+                        except OSError as exc:
+                            raise WorkspaceUnavailableError(
+                                "work folder file could not be deleted",
+                                details={
+                                    "relative_path": canonical,
+                                    "reason": f"delete_failed:{exc.errno}",
+                                },
+                            ) from exc
+                        deleted = True
+                        self._sync_directory(parent_descriptor, action="delete")
+                    finally:
+                        os.close(descriptor)
+            except Exception:
+                if not deleted and source_corpus_id is not None:
+                    with suppress(Exception):
+                        self._clear_prepared_index_change(
+                            paths=paths,
+                            relative_path=canonical,
+                        )
+                raise
+
+            if source_corpus_id is not None:
+                with suppress(Exception):
+                    self._mark_index_change_dirty(
+                        paths=paths,
+                        source_corpus_id=source_corpus_id,
+                        relative_path=canonical,
+                        result_version=WORKSPACE_EXPECTED_ABSENT,
+                    )
+            now = utc_now()
+            try:
+                with workspace_connection(self.data_root) as connection:
+                    current = self._load_row(
+                        row["workspace_id"],
+                        audience=audience,
+                        connection=connection,
+                    )
+                    if current["current_relative_path"] == canonical:
+                        new_generation = int(current["generation"]) + 1
+                        connection.execute(
+                            """
+                            UPDATE workspaces
+                            SET current_relative_path = NULL, generation = ?, updated_at = ?
+                            WHERE workspace_id = ? AND generation = ?
+                            """,
+                            (
+                                new_generation,
+                                now,
+                                row["workspace_id"],
+                                current["generation"],
+                            ),
+                        )
+                        row["current_relative_path"] = None
+                        row["generation"] = new_generation
+                        row["updated_at"] = now
+            except Exception as exc:
+                raise WorkspaceUnavailableError(
+                    "work folder file was deleted but Current File state could not be updated",
+                    details={
+                        "relative_path": canonical,
+                        "reason": "metadata_finalize_failed",
+                        "file_deleted": True,
+                    },
+                ) from exc
+            return {
+                "work_folder": self._project(row, audience=audience),
+                "relative_path": canonical,
+                "deleted": True,
+                "index_state": (
+                    "pending_refresh" if source_corpus_id is not None else "not_applicable"
+                ),
+            }
+
     @staticmethod
     def _read_private_recovery(
         *,

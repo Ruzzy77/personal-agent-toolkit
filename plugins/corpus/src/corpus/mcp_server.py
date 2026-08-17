@@ -30,7 +30,7 @@ from .workspaces import (
     WORKSPACE_MAX_PATH_FILTER_CHARS,
 )
 
-MCP_SPACE_SURFACE_REVISION = "space-v2"
+MCP_SPACE_SURFACE_REVISION = "space-v3"
 
 SERVER_INSTRUCTIONS = (
     "Use Corpus through Spaces. Some clients defer individual Corpus tool schemas. If a required "
@@ -49,7 +49,8 @@ SERVER_INSTRUCTIONS = (
     "request and available capabilities, and never treat it as source evidence. A "
     "local_only Connection is never exposed remotely. Only an explicitly connected "
     "remote_allowed, read_write Work Connection may be edited. Full replacement requires a read's "
-    "version_token and content_sha256; otherwise use exact unique markers. Stop on conflicts."
+    "version_token and content_sha256; otherwise use exact unique markers. Never create probe, "
+    "placeholder, schema-test, or temporary files to inspect a tool. Stop on conflicts."
 )
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True,
@@ -476,10 +477,17 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             )
             result["surface_revision"] = MCP_SPACE_SURFACE_REVISION
             result["capabilities"] = {
-                "context": "read",
+                "context": ["read", "refresh_checkpoint"],
                 "context_skill": "read",
                 "indexed_source": ["search", "read_ref"],
-                "work_file": ["list", "read", "write", "select_current", "restore"],
+                "work_file": [
+                    "list",
+                    "read",
+                    "write",
+                    "delete",
+                    "select_current",
+                    "restore",
+                ],
             }
             return result
 
@@ -531,6 +539,31 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                 audience="external_mcp",
                 context_limit=context_limit,
                 context_offset=context_offset,
+            )
+        )
+
+    @server.tool(
+        name="corpus_space_refresh_context",
+        title="Refresh Space Context",
+        description=(
+            "Use this after the user asks to clear a Space Context's refresh_needed state. It "
+            "acknowledges the current indexed inventory only when every saved source link remains "
+            "valid; it never rewrites Context claims or silently relinks changed evidence. Pass "
+            "the Context version returned by corpus_space_get and explicit confirmation."
+        ),
+        annotations=WORKSPACE_SELECTION_WRITE,
+    )
+    def corpus_space_refresh_context(
+        space_id: SpaceId,
+        expected_version: Annotated[int, Field(ge=1, le=(1 << 63) - 1)],
+        confirm_refresh: bool,
+    ) -> ToolResponse:
+        return safe_call(
+            lambda: service.space_refresh_context(
+                space_id=space_id,
+                expected_version=expected_version,
+                confirm_refresh=confirm_refresh,
+                audience="external_mcp",
             )
         )
 
@@ -651,6 +684,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         title="Write Space File",
         description=(
             "Use this only for a user-requested result in a visible read_write Work Connection. "
+            "Never create probe, placeholder, schema-test, or temporary files. "
             "Use expected_version='absent' for a new path. Full-file replacement requires the "
             "latest version_token and returned content_sha256. A section replacement replaces "
             "only the text between two exact unique markers. "
@@ -694,6 +728,40 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                 replace_start_marker=replace_start_marker,
                 replace_end_marker=replace_end_marker,
                 make_current=make_current,
+                audience="external_mcp",
+            )
+        )
+
+    @server.tool(
+        name="corpus_file_delete",
+        title="Delete Space File",
+        description=(
+            "Use this only when the user explicitly asks to delete one Work file. First complete "
+            "corpus_file_read, then pass its latest version_token and content_sha256 with explicit "
+            "confirmation. Deletion is permanent. Directories, symbolic links, and changed files "
+            "are refused."
+        ),
+        annotations=WORKSPACE_WRITE,
+    )
+    def corpus_file_delete(
+        space_id: SpaceId,
+        relative_path: WorkspacePath,
+        expected_version: WorkspaceVersion,
+        expected_content_sha256: Annotated[
+            str,
+            Field(pattern=r"^[0-9a-f]{64}$"),
+        ],
+        confirm_delete: bool,
+        connection_id: ConnectionId | None = None,
+    ) -> ToolResponse:
+        return safe_call(
+            lambda: service.space_file_delete(
+                space_id=space_id,
+                connection_id=connection_id,
+                relative_path=relative_path,
+                expected_version=expected_version,
+                expected_content_sha256=expected_content_sha256,
+                confirm_delete=confirm_delete,
                 audience="external_mcp",
             )
         )

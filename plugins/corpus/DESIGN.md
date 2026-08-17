@@ -6,7 +6,7 @@ Corpus는 다음 세 가지를 맡습니다.
 
 1. 등록한 Source의 현재 파일 목록과 추출 본문을 비공개로 색인합니다.
 2. 반복해서 사용할 Context를 원문 위치와 연결합니다.
-3. 사용자가 연결한 Work 폴더의 파일을 읽고 충돌 없이 교체합니다.
+3. 사용자가 연결한 Work 폴더의 파일을 읽고 충돌 없이 교체하거나 삭제합니다.
 
 원본 문서의 정본성, 문서 형식별 고급 편집과 에이전트의 최종 해석은 Corpus가 맡지 않습니다. 원본은 계속 등록 폴더에 있고, Corpus의 검색 결과와 Context는 답을 만들기 위한 보조 자료입니다.
 
@@ -80,15 +80,15 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 - 전체 교체: 최신 version token과 완전한 읽기의 content SHA-256 사용
 - 구간 교체: 현재 파일에서 한 번씩만 나타나는 두 marker 사이를 교체
 
-교체 직전 실제 파일 identity와 digest를 다시 확인합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, 기존 파일은 private recovery로 보존합니다. 파일 권한과 macOS metadata를 안전하게 복제할 수 없으면 중단합니다.
+교체 직전 실제 파일 identity와 digest를 다시 확인합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, 기존 파일은 private recovery로 보존합니다. 파일 권한과 macOS metadata를 안전하게 복제할 수 없으면 중단합니다. inode마다 달라지는 macOS provenance 값은 새 inode와 같을 수 없으므로 안정 메타데이터의 일치 검증에는 포함하지 않습니다.
 
-복원은 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
+삭제도 완전한 읽기의 version token과 content SHA-256을 다시 확인하며, 사용자가 명시적으로 확인한 경우에만 수행합니다. 복원은 교체 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 여덟 개만 있습니다. 등록, scan, ingest, Context 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 열 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Context refresh 도구는 저장된 source link가 모두 유효할 때 현재 inventory checkpoint만 갱신하며, item이나 출처 연결을 다시 만들지 않습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
-stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다.
+stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 
 응답은 로컬 절대 경로를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.
 

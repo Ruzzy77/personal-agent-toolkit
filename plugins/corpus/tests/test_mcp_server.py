@@ -28,10 +28,12 @@ class MCPServerTest(unittest.TestCase):
             {
                 "corpus_space_list",
                 "corpus_space_get",
+                "corpus_space_refresh_context",
                 "corpus_space_search",
                 "corpus_file_list",
                 "corpus_file_read",
                 "corpus_file_write",
+                "corpus_file_delete",
                 "corpus_file_select_current",
                 "corpus_file_restore",
             },

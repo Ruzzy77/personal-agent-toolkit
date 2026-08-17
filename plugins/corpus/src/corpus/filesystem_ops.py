@@ -41,6 +41,7 @@ _DARWIN_ACL_ENTRY_FILE_INHERIT = 1 << 5
 _DARWIN_ACL_ENTRY_ONLY_INHERIT = 1 << 8
 _DARWIN_COPYFILE_ACL = 1 << 0
 _DARWIN_COPYFILE_XATTR = 1 << 2
+_DARWIN_PER_INODE_XATTRS = {b"com.apple.provenance"}
 _DARWIN_NAMESPACE_BLOCKING_FLAGS = (
     0x00000002  # UF_IMMUTABLE
     | 0x00000004  # UF_APPEND
@@ -256,7 +257,11 @@ def _darwin_xattrs(descriptor: int) -> tuple[tuple[bytes, bytes], ...]:
             "file extended attribute list is malformed",
             reason="xattr_unreadable",
         )
-    names = sorted(name for name in names_raw[:-1].split(b"\0") if name)
+    names = sorted(
+        name
+        for name in names_raw[:-1].split(b"\0")
+        if name and name not in _DARWIN_PER_INODE_XATTRS
+    )
     result: list[tuple[bytes, bytes]] = []
     for name in names:
         ctypes.set_errno(0)
@@ -393,9 +398,11 @@ def copy_file_metadata(
     """Copy and verify complete existing-file metadata before an exchange.
 
     Content and timestamps are deliberately excluded: replacement supplies new
-    content and therefore a new modification time.  ACLs, every extended
-    attribute, ownership, permission bits, and file flags must match exactly.
-    Any unsupported or racing metadata fails before the namespace is changed.
+    content and therefore a new modification time.  ACLs, stable extended
+    attributes, ownership, permission bits, and file flags must match exactly.
+    macOS assigns ``com.apple.provenance`` to each inode, so its value cannot
+    match across an atomic replacement. Any unsupported or racing metadata
+    fails before the namespace is changed.
     """
 
     before = ensure_file_metadata_is_replaceable(

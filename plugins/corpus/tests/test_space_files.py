@@ -197,6 +197,23 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertTrue(restored["restored"])
         self.assertEqual((root / "working.md").read_text(encoding="utf-8"), "first version")
 
+        live = self.service.space_file_read(
+            space_id="research-note",
+            relative_path="working.md",
+            audience="external_mcp",
+        )
+        deleted = self.service.space_file_delete(
+            space_id="research-note",
+            relative_path="working.md",
+            expected_version=live["file"]["version_token"],
+            expected_content_sha256=live["content_sha256"],
+            confirm_delete=True,
+            audience="external_mcp",
+        )
+        self.assertTrue(deleted["deleted"])
+        self.assertFalse((root / "working.md").exists())
+        (root / "working.md").write_text("first version", encoding="utf-8")
+
         start_marker = "<!-- findings -->"
         end_marker = "<!-- discussion -->"
         manuscript = f"{start_marker}old{end_marker}" + "x" * 1_200
@@ -252,6 +269,22 @@ class SpaceFileServiceTest(unittest.TestCase):
             "working.md",
         )
         self.assertNotIn(str(root), repr(selected))
+
+        self.service.scan("relation-learning-research")
+        self.service.ingest("relation-learning-research")
+        stale_context = self.service.space_get(
+            space_id="research-note",
+            audience="external_mcp",
+        )["space"]["context"]
+        self.assertEqual(stale_context["status"], "refresh_needed")
+        refreshed = self.service.space_refresh_context(
+            space_id="research-note",
+            expected_version=stale_context["version"],
+            confirm_refresh=True,
+            audience="external_mcp",
+        )
+        self.assertTrue(refreshed["refreshed"])
+        self.assertEqual(refreshed["context"]["status"], "ready")
 
     def test_remote_context_and_work_do_not_open_local_source_connection(self) -> None:
         source = self.base / "private-materials"
