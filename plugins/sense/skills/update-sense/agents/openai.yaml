@@ -1,4 +1,0 @@
-interface:
-  display_name: "Update Sense"
-  short_description: "Install a checked Sense update"
-  default_prompt: "Use $update-sense to validate and install this Sense update, then tell me whether the app must restart."

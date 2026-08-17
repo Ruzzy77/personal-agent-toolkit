@@ -1,5 +1,6 @@
 {
   "name": "corpus",
+  "version": "0.11.0",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -8,6 +9,5 @@
   "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
   "license": "Apache-2.0",
-  "mcpServers": "./.mcp.json",
-  "version": "0.11.0+codex.20260816045307"
+  "mcpServers": "./.mcp.json"
 }

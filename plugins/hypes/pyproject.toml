@@ -22,7 +22,6 @@ hypes-mcp = "hypes.mcp_server:main"
 
 [dependency-groups]
 dev = [
-  "jsonschema>=4.23,<5",
   "pytest>=8.3,<9",
 ]
 

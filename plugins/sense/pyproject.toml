@@ -23,9 +23,7 @@ sense-mcp = "sense.mcp_server:main"
 
 [dependency-groups]
 dev = [
-  "pillow>=11,<13",
   "pytest>=8,<10",
-  "pyyaml>=6,<7",
 ]
 
 [tool.setuptools.packages.find]

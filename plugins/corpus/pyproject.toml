@@ -24,12 +24,6 @@ dependencies = [
   "python-pptx>=1.0,<2",
 ]
 
-[dependency-groups]
-dev = [
-  "pyyaml>=6,<7",
-  "ruff>=0.9,<1",
-]
-
 [project.scripts]
 corpus = "corpus.cli:main"
 corpus-mcp = "corpus.mcp_server:main"
@@ -39,13 +33,3 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 corpus = ["native/*.swift"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]

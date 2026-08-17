@@ -101,10 +101,6 @@ class ExtractionError(CorpusError):
     code = "extraction_error"
 
 
-class SemanticCommitError(CorpusError):
-    code = "semantic_commit_error"
-
-
 class SnapshotConflictError(CorpusError):
     code = "snapshot_conflict"
 

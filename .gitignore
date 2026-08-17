@@ -1,14 +1,7 @@
 .DS_Store
 
 **/.venv/
-**/.local/
 **/__pycache__/
-**/.pytest_cache/
-**/.ruff_cache/
-
-**/.runtime/
-**/.corpus-data/
-**/staging/
 
 **/.env
 **/.env.*

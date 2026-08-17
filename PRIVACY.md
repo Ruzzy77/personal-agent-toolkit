@@ -74,11 +74,11 @@ connection, OAuth credential, or multi-user storage. Their streamable HTTP liste
 loopback connections.
 
 The optional gateway can connect selected installed products to the user's own OpenAI Secure MCP
-Tunnels. It does not copy product data or create another product database. It starts the packaged
-local launchers and proxies fixed loopback paths; one independently registered tunnel remains the
-private transport for each selected product. The Platform runtime key is read from the user's login
-Keychain and passed only to official tunnel-client processes. It is not placed in the product
-processes, gateway process, LaunchAgent file, plugin package, or repository.
+Tunnels. It does not copy product data or create another product database. The supervising service
+starts the selected local launchers, and the gateway proxies their fixed loopback paths. Each
+product uses its own tunnel. The Platform runtime key is read from the user's login Keychain and
+passed only to official tunnel-client processes. It is not placed in the product processes,
+gateway process, LaunchAgent file, plugin package, or repository.
 
 The public gateway package contains no tunnel id, developer connection id, API key, product data,
 or absolute maintainer path. A user's generated tunnel profiles and `.app.json` bindings remain
@@ -86,11 +86,8 @@ private local configuration and are not part of this repository. Stopping the ga
 product data and installations unchanged.
 
 Registering a tunnel-backed MCP endpoint for private developer testing does not publish it. Public
-availability still requires a separate submission and review for each product. A separately hosted
-multi-user service must additionally define authenticated isolation, retention, export and deletion,
-logging redaction, abuse and quota controls, and the exact sources that may leave each user's
-device. Shared operational infrastructure does not merge product data, scopes, tool surfaces, or
-deletion boundaries; the gateway is not a cross-product profile or model router.
+availability still requires a separate submission and review for each product. The gateway is not
+a hosted service, cross-product profile, or model router.
 
 ## Repository contents
 
@@ -102,4 +99,6 @@ The release repository must not contain:
 - absolute paths from the maintainer's machine;
 - generated caches, virtual environments, or staging files.
 
-`scripts/validate_release.py` enforces these boundaries for the tracked release.
+The three product directories under `plugins/` are both the source and the marketplace installation
+targets. They contain no build-time copy of runtime data or maintainer credentials. The optional
+gateway remains a separate package and follows the same repository-content boundary.

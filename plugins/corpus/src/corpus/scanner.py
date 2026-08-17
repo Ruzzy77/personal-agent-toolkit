@@ -285,9 +285,6 @@ def _record_regular_file(
         """,
         (relative_path,),
     ).fetchone()
-    # A one-time source identifier cutover may change the namespace used for
-    # newly discovered document IDs. Existing paths retain their opaque IDs so
-    # revisions, projections, Context links, and snapshots remain intact.
     document_id = (
         previous["document_id"]
         if previous is not None
@@ -317,28 +314,6 @@ def _record_regular_file(
             change_types.add("eligibility_changed")
     if not change_types:
         inventory_changes.pop(document_id)
-    if metadata_changed and previous["current_revision_id"]:
-        connection.execute(
-            """
-            UPDATE interpretation_queue
-            SET state = 'stale', reason = 'source_metadata_changed', updated_at = ?
-            WHERE revision_id = ? AND state != 'stale'
-            """,
-            (now, previous["current_revision_id"]),
-        )
-        connection.execute(
-            """
-            UPDATE atomic_claims
-            SET dependency_state = 'stale'
-            WHERE claim_id IN (
-                SELECT claim_id FROM evidence_links
-                WHERE source_revision_id = ?
-            )
-              AND dependency_state = 'valid'
-            """,
-            (previous["current_revision_id"],),
-        )
-
     connection.execute(
         """
         INSERT INTO documents(
@@ -776,31 +751,6 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
             ).rowcount
             for row in deleted_rows:
                 inventory_changes.setdefault(row["document_id"], set()).add("deleted")
-        deleted_revision_ids = [
-            row["current_revision_id"] for row in deleted_rows if row["current_revision_id"]
-        ]
-        if deleted_revision_ids:
-            placeholders = ",".join("?" for _ in deleted_revision_ids)
-            connection.execute(
-                f"""
-                UPDATE interpretation_queue
-                SET state = 'stale', reason = 'source_deleted', updated_at = ?
-                WHERE revision_id IN ({placeholders}) AND state != 'stale'
-                """,
-                (completed_at, *deleted_revision_ids),
-            )
-            connection.execute(
-                f"""
-                UPDATE atomic_claims
-                SET dependency_state = 'stale'
-                WHERE claim_id IN (
-                    SELECT claim_id FROM evidence_links
-                    WHERE source_revision_id IN ({placeholders})
-                )
-                  AND dependency_state = 'valid'
-                """,
-                deleted_revision_ids,
-            )
         summary.deleted_since_previous_scan = deleted
         issue_count = (
             summary.symlinks_skipped + summary.special_files_skipped + summary.stat_failures

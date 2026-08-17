@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "hypes": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/launchers/hypes-mcp",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/hypes-mcp",
       "args": []
     }
   }

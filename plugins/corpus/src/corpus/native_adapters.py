@@ -109,7 +109,6 @@ class PDFKitVisionAdapter:
                 (
                     "/usr/bin/xcrun",
                     "swiftc",
-                    "-warnings-as-errors",
                     "-parse-as-library",
                     "-O",
                     str(_PDF_VISION_SOURCE),

@@ -46,12 +46,6 @@ READ_ONLY = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
-PROFILE_WRITE = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=False,
-    openWorldHint=False,
-)
 PROFILE_IDEMPOTENT_WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -265,42 +259,6 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     )
     def sense_overview() -> ToolResponse:
         return _safe_call(service.overview)
-
-    @server.tool(
-        name="sense_revise",
-        title="Revise Sense",
-        description=(
-            "Use this only when the user asks to save an explicit correction or observed result "
-            "as guidance that "
-            "should remain useful in other contexts. Do not save project facts, one-project notes, "
-            "or user-model relations that belong in Hypes. This compatibility tool replaces one "
-            "isolated ordinary section. Do not call it repeatedly in one response; use "
-            "sense_preview_revision and sense_revise_batch for related changes. The section digest "
-            "prevents overwriting that section if it changed. Preview data and sensitive sections "
-            "cannot be changed here."
-        ),
-        annotations=PROFILE_WRITE,
-        meta={"ui": {"visibility": ["model"]}},
-    )
-    def sense_revise(
-        expected_revision: Annotated[int, Field(ge=1)],
-        section_id: SectionId,
-        previous_section_sha256: Sha256,
-        previous_understanding: Annotated[str, Field(min_length=1, max_length=2000)],
-        changed_future_judgment: Annotated[str, Field(min_length=1, max_length=2000)],
-        new_section: SenseSection,
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.revise(
-                expected_revision=expected_revision,
-                section_id=section_id,
-                previous_section_sha256=previous_section_sha256,
-                previous_understanding=previous_understanding,
-                changed_future_judgment=changed_future_judgment,
-                new_section=new_section.to_stored(),
-                trusted_user_action=False,
-            )
-        )
 
     @server.tool(
         name="sense_preview_revision",

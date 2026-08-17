@@ -18,7 +18,6 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
-from typing import NoReturn
 
 from personal_agent_remote.installed_products import (
     InstalledProduct,
@@ -28,7 +27,7 @@ from personal_agent_remote.installed_products import (
     normalize_products,
     parse_product_roots,
 )
-from personal_agent_remote.tunnel import CONNECTION_MODES, PRODUCTS
+from personal_agent_remote.tunnel import PRODUCTS
 from personal_agent_remote.tunnel_gateway import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -72,26 +71,15 @@ def _owned_regular_file(path: Path, *, executable: bool, description: str) -> Pa
     return canonical
 
 
-def _profile_name(product: str, *, connection_mode: str) -> str:
+def _profile_name(product: str) -> str:
     if product not in PRODUCTS:
         raise TunnelServiceError("product must be sense, corpus, or hypes")
-    if connection_mode not in CONNECTION_MODES:
-        raise TunnelServiceError("connection mode must be direct or gateway")
-    if connection_mode == "direct":
-        return f"personal-agent-{product}"
     return f"personal-agent-gateway-{product}"
 
 
-def _profile_path(
-    product: str,
-    *,
-    connection_mode: str = "direct",
-    home: Path | None = None,
-) -> Path:
+def _profile_path(product: str, *, home: Path | None = None) -> Path:
     base = (home or Path.home()).expanduser()
-    return base / ".config" / "tunnel-client" / (
-        f"{_profile_name(product, connection_mode=connection_mode)}.yaml"
-    )
+    return base / ".config" / "tunnel-client" / f"{_profile_name(product)}.yaml"
 
 
 def _read_keychain_secret(
@@ -122,40 +110,6 @@ def _read_keychain_secret(
     return secret
 
 
-def run_profile(
-    *,
-    product: str,
-    tunnel_client: Path,
-    connection_mode: str = "direct",
-    keychain_service: str = DEFAULT_KEYCHAIN_SERVICE,
-    keychain_account: str = DEFAULT_KEYCHAIN_ACCOUNT,
-    home: Path | None = None,
-    secret_reader: Callable[..., str] = _read_keychain_secret,
-    execve: Callable[[str, Sequence[str], dict[str, str]], object] = os.execve,
-) -> NoReturn:
-    client = _owned_regular_file(
-        tunnel_client,
-        executable=True,
-        description="tunnel client",
-    )
-    profile = _owned_regular_file(
-        _profile_path(product, connection_mode=connection_mode, home=home),
-        executable=False,
-        description=f"{product} tunnel profile",
-    )
-    if stat.S_IMODE(profile.stat().st_mode) != 0o600:
-        raise TunnelServiceError(f"{product} tunnel profile must use mode 0600")
-    secret = secret_reader(service=keychain_service, account=keychain_account)
-    environment = dict(os.environ)
-    environment["CONTROL_PLANE_API_KEY"] = secret
-    argv = [
-        str(client),
-        "run",
-        "--profile",
-        _profile_name(product, connection_mode=connection_mode),
-    ]
-    execve(str(client), argv, environment)
-    raise AssertionError("execve returned unexpectedly")
 
 
 def _gateway_profile_command(product: str, *, tunnel_client: Path) -> list[str]:
@@ -163,7 +117,7 @@ def _gateway_profile_command(product: str, *, tunnel_client: Path) -> list[str]:
         str(tunnel_client),
         "run",
         "--profile",
-        _profile_name(product, connection_mode="gateway"),
+        _profile_name(product),
     ]
 
 
@@ -295,7 +249,7 @@ def run_gateway_bundle(
         )
     for product in selected:
         profile = _owned_regular_file(
-            _profile_path(product, connection_mode="gateway", home=home),
+            _profile_path(product, home=home),
             executable=False,
             description=f"{product} gateway tunnel profile",
         )
@@ -401,66 +355,6 @@ def _absolute_owned_directory(
     return expanded
 
 
-def launch_agent_payload(
-    *,
-    product: str,
-    runtime_program: Path,
-    tunnel_client: Path,
-    log_directory: Path,
-    keychain_service: str = DEFAULT_KEYCHAIN_SERVICE,
-    keychain_account: str = DEFAULT_KEYCHAIN_ACCOUNT,
-    connection_mode: str = "direct",
-) -> dict[str, object]:
-    _profile_name(product, connection_mode=connection_mode)
-    program = _owned_regular_file(
-        runtime_program,
-        executable=True,
-        description="tunnel service program",
-    )
-    client = _owned_regular_file(
-        tunnel_client,
-        executable=True,
-        description="tunnel client",
-    )
-    logs = _absolute_owned_directory(
-        log_directory,
-        description="tunnel log directory",
-        require_private=True,
-    )
-    return {
-        "Label": (
-            f"{LABEL_PREFIX}.{product}"
-            if connection_mode == "direct"
-            else f"{LABEL_PREFIX}.gateway.{product}"
-        ),
-        "ProgramArguments": [
-            str(program),
-            "run",
-            "--product",
-            product,
-            "--connection-mode",
-            connection_mode,
-            "--tunnel-client",
-            str(client),
-            "--keychain-service",
-            keychain_service,
-            "--keychain-account",
-            keychain_account,
-        ],
-        "RunAtLoad": True,
-        "KeepAlive": True,
-        "ProcessType": "Background",
-        "ThrottleInterval": 10,
-        "StandardOutPath": "/dev/null",
-        "StandardErrorPath": str(
-            logs
-            / (
-                f"{product}.stderr.log"
-                if connection_mode == "direct"
-                else f"gateway-{product}.stderr.log"
-            )
-        ),
-    }
 
 
 def gateway_launch_agent_payload(
@@ -560,38 +454,6 @@ def _write_launch_agent(target: Path, payload: dict[str, object]) -> None:
             temporary.unlink()
 
 
-def install_launch_agents(
-    *,
-    runtime_program: Path,
-    tunnel_client: Path,
-    launch_agents_directory: Path,
-    log_directory: Path,
-    keychain_service: str = DEFAULT_KEYCHAIN_SERVICE,
-    keychain_account: str = DEFAULT_KEYCHAIN_ACCOUNT,
-    connection_mode: str = "direct",
-) -> list[Path]:
-    agents = _absolute_owned_directory(
-        launch_agents_directory,
-        description="LaunchAgents directory",
-        require_private=False,
-    )
-    written: list[Path] = []
-    for product in PRODUCTS:
-        payload = launch_agent_payload(
-            product=product,
-            runtime_program=runtime_program,
-            tunnel_client=tunnel_client,
-            log_directory=log_directory,
-            keychain_service=keychain_service,
-            keychain_account=keychain_account,
-            connection_mode=connection_mode,
-        )
-        label = payload["Label"]
-        assert isinstance(label, str)
-        target = agents / f"{label}.plist"
-        _write_launch_agent(target, payload)
-        written.append(target)
-    return written
 
 
 def install_gateway_launch_agent(
@@ -646,47 +508,32 @@ def install_gateway_launch_agent(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run or install personal Secure MCP Tunnel launch agents"
+        description="Run or install the personal Secure MCP Tunnel gateway"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run")
-    run_parser.add_argument("--product", choices=PRODUCTS, required=True)
-    run_parser.add_argument(
-        "--connection-mode",
-        choices=CONNECTION_MODES,
-        default="direct",
-    )
+    run_parser = subparsers.add_parser("run-gateway")
+    run_parser.add_argument("--gateway-program", type=Path, required=True)
     run_parser.add_argument("--tunnel-client", type=Path, required=True)
     run_parser.add_argument("--keychain-service", default=DEFAULT_KEYCHAIN_SERVICE)
     run_parser.add_argument("--keychain-account", default=DEFAULT_KEYCHAIN_ACCOUNT)
-
-    run_gateway_parser = subparsers.add_parser("run-gateway")
-    run_gateway_parser.add_argument(
-        "--gateway-program",
-        type=Path,
-        required=True,
-    )
-    run_gateway_parser.add_argument("--tunnel-client", type=Path, required=True)
-    run_gateway_parser.add_argument("--keychain-service", default=DEFAULT_KEYCHAIN_SERVICE)
-    run_gateway_parser.add_argument("--keychain-account", default=DEFAULT_KEYCHAIN_ACCOUNT)
-    run_gateway_parser.add_argument("--host", default=DEFAULT_HOST)
-    run_gateway_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    run_gateway_parser.add_argument(
-        "--product",
-        action="append",
-        choices=PRODUCTS,
-        dest="products",
-    )
-    run_gateway_parser.add_argument(
+    run_parser.add_argument("--host", default=DEFAULT_HOST)
+    run_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    run_parser.add_argument("--product", action="append", choices=PRODUCTS, dest="products")
+    run_parser.add_argument(
         "--product-root",
         action="append",
         default=[],
         metavar="PRODUCT=/ABSOLUTE/PATH",
     )
 
-    install_parser = subparsers.add_parser("install-launch-agents")
+    install_parser = subparsers.add_parser("install-gateway-launch-agent")
     install_parser.add_argument("--runtime-program", type=Path, default=Path(sys.argv[0]))
+    install_parser.add_argument(
+        "--gateway-program",
+        type=Path,
+        default=Path(sys.argv[0]).with_name("personal-agent-tunnel-gateway"),
+    )
     install_parser.add_argument("--tunnel-client", type=Path, required=True)
     install_parser.add_argument(
         "--launch-agents-directory",
@@ -700,46 +547,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     install_parser.add_argument("--keychain-service", default=DEFAULT_KEYCHAIN_SERVICE)
     install_parser.add_argument("--keychain-account", default=DEFAULT_KEYCHAIN_ACCOUNT)
-
-    gateway_parser = subparsers.add_parser("install-gateway-launch-agent")
-    gateway_parser.add_argument("--runtime-program", type=Path, default=Path(sys.argv[0]))
-    gateway_parser.add_argument(
-        "--gateway-program",
-        type=Path,
-        default=Path(sys.argv[0]).with_name("personal-agent-tunnel-gateway"),
-    )
-    gateway_parser.add_argument("--tunnel-client", type=Path, required=True)
-    gateway_parser.add_argument(
-        "--launch-agents-directory",
-        type=Path,
-        default=Path.home() / "Library" / "LaunchAgents",
-    )
-    gateway_parser.add_argument(
-        "--log-directory",
-        type=Path,
-        default=Path.home() / "Library" / "Logs" / "PersonalAgentTunnel",
-    )
-    gateway_parser.add_argument("--keychain-service", default=DEFAULT_KEYCHAIN_SERVICE)
-    gateway_parser.add_argument("--keychain-account", default=DEFAULT_KEYCHAIN_ACCOUNT)
-    gateway_parser.add_argument("--host", default=DEFAULT_HOST)
-    gateway_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    gateway_parser.add_argument(
-        "--uv-program",
-        type=Path,
-        help="absolute uv executable recorded for the restricted LaunchAgent environment",
-    )
-    gateway_parser.add_argument(
-        "--product",
-        action="append",
-        choices=PRODUCTS,
-        dest="products",
-    )
-    gateway_parser.add_argument(
+    install_parser.add_argument("--host", default=DEFAULT_HOST)
+    install_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    install_parser.add_argument("--uv-program", type=Path)
+    install_parser.add_argument("--product", action="append", choices=PRODUCTS, dest="products")
+    install_parser.add_argument(
         "--product-root",
         action="append",
         default=[],
         metavar="PRODUCT=/ABSOLUTE/PATH",
-        help="override Codex installed-plugin discovery",
     )
     return parser.parse_args(argv)
 
@@ -747,15 +563,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        if args.command == "run":
-            run_profile(
-                product=args.product,
-                tunnel_client=args.tunnel_client,
-                connection_mode=args.connection_mode,
-                keychain_service=args.keychain_service,
-                keychain_account=args.keychain_account,
-            )
-        elif args.command == "run-gateway":
+        selected = normalize_products(args.products or PRODUCTS)
+        if args.command == "run-gateway":
             stop_event = threading.Event()
 
             def request_stop(_signum: int, _frame: object) -> None:
@@ -763,19 +572,15 @@ def main(argv: list[str] | None = None) -> int:
 
             signal.signal(signal.SIGTERM, request_stop)
             signal.signal(signal.SIGINT, request_stop)
-            try:
-                selected = normalize_products(args.products or PRODUCTS)
-                roots = parse_product_roots(args.product_root)
-                if set(roots) != set(selected):
-                    raise InstalledProductError(
-                        "product roots must exactly match the selected gateway products"
-                    )
-                installations = {
-                    product: installation_from_root(product, roots[product])
-                    for product in selected
-                }
-            except InstalledProductError as exc:
-                raise TunnelServiceError(str(exc)) from exc
+            roots = parse_product_roots(args.product_root)
+            if set(roots) != set(selected):
+                raise InstalledProductError(
+                    "product roots must exactly match the selected gateway products"
+                )
+            installations = {
+                product: installation_from_root(product, roots[product])
+                for product in selected
+            }
             return run_gateway_bundle(
                 gateway_program=args.gateway_program,
                 tunnel_client=args.tunnel_client,
@@ -787,40 +592,27 @@ def main(argv: list[str] | None = None) -> int:
                 product_installations=installations,
                 stop_requested=stop_event.is_set,
             )
-        elif args.command == "install-launch-agents":
-            paths = install_launch_agents(
-                runtime_program=args.runtime_program,
-                tunnel_client=args.tunnel_client,
-                launch_agents_directory=args.launch_agents_directory,
-                log_directory=args.log_directory,
-                keychain_service=args.keychain_service,
-                keychain_account=args.keychain_account,
-            )
-            print("\n".join(str(path) for path in paths))
-            return 0
-        else:
-            selected = normalize_products(args.products or PRODUCTS)
-            roots = parse_product_roots(args.product_root) if args.product_root else None
-            paths = install_gateway_launch_agent(
-                runtime_program=args.runtime_program,
-                gateway_program=args.gateway_program,
-                tunnel_client=args.tunnel_client,
-                launch_agents_directory=args.launch_agents_directory,
-                log_directory=args.log_directory,
-                keychain_service=args.keychain_service,
-                keychain_account=args.keychain_account,
-                host=args.host,
-                port=args.port,
-                products=selected,
-                product_roots=roots,
-                uv_program=args.uv_program,
-            )
-            print("\n".join(str(path) for path in paths))
-            return 0
+
+        roots = parse_product_roots(args.product_root) if args.product_root else None
+        paths = install_gateway_launch_agent(
+            runtime_program=args.runtime_program,
+            gateway_program=args.gateway_program,
+            tunnel_client=args.tunnel_client,
+            launch_agents_directory=args.launch_agents_directory,
+            log_directory=args.log_directory,
+            keychain_service=args.keychain_service,
+            keychain_account=args.keychain_account,
+            host=args.host,
+            port=args.port,
+            products=selected,
+            product_roots=roots,
+            uv_program=args.uv_program,
+        )
+        print("\n".join(str(path) for path in paths))
+        return 0
     except (TunnelServiceError, InstalledProductError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":

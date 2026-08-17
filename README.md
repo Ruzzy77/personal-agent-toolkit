@@ -53,9 +53,9 @@ newer is required.
   Create one OpenAI Secure MCP Tunnel and one developer connection for each product you want in
   Chat. One macOS LaunchAgent supervises all selected products and tunnels. Product data remains on
   that Mac; no public inbound server or AWS deployment is needed.
-- **Hosted or multi-user:** use the separately reviewed authenticated runtime when the service must
-  stay available independently of a personal device or serve multiple identities. This is an
-  advanced deployment, not a prerequisite for personal use.
+
+Hosted or multi-user execution is not part of this toolkit. It would require a separate product and
+security boundary rather than another mode inside the local plugins.
 
 The gateway is toolkit infrastructure, not a fourth plugin. It never creates a combined tool
 namespace. A user may select Sense only, Corpus plus Hypes, or all three; local and Chat surfaces
@@ -122,14 +122,11 @@ developer connections, then use the optional [gateway guide](./gateway/GUIDE.md)
 
 Enabling it does not reinstall a product or migrate its data. Stopping the one gateway service
 returns to local-only use without removing Sense, Corpus, Hypes, or their state. After a product
-update, rerun the gateway installer and restart that LaunchAgent so the selected installed roots and
-reviewed tool surface are refreshed.
+update, rerun the gateway installer and restart that LaunchAgent so the selected installed roots are
+refreshed.
 
-This public checkout supports testing each raw developer connection in a fresh Chat. It does not
-ship the separately reviewed maintainer/source workflow that packages local skill bundles with app
-bindings. If a maintainer prepares such a full skill-plus-app package, test it separately on a
-ChatGPT surface that supports local marketplace plugins; a working MCP connection alone does not
-prove that ordinary Chat loads the local skill bundle.
+Each raw developer connection exposes its product MCP. The local Codex and Claude packages also
+contain the product skill; a raw Chat connection does not automatically load that local skill.
 
 Private developer registration is not public submission. Public directory distribution remains a
 separate review process for each independently installable product.
@@ -142,9 +139,8 @@ See OpenAI's documentation for
 
 ## Update an installed plugin
 
-A marketplace registered from this published repository serves what has been pushed to `main`, so
-a local rebuild becomes visible only after it is committed and pushed. Refresh the marketplace
-snapshot first, then update each plugin.
+A marketplace registered from this published repository serves what has been pushed to `main`.
+Refresh the marketplace snapshot first, then update each plugin.
 
 ### Codex
 
@@ -163,8 +159,8 @@ claude plugin marketplace update personal-agent-toolkit
 claude plugin update hypes@personal-agent-toolkit --scope user
 ```
 
-A marketplace registered from a local checkout is read from that directory instead, so rebuilding
-into the checkout replaces the refresh step.
+A marketplace registered from a local checkout is read from that directory instead, so committed
+or uncommitted changes in that checkout are available without a marketplace refresh.
 
 Removing a marketplace also uninstalls every plugin installed from it. Moving an existing
 registration between a local checkout and this published repository therefore means removing the
@@ -184,16 +180,16 @@ preview.
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 # Edit /tmp/my-sense-profile.json before continuing.
 
-./plugins/sense/launchers/sense import-profile \
+./plugins/sense/bin/sense import-profile \
   --input /tmp/my-sense-profile.json
-./plugins/sense/launchers/sense read --view full
-./plugins/sense/launchers/sense status
+./plugins/sense/bin/sense read --view full
+./plugins/sense/bin/sense status
 ```
 
 After reviewing the exact preview, activate the revision and digest returned by `status`:
 
 ```sh
-./plugins/sense/launchers/sense activate \
+./plugins/sense/bin/sense activate \
   --expected-revision 1 \
   --confirm-profile-digest PROFILE_SHA256_FROM_STATUS \
   --confirm-reviewed-profile
@@ -207,7 +203,7 @@ guidance on the user's behalf.
 Corpus also starts empty. Register only a folder you want Corpus to search:
 
 ```sh
-./plugins/corpus/launchers/corpus corpus add \
+./plugins/corpus/bin/corpus corpus add \
   --id my-work \
   --root /absolute/path/to/my-work \
   --execution-policy local_only
@@ -221,7 +217,7 @@ For drafts and other results that Chat and local Work should edit in the same pl
 choose an active named context, then connect a separate local work folder:
 
 ```sh
-./plugins/corpus/launchers/corpus workspace connect \
+./plugins/corpus/bin/corpus workspace connect \
   --id my-drafts \
   --context ACTIVE_CONTEXT_ID \
   --name "My drafts" \
@@ -286,31 +282,15 @@ By default on macOS:
 
 See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 
-## Validate the release
+## Maintainer source
 
-```sh
-python3 scripts/validate_release.py
-```
-
-The validation checks manifests, license copies, package versions, file permissions, private-data
-and credential patterns, empty-state behavior, Sense preview activation, Corpus first registration,
-Hypes private-store permissions, skill structure and implicit-selection metadata, and real MCP
-`initialize` plus `tools/list` handshakes for all three plugins. It also checks that product HTTP
-listeners remain sessionless and loopback-only and that the optional gateway contains no product
-runtime, connection id, credential, or user data. Each generated package records the exact clean
-owner commit used to build it; when the sibling owner repositories are available, validation checks
-those records against their current Git checkouts without accepting hidden index or Git environment
-overrides.
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 제품 소스이면서 marketplace가 직접 설치하는
+폴더다. 별도 owner 사본과 package 생성 단계 없이 이 폴더의 변경을 그대로 검토하고 배포한다.
+전체 release validator, package inventory와 상시 회귀 절차는 유지하지 않는다. 실제 배포에서는
+각 plugin이 시작되고 해당 제품의 기본 도구가 보이는지만 확인한다.
 
 ## License
 
 Personal Agent Toolkit is licensed under the [Apache License 2.0](./LICENSE). Runtime dependencies
 are installed separately and retain their own licenses; see
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
-
----
-
-이 저장소는 Sense, Corpus, Hypes와 이후 추가될 독립 플러그인의 공통 배포 채널입니다.
-플러그인 코드와 설치 정보만 들어 있으며 Sense 지침, Corpus 원문·색인·맥락, Hypes 관계 모델,
-자격 증명, 실행 중 생성되는 데이터베이스는 포함하지 않습니다. 각 플러그인의 데이터와 실행
-경계는 분리되고 새 설치는 빈 상태로 시작합니다.

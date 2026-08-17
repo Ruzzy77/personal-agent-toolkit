@@ -293,22 +293,3 @@ def _recent_change(
         return ""
     quoted_titles = ", ".join(f"‘{title}’" for title in changed_titles)
     return f"최근에는 {quoted_titles} 내용이 바뀌었습니다."
-
-
-def remote_profile_view(profile: ProfileDocument) -> dict[str, Any]:
-    """Return a source-free view suitable for a future authenticated web gateway."""
-
-    return {
-        "schema_version": profile.schema_version,
-        "revision": profile.revision,
-        "sections": [
-            section_view(
-                section,
-                include_sources=False,
-                include_change_token=False,
-            )
-            for section in profile.sections
-            if section.sensitivity == "ordinary"
-        ],
-        "controls": profile.controls.model_dump(mode="json"),
-    }
