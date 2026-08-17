@@ -606,9 +606,9 @@ class SpaceService:
         for item in detail.get("items", []):
             for source in [*item.get("sources", []), *item.get("external_sources", [])]:
                 if source.get("dependency_state") not in {None, "valid"}:
-                    return ("refresh_needed", "source_changed")
+                    return ("refresh_needed", "source_link_changed")
                 if source.get("freshness_state") not in {None, "valid"}:
-                    return ("refresh_needed", "source_changed")
+                    return ("refresh_needed", "source_link_changed")
 
         for observation in detail.get("corpus_observations", []):
             change = observation.get("inventory_change", {})
@@ -620,7 +620,7 @@ class SpaceService:
                 or change.get("change_candidates")
                 or change.get("mapping_changes")
             ):
-                return ("refresh_needed", "source_changed")
+                return ("refresh_needed", "source_inventory_changed")
         return ("ready", None)
 
     def _attach_context_detail(
@@ -740,3 +740,109 @@ class SpaceService:
         if _serialized_size(response) > SPACE_MAX_SERIALIZED_BYTES:
             raise BudgetExceededError("space detail exceeds the response budget")
         return response
+
+    def refresh_context(
+        self,
+        *,
+        space_id: str,
+        expected_version: int,
+        confirm_refresh: bool,
+        audience: str,
+    ) -> dict[str, Any]:
+        """Advance a Space Context checkpoint when every saved source link is valid."""
+
+        if confirm_refresh is not True:
+            raise SpaceValidationError("Context refresh requires explicit confirmation")
+        normalized_id = normalize_space_id(space_id)
+        space = next(
+            (
+                candidate
+                for candidate in self._spaces(audience=audience)
+                if candidate["space_id"] == normalized_id
+            ),
+            None,
+        )
+        if space is None:
+            raise SpaceNotFoundError(
+                "space does not exist",
+                details={"space_id": normalized_id},
+            )
+        context_id = space.get("_context_id")
+        if not isinstance(context_id, str):
+            raise SpaceValidationError(
+                "Space has no saved Context",
+                details={"space_id": normalized_id},
+            )
+
+        offset = 0
+        observations: list[dict[str, str]] | None = None
+        while True:
+            detail = self.contexts.read(
+                context_id=context_id,
+                state="active",
+                include_history=False,
+                limit=CONTEXT_MAX_LIMIT,
+                offset=offset,
+                audience="local_cli",
+                view="restricted",
+            )
+            for item in detail["items"]:
+                for source in [
+                    *item.get("sources", []),
+                    *item.get("external_sources", []),
+                ]:
+                    if source.get("dependency_state") not in {None, "valid"} or source.get(
+                        "freshness_state"
+                    ) not in {None, "valid"}:
+                        raise SpaceConflictError(
+                            "saved Context source links changed and need semantic review",
+                            details={
+                                "space_id": normalized_id,
+                                "reason": "context_source_links_changed",
+                            },
+                        )
+            if observations is None:
+                observations = []
+                for observation in detail["corpus_observations"]:
+                    current = observation.get("current", {})
+                    if current.get("available") is not True:
+                        raise SpaceConflictError(
+                            "saved Context source is unavailable",
+                            details={
+                                "space_id": normalized_id,
+                                "reason": "context_source_unavailable",
+                            },
+                        )
+                    observations.append(
+                        {
+                            "corpus_id": observation["corpus_id"],
+                            "observed_scan_id": current["latest_scan_id"],
+                            "observed_snapshot_id": current["current_snapshot_id"],
+                            "observed_inventory_hash": current["inventory_hash"],
+                        }
+                    )
+            next_offset = detail["next_offset"]
+            if next_offset is None:
+                break
+            offset = int(next_offset)
+
+        assert observations is not None
+        update = self.contexts.update(
+            action="advance_checkpoint",
+            context_id=context_id,
+            expected_version=expected_version,
+            payload={"observations": observations},
+            confirm_persistent_context_write=True,
+            audience=audience,
+        )
+        refreshed = self.get(
+            space_id=normalized_id,
+            audience=audience,
+            context_limit=SPACE_DEFAULT_LIMIT,
+            context_offset=0,
+        )["space"]
+        return {
+            "space_id": normalized_id,
+            "context": refreshed["context"],
+            "refreshed": not update["idempotent_replay"],
+        }

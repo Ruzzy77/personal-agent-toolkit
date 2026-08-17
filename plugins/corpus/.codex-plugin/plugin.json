@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -32,12 +32,13 @@
     "category": "Productivity",
     "capabilities": [
       "Space and Context discovery",
+      "Context checkpoint refresh",
       "Context-scoped workflow guidance",
       "Remote-safe Connection projection",
       "Indexed Source search and exact reading",
       "Local-only Source separation",
       "Explicitly connected Work files",
-      "Version-checked file replacement and restore"
+      "Version-checked file replacement, deletion, and restore"
     ],
     "brandColor": "#7357E8",
     "composerIcon": "./assets/icon.png",

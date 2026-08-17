@@ -535,6 +535,21 @@ class CorpusService:
             context_offset=context_offset,
         )
 
+    def space_refresh_context(
+        self,
+        *,
+        space_id: str,
+        expected_version: int,
+        confirm_refresh: bool,
+        audience: str = "local_cli",
+    ) -> dict:
+        return self.spaces.refresh_context(
+            space_id=space_id,
+            expected_version=expected_version,
+            confirm_refresh=confirm_refresh,
+            audience=audience,
+        )
+
     @staticmethod
     def _space_content_capability(
         *,
@@ -1145,6 +1160,41 @@ class CorpusService:
             "file": result["file"],
             "generation": result["work_folder"]["generation"],
             "current_file": result["work_folder"]["current_file"],
+        }
+
+    def space_file_delete(
+        self,
+        *,
+        space_id: str,
+        relative_path: str,
+        expected_version: str,
+        expected_content_sha256: str,
+        confirm_delete: bool,
+        connection_id: str | None = None,
+        audience: str = "local_cli",
+    ) -> dict:
+        resolved = self.spaces.resolve_connection(
+            space_id=space_id,
+            connection_id=connection_id,
+            audience=audience,
+            capability="write",
+        )
+        result = self.workspaces.delete(
+            workspace_id=resolved["_workspace_id"],
+            relative_path=relative_path,
+            expected_version=expected_version,
+            expected_content_sha256=expected_content_sha256,
+            confirm_delete=confirm_delete,
+            audience=audience,
+        )
+        return {
+            **self._space_connection_response(
+                resolved,
+                work_folder=result["work_folder"],
+            ),
+            "relative_path": result["relative_path"],
+            "deleted": result["deleted"],
+            "index_state": result["index_state"],
         }
 
     def space_file_restore(

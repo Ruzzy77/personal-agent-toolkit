@@ -11,22 +11,24 @@ Corpus는 저장한 업무 맥락을 등록된 원본과 연결하고, 필요한
 
 ## 기본 MCP 도구
 
-기본 서버는 다음 여덟 도구만 노출합니다.
+기본 서버는 다음 열 도구만 노출합니다.
 
 | 도구 | 기능 |
 | --- | --- |
 | `corpus_space_list` | 사용할 수 있는 Space와 Connection 조회 |
 | `corpus_space_get` | 한 Space의 Context와 현재 상태 조회 |
+| `corpus_space_refresh_context` | 저장된 출처 연결이 유효할 때 현재 Source checkpoint 반영 |
 | `corpus_space_search` | 색인된 Source에서 후보 검색 |
 | `corpus_file_list` | Work 폴더 목록 또는 파일명 검색 |
 | `corpus_file_read` | Work 파일 또는 검색 결과의 정확한 Source unit 읽기 |
 | `corpus_file_write` | 새 파일 생성, 전체 교체 또는 marker 구간 교체 |
+| `corpus_file_delete` | 완전히 읽어 확인한 Work 파일 삭제 |
 | `corpus_file_select_current` | 계속 작업할 Current File 선택 |
 | `corpus_file_restore` | 직전 교체의 recovery copy 복원 |
 
-Source 등록, 색인, Context 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. 기본 MCP 서버에는 유지보수용 도구나 실험적 semantic cache 도구가 없습니다.
+Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Context refresh는 저장된 출처 연결을 바꾸지 않고 현재 Source checkpoint만 반영합니다. `source_inventory_changed`는 이 도구로 반영할 수 있지만, `source_link_changed`는 출처 revision이나 의미를 검토해 Context item을 갱신해야 합니다. 기본 MCP 서버에는 유지보수용 도구나 실험적 semantic cache 도구가 없습니다.
 
-stdio와 사용자가 연결한 private tunnel은 같은 여덟 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 protocol이나 두 번째 Context 갱신 표면은 유지하지 않습니다.
+stdio와 사용자가 연결한 private tunnel은 같은 열 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 ticket 계층이나 중복 Context 갱신 표면은 유지하지 않습니다.
 
 ## 설치와 실행
 
@@ -190,6 +192,12 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 
 파일 교체는 최대 2 MiB입니다. symlink, hard link, 폴더 밖 경로와 교체 중 변경은 거부합니다. 기존 파일의 권한과 macOS 메타데이터를 안전하게 보존할 수 없을 때에도 쓰지 않습니다.
 
+### 파일 삭제
+
+`corpus_file_delete`는 완전한 읽기에서 받은 최신 `version_token`과 `content_sha256`, 사용자의 명시적 삭제 요청을 모두 요구합니다. 삭제는 영구적입니다. 폴더, symlink와 읽은 뒤 달라진 파일은 삭제하지 않습니다.
+
+전체 교체는 복제 가능한 안정 메타데이터를 그대로 보존합니다. macOS가 inode마다 새로 부여하는 `com.apple.provenance` 값은 새 inode와 바이트 단위로 같을 수 없으므로 일치 검증에서 제외합니다. 다른 extended attribute, ACL, 권한, 소유권과 file flag 검사는 유지합니다.
+
 ## 검색과 정확한 원문 읽기
 
 `corpus_space_search` 결과는 후보이며 사실 판정이 아닙니다. 필요한 결과의 `read_ref`를 `corpus_file_read`에 전달해 현재 Source unit을 읽습니다. 검색 결과가 없다는 사실만으로 원문에 내용이 없다고 결론 내리지 않습니다.
@@ -219,6 +227,7 @@ Corpus는 TDD나 회귀 사례 수를 기본 개발 단위로 삼지 않습니�
 - 일상 변경에서 전체 회귀, native build, package 설치 검사를 실행
 - 한 기능을 위한 migration framework, golden 평가 또는 별도 검증 script를 생성
 - 구현 계획이나 일회성 판단을 별도 설계 문서로 보존
+- 도구 schema 확인을 위해 probe·placeholder·임시 Work 파일을 생성
 
 테스트는 데이터 손실, 권한·경로 경계 또는 재현된 핵심 장애를 기존 통합 사례로 확인할 수 없을 때만 추가합니다. 가능하면 기존 사례에 합치고 중복 사례를 지워 총량을 유지합니다. 실제 배포에서는 plugin 시작과 기본 도구만 확인합니다.
 
