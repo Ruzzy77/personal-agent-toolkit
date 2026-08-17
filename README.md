@@ -285,9 +285,10 @@ See [PRIVACY.md](./PRIVACY.md) for the full boundary.
 ## Maintainer source
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`는 제품 소스이면서 marketplace가 직접 설치하는
-폴더다. 별도 owner 사본과 package 생성 단계 없이 이 폴더의 변경을 그대로 검토하고 배포한다.
-전체 release validator, package inventory와 상시 회귀 절차는 유지하지 않는다. 실제 배포에서는
-각 plugin이 시작되고 해당 제품의 기본 도구가 보이는지만 확인한다.
+폴더다. `gateway`도 Gateway의 소스이자 실행 경로다. 별도 owner 사본과 package 생성 단계 없이
+이 폴더들의 변경을 그대로 검토하고 배포한다. 전체 release validator, package inventory와 상시
+회귀 절차는 유지하지 않는다. 실제 배포에서는 각 plugin이 시작되고 해당 제품의 기본 도구가
+보이는지만 확인한다.
 
 ## License
 
