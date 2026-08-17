@@ -1,7 +1,7 @@
 interface:
   display_name: "Read with Corpus"
-  short_description: "Find and read the exact current sources"
-  default_prompt: "Use $investigate-corpus to find the relevant Corpus context and read the exact current sources before answering."
+  short_description: "Use saved context and only the sources still needed"
+  default_prompt: "Use $investigate-corpus to start from the relevant Corpus context and read only any current source text the request still needs."
 dependencies:
   tools:
     - type: "mcp"

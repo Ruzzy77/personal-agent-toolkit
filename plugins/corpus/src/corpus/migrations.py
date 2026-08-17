@@ -178,7 +178,6 @@ def _assert_v2_structure(connection: sqlite3.Connection) -> None:
             "is_active",
         },
         "source_units": {"unit_id", "revision_id", "projection_id", "derivation_method"},
-        "interpretation_queue": {"queue_id", "revision_id", "projection_id", "state"},
         "snapshots": {"snapshot_id", "extraction_projection_set_hash"},
         "snapshot_documents": {"snapshot_id", "revision_id", "projection_id"},
         "extraction_issues": {
@@ -604,10 +603,7 @@ def _rebuild_source_units(
     _execute_transactional_script(
         connection,
         """
-        DROP INDEX IF EXISTS idx_evidence_claim;
-        DROP INDEX IF EXISTS idx_evidence_revision;
         DROP INDEX IF EXISTS idx_units_revision;
-        ALTER TABLE evidence_links RENAME TO evidence_links_v1;
         ALTER TABLE source_units RENAME TO source_units_v1;
 
         CREATE TABLE source_units (
@@ -684,88 +680,22 @@ def _rebuild_source_units(
     _execute_transactional_script(
         connection,
         """
-        CREATE TABLE evidence_links (
-            evidence_link_id TEXT PRIMARY KEY,
-            claim_id TEXT NOT NULL,
-            source_unit_id TEXT NOT NULL,
-            source_revision_id TEXT NOT NULL,
-            source_span_json TEXT NOT NULL,
-            stance TEXT NOT NULL
-                CHECK (stance IN ('supports', 'qualifies', 'contradicts', 'mentions')),
-            qualifier TEXT,
-            applicability_json TEXT NOT NULL,
-            FOREIGN KEY(claim_id) REFERENCES atomic_claims(claim_id),
-            FOREIGN KEY(source_unit_id) REFERENCES source_units(unit_id),
-            FOREIGN KEY(source_revision_id) REFERENCES revisions(revision_id),
-            FOREIGN KEY(source_unit_id, source_revision_id)
-                REFERENCES source_units(unit_id, revision_id)
-        );
-        INSERT INTO evidence_links SELECT * FROM evidence_links_v1;
-        CREATE INDEX idx_evidence_claim ON evidence_links(claim_id);
-        CREATE INDEX idx_evidence_revision ON evidence_links(source_revision_id);
-        DROP TABLE evidence_links_v1;
         DROP TABLE source_units_v1;
         """,
     )
 
 
-def _rebuild_interpretation_queue(
-    connection: sqlite3.Connection,
-    projection_by_revision: dict[str, str],
-) -> None:
-    rows = connection.execute("SELECT * FROM interpretation_queue").fetchall()
+def _drop_legacy_semantic_tables(connection: sqlite3.Connection) -> None:
     _execute_transactional_script(
         connection,
         """
-        ALTER TABLE interpretation_queue RENAME TO interpretation_queue_v1;
-        CREATE TABLE interpretation_queue (
-            queue_id TEXT PRIMARY KEY,
-            document_id TEXT NOT NULL,
-            revision_id TEXT NOT NULL,
-            projection_id TEXT NOT NULL UNIQUE,
-            state TEXT NOT NULL
-                CHECK (state IN ('pending', 'in_progress', 'complete', 'stale', 'failed')),
-            reason TEXT NOT NULL,
-            checkpoint_json TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY(document_id) REFERENCES documents(document_id),
-            FOREIGN KEY(revision_id) REFERENCES revisions(revision_id),
-            FOREIGN KEY(projection_id) REFERENCES extraction_projections(projection_id),
-            FOREIGN KEY(revision_id, document_id)
-                REFERENCES revisions(revision_id, document_id),
-            FOREIGN KEY(projection_id, revision_id)
-                REFERENCES extraction_projections(projection_id, revision_id)
-        );
+        DROP TABLE IF EXISTS interpretation_queue;
+        DROP TABLE IF EXISTS atomic_claims_fts;
+        DROP TABLE IF EXISTS evidence_links;
+        DROP TABLE IF EXISTS atomic_claims;
+        DROP TABLE IF EXISTS semantic_commits;
         """,
     )
-    for row in rows:
-        projection_id = projection_by_revision.get(row["revision_id"])
-        if projection_id is None:
-            raise MigrationError(
-                "legacy interpretation queue item has no extraction projection",
-                details={"queue_id": row["queue_id"], "revision_id": row["revision_id"]},
-            )
-        connection.execute(
-            """
-            INSERT INTO interpretation_queue(
-                queue_id, document_id, revision_id, projection_id, state,
-                reason, checkpoint_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row["queue_id"],
-                row["document_id"],
-                row["revision_id"],
-                projection_id,
-                row["state"],
-                row["reason"],
-                row["checkpoint_json"],
-                row["created_at"],
-                row["updated_at"],
-            ),
-        )
-    connection.execute("DROP TABLE interpretation_queue_v1")
 
 
 def _rebuild_snapshots(
@@ -981,8 +911,8 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
     _validate_legacy_provenance_pairs(connection)
     _create_projection_tables(connection)
     projection_by_revision, attempt_by_revision = _legacy_projection_map(connection)
+    _drop_legacy_semantic_tables(connection)
     _rebuild_source_units(connection, projection_by_revision)
-    _rebuild_interpretation_queue(connection, projection_by_revision)
     _rebuild_snapshots(connection, projection_by_revision)
     _rebuild_extraction_issues(
         connection,
@@ -995,43 +925,20 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+    _drop_legacy_semantic_tables(connection)
     _execute_transactional_script(connection, PROVENANCE_GUARD_SCHEMA)
     connection.execute("UPDATE schema_info SET version = 3")
     connection.execute("PRAGMA user_version = 3")
 
 
 def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
-    # A pre-v4 revision never recorded the source ctime observed at capture.
-    # Backfilling from the document's current ctime would silently assert an
-    # observation that did not occur, so use a fail-closed sentinel and require
-    # a fresh capture before the projection or its semantic dependants can be
-    # treated as current again.
+    _drop_legacy_semantic_tables(connection)
+    # A pre-v4 revision did not record the source ctime observed at capture.
+    # -1 keeps that older observation distinguishable until the next capture.
     connection.execute(
         """
         ALTER TABLE revisions
         ADD COLUMN source_changed_ns INTEGER NOT NULL DEFAULT -1
-        """
-    )
-    connection.execute(
-        """
-        UPDATE interpretation_queue
-        SET state = 'stale', reason = 'source_identity_requires_recapture'
-        WHERE state IN ('pending', 'in_progress', 'complete')
-        """
-    )
-    connection.execute(
-        """
-        UPDATE atomic_claims
-        SET dependency_state = 'stale'
-        WHERE dependency_state = 'valid'
-          AND EXISTS (
-              SELECT 1
-              FROM evidence_links link
-              JOIN revisions revision
-                ON revision.revision_id = link.source_revision_id
-              WHERE link.claim_id = atomic_claims.claim_id
-                AND revision.source_changed_ns = -1
-          )
         """
     )
     connection.execute("UPDATE schema_info SET version = 4")

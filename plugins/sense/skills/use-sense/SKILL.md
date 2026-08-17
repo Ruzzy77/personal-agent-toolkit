@@ -30,7 +30,7 @@ as such guidance. Read every affected section first, preserve anything still val
 replacement wording in the conversation before any write. Put all related final replacements into
 one `sense_preview_revision`, show the combined result when review is needed, and send one
 `sense_revise_batch` with a unique idempotency key. If the same section appears more than once,
-keep only its last final replacement. Do not call `sense_revise` sentence by sentence, create a
+keep only its last final replacement. Do not revise sentence by sentence or create a
 second write while approval is pending, or retry a revision conflict in the same response. The saved
 revision must store no conversation text, hidden reasoning, or project facts.
 

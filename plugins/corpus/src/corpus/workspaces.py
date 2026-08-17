@@ -1141,6 +1141,7 @@ class WorkspaceService:
             "file": self._observation_dict(file_read.observation),
             "encoding": encoding,
             "content": content,
+            "content_sha256": file_read.observation.sha256,
             "content_is_untrusted": True,
         }
 
@@ -1722,12 +1723,21 @@ class WorkspaceService:
         content: str,
         content_encoding: str,
         expected_version: str,
+        expected_content_sha256: str | None = None,
         make_current: bool = True,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
         """Create or replace one file without silently overwriting outside edits."""
 
         self._validate_expected_version(expected_version)
+        if expected_content_sha256 is not None and (
+            expected_version == WORKSPACE_EXPECTED_ABSENT
+            or not isinstance(expected_content_sha256, str)
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", expected_content_sha256
+            )
+        ):
+            raise WorkspaceValidationError("expected_content_sha256 is invalid")
         payload = self._decode_content(content, content_encoding=content_encoding)
         access = _workspace_access()
         canonical = access.normalize_workspace_relative_path(relative_path)
@@ -1882,6 +1892,17 @@ class WorkspaceService:
                                     "relative_path": canonical,
                                     "reason": "stale_version",
                                     "current_version": before.version_token,
+                                },
+                            )
+                        if (
+                            expected_content_sha256 is not None
+                            and before.sha256 != expected_content_sha256
+                        ):
+                            raise WorkspaceConflictError(
+                                "work folder file content does not match the completed read",
+                                details={
+                                    "relative_path": canonical,
+                                    "reason": "content_digest_mismatch",
                                 },
                             )
                         if before.hardlinked:

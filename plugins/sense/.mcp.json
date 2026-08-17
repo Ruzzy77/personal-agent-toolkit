@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "sense": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/launchers/sense-mcp",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/sense-mcp",
       "args": []
     }
   }

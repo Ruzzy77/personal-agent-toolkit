@@ -10,7 +10,7 @@ Direct runtime dependencies:
 | --- | --- | --- |
 | `defusedxml` | Corpus | Python Software Foundation License |
 | `httpx` | Optional personal gateway | BSD-3-Clause |
-| `mcp` | Sense, Corpus, Hypes, optional personal gateway | MIT |
+| `mcp` | Sense, Corpus, Hypes | MIT |
 | `olefile` | Corpus | BSD |
 | `openpyxl` | Corpus | MIT |
 | `pydantic` | Sense, Corpus, Hypes | MIT |

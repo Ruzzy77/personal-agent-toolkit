@@ -1,5 +1,6 @@
 {
   "name": "corpus",
+  "version": "0.11.0",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -18,7 +19,7 @@
   "skills": "./skills/",
   "mcpServers": {
     "corpus": {
-      "command": "./launchers/corpus-mcp",
+      "command": "./bin/corpus-mcp",
       "args": [],
       "cwd": "."
     }
@@ -26,7 +27,7 @@
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
-    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from the saved Context instead of rereading every Source, reads exact current indexed text only when needed, and can safely continue files in an explicitly connected remote-allowed Work Connection while the Mac is online. Local-only Source Connections remain local. Archived contexts remain readable, and permanent deletion is not available.",
+    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from saved Context, reads exact current Source text only when needed, and can continue files in an explicitly connected remote-allowed Work Connection while the Mac is online. Local-only Connections remain local.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -46,6 +47,5 @@
       "Use the relevant Context, then read only the exact Source text still needed.",
       "Continue the Current File in my Corpus Work Connection."
     ]
-  },
-  "version": "0.11.0+codex.20260816045307"
+  }
 }

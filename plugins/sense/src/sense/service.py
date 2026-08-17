@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import BUILD_ID, __version__
-from .errors import ConfirmationRequiredError, MigrationStateError, SectionNotFoundError
+from .errors import ConfirmationRequiredError, SectionNotFoundError
 from .exposure import (
     guidance_overview,
     local_profile_index,
@@ -15,7 +15,6 @@ from .exposure import (
     section_view,
     stored_section_id,
 )
-from .migration import SenseMigrationBundle, validate_idempotency_key
 from .model import ProfileDocument, ProfileSection, SectionRevision, section_sha256
 from .store import SenseStore
 
@@ -51,42 +50,6 @@ class SenseService:
             expected_preview_digest=expected_preview_digest,
         )
         return self._summary(stored)
-
-    def export_migration_bundle(self) -> dict[str, Any]:
-        """Export the complete current profile for a trusted control surface."""
-
-        stored = self.store.read()
-        if stored.lifecycle != "active":
-            raise MigrationStateError(
-                "Sense migration export requires an active profile"
-            )
-        bundle = SenseMigrationBundle.from_profile(
-            lifecycle=stored.lifecycle,
-            profile=stored.profile,
-        )
-        return bundle.model_dump(mode="json")
-
-    def import_migration_bundle(
-        self,
-        bundle_payload: dict[str, Any],
-        *,
-        expected_empty: bool,
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        """Import once into this service's already selected tenant namespace."""
-
-        if expected_empty is not True:
-            raise ValueError("Sense migration import requires expected_empty=true")
-        validate_idempotency_key(idempotency_key)
-        bundle = SenseMigrationBundle.model_validate(bundle_payload)
-        return self.store.import_migration_profile(
-            profile=bundle.profile,
-            lifecycle=bundle.lifecycle,
-            profile_sha256=bundle.profile_sha256,
-            bundle_sha256=bundle.bundle_sha256,
-            expected_empty=True,
-            idempotency_key=idempotency_key,
-        )
 
     @staticmethod
     def _summary(stored: Any) -> dict[str, Any]:
@@ -291,31 +254,6 @@ class SenseService:
             "revisions": summaries,
         }
 
-    def revise(
-        self,
-        *,
-        expected_revision: int,
-        section_id: str,
-        previous_section_sha256: str,
-        previous_understanding: str,
-        changed_future_judgment: str,
-        new_section: ProfileSection,
-        trusted_user_action: bool = False,
-    ) -> dict[str, Any]:
-        section_id = stored_section_id(section_id)
-        if not previous_understanding.strip():
-            raise ValueError("previous_understanding must explain the replaced view")
-        if not changed_future_judgment.strip():
-            raise ValueError("changed_future_judgment must state what will differ next time")
-        stored = self.store.revise(
-            expected_revision=expected_revision,
-            section_id=section_id,
-            previous_section_sha256=previous_section_sha256,
-            new_section=new_section,
-            user_confirmed=trusted_user_action,
-        )
-        return self._summary(stored)
-
     @staticmethod
     def _public_revision_result(result: dict[str, Any]) -> dict[str, Any]:
         public = dict(result)
@@ -382,55 +320,6 @@ class SenseService:
             user_confirmed=trusted_user_action,
         )
         return self._public_revision_result(result)
-
-    def remote_update(
-        self,
-        *,
-        expected_revision: int,
-        idempotency_key: str,
-        principal_binding: str,
-        section_id: str,
-        previous_understanding: str,
-        changed_future_judgment: str,
-        public_fields: dict[str, Any],
-    ) -> dict[str, Any]:
-        section_id = stored_section_id(section_id)
-        return self.store.remote_revise_public(
-            expected_revision=expected_revision,
-            idempotency_key=idempotency_key,
-            principal_binding=principal_binding,
-            section_id=section_id,
-            previous_understanding=previous_understanding,
-            changed_future_judgment=changed_future_judgment,
-            public_fields=public_fields,
-        )
-
-    def remote_delete_preview(
-        self,
-        *,
-        section_id: str,
-        principal_binding: str,
-    ) -> dict[str, Any]:
-        section_id = stored_section_id(section_id)
-        return self.store.remote_delete_preview(
-            section_id=section_id,
-            principal_binding=principal_binding,
-        )
-
-    def remote_delete(
-        self,
-        *,
-        expected_revision: int,
-        idempotency_key: str,
-        principal_binding: str,
-        delete_ticket: str,
-    ) -> dict[str, Any]:
-        return self.store.remote_delete(
-            expected_revision=expected_revision,
-            idempotency_key=idempotency_key,
-            principal_binding=principal_binding,
-            delete_ticket=delete_ticket,
-        )
 
     def control(
         self,

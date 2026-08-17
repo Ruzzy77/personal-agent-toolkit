@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.8.0+codex.20260816045307",
+  "version": "0.8.0",
   "description": "Give the assistant a private, revisable relationship model of the user.",
   "author": {
     "name": "Ruzzy77",
@@ -18,7 +18,7 @@
   "skills": "./skills/",
   "mcpServers": {
     "hypes": {
-      "command": "./launchers/hypes-mcp",
+      "command": "./bin/hypes-mcp",
       "args": [],
       "cwd": "."
     }

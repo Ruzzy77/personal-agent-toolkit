@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 PRODUCTS = ("sense", "corpus", "hypes")
+MCP_LAUNCHERS = {product: f"bin/{product}-mcp" for product in PRODUCTS}
 DEFAULT_MARKETPLACE = "personal-agent-toolkit"
 
 
@@ -105,7 +106,7 @@ def installation_from_root(
         raise InstalledProductError(f"{normalized} plugin and package versions do not match")
 
     launcher = _trusted_path(
-        canonical_root / "launchers" / f"{normalized}-mcp",
+        canonical_root / MCP_LAUNCHERS[normalized],
         kind=f"{normalized} MCP launcher",
         executable=True,
     )

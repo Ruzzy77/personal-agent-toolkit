@@ -1,18 +1,9 @@
 """Corpus connects saved context to exact current sources."""
 
-from importlib.metadata import PackageNotFoundError, version
-
 __all__ = ["CorpusService"]
 
-try:
-    from ._build import BUILD_ID as __build_id__
-    from ._build import PACKAGE_VERSION as __version__
-except ImportError:
-    __build_id__ = None
-    try:
-        __version__ = version("corpus")
-    except PackageNotFoundError:
-        __version__ = "0+unknown"
+__version__ = "0.11.0"
+__build_id__ = __version__
 
 
 def __getattr__(name: str):
