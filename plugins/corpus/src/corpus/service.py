@@ -535,21 +535,6 @@ class CorpusService:
             context_offset=context_offset,
         )
 
-    def space_refresh_context(
-        self,
-        *,
-        space_id: str,
-        expected_version: int,
-        confirm_refresh: bool,
-        audience: str = "local_cli",
-    ) -> dict:
-        return self.spaces.refresh_context(
-            space_id=space_id,
-            expected_version=expected_version,
-            confirm_refresh=confirm_refresh,
-            audience=audience,
-        )
-
     @staticmethod
     def _space_content_capability(
         *,

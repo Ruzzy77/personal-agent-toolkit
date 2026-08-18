@@ -289,19 +289,12 @@ class SpaceFileServiceTest(unittest.TestCase):
 
         self.service.scan("relation-learning-research")
         self.service.ingest("relation-learning-research")
-        stale_context = self.service.space_get(
+        current_context = self.service.space_get(
             space_id="research-note",
             audience="external_mcp",
         )["space"]["context"]
-        self.assertEqual(stale_context["status"], "refresh_needed")
-        refreshed = self.service.space_refresh_context(
-            space_id="research-note",
-            expected_version=stale_context["version"],
-            confirm_refresh=True,
-            audience="external_mcp",
-        )
-        self.assertTrue(refreshed["refreshed"])
-        self.assertEqual(refreshed["context"]["status"], "ready")
+        self.assertNotIn("status", current_context)
+        self.assertNotIn("status_reason", current_context)
 
     def test_remote_context_and_work_do_not_open_local_source_connection(self) -> None:
         source = self.base / "private-materials"

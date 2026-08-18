@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -32,7 +32,6 @@
     "category": "Productivity",
     "capabilities": [
       "Space and Context discovery",
-      "Context checkpoint refresh",
       "Context-scoped workflow guidance",
       "Remote-safe Connection projection",
       "Indexed Source search and exact reading",

@@ -17,7 +17,6 @@ Corpus는 저장한 업무 맥락을 등록된 원본과 연결하고, 필요한
 | --- | --- |
 | `corpus_space_list` | 사용할 수 있는 Space와 Connection 조회 |
 | `corpus_space_get` | 한 Space의 Context와 현재 상태 조회 |
-| `corpus_space_refresh_context` | 저장된 출처 연결이 유효할 때 현재 Source checkpoint 반영 |
 | `corpus_space_search` | 색인된 Source에서 후보 검색 |
 | `corpus_file_list` | Work 폴더 목록 또는 파일명 검색 |
 | `corpus_file_read` | Work 파일 또는 검색 결과의 정확한 Source unit 읽기 |
@@ -26,9 +25,9 @@ Corpus는 저장한 업무 맥락을 등록된 원본과 연결하고, 필요한
 | `corpus_file_select_current` | 계속 작업할 Current File 선택 |
 | `corpus_file_restore` | 직전 교체의 recovery copy 복원 |
 
-Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Context refresh는 저장된 출처 연결을 바꾸지 않고 현재 Source checkpoint만 반영합니다. `source_inventory_changed`는 이 도구로 반영할 수 있지만, `source_link_changed`는 출처 revision이나 의미를 검토해 Context item을 갱신해야 합니다. 기본 MCP 서버에는 유지보수용 도구나 실험적 semantic cache 도구가 없습니다.
+Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Source를 다시 동기화하거나 원문을 편집해도 저장된 Context를 사용할 수 있습니다. 저장된 출처 연결은 Context를 만들 당시의 근거로 남고, 정확한 현재 근거가 필요한 경우에는 현재 Source를 검색해 다시 읽습니다. 기본 MCP 서버에는 별도 Context 동기화 도구나 실험적 semantic cache 도구가 없습니다.
 
-stdio와 사용자가 연결한 private tunnel은 같은 열 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 ticket 계층이나 중복 Context 갱신 표면은 유지하지 않습니다.
+stdio와 사용자가 연결한 private tunnel은 같은 아홉 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 ticket 계층이나 중복 Context 갱신 표면은 유지하지 않습니다.
 
 ## 설치와 실행
 
