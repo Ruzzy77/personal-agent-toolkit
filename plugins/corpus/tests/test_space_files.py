@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from corpus.database import workspace_connection
 from corpus.errors import SpaceConflictError, SpaceValidationError
 from corpus.service import CorpusService
 from corpus.spaces import decode_space_reference
@@ -60,6 +61,18 @@ class SpaceFileServiceTest(unittest.TestCase):
             display_name="Research Note",
             root=root,
             execution_policy="external_host_allowed",
+        )
+        with workspace_connection(self.data) as connection:
+            connection.execute(
+                "UPDATE workspaces SET root_device = root_device + 1 WHERE workspace_id = ?",
+                ("research-note",),
+            )
+        self.assertEqual(
+            self.service.workspace_status(
+                workspace_id="research-note",
+                audience="external_mcp",
+            )["work_folder"]["connection_state"],
+            "connected",
         )
 
         search = self.service.space_search(
