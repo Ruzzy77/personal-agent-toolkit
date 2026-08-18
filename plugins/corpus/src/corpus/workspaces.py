@@ -568,24 +568,25 @@ class WorkspaceService:
                 self._write_index_change_journal(paths, entries)
             return removed
 
-    def _connected_state(self, row: dict[str, Any]) -> tuple[str, str | None]:
+    def _connected_state(
+        self,
+        row: dict[str, Any],
+    ) -> tuple[str, str | None, Any | None]:
         context_state = self._context_lifecycle_state(row)
         if context_state != "active":
             return (
                 "suspended",
                 "context_archived" if context_state == "archived" else "context_missing",
+                None,
             )
         try:
-            observed = _root_identity(Path(row["root_path"]))
+            identity = self._identity(row)
         except (WorkspaceBoundaryError, WorkspaceUnavailableError) as exc:
-            return ("unavailable", str(exc.details.get("reason", "unavailable")))
-        expected = (int(row["root_device"]), int(row["root_inode"]))
-        if observed != expected:
-            return ("unavailable", "root_identity_changed")
-        return ("connected", None)
+            return ("unavailable", str(exc.details.get("reason", "unavailable")), None)
+        return ("connected", None, identity)
 
     def _project(self, row: dict[str, Any], *, audience: str) -> dict[str, Any]:
-        state, reason = self._connected_state(row)
+        state, reason, identity = self._connected_state(row)
         display_name = row["display_name"]
         if audience == "external_mcp" and any(
             character in {"/", "\\"} for character in display_name
@@ -620,7 +621,7 @@ class WorkspaceService:
             try:
                 current = access.inspect_workspace_file(
                     Path(row["root_path"]),
-                    self._identity(row),
+                    identity,
                     current_relative_path,
                 )
                 if current.state == "ready":
@@ -955,18 +956,25 @@ class WorkspaceService:
     @staticmethod
     def _identity(row: dict[str, Any]) -> Any:
         access = _workspace_access()
+        observed = _root_identity(Path(row["root_path"]))
+        if observed[1] != int(row["root_inode"]):
+            raise WorkspaceUnavailableError(
+                "work folder root changed after it was connected",
+                details={"reason": "root_identity_changed"},
+            )
         return access.WorkspaceRootIdentity(
-            device=int(row["root_device"]),
-            inode=int(row["root_inode"]),
+            device=observed[0],
+            inode=observed[1],
         )
 
-    def _require_connected(self, row: dict[str, Any]) -> None:
-        state, reason = self._connected_state(row)
+    def _require_connected(self, row: dict[str, Any]) -> Any:
+        state, reason, identity = self._connected_state(row)
         if state != "connected":
             raise WorkspaceUnavailableError(
                 "work folder is not connected",
                 details={"reason": reason or "unavailable"},
             )
+        return identity
 
     @staticmethod
     def _observation_dict(observation: Any) -> dict[str, Any]:
@@ -1043,12 +1051,12 @@ class WorkspaceService:
                     details={"maximum_chars": WORKSPACE_MAX_PATH_FILTER_CHARS},
                 )
         row = self._load_row(workspace_id, audience=audience)
-        self._require_connected(row)
+        identity = self._require_connected(row)
         access = _workspace_access()
         scan_limit = WORKSPACE_MAX_FILE_OFFSET + WORKSPACE_MAX_FILE_LIMIT
         listing = access.list_workspace(
             Path(row["root_path"]),
-            self._identity(row),
+            identity,
             relative_path=relative_path,
             max_entries=scan_limit,
             max_depth=32 if recursive else 0,
@@ -1109,7 +1117,7 @@ class WorkspaceService:
                 details={"allowed": ["base64", "utf8"]},
             )
         row = self._load_row(workspace_id, audience=audience)
-        self._require_connected(row)
+        identity = self._require_connected(row)
         selected = relative_path or row["current_relative_path"]
         if not selected:
             raise WorkspaceValidationError(
@@ -1119,7 +1127,7 @@ class WorkspaceService:
         access = _workspace_access()
         file_read = access.read_workspace_file(
             Path(row["root_path"]),
-            self._identity(row),
+            identity,
             selected,
             max_bytes=max_bytes,
         )
@@ -1172,10 +1180,10 @@ class WorkspaceService:
                         "current_generation": row["generation"],
                     },
                 )
-            self._require_connected(row)
+            identity = self._require_connected(row)
             observation = access.observe_workspace_file(
                 Path(row["root_path"]),
-                self._identity(row),
+                identity,
                 normalized_path,
                 max_bytes=WORKSPACE_MAX_FILE_BYTES,
             )
@@ -1750,13 +1758,12 @@ class WorkspaceService:
 
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
-            self._require_connected(row)
+            identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()
             with suppress(Exception):
                 self._maintain_recoveries_locked(row=row, paths=paths)
             root = Path(row["root_path"])
-            identity = self._identity(row)
             recovery_name = (
                 None if operation == "create" else self._private_recovery_name(recovery_id)
             )
@@ -2273,11 +2280,10 @@ class WorkspaceService:
         canonical = access.normalize_workspace_relative_path(relative_path)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
-            self._require_connected(row)
+            identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()
             root = Path(row["root_path"])
-            identity = self._identity(row)
             source_corpus_id = self._source_corpus_id_for_row(row)
             if source_corpus_id is not None:
                 self._prepare_index_change(
@@ -2495,7 +2501,7 @@ class WorkspaceService:
         access = _workspace_access()
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
-            self._require_connected(row)
+            identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()
             with suppress(Exception):
@@ -2540,7 +2546,6 @@ class WorkspaceService:
                 relative_path=canonical,
             )
             root = Path(row["root_path"])
-            identity = self._identity(row)
             current = access.observe_workspace_file(
                 root,
                 identity,

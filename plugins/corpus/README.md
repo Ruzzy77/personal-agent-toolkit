@@ -105,6 +105,7 @@ marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현
 ```
 
 `local_only` Connection은 외부 MCP 응답에서 이름, 경로, 수량과 내용이 모두 빠집니다. `external_host_allowed` Work Connection만 Chat에서 읽고 쓸 수 있습니다.
+재부팅이나 재마운트로 파일시스템 장치 번호가 달라져도 같은 root 경로와 디렉터리가 유지되면 다시 연결할 필요가 없습니다.
 
 Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니다. 별도 Space registry, migration plan이나 identifier cutover 절차는 없습니다.
 

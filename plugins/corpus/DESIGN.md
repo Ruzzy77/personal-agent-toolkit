@@ -64,7 +64,7 @@ Context는 Source 원문을 대체하지 않습니다. 변경 가능성이 있�
 
 ## Work 파일
 
-Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다. 경로는 root 기준 상대 경로로 정규화하며, symlink와 root 밖 이동을 허용하지 않습니다.
+Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다. 경로는 root 기준 상대 경로로 정규화하며, symlink와 root 밖 이동을 허용하지 않습니다. 연결 이후에는 canonical root 경로와 디렉터리 inode로 root 교체를 감지합니다. 운영체제가 재마운트하면서 바꿀 수 있는 장치 번호는 영구 identity로 사용하지 않으며, 각 파일 작업에서는 현재 root descriptor의 identity를 고정합니다.
 
 ### 읽기
 
