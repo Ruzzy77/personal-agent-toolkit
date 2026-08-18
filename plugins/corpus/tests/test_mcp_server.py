@@ -28,7 +28,6 @@ class MCPServerTest(unittest.TestCase):
             {
                 "corpus_space_list",
                 "corpus_space_get",
-                "corpus_space_refresh_context",
                 "corpus_space_search",
                 "corpus_file_list",
                 "corpus_file_read",

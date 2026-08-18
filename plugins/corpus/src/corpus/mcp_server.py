@@ -477,7 +477,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             )
             result["surface_revision"] = MCP_SPACE_SURFACE_REVISION
             result["capabilities"] = {
-                "context": ["read", "refresh_checkpoint"],
+                "context": ["read"],
                 "context_skill": "read",
                 "indexed_source": ["search", "read_ref"],
                 "work_file": [
@@ -539,31 +539,6 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                 audience="external_mcp",
                 context_limit=context_limit,
                 context_offset=context_offset,
-            )
-        )
-
-    @server.tool(
-        name="corpus_space_refresh_context",
-        title="Refresh Space Context",
-        description=(
-            "Use this after the user asks to clear a Space Context's refresh_needed state. It "
-            "acknowledges the current indexed inventory only when every saved source link remains "
-            "valid; it never rewrites Context claims or silently relinks changed evidence. Pass "
-            "the Context version returned by corpus_space_get and explicit confirmation."
-        ),
-        annotations=WORKSPACE_SELECTION_WRITE,
-    )
-    def corpus_space_refresh_context(
-        space_id: SpaceId,
-        expected_version: Annotated[int, Field(ge=1, le=(1 << 63) - 1)],
-        confirm_refresh: bool,
-    ) -> ToolResponse:
-        return safe_call(
-            lambda: service.space_refresh_context(
-                space_id=space_id,
-                expected_version=expected_version,
-                confirm_refresh=confirm_refresh,
-                audience="external_mcp",
             )
         )
 

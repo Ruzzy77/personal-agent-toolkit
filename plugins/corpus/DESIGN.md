@@ -86,7 +86,7 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 열 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Context refresh 도구는 저장된 source link가 모두 유효할 때 현재 inventory checkpoint만 갱신하며, item이나 출처 연결을 다시 만들지 않습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source revision과 inventory 변화는 저장된 Context를 막지 않습니다. 출처 연결은 Context를 만들 당시의 근거로 남고, 현재 근거가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
 stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 
