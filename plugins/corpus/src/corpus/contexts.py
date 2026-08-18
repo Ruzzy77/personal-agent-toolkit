@@ -3394,7 +3394,6 @@ class ContextService:
             row["source_size"] == row["logical_size"]
             and row["source_modified_ns"] == row["modified_ns"]
             and row["source_changed_ns"] == row["changed_ns"]
-            and row["source_device"] == row["device"]
             and row["source_inode"] == row["inode"]
         )
         adapter_current = self._projection_uses_current_adapter(

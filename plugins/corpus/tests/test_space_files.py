@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from corpus.database import workspace_connection
+from corpus.database import corpus_connection, workspace_connection
 from corpus.errors import SpaceConflictError, SpaceValidationError
 from corpus.service import CorpusService
 from corpus.spaces import decode_space_reference
@@ -67,6 +67,8 @@ class SpaceFileServiceTest(unittest.TestCase):
                 "UPDATE workspaces SET root_device = root_device + 1 WHERE workspace_id = ?",
                 ("research-note",),
             )
+        with corpus_connection(self.data, "relation-learning-research") as connection:
+            connection.execute("UPDATE documents SET device = device + 1")
         self.assertEqual(
             self.service.workspace_status(
                 workspace_id="research-note",
@@ -105,6 +107,8 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertEqual(indexed["source_kind"], "indexed_source")
         self.assertIn("adaptive relation marker", indexed["units"][0]["untrusted_content"])
         self.assertNotIn("relation-learning-research", repr(indexed))
+        rescan = self.service.scan("relation-learning-research")
+        self.assertEqual(rescan["change_counts"]["metadata_changed"], 0)
 
         first_page = self.service.space_file_list(
             space_id="research-note",
