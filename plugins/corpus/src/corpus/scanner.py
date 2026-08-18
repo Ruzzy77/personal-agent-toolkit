@@ -296,7 +296,6 @@ def _record_regular_file(
             previous["logical_size"] != entry_stat.st_size
             or previous["modified_ns"] != entry_stat.st_mtime_ns
             or previous["changed_ns"] != entry_stat.st_ctime_ns
-            or previous["device"] != entry_stat.st_dev
             or previous["inode"] != entry_stat.st_ino
         )
     )

@@ -1281,7 +1281,6 @@ class CorpusService:
             and getattr(state, "size", None) == document["logical_size"]
             and getattr(state, "modified_ns", None) == document["modified_ns"]
             and getattr(state, "changed_ns", None) == document["changed_ns"]
-            and getattr(state, "device", None) == document["device"]
             and getattr(state, "inode", None) == document["inode"]
             and getattr(state, "mode", None) == document["mode"]
             and getattr(state, "flags", None) == document["flags"]
@@ -1546,7 +1545,6 @@ class CorpusService:
                                   AND r.source_size = documents.logical_size
                                   AND r.source_modified_ns = documents.modified_ns
                                   AND r.source_changed_ns = documents.changed_ns
-                                  AND r.source_device = documents.device
                                   AND r.source_inode = documents.inode
                             ) THEN 1 ELSE 0 END
                         ) AS indexed_documents
@@ -1569,7 +1567,6 @@ class CorpusService:
                   AND r.source_size = d.logical_size
                   AND r.source_modified_ns = d.modified_ns
                   AND r.source_changed_ns = d.changed_ns
-                  AND r.source_device = d.device
                   AND r.source_inode = d.inode
                 """
             ).fetchone()[0]
@@ -1612,7 +1609,6 @@ class CorpusService:
                   AND r.source_size = d.logical_size
                   AND r.source_modified_ns = d.modified_ns
                   AND r.source_changed_ns = d.changed_ns
-                  AND r.source_device = d.device
                   AND r.source_inode = d.inode
                 """
             ).fetchall()
@@ -1706,7 +1702,6 @@ class CorpusService:
             document["revision_source_size"] == document["logical_size"]
             and document["revision_source_modified_ns"] == document["modified_ns"]
             and document["revision_source_changed_ns"] == document["changed_ns"]
-            and document["revision_source_device"] == document["device"]
             and document["revision_source_inode"] == document["inode"]
         )
         if not source_observation_current:
@@ -2539,7 +2534,6 @@ class CorpusService:
                   AND r.source_size = d.logical_size
                   AND r.source_modified_ns = d.modified_ns
                   AND r.source_changed_ns = d.changed_ns
-                  AND r.source_device = d.device
                   AND r.source_inode = d.inode
                 ORDER BY d.document_id
                 """
@@ -3645,7 +3639,6 @@ class CorpusService:
                   AND r.source_size = d.logical_size
                   AND r.source_modified_ns = d.modified_ns
                   AND r.source_changed_ns = d.changed_ns
-                  AND r.source_device = d.device
                   AND r.source_inode = d.inode
                   {live_clause}
                 ORDER BY bm25(source_units_fts)
@@ -3897,7 +3890,6 @@ class CorpusService:
                            r.source_size = d.logical_size
                            AND r.source_modified_ns = d.modified_ns
                            AND r.source_changed_ns = d.changed_ns
-                           AND r.source_device = d.device
                            AND r.source_inode = d.inode
                        THEN 1 ELSE 0 END AS source_observation_current
                 FROM source_units u
