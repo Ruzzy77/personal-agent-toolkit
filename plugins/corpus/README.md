@@ -202,6 +202,11 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 
 `corpus_space_search` 결과는 후보이며 사실 판정이 아닙니다. 필요한 결과의 `read_ref`를 `corpus_file_read`에 전달해 현재 Source unit을 읽습니다. 검색 결과가 없다는 사실만으로 원문에 내용이 없다고 결론 내리지 않습니다.
 
+검색은 먼저 입력 문구 그대로 찾고 결과가 없으면 모든 검색어가 들어 있는 후보를 한 번 더
+찾습니다. Connection은 내부 진단값 대신 `ready`, `needs_refresh`, `partial`, `unavailable` 중
+하나의 `source_state`만 표시합니다. 현재 원문이 꼭 필요한데 `needs_refresh`나 `unavailable`이면
+로컬에서 Source를 갱신하거나 연결 상태를 복구합니다.
+
 Context가 이미 답을 담고 있다면 Source 전체를 다시 읽지 않습니다. 날짜, 수치, 인용이나 변경 가능성이 있는 내용처럼 정확한 현재 원문이 필요한 경우에만 Source를 다시 확인합니다.
 
 ## 저장 위치와 안전 경계

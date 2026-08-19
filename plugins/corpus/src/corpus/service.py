@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import re
 import unicodedata
 import uuid
 from contextlib import nullcontext
@@ -66,6 +67,8 @@ from .spaces import (
 from .workspaces import WORKSPACE_MAX_FILE_BYTES, WorkspaceService
 
 _MAX_SEARCH_RESULTS = 200
+_SEARCH_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+_MAX_SEARCH_TERMS = 16
 CORPUS_INVENTORY_DEFAULT_LIMIT = 100
 CORPUS_INVENTORY_MAX_LIMIT = 200
 CORPUS_INVENTORY_MAX_OFFSET = 100_000
@@ -318,7 +321,88 @@ class CorpusService:
             contexts=self.contexts,
             context_skills=self.context_skills,
             workspaces=self.workspaces,
+            source_state=self._space_source_state,
         )
+
+    def _space_source_state(self, corpus_id: str) -> str:
+        """Project current searchable coverage to one Chat-facing state."""
+
+        try:
+            with corpus_read_connection(self.data_root, corpus_id) as connection:
+                latest_scan = connection.execute(
+                    "SELECT status FROM scan_runs ORDER BY rowid DESC LIMIT 1"
+                ).fetchone()
+                snapshot = connection.execute(
+                    """
+                    SELECT coverage_state
+                    FROM snapshots
+                    WHERE state = 'complete'
+                    ORDER BY rowid DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                summary = connection.execute(
+                    """
+                    SELECT COUNT(*) AS supported_documents,
+                           COALESCE(SUM(CASE
+                               WHEN d.current_revision_id IS NULL OR p.projection_id IS NULL
+                               THEN 1 ELSE 0 END), 0) AS missing_projections,
+                           COALESCE(SUM(CASE
+                               WHEN d.current_revision_id IS NOT NULL AND (
+                                   r.revision_id IS NULL
+                                   OR r.source_size != d.logical_size
+                                   OR r.source_modified_ns != d.modified_ns
+                                   OR r.source_changed_ns != d.changed_ns
+                                   OR r.source_inode != d.inode
+                               ) THEN 1 ELSE 0 END), 0) AS stale_projections,
+                           COALESCE(SUM(CASE
+                               WHEN p.projection_id IS NOT NULL
+                                AND p.completeness_state != 'complete'
+                               THEN 1 ELSE 0 END), 0) AS partial_projections
+                    FROM documents d
+                    LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
+                    LEFT JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                    WHERE d.deleted_at IS NULL AND d.eligibility_state = 'supported'
+                    """
+                ).fetchone()
+                adapter_rows = connection.execute(
+                    """
+                    SELECT DISTINCT d.extension, p.adapter_id, p.adapter_version, p.config_hash
+                    FROM documents d
+                    JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                    WHERE d.deleted_at IS NULL AND d.eligibility_state = 'supported'
+                    """
+                ).fetchall()
+        except (CorpusError, OSError):
+            return "unavailable"
+
+        if latest_scan is None or latest_scan["status"] != "complete":
+            return "needs_refresh"
+
+        if snapshot is None and summary["supported_documents"]:
+            return "needs_refresh"
+
+        if summary["stale_projections"] or any(
+            not self._projection_uses_current_adapter(
+                row["extension"],
+                row["adapter_id"],
+                row["adapter_version"],
+                row["config_hash"],
+            )
+            for row in adapter_rows
+        ):
+            return "needs_refresh"
+
+        partial = (
+            (snapshot is not None and snapshot["coverage_state"] == "partial")
+            or bool(summary["missing_projections"])
+            or bool(summary["partial_projections"])
+        )
+        if partial:
+            return "partial"
+        return "ready"
 
     def _require_source_outside_workspaces(self, source_root: Path) -> None:
         # Let the existing source registration/rebind validation report a missing
@@ -624,10 +708,12 @@ class CorpusService:
             audience=audience,
         )
         candidates = []
+        query_modes: set[str] = set()
         for resolved in resolved_connections:
             selected_connection_id = resolved["connection"]["connection_id"]
             for source_id in resolved["_source_ids"]:
                 result = self.search(source_id, query, limit=limit)
+                query_modes.add(result["query_mode"])
                 for candidate in result["candidates"]:
                     candidates.append(
                         {
@@ -670,6 +756,11 @@ class CorpusService:
             "space_id": resolved_connections[0]["space"]["space_id"],
             "query": query,
             "strategy": "space_indexed_candidate_acquisition",
+            "query_mode": (
+                next(iter(query_modes))
+                if len(query_modes) == 1
+                else "exact_phrase_then_all_terms_fts"
+            ),
             "zero_results_establish_absence": False,
             "count": len(page),
             "candidates": page,
@@ -3512,6 +3603,7 @@ class CorpusService:
                 "count": 0,
             }
         fts_query = '"' + normalized.replace('"', '""') + '"'
+        query_mode = "exact_phrase_fts"
         guard = self.workspaces.promoted_source_guard(corpus_id)
         workspace_context = nullcontext(None)
         if guard is not None:
@@ -3594,8 +3686,7 @@ class CorpusService:
                           d.is_dataless
                       ) = 1
                 """
-            rows = connection.execute(
-                f"""
+            search_sql = f"""
                 SELECT f.unit_id, f.document_id, f.relative_path, f.structure_path,
                        instr(u.normalized_content, ?) AS literal_position,
                        LENGTH(CAST(u.normalized_content AS BLOB))
@@ -3628,13 +3719,30 @@ class CorpusService:
                   {live_clause}
                 ORDER BY bm25(source_units_fts)
                 LIMIT ?
-                """,
-                (
-                    normalized,
-                    fts_query,
-                    limit,
-                ),
+                """
+            excerpt_anchor = normalized
+            rows = connection.execute(
+                search_sql,
+                (excerpt_anchor, fts_query, limit),
             ).fetchall()
+            terms = []
+            seen_terms: set[str] = set()
+            for term in _SEARCH_TOKEN_RE.findall(normalized):
+                folded = term.casefold()
+                if folded in seen_terms:
+                    continue
+                seen_terms.add(folded)
+                terms.append(term)
+                if len(terms) == _MAX_SEARCH_TERMS:
+                    break
+            if not rows and len(terms) > 1:
+                query_mode = "all_terms_fts"
+                excerpt_anchor = terms[0]
+                fallback_query = " AND ".join(f'"{term}"' for term in terms)
+                rows = connection.execute(
+                    search_sql,
+                    (excerpt_anchor, fallback_query, limit),
+                ).fetchall()
             excerpt_details = {}
             for row in rows:
                 literal_position = int(row["literal_position"])
@@ -3662,7 +3770,13 @@ class CorpusService:
                     "excerpt_probe": excerpt_probe,
                     "excerpt_start": excerpt_start,
                     "generation": (
-                        "literal_query_window" if literal_position > 0 else "bounded_content_prefix"
+                        (
+                            "literal_query_window"
+                            if query_mode == "exact_phrase_fts"
+                            else "term_query_window"
+                        )
+                        if literal_position > 0
+                        else "bounded_content_prefix"
                     ),
                     "source_content_bytes": row["source_content_bytes"],
                 }
@@ -3694,7 +3808,7 @@ class CorpusService:
         response = {
             "query": query,
             "strategy": "lexical_candidate_acquisition",
-            "query_mode": "exact_phrase_fts",
+            "query_mode": query_mode,
             "zero_results_establish_absence": False,
             "count": len(candidates),
             "candidates": candidates,

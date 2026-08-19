@@ -44,6 +44,7 @@ Connection의 공개 속성은 다음과 같습니다.
 - `access_scope`: `local_only`, `remote_allowed`
 - `permission`: `read_only`, `read_write`
 - `index_mode`: `indexed`, `not_indexed`
+- `source_state`: `ready`, `needs_refresh`, `partial`, `unavailable`
 - `connection_state`, `current_file`, `generation`
 
 `external_mcp` 보기에서는 `remote_allowed` Connection만 남습니다. 로컬 root와 내부 registry ID는 공개 응답에 포함하지 않습니다. 별도 canonical Space registry나 migration receipt는 사용하지 않습니다.
@@ -52,7 +53,10 @@ Connection의 공개 속성은 다음과 같습니다.
 
 `scan`은 파일을 열지 않고 메타데이터와 residency를 기록합니다. `ingest`는 bounded capture로 선택한 파일을 읽고 형식별 adapter가 Source unit을 만듭니다. 각 unit은 revision과 extraction projection에 연결됩니다.
 
-검색은 FTS 후보를 반환합니다. 순위는 증거가 아니며, 정확한 내용은 선택한 unit을 다시 읽어 확인합니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를 제외합니다.
+검색은 입력 문구와 정확히 일치하는 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가
+들어 있는 후보를 한 번 더 찾습니다. 순위는 증거가 아니며, 정확한 내용은 선택한 unit을 다시
+읽어 확인합니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
+제외합니다. 상세 색인 진단은 Chat에 펼치지 않고 Connection의 `source_state`로 계산합니다.
 
 Corpus는 모델이 만든 claim을 별도 semantic cache로 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
 

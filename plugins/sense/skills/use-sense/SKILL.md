@@ -8,31 +8,26 @@ description: Use Sense when an important choice may depend on durable intent, re
 Sense is background for a choice, not a template for the answer. Do not turn its section names or
 wording into headings, lists, or policy language in the answer.
 
-1. Read `sense_read` with `view=index`, then only the sections that could change the choice. Reuse
-   the same revision during a direct continuation.
-2. Check current facts in the current project and its original results. The current request and
-   current sources take priority over retained guidance.
-3. Reach your own conclusion and answer the subject directly. Do not mention Sense or its internal
-   categories unless the user asks or the distinction is necessary.
+Read `sense_read` with `view=index`, then only the sections that could change the choice. When the
+relevant section is already known in a direct continuation, read that section without reopening the
+index. Current requests, facts and sources take priority over retained guidance. Reach your own
+conclusion and do not mention Sense or its internal categories unless the user asks.
 
 If Sense is unavailable, continue from the conversation and current sources. Diagnose it only when
 the user asks about Sense.
 
-Keep each kind of information in one place:
+Sense keeps only guidance that should affect important choices in different contexts. Do not copy
+source material, conversation text, hidden reasoning or one project's facts into it.
 
-- project facts and methods stay with the project;
-- continuing questions and source-linked relationships stay in the Corpus chosen by the user;
-- the agent's revisable concepts and relations about the user stay in Hypes;
-- Sense keeps only guidance that should affect important choices in different contexts.
+Revise Sense only when the user asks to save a correction or observed result as durable guidance.
+Read every affected section first and preserve anything still valid. If the user supplies the final
+ordinary wording, call `sense_revise_batch` once with that wording and a unique idempotency key.
 
-Revise Sense only when the user explicitly asks to save an explicit correction or observed result
-as such guidance. Read every affected section first, preserve anything still valid, and finish all
-replacement wording in the conversation before any write. Put all related final replacements into
-one `sense_preview_revision`, show the combined result when review is needed, and send one
-`sense_revise_batch` with a unique idempotency key. If the same section appears more than once,
-keep only its last final replacement. Do not revise sentence by sentence or create a
-second write while approval is pending, or retry a revision conflict in the same response. The saved
-revision must store no conversation text, hidden reasoning, or project facts.
+Use `sense_preview_revision` before the write when the assistant drafted the replacement, the change
+spans several sections, or the user asks to review it. Preview all related replacements together,
+then save the reviewed batch once. Do not require a preview for an explicit final ordinary
+replacement. Sensitive or scope-expanding persistence remains a trusted local action; do not retry
+it through Chat. Do not retry a revision conflict in the same response.
 
 Use `sense_overview` when the user asks to review Sense. Use `sense_control` only for an explicit
 request to inspect, export, or remove Sense data.

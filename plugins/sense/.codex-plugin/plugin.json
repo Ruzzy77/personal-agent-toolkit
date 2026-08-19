@@ -1,6 +1,6 @@
 {
   "name": "sense",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Keep private guidance for important choices available across AI tools.",
   "author": {
     "name": "Ruzzy77",
@@ -26,7 +26,7 @@
   "interface": {
     "displayName": "Sense",
     "shortDescription": "Keep guidance for important choices private",
-    "longDescription": "Sense keeps a small set of user-controlled guidance for important choices that recur in different contexts. Current requests and sources take priority, project facts remain with their projects, and continuing source-linked questions remain in Corpus. Sense data stays on this Mac across plugin updates.",
+    "longDescription": "Sense keeps a small set of user-controlled guidance for important choices that recur in different contexts. Current requests and sources take priority, and an explicit final ordinary correction can be saved without an extra preview step. Sense data stays on this Mac across plugin updates.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

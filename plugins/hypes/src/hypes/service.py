@@ -267,6 +267,24 @@ class HypesService:
 
         upserted_refs = [ref for op, ref, _ in resolved if op.startswith("put_")]
         removed_refs = [ref for op, ref, _ in resolved if op == "delete"]
+        created_refs = set(ref_map.values())
+        change_summary = {
+            action: {"nodes": 0, "predicates": 0, "edges": 0}
+            for action in ("created", "updated", "deleted")
+        }
+        object_labels = {"node": "nodes", "pred": "predicates", "edge": "edges"}
+        for op, ref, value in resolved:
+            if op == "delete":
+                action = "deleted"
+                kind = str(value)
+            else:
+                action = "created" if ref in created_refs else "updated"
+                kind = {
+                    "put_node": "node",
+                    "put_predicate": "pred",
+                    "put_edge": "edge",
+                }[op]
+            change_summary[action][object_labels[kind]] += 1
 
         try:
             with self.store.connect() as connection:
@@ -372,6 +390,7 @@ class HypesService:
             "ref_map": ref_map,
             "upserted_refs": upserted_refs,
             "removed_refs": removed_refs,
+            "change_summary": change_summary,
         }
 
     @staticmethod

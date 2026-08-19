@@ -5,11 +5,11 @@ description: Show a read-only view of saved Corpus contexts, their connected fil
 
 # Show Corpus
 
-Call `corpus_space_list`. Show Space titles and Context purposes first, then visible Connections, roles, access, permission, state and Current File when present.
+Call `corpus_space_list`. Show Space titles and Context purposes first, then visible Connections, roles, access, permission, `source_state` and Current File when present.
 
 Call `corpus_space_get` only when the user asks for one Space's Context items. Continue with `next_offset` only when the remaining items matter.
 
-Keep Context, Connections and indexed coverage distinct. A Context is saved working understanding; a Connection is a visible Source or Work location; indexed coverage says what can be read, not whether an interpretation is complete.
+Keep Context and Connections distinct. A Context is saved working understanding; a Connection is a visible Source or Work location. Report the single `source_state` value instead of expanding internal index diagnostics.
 
 This view is read-only. Do not scan, refresh, register or change Context to make it look current. A local-only Connection omitted from the remote response is unknown, not empty.
 

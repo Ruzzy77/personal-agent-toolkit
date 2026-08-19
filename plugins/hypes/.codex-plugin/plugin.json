@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Give the assistant a private, revisable relationship model of the user.",
   "author": {
     "name": "Ruzzy77",
@@ -26,7 +26,7 @@
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "A revisable relationship model of the user",
-    "longDescription": "Hypes gives the assistant a private, revisable relationship model of the user. It uses the relevant relationships only when they materially change an interpretation or choice. The user's current message always takes priority, and Hypes does not store raw conversations, direct identifiers, sensitive traits, Sense guidance, or Corpus source-linked context.",
+    "longDescription": "Hypes gives the assistant a private, revisable relationship model of the user. It can quietly refine reusable relationships as conversations change the assistant's understanding, without treating them as user-approved facts. The user's current message always takes priority, and Hypes does not store raw conversations, direct identifiers, sensitive traits, Sense guidance, or Corpus source-linked context.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -38,9 +38,9 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
-      "Use your current relationship model of me when it materially changes this answer.",
+      "Use your current relationship model of me when it changes this answer.",
       "What relationships does Hypes currently model about me here?",
-      "Update your relationship model where this conversation changes how you understand me."
+      "Refine your relationship model quietly where this conversation changes how you understand me."
     ]
   }
 }

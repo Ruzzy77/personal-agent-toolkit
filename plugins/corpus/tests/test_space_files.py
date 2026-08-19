@@ -52,6 +52,11 @@ class SpaceFileServiceTest(unittest.TestCase):
             source_root=root,
             execution_policy="external_host_allowed",
         )
+        unindexed = self.service.space_get(
+            space_id="relation-learning-research",
+            audience="external_mcp",
+        )["space"]
+        self.assertEqual(unindexed["connections"][0]["source_state"], "needs_refresh")
         self.service.scan("relation-learning-research")
         self.service.ingest("relation-learning-research")
         self._create_context("research-note", ["relation-learning-research"])
@@ -76,6 +81,11 @@ class SpaceFileServiceTest(unittest.TestCase):
             )["work_folder"]["connection_state"],
             "connected",
         )
+        ready = self.service.space_get(
+            space_id="research-note",
+            audience="external_mcp",
+        )["space"]
+        self.assertEqual(ready["connections"][0]["source_state"], "ready")
 
         search = self.service.space_search(
             space_id="research-note",
@@ -83,6 +93,7 @@ class SpaceFileServiceTest(unittest.TestCase):
             audience="external_mcp",
         )
         self.assertEqual(search["space_id"], "research-note")
+        self.assertEqual(search["query_mode"], "exact_phrase_fts")
         self.assertEqual(search["count"], 1)
         candidate = search["candidates"][0]
         self.assertEqual(candidate["connection_id"], "main")
@@ -98,6 +109,14 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertNotIn("unit_id", repr(search))
         self.assertNotIn("relation-learning-research", repr(search))
         self.assertNotIn(str(root), repr(search))
+
+        fallback = self.service.space_search(
+            space_id="research-note",
+            query="marker adaptive relation",
+            audience="external_mcp",
+        )
+        self.assertEqual(fallback["query_mode"], "all_terms_fts")
+        self.assertEqual(fallback["count"], 1)
 
         indexed = self.service.space_file_read(
             space_id="Research Note",
