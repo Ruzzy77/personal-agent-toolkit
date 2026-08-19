@@ -27,7 +27,7 @@ Claude can select them when a task calls for them:
   a lesson that remains useful in different contexts.
 - Corpus can be selected when a task needs to understand an ongoing body of work or locate,
   compare, and verify its original sources.
-- Hypes can be selected when the agent's current model of the user could materially change an
+- Hypes can be selected when the agent's current model of the user could change an
   interpretation, explanation, question, or choice, or when the interaction changes that model.
   It should not load merely because a response is substantive.
 
@@ -242,16 +242,16 @@ Edge. The agent creates the actual concepts and relationship types, and can repl
 when its model changes. It does not attach evidence, retention, review, or confidence
 infrastructure to every relation.
 
-Hypes reads only when the user model could materially change the current response. It uses the
+Hypes reads when the user model could change the current response. It uses the
 relevant graph slice to interpret terms, decide which relationships can be assumed, choose where an
 explanation should start, or identify the one question that matters. The user's current message
 always overrides the stored graph, and ordinary responses do not announce that Hypes was used.
 
-Hypes writes only when the interaction changed a reusable concept or relation in the agent's model
-of the user. It first reads the relevant existing structure and does not store a turn merely because
-the task completed. It prefers replacing, merging, and deleting existing structure over
-accumulating another memory note, and stores no transcript, full answer, task record, project fact,
-Corpus source, Sense guidance, or hidden reasoning.
+Hypes may add, refine or remove a reusable relationship in the background when an interaction gives
+the agent a useful basis for doing so. It does not need a separate save request, preview or
+confirmation. It reads existing structure when a relation may need replacement or deletion, prefers
+revising existing structure over accumulating another memory note, and stores no transcript, full
+answer, task record, project fact, Corpus source, Sense guidance, or hidden reasoning.
 
 This is conditional background behavior, not continuous monitoring: the skill may be selected
 without a named request, but no Hypes tool is called when a conversation neither depends on nor

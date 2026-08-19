@@ -7,6 +7,7 @@ import binascii
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -123,11 +124,13 @@ class SpaceService:
         contexts: Any,
         context_skills: Any,
         workspaces: Any,
+        source_state: Callable[[str], str],
     ) -> None:
         self.data_root = data_root
         self.contexts = contexts
         self.context_skills = context_skills
         self.workspaces = workspaces
+        self.source_state = source_state
 
     def _contexts(self, *, state: str) -> list[dict[str, Any]]:
         contexts: list[dict[str, Any]] = []
@@ -213,8 +216,8 @@ class SpaceService:
             suffix = counters[prefix]
             group["connection_id"] = prefix if suffix == 1 else f"{prefix}-{suffix}"
 
-    @staticmethod
     def _project_connection(
+        self,
         group: dict[str, Any],
         *,
         audience: str,
@@ -269,9 +272,24 @@ class SpaceService:
             ),
             "_source_ids": [source["corpus_id"] for source in sources],
         }
+        if sources:
+            result["source_state"] = self._connection_source_state(sources)
         if audience == "local_cli":
             result["location"] = str(group["root"])
         return result
+
+    @staticmethod
+    def _connection_source_state(sources: list[dict[str, Any]]) -> str | None:
+        if not sources:
+            return None
+        states = {str(source["_source_state"]) for source in sources}
+        if len(states) == 1:
+            return next(iter(states))
+        if "unavailable" in states or "partial" in states:
+            return "partial"
+        if "needs_refresh" in states:
+            return "needs_refresh"
+        return "ready"
 
     @staticmethod
     def _context_access_scope(connections: list[dict[str, Any]]) -> str:
@@ -366,6 +384,8 @@ class SpaceService:
     def _spaces(self, *, audience: str) -> list[dict[str, Any]]:
         _validate_audience(audience)
         corpora = list_corpora(self.data_root)
+        for corpus in corpora:
+            corpus["_source_state"] = self.source_state(corpus["corpus_id"])
         corpora_by_id = {corpus["corpus_id"]: corpus for corpus in corpora}
         contexts = self._active_contexts()
         work_folders = self._work_folders()

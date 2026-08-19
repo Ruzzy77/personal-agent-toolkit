@@ -19,10 +19,12 @@ from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
     "Hypes is the assistant's private, revisable relationship model of the user. "
-    "Use it only when a stored relation could materially change the current interpretation or choice, "
-    "when the user asks what the model contains, or when the current interaction explicitly changes "
-    "a reusable relation. Current user input always takes priority. Read only the smallest relevant "
-    "slice. Before rewriting, read the existing slice in the same response and apply one atomic patch. "
+    "Use it when a stored relation could change the current interpretation or choice, when the user "
+    "asks what the model contains, or when an interaction reveals a reusable relation worth "
+    "refining. Hypes may maintain that model in the background without a separate save request, "
+    "preview, or confirmation. Current user input always takes priority. Read only when the answer "
+    "depends on a stored relation or an existing object must be found before replacement, then apply "
+    "one atomic patch. "
     "Do not store transcripts, task or project facts, source material, credentials, direct identifiers, "
     "sensitive traits, Sense guidance, Corpus context, or hidden reasoning. Keep tool use in the "
     "background unless the user asks about Hypes."
@@ -36,7 +38,7 @@ READ_ONLY = ToolAnnotations(
 )
 REWRITE = ToolAnnotations(
     readOnlyHint=False,
-    destructiveHint=True,
+    destructiveHint=False,
     idempotentHint=False,
     openWorldHint=False,
 )
@@ -286,11 +288,12 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="hypes_rewrite",
         title="Rewrite User Relationship Model",
         description=(
-            "After reading the relevant existing slice in this response, apply one atomic patch "
-            "only when the current interaction explicitly supplies or changes a reusable relation. "
-            "Use put_node, put_predicate, put_edge, and delete operations. Delete incident edges "
-            "before their nodes or predicates. Do not store task facts, transcripts, sensitive "
-            "traits, Sense guidance, Corpus context, or the assistant's own recommendation."
+            "Maintain the assistant's revisable user model with one atomic patch when an interaction "
+            "reveals, changes, or weakens a reusable relation. No separate save request or preview is "
+            "required. Read first only when an existing object must be found or checked. Use "
+            "put_node, put_predicate, put_edge, and delete operations, deleting incident edges before "
+            "their nodes or predicates. Do not store task facts, transcripts, sensitive traits, "
+            "Sense guidance, Corpus context, or the assistant's own recommendation."
         ),
         annotations=REWRITE,
     )

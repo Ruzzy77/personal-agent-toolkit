@@ -29,15 +29,12 @@ from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
     "Use Sense only when durable guidance could change an important choice or when the user asks "
-    "to inspect or change it. Some clients defer individual Sense tool schemas. If a required Sense "
-    "tool is not currently loaded and the host provides tool discovery, use that mechanism; in "
-    "ChatGPT, call api_tool.list_resources with paths=['Sense'] and a concise query for the needed "
-    "action before concluding that the capability is unavailable. Do not repeat discovery after the "
-    "required schema is loaded. Discovery establishes availability only and never authorizes a "
-    "profile revision, deletion, or other state-changing action. The current request and current "
-    "sources take priority. Sense informs "
-    "the judgment but does not supply the wording or structure of the answer. Change Sense only at "
-    "the user's explicit request."
+    "to inspect or change it. If a needed schema is deferred, discover it once before concluding "
+    "that the capability is unavailable. The current request and current sources take priority. "
+    "Sense informs the judgment but does not supply the wording or structure of the answer. Change "
+    "Sense only at the user's request. An explicit final ordinary replacement may be saved after "
+    "reading the affected section; preview assistant-drafted, multi-section, or user-requested "
+    "changes first. Sensitive or scope-expanding persistence remains local."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -264,11 +261,10 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="sense_preview_revision",
         title="Preview Sense Revision",
         description=(
-            "Use this after all final section wording is complete and before saving related Sense "
-            "changes. It validates every target, keeps only the last replacement for a duplicated "
-            "section id, and shows one combined diff without writing. Unrelated sections may "
-            "have changed since the read; a target section conflict rejects the whole preview. "
-            "Read-only."
+            "Preview one combined Sense change when the assistant drafted the wording, several "
+            "sections change together, or the user asks to review it. An explicit final ordinary "
+            "replacement can skip this tool. The preview writes nothing and rejects a conflict in "
+            "a target section. Sensitive or scope-expanding persistence remains local."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -292,12 +288,11 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="sense_revise_batch",
         title="Revise Sense Sections",
         description=(
-            "Use this once when the user asks to save all related final Sense wording, normally "
-            "after one combined "
-            "sense_preview_revision. It replaces one or more complete ordinary sections in a "
-            "single all-or-nothing revision and creates one write approval. The last replacement "
-            "for a duplicated section id wins. A target section conflict writes nothing. Use one "
-            "unique idempotency key for the exact batch, and do not retry conflicts automatically."
+            "Use this once after reading every affected section when the user asks to save final "
+            "Sense wording. An explicit final ordinary replacement may be saved directly; save a "
+            "previewed change only after its wording has been reviewed. The complete batch is "
+            "all-or-nothing, a target conflict writes nothing, and the exact batch needs one unique "
+            "idempotency key. Do not retry conflicts automatically."
         ),
         annotations=PROFILE_IDEMPOTENT_WRITE,
         meta={"ui": {"visibility": ["model"]}},

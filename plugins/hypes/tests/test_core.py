@@ -26,8 +26,8 @@ def predicate(name: str) -> dict:
     return {"name": name, "description": None, "aliases": []}
 
 
-def create_relation(service: HypesService) -> dict[str, str]:
-    result = service.rewrite(
+def create_relation(service: HypesService) -> dict:
+    return service.rewrite(
         operations=[
             {"op": "put_node", "ref": "$a", "value": node("alpha", aliases=["first"])},
             {"op": "put_node", "ref": "$b", "value": node("bravo")},
@@ -44,11 +44,16 @@ def create_relation(service: HypesService) -> dict[str, str]:
             },
         ]
     )
-    return result["ref_map"]
 
 
 def test_rewrite_persists_a_closed_relationship_slice(tmp_path: Path) -> None:
-    refs = create_relation(HypesService(tmp_path))
+    created = create_relation(HypesService(tmp_path))
+    refs = created["ref_map"]
+    assert created["change_summary"] == {
+        "created": {"nodes": 2, "predicates": 1, "edges": 1},
+        "updated": {"nodes": 0, "predicates": 0, "edges": 0},
+        "deleted": {"nodes": 0, "predicates": 0, "edges": 0},
+    }
     result = HypesService(tmp_path).read(
         seed_refs=[refs["$a"]],
         max_hops=1,
@@ -88,7 +93,7 @@ def test_failed_rewrite_rolls_back_the_whole_patch(tmp_path: Path) -> None:
 
 def test_replace_and_delete_keep_explicit_graph_integrity(tmp_path: Path) -> None:
     service = HypesService(tmp_path)
-    refs = create_relation(service)
+    refs = create_relation(service)["ref_map"]
     service.rewrite(
         operations=[
             {

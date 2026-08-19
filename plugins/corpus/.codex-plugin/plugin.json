@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -27,7 +27,7 @@
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
-    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from saved Context, reads exact current Source text only when needed, and can continue files in an explicitly connected remote-allowed Work Connection while the Mac is online. Local-only Connections remain local.",
+    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from saved Context, reads exact current Source text only when needed, sees one simple readiness state instead of internal index diagnostics, and makes one broader search attempt when an exact phrase has no candidates. It can continue files in an explicitly connected remote-allowed Work Connection while local-only Connections remain local.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
