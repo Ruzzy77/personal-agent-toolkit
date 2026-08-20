@@ -97,8 +97,10 @@ def _edge_value(row: sqlite3.Row) -> dict[str, Any]:
 class HypesService:
     """Small application service over one local ontology graph."""
 
-    def __init__(self, data_root: Path | None = None) -> None:
+    def __init__(self, data_root: Path | None = None, *, prepare: bool = True) -> None:
         self.store = HypesStore(data_root)
+        if prepare:
+            self.store.initialize()
 
     @staticmethod
     def _validated_operations(
@@ -265,6 +267,25 @@ class HypesService:
             )
             resolved.append((op, ref, edge))
 
+        deleted_nodes = {
+            ref for op, ref, kind in resolved if op == "delete" and kind == "node"
+        }
+        deleted_predicates = {
+            ref for op, ref, kind in resolved if op == "delete" and kind == "pred"
+        }
+        for op, _, value in resolved:
+            if op != "put_edge":
+                continue
+            if (
+                value.source_ref in deleted_nodes
+                or value.target_ref in deleted_nodes
+                or value.predicate_ref in deleted_predicates
+            ):
+                raise HypesError(
+                    "dangling_edge",
+                    "an edge cannot refer to an entity deleted by the same patch",
+                )
+
         upserted_refs = [ref for op, ref, _ in resolved if op.startswith("put_")]
         removed_refs = [ref for op, ref, _ in resolved if op == "delete"]
         created_refs = set(ref_map.values())
@@ -287,7 +308,7 @@ class HypesService:
             change_summary[action][object_labels[kind]] += 1
 
         try:
-            with self.store.connect() as connection:
+            with self.store.connect_write() as connection:
                 self.store.begin_write(connection)
 
                 # Persistent puts are replacements, never caller-chosen creations.
@@ -338,13 +359,14 @@ class HypesService:
                             ),
                         )
 
-                # Explicit edge deletion may release an entity that is deleted later in the patch.
+                # Explicit edge deletion remains available for removing one relationship.
                 for op, ref, kind in resolved:
                     if op == "delete" and kind == "edge":
                         connection.execute(
                             "DELETE FROM edges WHERE edge_id = ?", (ref,)
                         )
 
+                # Edge replacements may move a relationship away from an entity being deleted.
                 for op, ref, value in resolved:
                     if op == "put_edge":
                         connection.execute(
@@ -362,9 +384,21 @@ class HypesService:
                             ),
                         )
 
+                cascaded_edges: set[str] = set()
                 for op, ref, kind in resolved:
                     if op != "delete" or kind == "edge":
                         continue
+                    if kind == "node":
+                        rows = connection.execute(
+                            "SELECT edge_id FROM edges WHERE source_id = ? OR target_id = ?",
+                            (ref, ref),
+                        ).fetchall()
+                    else:
+                        rows = connection.execute(
+                            "SELECT edge_id FROM edges WHERE predicate_id = ?",
+                            (ref,),
+                        ).fetchall()
+                    cascaded_edges.update(row["edge_id"] for row in rows)
                     table, column = (
                         ("nodes", "node_id")
                         if kind == "node"
@@ -383,8 +417,12 @@ class HypesService:
         except sqlite3.IntegrityError as exc:
             raise HypesError(
                 "dangling_edge",
-                "delete incident edges in the same patch and keep every edge endpoint valid",
+                "every stored edge endpoint must remain valid",
             ) from exc
+
+        if cascaded_edges:
+            removed_refs.extend(sorted(cascaded_edges))
+            change_summary["deleted"]["edges"] += len(cascaded_edges)
 
         return {
             "ref_map": ref_map,
@@ -519,7 +557,7 @@ class HypesService:
                 "continuation can be used only for an outline read without focus or seed_refs",
             )
 
-        with self.store.connect() as connection:
+        with self.store.connect_read() as connection:
             # Pin every table read to one WAL snapshot so a concurrent rewrite cannot
             # produce a graph slice assembled from different committed versions.
             connection.execute("BEGIN")

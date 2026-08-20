@@ -5,73 +5,30 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_SECTIONS = 24
-MAX_REVISION_CHANGES = 12
+MAX_CHANGES = 12
 MAX_SECTION_TEXT_CHARS = 12_000
 MAX_PROFILE_BYTES = 256 * 1024
 SECTION_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-Origin = Literal["user_set", "learned_from_work"]
+Origin = Literal["user_set", "learned_from_results"]
 Sensitivity = Literal["ordinary", "sensitive"]
-SourceKind = Literal["conversation", "file", "corpus", "result"]
-Lifecycle = Literal["preview", "active"]
-
-
-class SourceRef(BaseModel):
-    """Minimal locator for finding the original basis again."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: SourceKind
-    locator: str = Field(min_length=1, max_length=512)
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    origin: Origin
-
-    @field_validator("locator")
-    @classmethod
-    def reject_embedded_content(cls, value: str) -> str:
-        if "\x00" in value or "\n" in value or "\r" in value:
-            raise ValueError("source locator must be one bounded identifier")
-        return value
-
-    @model_validator(mode="after")
-    def require_typed_locator(self) -> SourceRef:
-        locator = self.locator
-        if self.kind == "file":
-            if re.fullmatch(r"git:[0-9a-f]{40}:[^\x00\r\n]+", locator):
-                relative = locator.split(":", 2)[2]
-                path = PurePosixPath(relative)
-                if not path.is_absolute() and ".." not in path.parts:
-                    return self
-            path = PurePosixPath(locator)
-            if path.is_absolute() and path != PurePosixPath("/") and ".." not in path.parts:
-                return self
-            raise ValueError(
-                "file locator must be an absolute path or a fixed Git revision"
-            )
-        schemes = {
-            "conversation": (
-                "thread://",
-                "chatgpt-conversation://",
-                "codex-session://",
-                "claude-session://",
-            ),
-            "corpus": ("corpus://",),
-            "result": ("result://",),
-        }
-        if not locator.startswith(schemes[self.kind]) or re.search(r"\s", locator):
-            raise ValueError(f"{self.kind} locator must use its bounded locator scheme")
-        return self
 
 
 class ProfileSection(BaseModel):
-    """One replaceable section of Sense guidance."""
+    """One independently replaceable item of durable guidance."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -79,10 +36,7 @@ class ProfileSection(BaseModel):
     purpose: str = Field(min_length=1, max_length=320)
     text: str = Field(min_length=1, max_length=MAX_SECTION_TEXT_CHARS)
     origins: list[Origin] = Field(min_length=1, max_length=2)
-    use_for: list[str] = Field(default_factory=list, max_length=16)
-    review_when: list[str] = Field(default_factory=list, max_length=12)
     sensitivity: Sensitivity = "ordinary"
-    source_refs: list[SourceRef] = Field(default_factory=list, max_length=12)
 
     @field_validator("id")
     @classmethod
@@ -91,40 +45,26 @@ class ProfileSection(BaseModel):
             raise ValueError("section id must use lowercase hyphen-case")
         return value
 
+    @field_validator("purpose", "text")
+    @classmethod
+    def reject_nul(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("Sense text must not contain NUL characters")
+        return value
+
     @field_validator("origins")
     @classmethod
     def unique_origins(cls, value: list[Origin]) -> list[Origin]:
         return list(dict.fromkeys(value))
 
-    @field_validator("use_for", "review_when")
-    @classmethod
-    def validate_short_list(cls, value: list[str]) -> list[str]:
-        normalized: list[str] = []
-        for item in value:
-            item = item.strip()
-            if not item or len(item) > 240 or "\x00" in item:
-                raise ValueError("profile labels must be short non-empty strings")
-            if item not in normalized:
-                normalized.append(item)
-        return normalized
-
-
-class ProfileControls(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    raw_conversation_storage: Literal["never"] = "never"
-    sensitive_persistence: Literal["explicit_confirmation"] = "explicit_confirmation"
-    external_effects: Literal["responsibility_based"] = "responsibility_based"
-    provider_memory_management: Literal["provider_owned"] = "provider_owned"
-
 
 class ProfileDocument(BaseModel):
+    """The single current Sense profile."""
+
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = SCHEMA_VERSION
-    revision: int = Field(ge=1)
+    schema_version: Literal[2] = SCHEMA_VERSION
     sections: list[ProfileSection] = Field(min_length=1, max_length=MAX_SECTIONS)
-    controls: ProfileControls = Field(default_factory=ProfileControls)
 
     @model_validator(mode="after")
     def unique_sections_and_bounded_profile(self) -> ProfileDocument:
@@ -136,15 +76,13 @@ class ProfileDocument(BaseModel):
         return self
 
 
-class SectionRevision(BaseModel):
-    """One final section replacement inside an atomic profile revision."""
+class SectionChange(BaseModel):
+    """One complete section replacement in an atomic Sense update."""
 
     model_config = ConfigDict(extra="forbid")
 
     section_id: str = Field(min_length=1, max_length=64)
     previous_section_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    previous_understanding: str = Field(min_length=1, max_length=2000)
-    changed_future_judgment: str = Field(min_length=1, max_length=2000)
     new_section: ProfileSection
 
     @field_validator("section_id")
@@ -154,16 +92,8 @@ class SectionRevision(BaseModel):
             raise ValueError("section id must use lowercase hyphen-case")
         return value
 
-    @field_validator("previous_understanding", "changed_future_judgment")
-    @classmethod
-    def require_explanation(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("revision explanations must be non-empty")
-        return value
-
     @model_validator(mode="after")
-    def replacement_id_matches_target(self) -> SectionRevision:
+    def replacement_id_matches_target(self) -> SectionChange:
         if self.new_section.id != self.section_id:
             raise ValueError("replacement section id must match section_id")
         return self
@@ -199,7 +129,6 @@ class ToolResponse(
         ]
     ]
 ):
-    # Claude's MCP client requires the common top-level object type to be explicit.
     model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 

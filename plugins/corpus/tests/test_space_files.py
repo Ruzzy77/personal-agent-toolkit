@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from corpus.database import corpus_connection, workspace_connection
 from corpus.errors import SpaceConflictError, SpaceValidationError
+from corpus.scanner import scan_corpus
 from corpus.service import CorpusService
 from corpus.spaces import decode_space_reference
 
@@ -32,7 +33,6 @@ class SpaceFileServiceTest(unittest.TestCase):
                 "scope": {"test": context_id},
                 "corpus_ids": corpus_ids,
             },
-            confirm_persistent_context_write=True,
         )
 
 
@@ -57,8 +57,17 @@ class SpaceFileServiceTest(unittest.TestCase):
             audience="external_mcp",
         )["space"]
         self.assertEqual(unindexed["connections"][0]["source_state"], "needs_refresh")
-        self.service.scan("relation-learning-research")
-        self.service.ingest("relation-learning-research")
+
+        def incomplete_scan(*args, **kwargs):
+            result = dict(scan_corpus(*args, **kwargs))
+            result["observation_complete"] = False
+            result["completeness_failure_count"] = 1
+            return result
+
+        with patch("corpus.service.scan_corpus", side_effect=incomplete_scan):
+            synced = self.service.sync("relation-learning-research")
+        self.assertEqual(synced["state"], "partial")
+        self.assertGreater(synced["summary"]["indexed"], 0)
         self._create_context("research-note", ["relation-learning-research"])
         self.service.workspace_connect(
             workspace_id="research-note",
@@ -220,7 +229,6 @@ class SpaceFileServiceTest(unittest.TestCase):
             content="second version",
             content_encoding="utf8",
             expected_version=live["file"]["version_token"],
-            expected_content_sha256=live["content_sha256"],
             audience="external_mcp",
         )
         self.assertTrue(replaced["undo_available"])
@@ -238,11 +246,46 @@ class SpaceFileServiceTest(unittest.TestCase):
             relative_path="working.md",
             audience="external_mcp",
         )
+        second = self.service.space_file_write(
+            space_id="research-note",
+            relative_path="working.md",
+            content="second version",
+            content_encoding="utf8",
+            expected_version=live["file"]["version_token"],
+            audience="external_mcp",
+        )
+        third = self.service.space_file_write(
+            space_id="research-note",
+            relative_path="working.md",
+            content="third version",
+            content_encoding="utf8",
+            expected_version=second["file"]["version_token"],
+            audience="external_mcp",
+        )
+        with workspace_connection(self.data) as connection:
+            available = connection.execute(
+                """
+                SELECT COUNT(*) FROM workspace_recoveries
+                WHERE workspace_id = ? AND relative_path = ? AND state = 'available'
+                """,
+                ("research-note", "working.md"),
+            ).fetchone()[0]
+        self.assertEqual(available, 1)
+        self.service.space_file_restore(
+            space_id="research-note",
+            recovery_id=third["recovery_id"],
+            expected_version=third["file"]["version_token"],
+            audience="external_mcp",
+        )
+        live = self.service.space_file_read(
+            space_id="research-note",
+            relative_path="working.md",
+            audience="external_mcp",
+        )
         deleted = self.service.space_file_delete(
             space_id="research-note",
             relative_path="working.md",
             expected_version=live["file"]["version_token"],
-            expected_content_sha256=live["content_sha256"],
             confirm_delete=True,
             audience="external_mcp",
         )
@@ -262,15 +305,6 @@ class SpaceFileServiceTest(unittest.TestCase):
         )
         self.assertEqual(partial["next_start_char"], 1_000)
         self.assertNotIn("content_sha256", partial)
-        with self.assertRaises(SpaceValidationError):
-            self.service.space_file_write(
-                space_id="research-note",
-                relative_path="thesis.md",
-                content="unsafe prefix",
-                content_encoding="utf8",
-                expected_version=partial["file"]["version_token"],
-                audience="external_mcp",
-            )
         self.service.space_file_write(
             space_id="research-note",
             relative_path="thesis.md",
@@ -294,7 +328,6 @@ class SpaceFileServiceTest(unittest.TestCase):
         selected = self.service.space_file_select_current(
             space_id="research-note",
             relative_path="working.md",
-            expected_generation=generation,
             audience="external_mcp",
         )
         self.assertEqual(selected["current_file"]["relative_path"], "working.md")
@@ -308,6 +341,37 @@ class SpaceFileServiceTest(unittest.TestCase):
 
         self.service.scan("relation-learning-research")
         self.service.ingest("relation-learning-research")
+        with corpus_connection(self.data, "relation-learning-research") as connection:
+            self.assertEqual(
+                {
+                    row["name"]
+                    for row in connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE type = 'table' AND name IN ('events', 'snapshots')
+                        """
+                    )
+                },
+                set(),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM extraction_projections WHERE is_active = 0"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM revisions
+                    WHERE revision_id NOT IN (
+                        SELECT current_revision_id FROM documents
+                        WHERE current_revision_id IS NOT NULL
+                    )
+                    """
+                ).fetchone()[0],
+                0,
+            )
         current_context = self.service.space_get(
             space_id="research-note",
             audience="external_mcp",
@@ -361,6 +425,13 @@ class SpaceFileServiceTest(unittest.TestCase):
             audience="local_cli",
         )
         self.assertEqual(local_search["count"], 1)
+
+        registered_after_connect = self.service.register(
+            corpus_id="hci-work-source",
+            source_root=work,
+            execution_policy="external_host_allowed",
+        )
+        self.assertEqual(registered_after_connect["corpus_id"], "hci-work-source")
 
     def test_source_only_connection_uses_search_refs_and_indexed_file_find(self) -> None:
         root = self.base / "shared-source"

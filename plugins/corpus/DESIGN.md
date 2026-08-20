@@ -27,7 +27,7 @@ CorpusService
 ### Private storage
 
 - `catalog.sqlite`: Source 등록
-- `corpora/<id>/corpus.sqlite`: 파일 목록, revision, extraction projection, Source unit과 snapshot
+- `corpora/<id>/corpus.sqlite`: 현재 파일 목록, revision, extraction projection과 Source unit
 - `contexts.sqlite3`: Context, item과 출처 연결
 - `workspaces.sqlite3`: Work Connection, Current File과 recovery 기록
 - `workspace-runtime/<id>`: 교체용 staging과 recovery copy
@@ -58,7 +58,7 @@ Connection의 공개 속성은 다음과 같습니다.
 읽어 확인합니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
 제외합니다. 상세 색인 진단은 Chat에 펼치지 않고 Connection의 `source_state`로 계산합니다.
 
-Corpus는 모델이 만든 claim을 별도 semantic cache로 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
+Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준으로 삼습니다. 불완전한 scan에서도 확인한 파일은 갱신하고 `partial`로 표시합니다. 처리할 수 없는 파일은 coverage gap으로 남기지만, 다른 파일의 갱신을 막지 않습니다. snapshot, event history와 모델이 만든 claim의 semantic cache는 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
 
 ## Context
 
@@ -72,25 +72,24 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ### 읽기
 
-- 실제 파일을 열어 version token과 content SHA-256 계산
+- 실제 파일을 열어 내용 digest가 포함된 version token 계산
 - UTF-8은 문자 위치로 페이지 읽기 지원
-- 파일 전체를 읽은 경우에만 전체 교체용 `content_sha256` 반환
 - 바이너리는 base64로 제한된 크기만 반환
 
 ### 쓰기
 
 새 파일은 `expected_version=absent`를 요구합니다. 기존 파일은 두 방식 중 하나로 교체합니다.
 
-- 전체 교체: 최신 version token과 완전한 읽기의 content SHA-256 사용
+- 전체 교체: 편집 직전의 version token 사용
 - 구간 교체: 현재 파일에서 한 번씩만 나타나는 두 marker 사이를 교체
 
-교체 직전 실제 파일 identity와 digest를 다시 확인합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, 기존 파일은 private recovery로 보존합니다. 파일 권한과 macOS metadata를 안전하게 복제할 수 없으면 중단합니다. inode마다 달라지는 macOS provenance 값은 새 inode와 같을 수 없으므로 안정 메타데이터의 일치 검증에는 포함하지 않습니다.
+교체 직전 실제 파일 identity와 digest를 다시 확인합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, Work 경로마다 직전 파일 하나를 private recovery로 보존합니다. 소유자, 권한과 ACL을 안전하게 복제할 수 없으면 중단합니다.
 
-삭제도 완전한 읽기의 version token과 content SHA-256을 다시 확인하며, 사용자가 명시적으로 확인한 경우에만 수행합니다. 복원은 교체 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
+삭제도 최신 version token을 다시 확인하며, 사용자가 명시적으로 확인한 경우에만 수행합니다. 복원은 교체 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source revision과 inventory 변화는 저장된 Context를 막지 않습니다. 출처 연결은 Context를 만들 당시의 근거로 남고, 현재 근거가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 근거가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
 stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 

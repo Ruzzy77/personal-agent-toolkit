@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from corpus.errors import ContextConflictError, ContextValidationError
+from corpus.errors import ContextValidationError
 from corpus.service import CorpusService
 
 
@@ -175,14 +175,12 @@ class SessionLinkedSourceTest(unittest.TestCase):
                 "provider_kind": provider,
                 "selector": selector,
             },
-            confirm_persistent_context_write=True,
         )
         refreshed = self.service.corpus_source_update(
             action="refresh",
             corpus_id="project",
             binding_id=binding_id,
-            payload={"run_id": f"{provider}-run-1"},
-            confirm_persistent_context_write=True,
+            payload={},
         )
         self.assertEqual(refreshed["status"], "complete")
         self.assertEqual(refreshed["discovered_record_count"], 1)
@@ -209,7 +207,6 @@ class SessionLinkedSourceTest(unittest.TestCase):
                     "include_archived": False,
                 },
             },
-            confirm_persistent_context_write=True,
         )
 
         def record() -> dict:
@@ -265,8 +262,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
                         "records": [unsafe],
                         "complete": True,
                     },
-                    confirm_persistent_context_write=True,
-                )
+                        )
 
         with self.assertRaises(ContextValidationError):
             self.service.corpus_source_update(
@@ -278,8 +274,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
                     "records": [],
                     "complete": False,
                 },
-                confirm_persistent_context_write=True,
-            )
+                )
 
         database_bytes = (self.data / "contexts.sqlite3").read_bytes()
         self.assertNotIn(b"private-user", database_bytes)
@@ -340,7 +335,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
             changed["expected_freshness_identity"],
         )
 
-    def test_stale_refresh_run_is_rejected_before_provider_discovery(self) -> None:
+    def test_refresh_run_id_is_generated_internally(self) -> None:
         self.service.corpus_source_update(
             action="bind",
             corpus_id="project",
@@ -354,48 +349,21 @@ class SessionLinkedSourceTest(unittest.TestCase):
                     "include_archived": False,
                 },
             },
-            confirm_persistent_context_write=True,
         )
-        self.service.corpus_source_update(
-            action="observe",
+        first = self.service.corpus_source_update(
+            action="refresh",
             corpus_id="project",
             binding_id="project-codex",
-            payload={
-                "run_id": "older-run",
-                "records": [],
-                "complete": False,
-            },
-            confirm_persistent_context_write=True,
+            payload={},
         )
-        self.service.corpus_source_update(
-            action="observe",
+        second = self.service.corpus_source_update(
+            action="refresh",
             corpus_id="project",
             binding_id="project-codex",
-            payload={
-                "run_id": "newer-run",
-                "records": [],
-                "complete": True,
-            },
-            confirm_persistent_context_write=True,
+            payload={},
         )
-
-        with (
-            mock.patch("corpus.contexts.discover_session_records") as discover,
-            self.assertRaises(ContextConflictError) as caught,
-        ):
-            self.service.corpus_source_update(
-                action="refresh",
-                corpus_id="project",
-                binding_id="project-codex",
-                payload={"run_id": "older-run"},
-                confirm_persistent_context_write=True,
-            )
-
-        discover.assert_not_called()
-        self.assertEqual(
-            caught.exception.details["reason"],
-            "stale_observation_run",
-        )
+        self.assertTrue(first["run_id"].startswith("run_"))
+        self.assertNotEqual(first["run_id"], second["run_id"])
 
     def test_restricted_context_tracks_changed_and_missing_provider_record(
         self,
@@ -411,7 +379,6 @@ class SessionLinkedSourceTest(unittest.TestCase):
                 "scope": {"type": "semantic_collection"},
                 "corpus_ids": ["project"],
             },
-            confirm_persistent_context_write=True,
         )
         self.service.context_update(
             action="append",
@@ -436,7 +403,6 @@ class SessionLinkedSourceTest(unittest.TestCase):
                     }
                 ]
             },
-            confirm_persistent_context_write=True,
         )
 
         current = self.service.context_read(context_id="project-experience")
@@ -463,8 +429,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
             action="refresh",
             corpus_id="project",
             binding_id="project-codex",
-            payload={"run_id": "codex-run-2"},
-            confirm_persistent_context_write=True,
+            payload={},
         )
         refreshed = self.service.context_read(context_id="project-experience")
         self.assertEqual(
@@ -485,8 +450,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
             action="refresh",
             corpus_id="project",
             binding_id="project-codex",
-            payload={"run_id": "codex-run-3"},
-            confirm_persistent_context_write=True,
+            payload={},
         )
         removed = self.service.context_read(context_id="project-experience")
         self.assertEqual(

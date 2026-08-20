@@ -26,7 +26,7 @@ Binding에는 provider와 관찰할 workspace 범위를 지정합니다.
 
 ```sh
 ./bin/corpus source bind --corpus completed-work --id codex --payload-file binding.json
-./bin/corpus source refresh --corpus completed-work --id codex --run-id 20260817T080000Z
+./bin/corpus source refresh --corpus completed-work --id codex
 ./bin/corpus source list --corpus completed-work --binding codex
 ./bin/corpus source fetch --corpus completed-work --id codex --external-id turn_...
 ```

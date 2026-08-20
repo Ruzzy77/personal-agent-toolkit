@@ -25,12 +25,8 @@ class ProfileExistsError(SenseError):
     code = "profile_exists"
 
 
-class PreviewReadOnlyError(SenseError):
-    code = "preview_read_only"
-
-
-class RevisionConflictError(SenseError):
-    code = "revision_conflict"
+class SectionConflictError(SenseError):
+    code = "section_conflict"
 
 
 class SectionNotFoundError(SenseError):
@@ -39,14 +35,6 @@ class SectionNotFoundError(SenseError):
 
 class ConfirmationRequiredError(SenseError):
     code = "confirmation_required"
-
-
-class ConfirmationMismatchError(SenseError):
-    code = "confirmation_mismatch"
-
-
-class IdempotencyConflictError(SenseError):
-    code = "idempotency_conflict"
 
 
 class UnsafeStorageError(SenseError):

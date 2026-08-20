@@ -20,7 +20,6 @@ from .database import (
     encode_json,
     get_corpus,
     list_corpora,
-    migrate_context_database,
     utc_now,
 )
 from .errors import (
@@ -47,9 +46,6 @@ CONTEXT_STATES = {"active", "archived"}
 CONTEXT_ITEM_KINDS = {"finding", "relationship", "difference", "question", "gap"}
 CONTEXT_SOURCE_ROLES = {"direct", "context", "contrast"}
 CONTEXT_AUDIENCES = {"local_cli", "external_mcp"}
-CONTEXT_VIEWS = {"restricted", "general"}
-CONTEXT_DISCLOSURE_STATES = {"restricted", "general_candidate"}
-GENERAL_CANDIDATE_KINDS = {"finding", "relationship", "difference"}
 
 CONTEXT_DEFAULT_LIMIT = 100
 CONTEXT_MAX_LIMIT = 100
@@ -67,7 +63,6 @@ CONTEXT_MAX_BODY_CHARS = 12_000
 CONTEXT_MAX_IDENTIFIER_CHARS = 200
 CONTEXT_MAX_ATTRIBUTES_BYTES = 16 * 1024
 CONTEXT_MAX_SCOPE_BYTES = 32 * 1024
-CONTEXT_MAX_CHANGE_CANDIDATES = 200
 CONTEXT_MAX_EXTERNAL_METADATA_BYTES = 32 * 1024
 CONTEXT_MAX_PARTICIPANTS = 50
 CONTEXT_MAX_LABEL_IDS = 100
@@ -79,20 +74,12 @@ _ITEM_KEYS = {
     "kind",
     "body_text",
     "attributes",
-    "disclosure_state",
     "sources",
     "external_sources",
     "supersedes_item_id",
 }
-_GENERAL_RELEASE_KEYS = {
-    "item_ids",
-    "public_title",
-    "public_purpose",
-    "review",
-}
 _SOURCE_KEYS = {
     "corpus_id",
-    "snapshot_id",
     "document_id",
     "revision_id",
     "projection_id",
@@ -330,14 +317,6 @@ def _validate_audience(audience: str) -> None:
         )
 
 
-def _validate_view(view: str) -> None:
-    if view not in CONTEXT_VIEWS:
-        raise ContextValidationError(
-            "unsupported context view",
-            details={"view": view, "allowed": sorted(CONTEXT_VIEWS)},
-        )
-
-
 def _json_dict(value: str) -> dict[str, Any]:
     parsed = json.loads(value)
     return parsed if isinstance(parsed, dict) else {}
@@ -357,9 +336,65 @@ class ContextService:
     def database_path(self) -> Path:
         return self.data_root / "contexts.sqlite3"
 
-    def migrate(self) -> dict[str, Any]:
-        with context_writer_lock(self.data_root):
-            return migrate_context_database(self.data_root)
+    @staticmethod
+    def _prune_history(connection) -> None:
+        """Remove superseded derived state while retaining current dependencies."""
+
+        legacy_tables = {
+            row["name"]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('context_release_items', 'context_release_manifests')
+                """
+            )
+        }
+        for table in ("context_release_items", "context_release_manifests"):
+            if table in legacy_tables:
+                connection.execute(f"DELETE FROM {table}")
+        connection.execute(
+            """
+            UPDATE context_corpora
+            SET last_checked_scan_id = NULL,
+                last_checked_snapshot_id = NULL,
+                last_checked_inventory_hash = NULL,
+                last_checked_at = NULL
+            """
+        )
+        connection.execute(
+            """
+            UPDATE context_items
+            SET disclosure_state = 'restricted', supersedes_item_id = NULL
+            WHERE lifecycle_state = 'active'
+            """
+        )
+        connection.execute(
+            "DELETE FROM context_items WHERE lifecycle_state = 'superseded'"
+        )
+        connection.execute(
+            """
+            DELETE FROM external_source_records
+            WHERE membership_state = 'removed'
+              AND source_record_id NOT IN (
+                  SELECT source_record_id FROM context_external_sources
+              )
+            """
+        )
+        connection.execute(
+            "UPDATE external_source_runs SET base_complete_run_id = NULL"
+        )
+        connection.execute(
+            """
+            DELETE FROM external_source_runs
+            WHERE run_id NOT IN (
+                SELECT last_complete_run_id FROM corpus_source_bindings
+                WHERE last_complete_run_id IS NOT NULL
+                UNION
+                SELECT last_seen_run_id FROM external_source_records
+            )
+            """
+        )
 
     def _normalize_binding_selector(
         self,
@@ -689,14 +724,9 @@ class ContextService:
         corpus_id: str,
         binding_id: str,
         payload: dict[str, Any],
-        confirm_persistent_context_write: bool,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
         _validate_audience(audience)
-        if not confirm_persistent_context_write:
-            raise ContextValidationError(
-                "linked source update requires explicit confirmation"
-            )
         corpus_id = normalize_corpus_id(corpus_id)
         get_corpus(self.data_root, corpus_id)
         if audience == "external_mcp":
@@ -763,6 +793,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            self._prune_history(connection)
             existing = connection.execute(
                 "SELECT * FROM corpus_source_bindings WHERE binding_id = ?",
                 (binding_id,),
@@ -855,6 +886,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            self._prune_history(connection)
             binding = connection.execute(
                 "SELECT * FROM corpus_source_bindings WHERE binding_id = ?",
                 (binding_id,),
@@ -1076,15 +1108,12 @@ class ContextService:
         binding_id: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        if set(payload) != {"run_id"}:
+        if payload:
             raise ContextValidationError(
                 "linked source refresh payload fields are invalid",
-                details={"required": ["run_id"]},
+                details={"required": []},
             )
-        run_id = _require_session_identifier(
-            payload["run_id"],
-            field="run_id",
-        )
+        run_id = f"run_{uuid.uuid4().hex}"
         with context_read_connection(self.data_root) as connection:
             binding = connection.execute(
                 "SELECT * FROM corpus_source_bindings WHERE binding_id = ?",
@@ -1570,32 +1599,18 @@ class ContextService:
         *,
         context_id: str | None = None,
         state: str = "active",
-        include_history: bool = False,
         limit: int = CONTEXT_DEFAULT_LIMIT,
         offset: int = 0,
         audience: str = "local_cli",
-        view: str = "restricted",
     ) -> dict[str, Any]:
         _validate_audience(audience)
-        _validate_view(view)
-        if view == "general":
-            return self._read_general(
-                context_id=context_id,
-                state=state,
-                include_history=include_history,
-                limit=limit,
-                offset=offset,
-                audience=audience,
-            )
         if context_id is None:
-            response = self.list(
+            return self.list(
                 state=state,
                 limit=limit,
                 offset=offset,
                 audience=audience,
             )
-            response["view"] = "restricted"
-            return response
         if state not in CONTEXT_STATES:
             raise ContextValidationError(
                 "unsupported context state",
@@ -1623,20 +1638,19 @@ class ContextService:
             if context_row["state"] != state:
                 raise ContextNotFoundError("context does not exist")
 
-            lifecycle_clause = "" if include_history else "AND lifecycle_state = 'active'"
             total_matching = connection.execute(
-                f"""
+                """
                 SELECT COUNT(*)
                 FROM context_items
-                WHERE context_id = ? {lifecycle_clause}
+                WHERE context_id = ? AND lifecycle_state = 'active'
                 """,
                 (normalized_id,),
             ).fetchone()[0]
             item_rows = connection.execute(
-                f"""
+                """
                 SELECT *
                 FROM context_items
-                WHERE context_id = ? {lifecycle_clause}
+                WHERE context_id = ? AND lifecycle_state = 'active'
                 ORDER BY created_at, item_id
                 LIMIT ? OFFSET ?
                 """,
@@ -1669,6 +1683,7 @@ class ContextService:
         sources_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for source_row in source_rows:
             source = dict(source_row)
+            source.pop("snapshot_id", None)
             source["source_span"] = _json_dict(source.pop("source_span_json"))
             observation = self._observe_source(source)
             observation.pop("source_span", None)
@@ -1688,6 +1703,9 @@ class ContextService:
         for item_row in item_rows:
             item = dict(item_row)
             item.pop("input_sha256", None)
+            item.pop("disclosure_state", None)
+            item.pop("lifecycle_state", None)
+            item.pop("supersedes_item_id", None)
             item["attributes"] = _json_dict(item.pop("attributes_json"))
             item["sources"] = sources_by_item.get(item["item_id"], [])
             item["external_sources"] = external_sources_by_item.get(
@@ -1696,30 +1714,9 @@ class ContextService:
             )
             items.append(item)
 
-        observations = []
-        for corpus_row in corpus_rows:
-            checkpoint = dict(corpus_row)
-            observation = self._current_corpus_observation(corpus_row["corpus_id"])
-            change = self._inventory_change(checkpoint, observation)
-            observations.append(
-                {
-                    "corpus_id": corpus_row["corpus_id"],
-                    "checkpoint": {
-                        "scan_id": corpus_row["last_checked_scan_id"],
-                        "snapshot_id": corpus_row["last_checked_snapshot_id"],
-                        "inventory_hash": corpus_row["last_checked_inventory_hash"],
-                        "checked_at": corpus_row["last_checked_at"],
-                    },
-                    "current": observation,
-                    "inventory_change": change,
-                }
-            )
-
         next_offset = offset + len(items)
         response = {
-            "view": "restricted",
             "context": self._context_summary(context_row, corpus_ids=corpus_ids),
-            "include_history": include_history,
             "offset": offset,
             "limit": limit,
             "returned_count": len(items),
@@ -1727,7 +1724,6 @@ class ContextService:
             "has_more": next_offset < total_matching,
             "next_offset": next_offset if next_offset < total_matching else None,
             "items": items,
-            "corpus_observations": observations,
         }
         self._require_read_budget(response)
         return response
@@ -1747,188 +1743,6 @@ class ContextService:
             raise ContextNotFoundError("context does not exist")
         return str(row["state"])
 
-    def _read_general(
-        self,
-        *,
-        context_id: str | None,
-        state: str,
-        include_history: bool,
-        limit: int,
-        offset: int,
-        audience: str,
-    ) -> dict[str, Any]:
-        if state != "active":
-            raise ContextValidationError("general context view supports only active releases")
-        if include_history:
-            raise ContextValidationError("general context view does not expose release history")
-        _validate_limit_offset(limit, offset)
-        if not self.database_path.exists():
-            if context_id is not None:
-                raise ContextNotFoundError("general collection does not exist")
-            return {
-                "view": "general",
-                "offset": offset,
-                "limit": limit,
-                "returned_count": 0,
-                "total_matching": 0,
-                "has_more": False,
-                "next_offset": None,
-                "collections": [],
-            }
-
-        with context_read_connection(self.data_root) as connection:
-            if context_id is None:
-                rows = connection.execute(
-                    """
-                    SELECT m.public_collection_id, m.public_title,
-                           m.public_purpose
-                    FROM context_release_manifests m
-                    JOIN contexts c ON c.context_id = m.context_id
-                    WHERE m.state = 'active' AND c.state = 'active'
-                    ORDER BY m.public_title, m.public_collection_id
-                    """
-                ).fetchall()
-                total_matching = len(rows)
-                page = rows[offset : offset + limit]
-                collections = [
-                    {
-                        "public_collection_id": row["public_collection_id"],
-                        "public_title": row["public_title"],
-                        "public_purpose": row["public_purpose"],
-                    }
-                    for row in page
-                ]
-                next_offset = offset + len(collections)
-                response = {
-                    "view": "general",
-                    "offset": offset,
-                    "limit": limit,
-                    "returned_count": len(collections),
-                    "total_matching": total_matching,
-                    "has_more": next_offset < total_matching,
-                    "next_offset": next_offset if next_offset < total_matching else None,
-                    "collections": collections,
-                }
-                self._require_read_budget(response)
-                return response
-
-            lookup_id = _require_string(
-                context_id,
-                field="context_id",
-                maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
-            )
-            if audience == "external_mcp":
-                manifest = connection.execute(
-                    """
-                    SELECT m.*
-                    FROM context_release_manifests m
-                    JOIN contexts c ON c.context_id = m.context_id
-                    WHERE m.state = 'active' AND c.state = 'active'
-                      AND m.public_collection_id = ?
-                    """,
-                    (lookup_id,),
-                ).fetchone()
-            else:
-                manifest = connection.execute(
-                    """
-                    SELECT m.*
-                    FROM context_release_manifests m
-                    JOIN contexts c ON c.context_id = m.context_id
-                    WHERE m.state = 'active' AND c.state = 'active'
-                      AND m.public_collection_id = ?
-                    """,
-                    (lookup_id,),
-                ).fetchone()
-                if manifest is None:
-                    manifest = connection.execute(
-                        """
-                        SELECT m.*
-                        FROM context_release_manifests m
-                        JOIN contexts c ON c.context_id = m.context_id
-                        WHERE m.state = 'active' AND c.state = 'active'
-                          AND m.context_id = ?
-                        """,
-                        (lookup_id,),
-                    ).fetchone()
-            if manifest is None:
-                raise ContextNotFoundError("general collection does not exist")
-            item_rows = connection.execute(
-                """
-                SELECT ri.public_id, ri.position, i.item_id, i.kind, i.body_text,
-                       i.disclosure_state, i.lifecycle_state
-                FROM context_release_items ri
-                JOIN context_items i ON i.item_id = ri.item_id
-                WHERE ri.release_id = ?
-                ORDER BY ri.position
-                """,
-                (manifest["release_id"],),
-            ).fetchall()
-            item_ids = [row["item_id"] for row in item_rows]
-            source_rows = []
-            if item_ids:
-                placeholders = ",".join("?" for _ in item_ids)
-                source_rows = connection.execute(
-                    f"""
-                    SELECT *
-                    FROM context_sources
-                    WHERE item_id IN ({placeholders})
-                    ORDER BY item_id, source_ref_id
-                    """,
-                    item_ids,
-                ).fetchall()
-
-        sources_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for row in source_rows:
-            sources_by_item[row["item_id"]].append(dict(row))
-
-        available_items = []
-        for row in item_rows:
-            if row["lifecycle_state"] != "active":
-                continue
-            sources = sources_by_item.get(row["item_id"], [])
-            eligible = (
-                row["disclosure_state"] == "general_candidate"
-                and row["kind"] in GENERAL_CANDIDATE_KINDS
-                and bool(sources)
-                and all(source["link_role"] == "direct" for source in sources)
-            )
-            if eligible:
-                for source in sources:
-                    observation = self._observe_source(source)
-                    if observation["dependency_state"] != "valid":
-                        eligible = False
-                        break
-            if not eligible:
-                continue
-            available_items.append(
-                {
-                    "public_id": row["public_id"],
-                    "kind": row["kind"],
-                    "body_text": row["body_text"],
-                }
-            )
-
-        total_matching = len(available_items)
-        items = available_items[offset : offset + limit]
-        next_offset = offset + len(items)
-        response = {
-            "view": "general",
-            "collection": {
-                "public_collection_id": manifest["public_collection_id"],
-                "public_title": manifest["public_title"],
-                "public_purpose": manifest["public_purpose"],
-            },
-            "offset": offset,
-            "limit": limit,
-            "returned_count": len(items),
-            "total_matching": total_matching,
-            "has_more": next_offset < total_matching,
-            "next_offset": next_offset if next_offset < total_matching else None,
-            "items": items,
-        }
-        self._require_read_budget(response)
-        return response
-
     def update(
         self,
         *,
@@ -1936,8 +1750,6 @@ class ContextService:
         context_id: str,
         expected_version: int,
         payload: dict[str, Any],
-        confirm_persistent_context_write: bool,
-        confirm_general_release_approval: bool = False,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
         _validate_audience(audience)
@@ -1945,8 +1757,6 @@ class ContextService:
             "create",
             "append",
             "supersede",
-            "advance_checkpoint",
-            "approve_general",
             "archive",
         }:
             raise ContextValidationError(
@@ -1976,15 +1786,6 @@ class ContextService:
                     self._require_external_visibility(corpus_ids)
         if type(expected_version) is not int or not 0 <= expected_version <= (1 << 63) - 1:
             raise ContextValidationError("context expected_version is outside the supported range")
-        if confirm_persistent_context_write is not True:
-            raise ContextValidationError("persistent context update requires explicit confirmation")
-        if (
-            action == "approve_general"
-            and confirm_general_release_approval is not True
-        ):
-            raise ContextValidationError(
-                "general release approval requires explicit user confirmation"
-            )
         if not isinstance(payload, dict):
             raise ContextValidationError("context update payload must be an object")
         try:
@@ -2012,18 +1813,6 @@ class ContextService:
             return self._write_items(
                 normalized_id,
                 action=action,
-                expected_version=expected_version,
-                payload=payload,
-            )
-        if action == "advance_checkpoint":
-            return self._advance_checkpoint(
-                normalized_id,
-                expected_version=expected_version,
-                payload=payload,
-            )
-        if action == "approve_general":
-            return self._approve_general(
-                normalized_id,
                 expected_version=expected_version,
                 payload=payload,
             )
@@ -2095,6 +1884,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            self._prune_history(connection)
             existing = connection.execute(
                 "SELECT * FROM contexts WHERE context_id = ?",
                 (context_id,),
@@ -2256,19 +2046,6 @@ class ContextService:
             field="attributes",
             maximum_bytes=CONTEXT_MAX_ATTRIBUTES_BYTES,
         )
-        disclosure_state = _require_string(
-            value.get("disclosure_state", "restricted"),
-            field="disclosure_state",
-            maximum=32,
-        )
-        if disclosure_state not in CONTEXT_DISCLOSURE_STATES:
-            raise ContextValidationError(
-                "unsupported context item disclosure state",
-                details={
-                    "disclosure_state": disclosure_state,
-                    "allowed": sorted(CONTEXT_DISCLOSURE_STATES),
-                },
-            )
         raw_sources = value.get("sources", [])
         if not isinstance(raw_sources, list):
             raise ContextValidationError("context item sources must be a list")
@@ -2314,20 +2091,6 @@ class ContextService:
                 "source-linked context item requires a direct source",
                 details={"kind": kind},
             )
-        if disclosure_state == "general_candidate" and (
-            kind not in GENERAL_CANDIDATE_KINDS
-            or not sources
-            or external_sources
-            or any(source["link_role"] != "direct" for source in sources)
-        ):
-            raise ContextValidationError(
-                "general candidate must be a source-linked finding, relationship, or difference "
-                "with only direct sources",
-                details={
-                    "kind": kind,
-                    "allowed_kinds": sorted(GENERAL_CANDIDATE_KINDS),
-                },
-            )
         supersedes_item_id = value.get("supersedes_item_id")
         if action == "supersede":
             supersedes_item_id = _require_string(
@@ -2343,23 +2106,16 @@ class ContextService:
             "kind": kind,
             "body_text": body_text,
             "attributes": attributes,
-            "disclosure_state": disclosure_state,
             "sources": sources,
             "external_sources": external_sources,
             "supersedes_item_id": supersedes_item_id,
         }
-        previous_canonical = dict(canonical)
-        previous_canonical.pop("external_sources")
-        legacy_canonical = dict(previous_canonical)
-        legacy_canonical.pop("disclosure_state")
+        previous_canonical = {**canonical, "disclosure_state": "restricted"}
         item = {
             **canonical,
             "input_sha256": hashlib.sha256(encode_json(canonical).encode()).hexdigest(),
             "previous_input_sha256": hashlib.sha256(
                 encode_json(previous_canonical).encode()
-            ).hexdigest(),
-            "legacy_input_sha256": hashlib.sha256(
-                encode_json(legacy_canonical).encode()
             ).hexdigest(),
         }
         return item, sources, external_sources
@@ -2386,6 +2142,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            self._prune_history(connection)
             context_row = self._load_context(connection, context_id)
             corpus_ids = self._context_corpus_ids(connection, context_id)
             normalized = [
@@ -2425,19 +2182,7 @@ class ContextService:
             accepted_hashes = {
                 item["client_ref"]: {
                     item["input_sha256"],
-                    *(
-                        [item["previous_input_sha256"]]
-                        if not item["external_sources"]
-                        else []
-                    ),
-                    *(
-                        [item["legacy_input_sha256"]]
-                        if (
-                            item["disclosure_state"] == "restricted"
-                            and not item["external_sources"]
-                        )
-                        else []
-                    ),
+                    item["previous_input_sha256"],
                 }
                 for item in items
             }
@@ -2547,22 +2292,6 @@ class ContextService:
 
             now = utc_now()
             inserted = []
-            if action == "supersede":
-                # A selected item cannot change under an existing general-view approval.
-                target_placeholders = ",".join("?" for _ in target_ids)
-                connection.execute(
-                    f"""
-                        UPDATE context_release_manifests
-                        SET state = 'superseded'
-                        WHERE context_id = ? AND state = 'active'
-                          AND release_id IN (
-                              SELECT release_id
-                              FROM context_release_items
-                              WHERE item_id IN ({target_placeholders})
-                          )
-                        """,
-                    (context_id, *target_ids),
-                )
             for (item, sources, external_sources), observations in zip(
                 normalized,
                 observed_sources,
@@ -2583,7 +2312,7 @@ class ContextService:
                         """
                         UPDATE context_items
                         SET client_ref = ?, input_sha256 = ?, kind = ?, body_text = ?,
-                            attributes_json = ?, disclosure_state = ?,
+                            attributes_json = ?, disclosure_state = 'restricted',
                             lifecycle_state = 'active', supersedes_item_id = NULL
                         WHERE context_id = ? AND item_id = ?
                         """,
@@ -2593,7 +2322,6 @@ class ContextService:
                             item["kind"],
                             item["body_text"],
                             encode_json(item["attributes"]),
-                            item["disclosure_state"],
                             context_id,
                             item_id,
                         ),
@@ -2607,7 +2335,7 @@ class ContextService:
                             body_text, attributes_json, disclosure_state,
                             lifecycle_state,
                             supersedes_item_id, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'restricted', 'active', ?, ?)
                         """,
                         (
                             item_id,
@@ -2617,7 +2345,6 @@ class ContextService:
                             item["kind"],
                             item["body_text"],
                             encode_json(item["attributes"]),
-                            item["disclosure_state"],
                             item["supersedes_item_id"],
                             now,
                         ),
@@ -2639,7 +2366,7 @@ class ContextService:
                             f"ctxs_{uuid.uuid4().hex}",
                             item_id,
                             source["corpus_id"],
-                            source["snapshot_id"],
+                            "",
                             source["document_id"],
                             source["revision_id"],
                             source["projection_id"],
@@ -2676,7 +2403,6 @@ class ContextService:
                         "item_id": item_id,
                         "client_ref": item["client_ref"],
                         "kind": item["kind"],
-                        "disclosure_state": item["disclosure_state"],
                     }
                 )
             new_version = context_row["version"] + 1
@@ -2695,467 +2421,6 @@ class ContextService:
             "items": inserted,
         }
 
-    def _approve_general(
-        self,
-        context_id: str,
-        *,
-        expected_version: int,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        if set(payload) != _GENERAL_RELEASE_KEYS:
-            raise ContextValidationError(
-                "general release payload fields are invalid",
-                details={"required": sorted(_GENERAL_RELEASE_KEYS)},
-            )
-        raw_item_ids = payload["item_ids"]
-        if (
-            not isinstance(raw_item_ids, list)
-            or not 1 <= len(raw_item_ids) <= CONTEXT_MAX_LIMIT
-        ):
-            raise BudgetExceededError(
-                "general release item count is outside the supported range",
-                details={"maximum_items": CONTEXT_MAX_LIMIT},
-            )
-        item_ids = [
-            _require_string(
-                item_id,
-                field="item_ids",
-                maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
-            )
-            for item_id in raw_item_ids
-        ]
-        if len(set(item_ids)) != len(item_ids):
-            raise ContextValidationError("general release item_ids must be unique")
-        public_title = _require_string(
-            payload["public_title"],
-            field="public_title",
-            maximum=CONTEXT_MAX_TITLE_CHARS,
-        )
-        public_purpose = _require_string(
-            payload["public_purpose"],
-            field="public_purpose",
-            maximum=CONTEXT_MAX_PURPOSE_CHARS,
-        )
-        review = _require_json_object(
-            payload["review"],
-            field="review",
-            maximum_bytes=CONTEXT_MAX_ATTRIBUTES_BYTES,
-        )
-        if not review:
-            raise ContextValidationError("general release review must not be empty")
-        canonical = {
-            "item_ids": item_ids,
-            "public_title": public_title,
-            "public_purpose": public_purpose,
-            "review": review,
-        }
-        input_sha256 = hashlib.sha256(encode_json(canonical).encode()).hexdigest()
-
-        with (
-            context_writer_lock(self.data_root),
-            context_connection(self.data_root) as connection,
-        ):
-            context_row = self._load_context(connection, context_id)
-            active_manifest = connection.execute(
-                """
-                SELECT *
-                FROM context_release_manifests
-                WHERE context_id = ? AND state = 'active'
-                """,
-                (context_id,),
-            ).fetchone()
-            if context_row["state"] != "active":
-                raise ContextConflictError(
-                    "archived context cannot approve a general release",
-                    details={"reason": "context_archived"},
-                )
-            exact_replay = bool(
-                active_manifest is not None
-                and active_manifest["input_sha256"] == input_sha256
-            )
-            if not exact_replay and context_row["version"] != expected_version:
-                raise ContextConflictError(
-                    "context version is not current",
-                    details={
-                        "reason": "version_mismatch",
-                        "expected_version": expected_version,
-                        "current_version": context_row["version"],
-                    },
-                )
-
-            placeholders = ",".join("?" for _ in item_ids)
-            item_rows = connection.execute(
-                f"""
-                SELECT *
-                FROM context_items
-                WHERE context_id = ? AND item_id IN ({placeholders})
-                """,
-                (context_id, *item_ids),
-            ).fetchall()
-            items_by_id = {row["item_id"]: row for row in item_rows}
-            if len(items_by_id) != len(item_ids):
-                raise ContextValidationError(
-                    "general release contains an item outside the context"
-                )
-            for item_id in item_ids:
-                row = items_by_id[item_id]
-                if row["lifecycle_state"] != "active":
-                    raise ContextConflictError(
-                        "general release item is no longer active",
-                        details={
-                            "reason": "general_item_not_active",
-                            "item_id": item_id,
-                        },
-                    )
-                if (
-                    row["disclosure_state"] != "general_candidate"
-                    or row["kind"] not in GENERAL_CANDIDATE_KINDS
-                ):
-                    raise ContextValidationError(
-                        "general release item is not an eligible candidate",
-                        details={"item_id": item_id},
-                    )
-
-            external_source_count = connection.execute(
-                f"""
-                SELECT COUNT(*)
-                FROM context_external_sources
-                WHERE item_id IN ({placeholders})
-                """,
-                item_ids,
-            ).fetchone()[0]
-            if external_source_count:
-                raise ContextValidationError(
-                    "general release items cannot retain linked external sources"
-                )
-            source_rows = connection.execute(
-                f"""
-                SELECT *
-                FROM context_sources
-                WHERE item_id IN ({placeholders})
-                ORDER BY item_id, source_ref_id
-                """,
-                item_ids,
-            ).fetchall()
-            sources_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
-            for row in source_rows:
-                sources_by_item[row["item_id"]].append(dict(row))
-            for item_id in item_ids:
-                sources = sources_by_item.get(item_id, [])
-                if not sources or any(source["link_role"] != "direct" for source in sources):
-                    raise ContextValidationError(
-                        "general release item must use only direct sources",
-                        details={"item_id": item_id},
-                    )
-                for source in sources:
-                    observation = self._observe_source(source, strict=True)
-                    if observation["dependency_state"] != "valid":
-                        raise ContextConflictError(
-                            "general release source is not current",
-                            details={
-                                "reason": "source_not_current",
-                                "item_id": item_id,
-                                "dependency_state": observation["dependency_state"],
-                            },
-                        )
-
-            if exact_replay:
-                released_rows = connection.execute(
-                    """
-                    SELECT item_id, public_id
-                    FROM context_release_items
-                    WHERE release_id = ?
-                    ORDER BY position
-                    """,
-                    (active_manifest["release_id"],),
-                ).fetchall()
-                return {
-                    "context_id": context_id,
-                    "version": context_row["version"],
-                    "idempotent_replay": True,
-                    "published_externally": False,
-                    "public_collection_id": active_manifest["public_collection_id"],
-                    "items": [dict(row) for row in released_rows],
-                }
-
-            previous_public_ids: dict[str, str] = {}
-            public_id_rows = connection.execute(
-                f"""
-                SELECT ri.item_id, ri.public_id
-                FROM context_release_items ri
-                JOIN context_release_manifests m
-                  ON m.release_id = ri.release_id
-                WHERE m.context_id = ? AND ri.item_id IN ({placeholders})
-                ORDER BY m.release_number DESC
-                """,
-                (context_id, *item_ids),
-            ).fetchall()
-            for row in public_id_rows:
-                previous_public_ids.setdefault(row["item_id"], row["public_id"])
-
-            latest_manifest = connection.execute(
-                """
-                SELECT public_collection_id, release_number
-                FROM context_release_manifests
-                WHERE context_id = ?
-                ORDER BY release_number DESC
-                LIMIT 1
-                """,
-                (context_id,),
-            ).fetchone()
-            public_collection_id = (
-                latest_manifest["public_collection_id"]
-                if latest_manifest is not None
-                else f"pubc_{uuid.uuid4().hex}"
-            )
-            release_number = (
-                latest_manifest["release_number"] + 1
-                if latest_manifest is not None
-                else 1
-            )
-            release_id = f"ctxr_{uuid.uuid4().hex}"
-            now = utc_now()
-            if active_manifest is not None:
-                connection.execute(
-                    """
-                    UPDATE context_release_manifests
-                    SET state = 'superseded'
-                    WHERE release_id = ?
-                    """,
-                    (active_manifest["release_id"],),
-                )
-            connection.execute(
-                """
-                INSERT INTO context_release_manifests(
-                    release_id, context_id, public_collection_id, input_sha256,
-                    release_number, public_title, public_purpose, review_json,
-                    state, supersedes_release_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
-                """,
-                (
-                    release_id,
-                    context_id,
-                    public_collection_id,
-                    input_sha256,
-                    release_number,
-                    public_title,
-                    public_purpose,
-                    encode_json(review),
-                    active_manifest["release_id"] if active_manifest is not None else None,
-                    now,
-                ),
-            )
-            released_items = []
-            for position, item_id in enumerate(item_ids):
-                public_id = previous_public_ids.get(item_id) or f"pubi_{uuid.uuid4().hex}"
-                connection.execute(
-                    """
-                    INSERT INTO context_release_items(
-                        release_id, item_id, public_id, position
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (release_id, item_id, public_id, position),
-                )
-                released_items.append(
-                    {
-                        "item_id": item_id,
-                        "public_id": public_id,
-                    }
-                )
-            new_version = context_row["version"] + 1
-            connection.execute(
-                """
-                UPDATE contexts
-                SET version = ?, updated_at = ?
-                WHERE context_id = ?
-                """,
-                (new_version, now, context_id),
-            )
-        return {
-            "context_id": context_id,
-            "version": new_version,
-            "idempotent_replay": False,
-            "published_externally": False,
-            "public_collection_id": public_collection_id,
-            "items": released_items,
-        }
-
-    def _advance_checkpoint(
-        self,
-        context_id: str,
-        *,
-        expected_version: int,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        if set(payload) != {"observations"} or not isinstance(
-            payload["observations"],
-            list,
-        ):
-            raise ContextValidationError(
-                "checkpoint payload must contain only an observations list"
-            )
-        raw_observations = payload["observations"]
-        if not 1 <= len(raw_observations) <= CONTEXT_MAX_CORPORA:
-            raise BudgetExceededError(
-                "checkpoint observation count is outside the supported range",
-                details={"maximum_observations": CONTEXT_MAX_CORPORA},
-            )
-        requested_observations: dict[str, dict[str, str]] = {}
-        required_keys = {
-            "corpus_id",
-            "observed_scan_id",
-            "observed_snapshot_id",
-            "observed_inventory_hash",
-        }
-        for raw in raw_observations:
-            if not isinstance(raw, dict) or set(raw) != required_keys:
-                raise ContextValidationError(
-                    "checkpoint observation fields are invalid",
-                    details={"required": sorted(required_keys)},
-                )
-            corpus_id = normalize_corpus_id(
-                _require_string(
-                    raw["corpus_id"],
-                    field="corpus_id",
-                    maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
-                )
-            )
-            if corpus_id in requested_observations:
-                raise ContextValidationError("checkpoint corpus observations must be unique")
-            inventory_hash = _require_string(
-                raw["observed_inventory_hash"],
-                field="observed_inventory_hash",
-                maximum=64,
-            )
-            if not re.fullmatch(r"[0-9a-f]{64}", inventory_hash):
-                raise ContextValidationError(
-                    "observed_inventory_hash must be a lowercase SHA-256 digest"
-                )
-            requested_observations[corpus_id] = {
-                "latest_scan_id": _require_string(
-                    raw["observed_scan_id"],
-                    field="observed_scan_id",
-                    maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
-                ),
-                "current_snapshot_id": _require_string(
-                    raw["observed_snapshot_id"],
-                    field="observed_snapshot_id",
-                    maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
-                ),
-                "inventory_hash": inventory_hash,
-            }
-        with (
-            context_writer_lock(self.data_root),
-            context_connection(self.data_root) as connection,
-        ):
-            context_row = self._load_context(connection, context_id)
-            context_corpus_ids = self._context_corpus_ids(connection, context_id)
-            corpus_ids = sorted(requested_observations)
-            if not corpus_ids or not set(corpus_ids).issubset(context_corpus_ids):
-                raise ContextValidationError("checkpoint corpora must be inside the context scope")
-            observations = {
-                corpus_id: self._current_corpus_observation(corpus_id) for corpus_id in corpus_ids
-            }
-            for corpus_id, current in observations.items():
-                requested = requested_observations[corpus_id]
-                if any(
-                    current[field] != requested[field]
-                    for field in (
-                        "latest_scan_id",
-                        "current_snapshot_id",
-                        "inventory_hash",
-                    )
-                ):
-                    raise ContextConflictError(
-                        "corpus observation changed before checkpoint advance",
-                        details={
-                            "reason": "observation_changed",
-                            "corpus_id": corpus_id,
-                            "current": {
-                                field: current[field]
-                                for field in (
-                                    "latest_scan_id",
-                                    "current_snapshot_id",
-                                    "inventory_hash",
-                                )
-                            },
-                        },
-                    )
-            existing_rows = connection.execute(
-                f"""
-                    SELECT *
-                    FROM context_corpora
-                    WHERE context_id = ?
-                      AND corpus_id IN ({",".join("?" for _ in corpus_ids)})
-                    """,
-                (context_id, *corpus_ids),
-            ).fetchall()
-            existing = {row["corpus_id"]: row for row in existing_rows}
-            same = all(
-                existing[corpus_id]["last_checked_scan_id"] == observation["latest_scan_id"]
-                and existing[corpus_id]["last_checked_snapshot_id"]
-                == observation["current_snapshot_id"]
-                and existing[corpus_id]["last_checked_inventory_hash"]
-                == observation["inventory_hash"]
-                for corpus_id, observation in observations.items()
-            )
-            if same:
-                return {
-                    "context_id": context_id,
-                    "version": context_row["version"],
-                    "idempotent_replay": True,
-                    "checkpoints": observations,
-                }
-            if context_row["state"] != "active":
-                raise ContextConflictError(
-                    "archived context cannot advance its checkpoint",
-                    details={"reason": "context_archived"},
-                )
-            if context_row["version"] != expected_version:
-                raise ContextConflictError(
-                    "context version is not current",
-                    details={
-                        "reason": "version_mismatch",
-                        "expected_version": expected_version,
-                        "current_version": context_row["version"],
-                    },
-                )
-            now = utc_now()
-            for corpus_id in observations:
-                connection.execute(
-                    """
-                        UPDATE context_corpora
-                        SET last_checked_scan_id = ?,
-                            last_checked_snapshot_id = ?,
-                            last_checked_inventory_hash = ?,
-                            last_checked_at = ?
-                        WHERE context_id = ? AND corpus_id = ?
-                        """,
-                    (
-                        requested_observations[corpus_id]["latest_scan_id"],
-                        requested_observations[corpus_id]["current_snapshot_id"],
-                        requested_observations[corpus_id]["inventory_hash"],
-                        now,
-                        context_id,
-                        corpus_id,
-                    ),
-                )
-            new_version = context_row["version"] + 1
-            connection.execute(
-                """
-                    UPDATE contexts
-                    SET version = ?, updated_at = ?
-                    WHERE context_id = ?
-                    """,
-                (new_version, now, context_id),
-            )
-        return {
-            "context_id": context_id,
-            "version": new_version,
-            "idempotent_replay": False,
-            "checkpoints": observations,
-        }
-
     def _archive(
         self,
         context_id: str,
@@ -3169,6 +2434,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            self._prune_history(connection)
             context_row = self._load_context(connection, context_id)
             if context_row["state"] == "archived":
                 return {
@@ -3343,11 +2609,6 @@ class ContextService:
                     JOIN documents d ON d.document_id = r.document_id
                     JOIN extraction_projections p
                       ON p.projection_id = u.projection_id
-                    JOIN snapshot_documents sd
-                      ON sd.snapshot_id = ?
-                     AND sd.document_id = d.document_id
-                     AND sd.revision_id = u.revision_id
-                     AND sd.projection_id = u.projection_id
                     LEFT JOIN extraction_projections active
                       ON active.revision_id = u.revision_id
                      AND active.is_active = 1
@@ -3357,7 +2618,6 @@ class ContextService:
                       AND d.document_id = ?
                     """,
                     (
-                        source["snapshot_id"],
                         source["source_unit_id"],
                         source["revision_id"],
                         source["projection_id"],
@@ -3378,7 +2638,7 @@ class ContextService:
         if row is None:
             if strict:
                 raise ContextValidationError(
-                    "context source tuple is not available in the declared snapshot",
+                    "context source tuple is not available in the current index",
                     details={
                         "corpus_id": source["corpus_id"],
                         "source_unit_id": source["source_unit_id"],
@@ -3404,8 +2664,6 @@ class ContextService:
         )
         if row["deleted_at"] is not None:
             dependency_state = "document_missing"
-        elif source["link_role"] == "contrast":
-            dependency_state = "historical_available"
         elif row["revision_id"] != row["current_revision_id"]:
             dependency_state = "stale_source_revision"
         elif not source_observation_current:
@@ -3427,257 +2685,6 @@ class ContextService:
             "dependency_state": dependency_state,
             "relative_path": row["relative_path"],
             "source_span": source_span,
-        }
-
-    def _inventory_hash(self, connection) -> str:
-        rows = connection.execute(
-            """
-            SELECT document_id, relative_path_nfc, logical_size, allocated_size,
-                   modified_ns, changed_ns, device, inode, is_dataless,
-                   residency_state
-            FROM documents
-            WHERE deleted_at IS NULL AND eligibility_state = 'supported'
-            ORDER BY document_id
-            """
-        ).fetchall()
-        return hashlib.sha256(encode_json([dict(row) for row in rows]).encode()).hexdigest()
-
-    def _current_corpus_observation(self, corpus_id: str) -> dict[str, Any]:
-        try:
-            with corpus_read_connection(self.data_root, corpus_id) as connection:
-                scan = connection.execute(
-                    """
-                    SELECT scan_id, completed_at, status
-                    FROM scan_runs
-                    ORDER BY rowid DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                snapshot = connection.execute(
-                    """
-                    SELECT snapshot_id, coverage_state
-                    FROM snapshots
-                    WHERE state = 'complete'
-                    ORDER BY rowid DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                inventory_hash = self._inventory_hash(connection)
-        except CorpusError:
-            return {
-                "available": False,
-                "latest_scan_id": None,
-                "scan_completed_at": None,
-                "scan_status": None,
-                "inventory_complete": False,
-                "current_snapshot_id": None,
-                "snapshot_coverage_state": None,
-                "inventory_hash": None,
-            }
-        return {
-            "available": True,
-            "latest_scan_id": scan["scan_id"] if scan else None,
-            "scan_completed_at": scan["completed_at"] if scan else None,
-            "scan_status": scan["status"] if scan else None,
-            "inventory_complete": bool(scan is not None and scan["status"] == "complete"),
-            "current_snapshot_id": snapshot["snapshot_id"] if snapshot else None,
-            "snapshot_coverage_state": snapshot["coverage_state"] if snapshot else None,
-            "inventory_hash": inventory_hash,
-        }
-
-    def _snapshot_mapping(self, connection, snapshot_id: str | None) -> dict[str, tuple]:
-        if snapshot_id is None:
-            return {}
-        rows = connection.execute(
-            """
-            SELECT document_id, revision_id, projection_id
-            FROM snapshot_documents
-            WHERE snapshot_id = ?
-            ORDER BY document_id
-            """,
-            (snapshot_id,),
-        ).fetchall()
-        return {row["document_id"]: (row["revision_id"], row["projection_id"]) for row in rows}
-
-    def _scan_change_events(
-        self,
-        connection,
-        *,
-        baseline_scan_id: str,
-        current_scan_id: str,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        rows = connection.execute(
-            """
-            SELECT payload_json
-            FROM events
-            WHERE event_type = 'scan_inventory_delta'
-            ORDER BY rowid
-            """
-        ).fetchall()
-        baseline_seen = False
-        current_seen = False
-        truncated = False
-        merged: dict[str, set[str]] = defaultdict(set)
-        for row in rows:
-            try:
-                payload = json.loads(row["payload_json"])
-            except (TypeError, json.JSONDecodeError):
-                continue
-            scan_id = payload.get("scan_id") if isinstance(payload, dict) else None
-            if scan_id == baseline_scan_id:
-                baseline_seen = True
-                continue
-            if not baseline_seen:
-                continue
-            if payload.get("truncated"):
-                truncated = True
-            changes = payload.get("changes")
-            if isinstance(changes, list):
-                for change in changes:
-                    if not isinstance(change, dict):
-                        continue
-                    document_id = change.get("document_id")
-                    kinds = change.get("change_types")
-                    if not isinstance(document_id, str) or not isinstance(kinds, list):
-                        continue
-                    merged[document_id].update(kind for kind in kinds if isinstance(kind, str))
-            if scan_id == current_scan_id:
-                current_seen = True
-                break
-        candidates = [
-            {
-                "document_id": document_id,
-                "change_types": sorted(change_types),
-            }
-            for document_id, change_types in sorted(merged.items())
-        ]
-        return candidates, bool(truncated or not baseline_seen or not current_seen)
-
-    def _inventory_change(
-        self,
-        checkpoint: dict[str, Any],
-        current: dict[str, Any],
-    ) -> dict[str, Any]:
-        baseline_scan_id = checkpoint.get("last_checked_scan_id")
-        baseline_snapshot_id = checkpoint.get("last_checked_snapshot_id")
-        baseline_hash = checkpoint.get("last_checked_inventory_hash")
-        current_scan_id = current.get("latest_scan_id")
-        current_snapshot_id = current.get("current_snapshot_id")
-        if baseline_scan_id is None:
-            return {
-                "checkpoint_missing": True,
-                "inventory_changed": None,
-                "inventory_hash_changed": None,
-                "change_candidates": [],
-                "mapping_changes": [],
-                "unclassified_inventory_change": True,
-            }
-        if not current.get("available"):
-            return {
-                "checkpoint_missing": False,
-                "inventory_changed": None,
-                "inventory_hash_changed": None,
-                "change_candidates": [],
-                "mapping_changes": [],
-                "unclassified_inventory_change": True,
-            }
-        if current_scan_id == baseline_scan_id and current_snapshot_id == baseline_snapshot_id:
-            hash_changed = current.get("inventory_hash") != baseline_hash
-            return {
-                "checkpoint_missing": False,
-                "inventory_changed": hash_changed,
-                "inventory_hash_changed": hash_changed,
-                "change_candidates": [],
-                "mapping_changes": [],
-                "unclassified_inventory_change": hash_changed,
-            }
-
-        try:
-            with corpus_read_connection(
-                self.data_root,
-                checkpoint["corpus_id"],
-            ) as connection:
-                if baseline_scan_id == current_scan_id:
-                    candidates = []
-                    event_unclassified = False
-                else:
-                    candidates, event_unclassified = self._scan_change_events(
-                        connection,
-                        baseline_scan_id=baseline_scan_id,
-                        current_scan_id=current_scan_id,
-                    )
-                baseline_mapping = self._snapshot_mapping(
-                    connection,
-                    baseline_snapshot_id,
-                )
-                current_mapping = self._snapshot_mapping(
-                    connection,
-                    current_snapshot_id,
-                )
-                candidate_ids = [candidate["document_id"] for candidate in candidates]
-                candidate_metadata = {}
-                if candidate_ids:
-                    placeholders = ",".join("?" for _ in candidate_ids)
-                    rows = connection.execute(
-                        f"""
-                        SELECT document_id, relative_path, residency_state,
-                               eligibility_state, current_revision_id, deleted_at
-                        FROM documents
-                        WHERE document_id IN ({placeholders})
-                        """,
-                        candidate_ids,
-                    ).fetchall()
-                    candidate_metadata = {row["document_id"]: dict(row) for row in rows}
-                for candidate in candidates:
-                    candidate.update(candidate_metadata.get(candidate["document_id"], {}))
-        except CorpusError:
-            candidates = []
-            event_unclassified = True
-            baseline_mapping = {}
-            current_mapping = {}
-
-        mapping_changes = []
-        for document_id in sorted(set(baseline_mapping) | set(current_mapping)):
-            before = baseline_mapping.get(document_id)
-            after = current_mapping.get(document_id)
-            if before == after:
-                continue
-            mapping_changes.append(
-                {
-                    "document_id": document_id,
-                    "before_revision_id": before[0] if before else None,
-                    "before_projection_id": before[1] if before else None,
-                    "current_revision_id": after[0] if after else None,
-                    "current_projection_id": after[1] if after else None,
-                }
-            )
-        combined_document_ids = {candidate["document_id"] for candidate in candidates} | {
-            change["document_id"] for change in mapping_changes
-        }
-        truncated = len(combined_document_ids) > CONTEXT_MAX_CHANGE_CANDIDATES
-        if truncated:
-            allowed = set(sorted(combined_document_ids)[:CONTEXT_MAX_CHANGE_CANDIDATES])
-            candidates = [
-                candidate for candidate in candidates if candidate["document_id"] in allowed
-            ]
-            mapping_changes = [
-                change for change in mapping_changes if change["document_id"] in allowed
-            ]
-        hash_changed = current.get("inventory_hash") != baseline_hash
-        inventory_changed = bool(hash_changed or candidates or mapping_changes)
-        return {
-            "checkpoint_missing": False,
-            "inventory_changed": inventory_changed,
-            "inventory_hash_changed": hash_changed,
-            "change_candidates": candidates,
-            "mapping_changes": mapping_changes,
-            "change_candidates_truncated": truncated,
-            "unclassified_inventory_change": bool(
-                event_unclassified
-                or truncated
-                or not current.get("inventory_complete")
-                or (hash_changed and not candidates and not mapping_changes)
-            ),
         }
 
     def _require_read_budget(self, response: dict[str, Any]) -> None:

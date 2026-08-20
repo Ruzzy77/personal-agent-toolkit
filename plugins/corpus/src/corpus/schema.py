@@ -244,48 +244,6 @@ CREATE INDEX IF NOT EXISTS idx_context_external_sources_item
     ON context_external_sources(item_id);
 CREATE INDEX IF NOT EXISTS idx_context_external_sources_record
     ON context_external_sources(source_record_id, item_id);
-
-CREATE TABLE IF NOT EXISTS context_release_manifests (
-    release_id TEXT PRIMARY KEY,
-    context_id TEXT NOT NULL,
-    public_collection_id TEXT NOT NULL,
-    input_sha256 TEXT NOT NULL,
-    release_number INTEGER NOT NULL CHECK (release_number >= 1),
-    public_title TEXT NOT NULL,
-    public_purpose TEXT NOT NULL,
-    review_json TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('active', 'superseded')),
-    supersedes_release_id TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(context_id) REFERENCES contexts(context_id) ON DELETE CASCADE,
-    FOREIGN KEY(supersedes_release_id)
-        REFERENCES context_release_manifests(release_id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_context_release_active_context
-    ON context_release_manifests(context_id)
-    WHERE state = 'active';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_context_release_active_public_collection
-    ON context_release_manifests(public_collection_id)
-    WHERE state = 'active';
-CREATE INDEX IF NOT EXISTS idx_context_release_history
-    ON context_release_manifests(context_id, release_number);
-
-CREATE TABLE IF NOT EXISTS context_release_items (
-    release_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,
-    public_id TEXT NOT NULL,
-    position INTEGER NOT NULL CHECK (position >= 0),
-    PRIMARY KEY(release_id, item_id),
-    UNIQUE(release_id, public_id),
-    UNIQUE(release_id, position),
-    FOREIGN KEY(release_id)
-        REFERENCES context_release_manifests(release_id) ON DELETE CASCADE,
-    FOREIGN KEY(item_id) REFERENCES context_items(item_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_context_release_items_item
-    ON context_release_items(item_id, release_id);
 """
 
 WORKSPACE_SCHEMA = """
@@ -556,44 +514,6 @@ CREATE INDEX IF NOT EXISTS idx_issues_projection
 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_projection_issue
     ON extraction_issues(projection_id, stage, code, locator_key)
     WHERE projection_id IS NOT NULL AND lifecycle_state = 'active';
-
-CREATE TABLE IF NOT EXISTS events (
-    event_id TEXT PRIMARY KEY,
-    event_type TEXT NOT NULL,
-    document_id TEXT,
-    revision_id TEXT,
-    payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    state TEXT NOT NULL CHECK (state IN ('complete', 'failed')),
-    coverage_state TEXT NOT NULL CHECK (coverage_state IN ('complete', 'partial')),
-    document_revision_set_hash TEXT NOT NULL,
-    extraction_projection_set_hash TEXT NOT NULL,
-    document_count INTEGER NOT NULL,
-    supported_document_count INTEGER NOT NULL,
-    extraction_schema_version INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    completed_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS snapshot_documents (
-    snapshot_id TEXT NOT NULL,
-    document_id TEXT NOT NULL,
-    revision_id TEXT NOT NULL,
-    projection_id TEXT NOT NULL,
-    PRIMARY KEY(snapshot_id, document_id),
-    FOREIGN KEY(snapshot_id) REFERENCES snapshots(snapshot_id),
-    FOREIGN KEY(document_id) REFERENCES documents(document_id),
-    FOREIGN KEY(revision_id) REFERENCES revisions(revision_id),
-    FOREIGN KEY(projection_id) REFERENCES extraction_projections(projection_id),
-    FOREIGN KEY(revision_id, document_id)
-        REFERENCES revisions(revision_id, document_id),
-    FOREIGN KEY(projection_id, revision_id)
-        REFERENCES extraction_projections(projection_id, revision_id)
-);
 
 """
 

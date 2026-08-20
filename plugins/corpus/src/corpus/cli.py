@@ -256,7 +256,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="utf8",
     )
     space_write.add_argument("--expected-version", required=True)
-    space_write.add_argument("--expected-content-sha256")
     space_write.add_argument("--replace-start-marker")
     space_write.add_argument("--replace-end-marker")
     space_write.add_argument("--make-current", action="store_true")
@@ -267,7 +266,6 @@ def build_parser() -> argparse.ArgumentParser:
     space_select.add_argument("--id", required=True, dest="space_id")
     space_select.add_argument("--connection", dest="connection_id")
     space_select.add_argument("--path", required=True, dest="relative_path")
-    space_select.add_argument("--expected-generation", required=True, type=int)
     space_restore = space_commands.add_parser(
         "restore",
         help="Restore one unchanged replacement through its recovery ID.",
@@ -321,16 +319,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--id",
         required=True,
         dest="workspace_id",
-    )
-    workspace_disconnect.add_argument(
-        "--expected-generation",
-        required=True,
-        type=int,
-    )
-    workspace_disconnect.add_argument(
-        "--confirm-disconnect",
-        action="store_true",
-        help="Confirm removal of the Corpus connection only.",
     )
 
     scan = commands.add_parser("scan", help="Run metadata-only discovery.")
@@ -408,17 +396,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help=f"Page offset (max {CORPUS_INVENTORY_MAX_OFFSET}).",
-    )
-
-    migrate = commands.add_parser(
-        "migrate",
-        help="Explicitly migrate a corpus database after creating a private backup.",
-    )
-    migrate.add_argument("--corpus", required=True)
-    migrate.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Report schema state without changing the database.",
     )
 
     ingest = commands.add_parser(
@@ -522,7 +499,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     source_refresh.add_argument("--corpus", required=True)
     source_refresh.add_argument("--id", required=True, dest="binding_id")
-    source_refresh.add_argument("--run-id", required=True)
 
     source_fetch = source_commands.add_parser(
         "fetch",
@@ -559,15 +535,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("active", "archived"),
         default="active",
     )
-    context_list.add_argument(
-        "--view",
-        choices=("restricted", "general"),
-        default="restricted",
-        help=(
-            "Read the complete private context or only its selected items, without private "
-            "source links or internal identifiers."
-        ),
-    )
     context_list.add_argument("--limit", type=int, default=100)
     context_list.add_argument("--offset", type=int, default=0)
 
@@ -579,29 +546,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--id",
         required=True,
         dest="context_id",
-        help=(
-            "Private context id, or the public collection id returned by "
-            "`context list --view general`."
-        ),
+        help="Private context id.",
     )
     context_show.add_argument(
         "--state",
         choices=("active", "archived"),
         default="active",
-    )
-    context_show.add_argument(
-        "--view",
-        choices=("restricted", "general"),
-        default="restricted",
-        help=(
-            "Read the complete private context or only its selected items, without private "
-            "source links or internal identifiers."
-        ),
-    )
-    context_show.add_argument(
-        "--include-history",
-        action="store_true",
-        help="Include superseded items created by older runtimes.",
     )
     context_show.add_argument("--limit", type=int, default=100)
     context_show.add_argument("--offset", type=int, default=0)
@@ -620,18 +570,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     context_update = context_commands.add_parser(
         "update",
-        help="Update or approve a named context from a JSON object.",
+        help="Update a named context from a JSON object.",
     )
     context_update.add_argument("--id", required=True, dest="context_id")
     context_update.add_argument(
         "--action",
         required=True,
-        choices=(
-            "append",
-            "supersede",
-            "advance_checkpoint",
-            "approve_general",
-        ),
+        choices=("append", "supersede"),
     )
     context_update.add_argument("--expected-version", required=True, type=int)
     context_update.add_argument(
@@ -640,18 +585,10 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE|-",
         help="Read the update payload as a JSON object from FILE or standard input (-).",
     )
-    context_update.add_argument(
-        "--confirm-general-release",
-        action="store_true",
-        help=(
-            "Confirm the complete set selected for the general view. This changes private "
-            "selection state and does not publish or transmit anything."
-        ),
-    )
 
     context_archive = context_commands.add_parser(
         "archive",
-        help="Archive a named context while preserving its history.",
+        help="Archive a named context without changing connected files.",
     )
     context_archive.add_argument("--id", required=True, dest="context_id")
     context_archive.add_argument("--expected-version", required=True, type=int)
@@ -701,11 +638,6 @@ def build_parser() -> argparse.ArgumentParser:
     context_skill_remove.add_argument(
         "--confirm-context-skill-remove",
         action="store_true",
-    )
-
-    context_commands.add_parser(
-        "migrate",
-        help="Explicitly migrate the private named-context database.",
     )
 
     return parser
@@ -799,7 +731,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 content=load_workspace_content(args.content_file),
                 content_encoding=args.content_encoding,
                 expected_version=args.expected_version,
-                expected_content_sha256=args.expected_content_sha256,
                 replace_start_marker=args.replace_start_marker,
                 replace_end_marker=args.replace_end_marker,
                 make_current=args.make_current,
@@ -810,7 +741,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 space_id=args.space_id,
                 connection_id=args.connection_id,
                 relative_path=args.relative_path,
-                expected_generation=args.expected_generation,
                 audience="local_cli",
             )
         if args.space_command == "restore":
@@ -841,8 +771,6 @@ def execute(args: argparse.Namespace) -> dict | list:
         if args.workspace_command == "disconnect":
             return service.workspace_disconnect(
                 workspace_id=args.workspace_id,
-                expected_generation=args.expected_generation,
-                confirm_disconnect=args.confirm_disconnect,
             )
         raise AssertionError(f"unhandled workspace command: {args.workspace_command}")
     if args.command == "scan":
@@ -870,10 +798,6 @@ def execute(args: argparse.Namespace) -> dict | list:
             limit=args.limit,
             offset=args.offset,
         )
-    if args.command == "migrate":
-        if args.dry_run:
-            return service.migration_status(args.corpus)
-        return service.migrate(args.corpus)
     if args.command == "ingest":
         return service.ingest(
             args.corpus,
@@ -907,7 +831,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 corpus_id=args.corpus,
                 binding_id=args.binding_id,
                 payload=load_json_object(args.payload_file),
-                confirm_persistent_context_write=True,
                 audience="local_cli",
             )
         if args.source_command == "refresh":
@@ -915,8 +838,7 @@ def execute(args: argparse.Namespace) -> dict | list:
                 action="refresh",
                 corpus_id=args.corpus,
                 binding_id=args.binding_id,
-                payload={"run_id": args.run_id},
-                confirm_persistent_context_write=True,
+                payload={},
                 audience="local_cli",
             )
         if args.source_command == "fetch":
@@ -933,21 +855,17 @@ def execute(args: argparse.Namespace) -> dict | list:
             return service.context_read(
                 context_id=None,
                 state=args.state,
-                include_history=False,
                 limit=args.limit,
                 offset=args.offset,
                 audience="local_cli",
-                view=args.view,
             )
         if args.context_command == "show":
             return service.context_read(
                 context_id=args.context_id,
                 state=args.state,
-                include_history=args.include_history,
                 limit=args.limit,
                 offset=args.offset,
                 audience="local_cli",
-                view=args.view,
             )
         if args.context_command == "create":
             return service.context_update(
@@ -955,7 +873,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 context_id=args.context_id,
                 expected_version=0,
                 payload=load_json_object(args.payload_file),
-                confirm_persistent_context_write=True,
                 audience="local_cli",
             )
         if args.context_command == "update":
@@ -964,8 +881,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 context_id=args.context_id,
                 expected_version=args.expected_version,
                 payload=load_json_object(args.payload_file),
-                confirm_persistent_context_write=True,
-                confirm_general_release_approval=(args.confirm_general_release),
                 audience="local_cli",
             )
         if args.context_command == "archive":
@@ -974,7 +889,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                 context_id=args.context_id,
                 expected_version=args.expected_version,
                 payload={},
-                confirm_persistent_context_write=True,
                 audience="local_cli",
             )
         if args.context_command == "skill":
@@ -997,8 +911,6 @@ def execute(args: argparse.Namespace) -> dict | list:
                     confirm_context_skill_remove=args.confirm_context_skill_remove,
                 )
             raise AssertionError(f"unhandled context skill command: {args.context_skill_command}")
-        if args.context_command == "migrate":
-            return service.context_migrate()
         raise AssertionError(f"unhandled context command: {args.context_command}")
     raise AssertionError(f"unhandled command: {args.command}")
 

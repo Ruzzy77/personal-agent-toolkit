@@ -288,11 +288,9 @@ class ContextSkillService:
                 self.contexts.read(
                     context_id=context_id,
                     state=state,
-                    include_history=False,
                     limit=1,
                     offset=0,
                     audience="local_cli",
-                    view="restricted",
                 )
                 return
             except ContextNotFoundError:

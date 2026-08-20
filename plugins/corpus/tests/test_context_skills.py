@@ -34,7 +34,6 @@ class ContextSkillServiceTest(unittest.TestCase):
                 "scope": {"topic": "research_administration"},
                 "corpus_ids": ["rules"],
             },
-            confirm_persistent_context_write=True,
         )
 
     def tearDown(self) -> None:
@@ -160,7 +159,6 @@ class ContextSkillServiceTest(unittest.TestCase):
             context_id="research-administration",
             expected_version=1,
             payload={},
-            confirm_persistent_context_write=True,
         )
 
         skill = self.service.context_skill_read(context_id="research-administration")["skill"]

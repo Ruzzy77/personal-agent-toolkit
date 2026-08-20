@@ -28,7 +28,6 @@ from .source_access import (
 )
 
 SF_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
-SCAN_INVENTORY_DELTA_MAX_DOCUMENTS = 500
 _INVENTORY_CHANGE_TYPE_ORDER = (
     "added",
     "reappeared",
@@ -785,42 +784,5 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
             summary.change_counts.update(change_types)
             if change_types.intersection(_OBSERVATION_CHANGE_TYPES):
                 summary.changed_documents += 1
-        ordered_changes = [
-            {
-                "document_id": document_id,
-                "change_types": [
-                    change_type
-                    for change_type in _INVENTORY_CHANGE_TYPE_ORDER
-                    if change_type in inventory_changes[document_id]
-                ],
-            }
-            for document_id in sorted(inventory_changes)
-        ]
-        bounded_changes = ordered_changes[:SCAN_INVENTORY_DELTA_MAX_DOCUMENTS]
-        connection.execute(
-            """
-            INSERT INTO events(event_id, event_type, payload_json, created_at)
-            VALUES (?, 'scan_inventory_delta', ?, ?)
-            """,
-            (
-                f"event_{uuid.uuid4().hex}",
-                encode_json(
-                    {
-                        "schema_version": 1,
-                        "scan_id": scan_id,
-                        "inventory_complete": scan_status == "complete",
-                        "count": len(ordered_changes),
-                        "change_counts": {
-                            change_type: int(summary.change_counts[change_type])
-                            for change_type in _INVENTORY_CHANGE_TYPE_ORDER
-                        },
-                        "changed_documents": summary.changed_documents,
-                        "truncated": len(bounded_changes) < len(ordered_changes),
-                        "changes": bounded_changes,
-                    }
-                ),
-                completed_at,
-            ),
-        )
 
     return summary.as_dict()

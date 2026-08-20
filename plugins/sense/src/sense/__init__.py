@@ -1,6 +1,6 @@
 """Sense private-guidance core."""
 
-PACKAGE_VERSION = "0.2.2"
+PACKAGE_VERSION = "0.3.0"
 BUILD_ID = PACKAGE_VERSION
 
 __version__ = PACKAGE_VERSION

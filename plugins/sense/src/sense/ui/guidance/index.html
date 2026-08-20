@@ -144,14 +144,9 @@
       .toolbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-end;
         gap: 12px;
         padding: 18px 26px 0;
-      }
-
-      .recent {
-        color: var(--muted);
-        font-size: 13px;
       }
 
       .toggle {
@@ -276,43 +271,6 @@
         white-space: pre-line;
       }
 
-      .facts {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 18px;
-        padding-top: 16px;
-        border-top: 1px solid var(--line);
-      }
-
-      .fact h3 {
-        margin: 0 0 7px;
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 700;
-      }
-
-      .fact ul {
-        display: grid;
-        gap: 5px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-
-      .fact li {
-        color: var(--text);
-        font-size: 12px;
-        line-height: 1.5;
-      }
-
-      .restricted {
-        padding: 0 16px 17px;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.6;
-      }
-
       .privacy {
         display: grid;
         gap: 8px;
@@ -379,10 +337,6 @@
           align-items: flex-start;
         }
 
-        .facts {
-          grid-template-columns: 1fr;
-        }
-
         .badges {
           display: none;
         }
@@ -415,25 +369,6 @@
         return node;
       }
 
-      function list(items) {
-        const node = element("ul");
-        for (const item of items ?? []) {
-          node.append(element("li", "", item));
-        }
-        return node;
-      }
-
-      function sourceText(source) {
-        const count = Number(source?.count ?? 0);
-        return `${String(source?.label ?? "확인한 출처")} ${count}건`;
-      }
-
-      function fact(title, items) {
-        const node = element("section", "fact");
-        node.append(element("h3", "", title), list(items));
-        return node;
-      }
-
       function sectionCard(section) {
         const card = document.createElement("details");
 
@@ -454,13 +389,6 @@
 
         const body = element("div", "section-body");
         body.append(element("p", "section-text", section?.text ?? ""));
-        const facts = element("div", "facts");
-        facts.append(
-          fact("관련 상황", section?.related_situations ?? []),
-          fact("주의할 상황", section?.review_when ?? []),
-          fact("출처", (section?.sources ?? []).map(sourceText))
-        );
-        body.append(facts);
         card.append(body);
         return card;
       }
@@ -497,8 +425,8 @@
         const status = element("div", "status");
         const statusCopy = element("div");
         statusCopy.append(
-          element("strong", "", result.state?.label ?? ""),
-          element("span", "", result.state?.description ?? "")
+          element("strong", "", "현재 기준"),
+          element("span", "", "중요한 선택에 도움이 될 때만 참고합니다.")
         );
         const formattedDate = formatDate(result.updated_at);
         status.append(
@@ -509,9 +437,6 @@
         profile.append(hero);
 
         const toolbar = element("div", "toolbar");
-        if (result.recent_change) {
-          toolbar.append(element("div", "recent", result.recent_change));
-        }
         const toggle = element("button", "toggle", "모두 펼치기");
         toggle.type = "button";
         toggle.addEventListener("click", () => {

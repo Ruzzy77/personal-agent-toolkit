@@ -9,10 +9,14 @@ intent, responsibility, and lessons that should affect important choices in diff
 not project facts, project files, or raw conversation history.
 
 - The plugin package contains no default or active guidance.
-- Import creates a read-only preview.
-- Activation requires an explicit local command with the reviewed revision and digest.
-- Sensitive guidance and broader use require explicit user confirmation.
-- Plugin updates do not replace the private guidance database.
+- The private database stores one current profile and no revision history, replay receipts, source
+  locations, or source hashes.
+- Import uses a profile the user has already reviewed. Replacing an existing profile requires an
+  explicit local confirmation.
+- Sensitive guidance and permanent deletion require explicit local confirmation.
+- Ordinary updates use only the current section's change token and complete replacement text.
+- Plugin updates do not replace the current guidance. The schema 2 upgrade keeps the active profile
+  and removes superseded history and provenance fields.
 
 ## Corpus
 
@@ -20,6 +24,8 @@ Corpus indexes only sources the user explicitly registers.
 
 - Source bytes remain in their original locations and are not written by Corpus.
 - Local indexes and reusable context stay in the private Corpus runtime directory.
+- The index keeps the current revision and extraction projection for each current source file. It
+  does not accumulate source snapshots, scan-event history, or older extracted copies.
 - Gmail bodies remain with Gmail. Completed Codex and Claude turns remain with their providers.
 - Provider links keep only limited record details, the original record's location, and a fingerprint
   used to detect changes.
@@ -28,11 +34,12 @@ Corpus indexes only sources the user explicitly registers.
 - A separately connected local work folder is writable only when the user explicitly registers it
   for an active Corpus context. The local file remains the latest copy; Corpus does not upload or
   maintain an offline cloud copy of the folder.
-- Work-folder replacement uses a freshly observed file version, stops on concurrent changes, and
-  keeps the previous bytes as a private recovery copy under the Corpus runtime. Recovery metadata
-  includes an expiry time, but this release does not yet run automatic recovery cleanup.
-- Hidden, sensitive, temporary, linked, and special files are excluded. Work-folder tools do not
-  delete, move, or execute files, and local root paths are not returned through the Chat surface.
+- Work-folder replacement uses a freshly observed file version and stops on concurrent changes.
+  Corpus keeps only the latest recoverable replacement for each path as a private copy under its
+  runtime and removes older or expired recovery copies during bounded local maintenance.
+- Hidden, sensitive, temporary, linked, and special files are excluded. Work-folder deletion
+  requires an explicit request and current file version; tools do not move or execute files, and
+  local root paths are not returned through the Chat surface.
 
 Some explicitly requested extraction operations may run outside the local machine when the Corpus
 execution policy allows it. Downloading cloud placeholder files uses network, disk, and local
@@ -57,7 +64,10 @@ revisable relationship model of the user on the user's machine.
   evidence, confidence, or retention records to every relation. Task-local facts and wording are
   not written back as changes to the relationship model.
 - The MCP exposes only `hypes_read` and `hypes_rewrite`. A rewrite is one SQLite transaction and
-  either changes the complete requested graph patch or leaves the graph unchanged.
+  either changes the complete requested graph patch or leaves the graph unchanged. Deleting a Node
+  or Predicate also removes its incident Edges in that transaction.
+- Schema initialization runs once at server start. Ordinary reads use a read-only SQLite connection
+  and do not acquire a schema-write lock.
 - The local database is `hypes-ontology.sqlite3`. Earlier Hypes databases are not read, converted,
   deleted, or included in the active model.
 - The Hypes data directory and database must be owned by the current user and use modes `0700` and

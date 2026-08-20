@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import stat
 from pathlib import Path
 
 import pytest
-
 from hypes.errors import HypesError
 from hypes.mcp_server import create_server
 from hypes.service import HypesService
@@ -66,7 +66,9 @@ def test_rewrite_persists_a_closed_relationship_slice(tmp_path: Path) -> None:
     edge = result["edges"][0]
     assert edge["source_id"] in {item["node_id"] for item in result["nodes"]}
     assert edge["target_id"] in {item["node_id"] for item in result["nodes"]}
-    assert edge["predicate_id"] in {item["predicate_id"] for item in result["predicates"]}
+    assert edge["predicate_id"] in {
+        item["predicate_id"] for item in result["predicates"]
+    }
 
 
 def test_failed_rewrite_rolls_back_the_whole_patch(tmp_path: Path) -> None:
@@ -91,7 +93,7 @@ def test_failed_rewrite_rolls_back_the_whole_patch(tmp_path: Path) -> None:
     assert service.read()["nodes"] == []
 
 
-def test_replace_and_delete_keep_explicit_graph_integrity(tmp_path: Path) -> None:
+def test_replace_and_entity_delete_cascades_incident_edges(tmp_path: Path) -> None:
     service = HypesService(tmp_path)
     refs = create_relation(service)["ref_map"]
     service.rewrite(
@@ -103,18 +105,36 @@ def test_replace_and_delete_keep_explicit_graph_integrity(tmp_path: Path) -> Non
             }
         ]
     )
-    assert service.read(focus="updated", max_hops=0)["nodes"][0]["node_id"] == refs["$a"]
-
-    with pytest.raises(HypesError):
-        service.rewrite(operations=[{"op": "delete", "ref": refs["$a"]}])
-
-    service.rewrite(
-        operations=[
-            {"op": "delete", "ref": refs["$edge"]},
-            {"op": "delete", "ref": refs["$a"]},
-        ]
+    assert (
+        service.read(focus="updated", max_hops=0)["nodes"][0]["node_id"] == refs["$a"]
     )
+
+    deleted = service.rewrite(operations=[{"op": "delete", "ref": refs["$a"]}])
+    assert set(deleted["removed_refs"]) == {refs["$a"], refs["$edge"]}
+    assert deleted["change_summary"]["deleted"] == {
+        "nodes": 1,
+        "predicates": 0,
+        "edges": 1,
+    }
     assert service.read(focus="updated")["nodes"] == []
+
+
+def test_schema_migration_preserves_graph_and_reads_use_read_only_connections(
+    tmp_path: Path,
+) -> None:
+    service = HypesService(tmp_path)
+    refs = create_relation(service)["ref_map"]
+    database = tmp_path / "hypes-ontology.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version = 1")
+
+    migrated = HypesService(tmp_path)
+    result = migrated.read(seed_refs=[refs["$a"]], limit=10)
+    assert {item["edge_id"] for item in result["edges"]} == {refs["$edge"]}
+    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    with migrated.store.connect_read() as connection:
+        assert connection.execute("PRAGMA query_only").fetchone()[0] == 1
 
 
 def test_outline_pagination_uses_one_continuation_cursor(tmp_path: Path) -> None:

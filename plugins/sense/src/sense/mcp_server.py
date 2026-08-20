@@ -7,19 +7,17 @@ import os
 from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from . import __version__
 from .errors import SenseError
-from .exposure import stored_section_id
 from .model import (
-    MAX_REVISION_CHANGES,
-    ProfileSection,
-    SectionRevision,
+    MAX_CHANGES,
+    SectionChange,
     ToolError,
     ToolFailure,
     ToolResponse,
@@ -29,12 +27,11 @@ from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
     "Use Sense only when durable guidance could change an important choice or when the user asks "
-    "to inspect or change it. If a needed schema is deferred, discover it once before concluding "
-    "that the capability is unavailable. The current request and current sources take priority. "
-    "Sense informs the judgment but does not supply the wording or structure of the answer. Change "
-    "Sense only at the user's request. An explicit final ordinary replacement may be saved after "
-    "reading the affected section; preview assistant-drafted, multi-section, or user-requested "
-    "changes first. Sensitive or scope-expanding persistence remains local."
+    "to inspect or change it. Current requests and current sources take priority. Read the index "
+    "first, then only relevant sections. Change Sense only at the user's request. When the assistant "
+    "drafts wording or several sections change, show the final wording in the conversation before "
+    "one atomic update. A section token protects against conflicting edits. Sensitive persistence "
+    "and permanent deletion remain local."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -43,104 +40,16 @@ READ_ONLY = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
-PROFILE_IDEMPOTENT_WRITE = ToolAnnotations(
+PROFILE_WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
     idempotentHint=True,
     openWorldHint=False,
 )
-PROFILE_CONTROL = ToolAnnotations(
-    readOnlyHint=True,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
-)
-
-SectionId = Annotated[str, Field(min_length=1, max_length=64)]
-Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-IdempotencyKey = Annotated[
-    str,
-    Field(
-        pattern=r"^[a-zA-Z0-9._:-]{1,160}$",
-        description=(
-            "Stable unique key for this exact batch; an exact retry returns the first result and "
-            "different input with the same key is rejected."
-        ),
-    ),
-]
-PublicOrigin = Literal["user_set", "learned_from_results"]
-McpControlAction = Literal[
-    "inspect",
-    "export",
-    "preview_forget",
-    "preview_remove_database",
-]
 GUIDANCE_UI_URI = "ui://sense/guidance-v1.html"
 GUIDANCE_UI_RESOURCE = (
-    resources.files("sense")
-    .joinpath("ui")
-    .joinpath("guidance")
-    .joinpath("index.html")
+    resources.files("sense").joinpath("ui").joinpath("guidance").joinpath("index.html")
 )
-
-
-class SenseSource(BaseModel):
-    """One bounded source locator accepted by the local Sense tools."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["conversation", "file", "corpus", "result"]
-    locator: str = Field(min_length=1, max_length=512)
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    origin: PublicOrigin
-
-
-class SenseSection(BaseModel):
-    """One complete Sense section accepted by the local Sense tools."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(min_length=1, max_length=64)
-    purpose: str = Field(min_length=1, max_length=320)
-    text: str = Field(min_length=1, max_length=12_000)
-    origins: list[PublicOrigin] = Field(min_length=1, max_length=2)
-    use_for: list[str] = Field(default_factory=list, max_length=16)
-    review_when: list[str] = Field(default_factory=list, max_length=12)
-    sensitivity: Literal["ordinary", "sensitive"] = "ordinary"
-    source_refs: list[SenseSource] = Field(default_factory=list, max_length=12)
-
-    def to_stored(self) -> ProfileSection:
-        payload = self.model_dump(mode="json")
-        payload["id"] = stored_section_id(payload["id"])
-        payload["origins"] = [
-            "learned_from_work" if value == "learned_from_results" else value
-            for value in payload["origins"]
-        ]
-        for source in payload["source_refs"]:
-            if source["origin"] == "learned_from_results":
-                source["origin"] = "learned_from_work"
-        return ProfileSection.model_validate(payload)
-
-
-class SenseRevisionChange(BaseModel):
-    """One final complete-section replacement in a local batch revision."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    section_id: SectionId
-    previous_section_sha256: Sha256
-    previous_understanding: str = Field(min_length=1, max_length=2000)
-    changed_future_judgment: str = Field(min_length=1, max_length=2000)
-    new_section: SenseSection
-
-    def to_stored(self) -> SectionRevision:
-        return SectionRevision(
-            section_id=stored_section_id(self.section_id),
-            previous_section_sha256=self.previous_section_sha256,
-            previous_understanding=self.previous_understanding,
-            changed_future_judgment=self.changed_future_judgment,
-            new_section=self.new_section.to_stored(),
-        )
 
 
 def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
@@ -167,7 +76,7 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
                 )
             )
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - public responses must not expose internals
         return ToolResponse(
             ToolFailure(
                 error=ToolError(
@@ -179,8 +88,12 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
         )
 
 
-def create_server(data_root: Path | None = None) -> MCPServer:
-    service = SenseService(data_root)
+def create_server(
+    data_root: Path | None = None,
+    *,
+    prepare: bool = True,
+) -> MCPServer:
+    service = SenseService(data_root, prepare=prepare)
     server = MCPServer(
         "Sense",
         version=__version__,
@@ -191,7 +104,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         GUIDANCE_UI_URI,
         name="sense-guidance",
         title="Sense Guidance",
-        description="Read-only view of the guidance kept in Sense.",
+        description="Read-only view of the current guidance kept in Sense.",
         mime_type="text/html;profile=mcp-app",
         meta={
             "ui": {
@@ -210,11 +123,9 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="sense_read",
         title="Read Sense",
         description=(
-            "Use this when retained Sense guidance could change an important choice, or when the "
-            "user asks what Sense contains. Start with view=index and read only the relevant "
-            "sections. Use sense_overview for a complete ordinary review and view=full only for "
-            "explicit inspection or repair. Sensitive text is absent from the index, and source "
-            "locators are omitted unless the user-requested inspection needs them. Read-only."
+            "Read Sense only when retained guidance could change the current choice or when the user "
+            "asks what it contains. Start with view=index and then request only relevant sections. "
+            "Sensitive text is absent from the index but can be read by explicit section id."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -222,16 +133,14 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     def sense_read(
         view: ReadView = "index",
         section_ids: Annotated[
-            list[SectionId] | None,
+            list[Annotated[str, Field(min_length=1, max_length=64)]] | None,
             Field(max_length=12),
         ] = None,
-        include_sources: bool = False,
     ) -> ToolResponse:
         return _safe_call(
             lambda: service.read(
                 view=view,
                 section_ids=section_ids,
-                include_sources=include_sources,
             )
         )
 
@@ -239,9 +148,8 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         name="sense_overview",
         title="Show Sense",
         description=(
-            "Use this when the user asks to review the ordinary guidance kept in Sense. The "
-            "read-only view shows each section, when it matters, and broad source types. It omits "
-            "source locators, digests, and sensitive sections."
+            "Show the complete ordinary guidance when the user asks to review Sense. The read-only "
+            "view omits sensitive sections."
         ),
         annotations=READ_ONLY,
         meta={
@@ -258,115 +166,41 @@ def create_server(data_root: Path | None = None) -> MCPServer:
         return _safe_call(service.overview)
 
     @server.tool(
-        name="sense_preview_revision",
-        title="Preview Sense Revision",
+        name="sense_revise",
+        title="Revise Sense",
         description=(
-            "Preview one combined Sense change when the assistant drafted the wording, several "
-            "sections change together, or the user asks to review it. An explicit final ordinary "
-            "replacement can skip this tool. The preview writes nothing and rejects a conflict in "
-            "a target section. Sensitive or scope-expanding persistence remains local."
+            "Replace one or more complete ordinary Sense sections atomically after the user asks to "
+            "save the final wording. Read every affected section first and use its section_sha256. "
+            "An exact repeated final state is a no-op. Do not retry a section conflict automatically. "
+            "Sensitive changes require a local command."
         ),
-        annotations=READ_ONLY,
+        annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},
     )
-    def sense_preview_revision(
-        expected_revision: Annotated[int, Field(ge=1)],
+    def sense_revise(
         changes: Annotated[
-            list[SenseRevisionChange],
-            Field(min_length=1, max_length=MAX_REVISION_CHANGES),
+            list[SectionChange],
+            Field(min_length=1, max_length=MAX_CHANGES),
         ],
     ) -> ToolResponse:
         return _safe_call(
-            lambda: service.preview_revision(
-                expected_revision=expected_revision,
-                changes=[change.to_stored() for change in changes],
+            lambda: service.revise(
+                changes=changes,
                 trusted_user_action=False,
             )
         )
-
-    @server.tool(
-        name="sense_revise_batch",
-        title="Revise Sense Sections",
-        description=(
-            "Use this once after reading every affected section when the user asks to save final "
-            "Sense wording. An explicit final ordinary replacement may be saved directly; save a "
-            "previewed change only after its wording has been reviewed. The complete batch is "
-            "all-or-nothing, a target conflict writes nothing, and the exact batch needs one unique "
-            "idempotency key. Do not retry conflicts automatically."
-        ),
-        annotations=PROFILE_IDEMPOTENT_WRITE,
-        meta={"ui": {"visibility": ["model"]}},
-    )
-    def sense_revise_batch(
-        expected_revision: Annotated[int, Field(ge=1)],
-        idempotency_key: IdempotencyKey,
-        changes: Annotated[
-            list[SenseRevisionChange],
-            Field(min_length=1, max_length=MAX_REVISION_CHANGES),
-        ],
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.revise_batch(
-                expected_revision=expected_revision,
-                idempotency_key=idempotency_key,
-                changes=[change.to_stored() for change in changes],
-                trusted_user_action=False,
-            )
-        )
-
-    @server.tool(
-        name="sense_control",
-        title="Manage Sense Data",
-        description=(
-            "Use this only when the user asks to inspect, export, or remove Sense data. It can "
-            "show the full data or an exact removal preview. Activation and deletion require a "
-            "trusted local confirmation and cannot be authorized by model text."
-        ),
-        annotations=PROFILE_CONTROL,
-        meta={"ui": {"visibility": ["model"]}},
-    )
-    def sense_control(
-        action: McpControlAction,
-        section_id: SectionId | None = None,
-        replacement_section: SenseSection | None = None,
-    ) -> ToolResponse:
-        return _safe_call(
-            lambda: service.control(
-                action=action,
-                section_id=section_id,
-                replacement_section=(
-                    replacement_section.to_stored()
-                    if replacement_section is not None
-                    else None
-                ),
-                trusted_user_action=False,
-            )
-        )
-
-    @server.tool(
-        name="sense_status",
-        title="Check Sense",
-        description=(
-            "Use this when the user asks about the running Sense version, activation, revision, or "
-            "local data protection, or when the connection needs diagnosis. It checks only this "
-            "local installation."
-        ),
-        annotations=READ_ONLY,
-        meta={"ui": {"visibility": ["model"]}},
-    )
-    def sense_status() -> ToolResponse:
-        return _safe_call(service.status)
 
     return server
 
 
-mcp = create_server()
+mcp = create_server(prepare=False)
 
 
 def main() -> None:
+    server = create_server()
     transport = os.environ.get("SENSE_MCP_TRANSPORT", "stdio")
     if transport == "stdio":
-        mcp.run(transport="stdio")
+        server.run(transport="stdio")
         return
     if transport != "streamable-http":
         raise ValueError("SENSE_MCP_TRANSPORT must be stdio or streamable-http")
@@ -380,7 +214,7 @@ def main() -> None:
             "SENSE_MCP_HOST must be loopback until an authenticated OAuth resource server "
             "is configured"
         )
-    mcp.run(
+    server.run(
         transport="streamable-http",
         host=host,
         port=int(os.environ.get("SENSE_MCP_PORT", "8000")),

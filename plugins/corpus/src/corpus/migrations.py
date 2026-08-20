@@ -10,7 +10,6 @@ import tempfile
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import (
@@ -57,26 +56,8 @@ def _paths_for_corpus_database(path: Path) -> RuntimePaths:
     )
 
 
-def _require_rollback_journal_header(path: Path, header: bytes) -> None:
-    if (
-        len(header) >= 20
-        and header.startswith(b"SQLite format 3\x00")
-        and (header[18] == 2 or header[19] == 2)
-    ):
-        raise MigrationRequiredError(
-            "database journal mode requires explicit normalization",
-            details={
-                "path": str(path),
-                "reason": "wal_journal_mode_requires_explicit_normalization",
-                "command": "corpus migrate --corpus <corpus-id>",
-            },
-        )
-
-
 def _require_corpus_database(
     path: Path,
-    *,
-    require_rollback_journal: bool = False,
 ) -> bool:
     paths = _paths_for_corpus_database(path)
     try:
@@ -86,16 +67,11 @@ def _require_corpus_database(
                 "corpus.sqlite",
                 path=path,
             )
-            try:
-                header = os.pread(database_descriptor, 100, 0)
-            finally:
-                os.close(database_descriptor)
+            os.close(database_descriptor)
     except ConfigurationError as exc:
         if exc.details.get("reason") == "missing":
             return False
         raise
-    if require_rollback_journal:
-        _require_rollback_journal_header(path, header)
     return True
 
 
@@ -131,7 +107,7 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    if not _require_corpus_database(path, require_rollback_journal=True):
+    if not _require_corpus_database(path):
         raise MigrationError(
             "corpus database does not exist",
             details={"path": str(path)},
@@ -178,8 +154,6 @@ def _assert_v2_structure(connection: sqlite3.Connection) -> None:
             "is_active",
         },
         "source_units": {"unit_id", "revision_id", "projection_id", "derivation_method"},
-        "snapshots": {"snapshot_id", "extraction_projection_set_hash"},
-        "snapshot_documents": {"snapshot_id", "revision_id", "projection_id"},
         "extraction_issues": {
             "issue_id",
             "attempt_id",
@@ -309,12 +283,11 @@ def require_current_schema(path: Path) -> None:
     state = inspect_schema(path)
     if state.migration_required:
         raise MigrationRequiredError(
-            "corpus database requires an explicit schema migration",
+            "corpus database migration did not complete",
             details={
                 "path": str(path),
                 "current_version": state.current_version,
                 "target_version": state.target_version,
-                "command": "corpus migrate --corpus <corpus-id>",
             },
         )
 
@@ -1054,22 +1027,6 @@ def _stage_streaming_backup(
     return copied, expected_digest
 
 
-def _backup_database(
-    connection: sqlite3.Connection,
-    *,
-    paths: RuntimePaths,
-    backup_name: str,
-) -> Path:
-    with paths.open_corpus_root() as corpus_descriptor:
-        return backup_database_to_private_subdirectory(
-            connection,
-            parent_descriptor=corpus_descriptor,
-            backup_directory_name="backups",
-            backup_directory=paths.corpus_root / "backups",
-            backup_name=backup_name,
-        )
-
-
 def backup_database_to_private_subdirectory(
     connection: sqlite3.Connection,
     *,
@@ -1146,7 +1103,6 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             "migrated": False,
             "from_version": state.current_version,
             "to_version": state.target_version,
-            "backup": None,
         }
     if state.current_version not in {1, 2, 3} or state.target_version != 4:
         raise UnsupportedSchemaError(
@@ -1157,19 +1113,8 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             },
         )
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup_name = (
-        f"corpus-schema-v{state.current_version}-{timestamp}-"
-        f"{uuid.uuid4().hex[:8]}.sqlite"
-    )
-    backup_path: Path | None = None
     connection = _connect(paths.corpus_db)
     try:
-        backup_path = _backup_database(
-            connection,
-            paths=paths,
-            backup_name=backup_name,
-        )
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("BEGIN IMMEDIATE")
         try:
@@ -1256,7 +1201,6 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             "corpus schema migration failed",
             details={
                 "path": str(paths.corpus_db),
-                "backup": str(backup_path) if backup_path is not None else None,
                 "error": str(exc),
             },
         ) from exc
@@ -1266,5 +1210,4 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
         "migrated": True,
         "from_version": state.current_version,
         "to_version": state.target_version,
-        "backup": str(backup_path),
     }

@@ -734,11 +734,9 @@ class WorkspaceService:
         context = self.contexts.read(
             context_id=context_id,
             state="active",
-            include_history=False,
             limit=1,
             offset=0,
             audience="local_cli",
-            view="restricted",
         )
         context_corpus_ids = set(context["context"]["corpus_ids"])
         data_root = self.data_root.expanduser().resolve(strict=False)
@@ -763,11 +761,9 @@ class WorkspaceService:
             context = self.contexts.read(
                 context_id=context_id,
                 state="active",
-                include_history=False,
                 limit=1,
                 offset=0,
                 audience="local_cli",
-                view="restricted",
             )
             context_corpus_ids = set(context["context"]["corpus_ids"])
             self._require_safe_source_overlap(
@@ -842,14 +838,7 @@ class WorkspaceService:
         self,
         *,
         workspace_id: str,
-        expected_generation: int,
-        confirm_disconnect: bool,
     ) -> dict[str, Any]:
-        if not confirm_disconnect:
-            raise WorkspaceValidationError(
-                "disconnect requires explicit confirmation",
-                details={"confirm_disconnect": False},
-            )
         workspace_id = normalize_workspace_id(workspace_id)
         with workspace_writer_lock(self.data_root):
             with workspace_connection(self.data_root) as connection:
@@ -858,15 +847,6 @@ class WorkspaceService:
                     audience="local_cli",
                     connection=connection,
                 )
-                if int(row["generation"]) != expected_generation:
-                    raise WorkspaceConflictError(
-                        "work folder changed before disconnect",
-                        details={
-                            "workspace_id": workspace_id,
-                            "expected_generation": expected_generation,
-                            "current_generation": row["generation"],
-                        },
-                    )
                 source_corpus_id = self._source_corpus_id_for_row(row)
                 if source_corpus_id is not None:
                     pending_changes = self._read_index_change_journal(
@@ -1158,7 +1138,6 @@ class WorkspaceService:
         *,
         workspace_id: str,
         relative_path: str,
-        expected_generation: int,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
         access = _workspace_access()
@@ -1172,14 +1151,6 @@ class WorkspaceService:
                 audience=audience,
                 connection=connection,
             )
-            if int(row["generation"]) != expected_generation:
-                raise WorkspaceConflictError(
-                    "work folder changed before current file selection",
-                    details={
-                        "expected_generation": expected_generation,
-                        "current_generation": row["generation"],
-                    },
-                )
             identity = self._require_connected(row)
             observation = access.observe_workspace_file(
                 Path(row["root_path"]),
@@ -1189,7 +1160,7 @@ class WorkspaceService:
             )
             new_generation = int(row["generation"]) + 1
             selected_at = utc_now()
-            connection.execute(
+            updated = connection.execute(
                 """
                 UPDATE workspaces
                 SET current_relative_path = ?, generation = ?, updated_at = ?
@@ -1200,9 +1171,14 @@ class WorkspaceService:
                     new_generation,
                     selected_at,
                     row["workspace_id"],
-                    expected_generation,
+                    row["generation"],
                 ),
-            )
+            ).rowcount
+            if updated != 1:
+                raise WorkspaceConflictError(
+                    "work folder changed during current file selection",
+                    details={"reason": "generation_changed"},
+                )
             row["current_relative_path"] = observation.relative_path
             row["generation"] = new_generation
             row["updated_at"] = selected_at
@@ -1587,8 +1563,40 @@ class WorkspaceService:
         summary = {
             "reconciled": 0,
             "discarded": 0,
+            "compacted": 0,
             "orphan_files_removed": 0,
         }
+        with workspace_read_connection(self.data_root) as connection:
+            older_available = [
+                dict(item)
+                for item in connection.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT recoveries.*,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY relative_path
+                                   ORDER BY created_at DESC, recovery_id DESC
+                               ) AS recovery_rank
+                        FROM workspace_recoveries recoveries
+                        WHERE workspace_id = ? AND state = 'available'
+                    )
+                    WHERE recovery_rank > 1
+                    ORDER BY created_at, recovery_id
+                    LIMIT ?
+                    """,
+                    (row["workspace_id"], limit),
+                ).fetchall()
+            ]
+        for recovery in older_available:
+            if self._discard_recovery_state(
+                row=row,
+                recovery=recovery,
+                paths=paths,
+                reason="newer_recovery_available",
+            ):
+                summary["discarded"] += 1
+                summary["compacted"] += 1
+
         access = _workspace_access()
         for recovery in recoveries:
             if self._recovery_is_expired(recovery.get("expires_at"), now=now):
@@ -1731,21 +1739,12 @@ class WorkspaceService:
         content: str,
         content_encoding: str,
         expected_version: str,
-        expected_content_sha256: str | None = None,
         make_current: bool = True,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
         """Create or replace one file without silently overwriting outside edits."""
 
         self._validate_expected_version(expected_version)
-        if expected_content_sha256 is not None and (
-            expected_version == WORKSPACE_EXPECTED_ABSENT
-            or not isinstance(expected_content_sha256, str)
-            or not re.fullmatch(
-                r"[0-9a-f]{64}", expected_content_sha256
-            )
-        ):
-            raise WorkspaceValidationError("expected_content_sha256 is invalid")
         payload = self._decode_content(content, content_encoding=content_encoding)
         access = _workspace_access()
         canonical = access.normalize_workspace_relative_path(relative_path)
@@ -1899,17 +1898,6 @@ class WorkspaceService:
                                     "relative_path": canonical,
                                     "reason": "stale_version",
                                     "current_version": before.version_token,
-                                },
-                            )
-                        if (
-                            expected_content_sha256 is not None
-                            and before.sha256 != expected_content_sha256
-                        ):
-                            raise WorkspaceConflictError(
-                                "work folder file content does not match the completed read",
-                                details={
-                                    "relative_path": canonical,
-                                    "reason": "content_digest_mismatch",
                                 },
                             )
                         if before.hardlinked:
@@ -2243,6 +2231,9 @@ class WorkspaceService:
                         "recovery_id": recovery_id if operation == "replace" else None,
                     },
                 ) from exc
+            if operation == "replace":
+                with suppress(Exception):
+                    self._maintain_recoveries_locked(row=row, paths=paths)
             return {
                 "work_folder": self._project(row, audience=audience),
                 "file": self._observation_dict(result_observation),
@@ -2260,19 +2251,14 @@ class WorkspaceService:
         workspace_id: str,
         relative_path: str,
         expected_version: str,
-        expected_content_sha256: str,
         confirm_delete: bool,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
-        """Delete one completely read file if its path and content are unchanged."""
+        """Delete one observed file if its path and version are unchanged."""
 
         self._validate_expected_version(expected_version)
         if expected_version == WORKSPACE_EXPECTED_ABSENT:
             raise WorkspaceValidationError("delete requires an observed v1 version")
-        if not isinstance(expected_content_sha256, str) or re.fullmatch(
-            r"[0-9a-f]{64}", expected_content_sha256
-        ) is None:
-            raise WorkspaceValidationError("expected_content_sha256 is invalid")
         if confirm_delete is not True:
             raise WorkspaceValidationError("file deletion requires explicit confirmation")
 
@@ -2285,17 +2271,6 @@ class WorkspaceService:
             paths.ensure()
             root = Path(row["root_path"])
             source_corpus_id = self._source_corpus_id_for_row(row)
-            if source_corpus_id is not None:
-                self._prepare_index_change(
-                    row=row,
-                    paths=paths,
-                    source_corpus_id=source_corpus_id,
-                    relative_path=canonical,
-                    operation="delete",
-                    expected_version=expected_version,
-                    intended_sha256=expected_content_sha256,
-                )
-
             deleted = False
             try:
                 with (
@@ -2348,13 +2323,15 @@ class WorkspaceService:
                                     "current_version": before.version_token,
                                 },
                             )
-                        if before.sha256 != expected_content_sha256:
-                            raise WorkspaceConflictError(
-                                "work folder file content does not match the completed read",
-                                details={
-                                    "relative_path": canonical,
-                                    "reason": "content_digest_mismatch",
-                                },
+                        if source_corpus_id is not None:
+                            self._prepare_index_change(
+                                row=row,
+                                paths=paths,
+                                source_corpus_id=source_corpus_id,
+                                relative_path=canonical,
+                                operation="delete",
+                                expected_version=expected_version,
+                                intended_sha256=before.sha256,
                             )
                         try:
                             os.unlink(existing_raw_name, dir_fd=parent_descriptor)

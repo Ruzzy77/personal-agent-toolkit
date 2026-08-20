@@ -1,4 +1,4 @@
-"""Small local CLI for importing and inspecting the Sense profile."""
+"""Small local CLI for importing, inspecting, and deleting Sense data."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .errors import SenseError
+from .errors import ConfirmationRequiredError, SenseError
 from .model import ProfileDocument
 from .service import SenseService
 
@@ -23,23 +23,14 @@ def _parser() -> argparse.ArgumentParser:
 
     import_profile = commands.add_parser(
         "import-profile",
-        help="Import a reviewed profile document as a read-only preview.",
+        help="Import one reviewed profile as the current Sense profile.",
     )
     import_profile.add_argument("--input", required=True, type=Path)
-    import_profile.add_argument("--replace-preview", action="store_true")
-    import_profile.add_argument("--expected-preview-revision", type=int)
-    import_profile.add_argument("--expected-preview-digest")
-
-    activate = commands.add_parser(
-        "activate",
-        help="Activate a reviewed preview after explicit local confirmation.",
-    )
-    activate.add_argument("--expected-revision", required=True, type=int)
-    activate.add_argument("--confirm-profile-digest", required=True)
-    activate.add_argument(
-        "--confirm-reviewed-profile",
+    import_profile.add_argument("--replace", action="store_true")
+    import_profile.add_argument(
+        "--confirm-replace",
         action="store_true",
-        help="Confirm that the current preview was reviewed and should become active.",
+        help="Confirm permanent replacement of an existing profile.",
     )
 
     read = commands.add_parser("read", help="Read the current profile.")
@@ -49,47 +40,59 @@ def _parser() -> argparse.ArgumentParser:
         default="index",
     )
     read.add_argument("--section-id", action="append", default=[])
-    read.add_argument("--include-sources", action="store_true")
 
-    history = commands.add_parser(
-        "history",
-        help="List retained revisions or compare two retained revisions.",
+    remove_section = commands.add_parser(
+        "remove-section",
+        help="Permanently remove one current Sense section.",
     )
-    history.add_argument("--from-revision", type=int)
-    history.add_argument("--to-revision", type=int)
+    remove_section.add_argument("--section-id", required=True)
+    remove_section.add_argument("--previous-section-sha256", required=True)
+    remove_section.add_argument("--confirm-permanent-delete", action="store_true")
 
-    commands.add_parser("status", help="Show private store status.")
+    remove_database = commands.add_parser(
+        "remove-database",
+        help="Permanently remove all Sense profile data.",
+    )
+    remove_database.add_argument("--confirm-permanent-delete", action="store_true")
+
+    commands.add_parser("status", help="Show the local store status.")
     return parser
 
 
 def _run(args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "import-profile" and args.replace and not args.confirm_replace:
+        raise ConfirmationRequiredError(
+            "replacing the current Sense profile requires --confirm-replace"
+        )
+    if args.command in {"remove-section", "remove-database"} and not (
+        args.confirm_permanent_delete
+    ):
+        raise ConfirmationRequiredError(
+            "permanent deletion requires --confirm-permanent-delete"
+        )
     service = SenseService(args.data_root)
     if args.command == "import-profile":
         payload = json.loads(args.input.read_text(encoding="utf-8"))
         profile = ProfileDocument.model_validate(payload)
         return service.import_profile(
             profile,
-            replace_preview=args.replace_preview,
-            expected_preview_revision=args.expected_preview_revision,
-            expected_preview_digest=args.expected_preview_digest,
-        )
-    if args.command == "activate":
-        return service.control(
-            action="activate",
-            expected_revision=args.expected_revision,
-            confirm_profile_digest=args.confirm_profile_digest,
-            trusted_user_action=args.confirm_reviewed_profile,
+            replace=args.replace,
+            trusted_user_action=args.confirm_replace,
         )
     if args.command == "read":
         return service.read(
             view=args.view,
             section_ids=args.section_id or None,
-            include_sources=args.include_sources,
         )
-    if args.command == "history":
-        return service.history(
-            from_revision=args.from_revision,
-            to_revision=args.to_revision,
+    if args.command == "remove-section":
+        return service.remove_section(
+            section_id=args.section_id,
+            previous_section_sha256=args.previous_section_sha256,
+            trusted_user_action=args.confirm_permanent_delete,
+        )
+    if args.command == "remove-database":
+        return service.remove_database(
+            trusted_user_action=args.confirm_permanent_delete,
         )
     if args.command == "status":
         return service.status()

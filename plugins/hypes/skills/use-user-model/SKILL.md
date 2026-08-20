@@ -39,7 +39,7 @@ Applying an existing relation or merely completing a task is not by itself a rea
 Apply one atomic patch:
 
 - replace existing Node, Predicate, or Edge values instead of accumulating duplicates;
-- delete incident Edges before deleting their Nodes or Predicates;
+- delete a Node or Predicate directly when that concept should disappear; incident Edges are removed atomically;
 - use short reusable aliases that describe the concept rather than the conversation;
 - revise or remove a relation when the current interaction no longer supports it.
 
@@ -49,5 +49,4 @@ the assistant’s own answer. Hypes is the agent's revisable model, not an objec
 user-approved instruction. Do not report ordinary background maintenance unless the user asks.
 
 When the user asks what Hypes models, describe only the relevant relationships and make clear that
-they are the agent’s current revisable view. When deleting, inspect the affected slice and remove the
-incident Edges in the same patch.
+they are the agent’s current revisable view. When deleting, inspect the affected slice so the semantic effect is understood; deleting a Node or Predicate removes its incident Edges atomically.

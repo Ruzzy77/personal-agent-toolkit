@@ -1,9 +1,4 @@
-"""Minimal SQLite storage for the Hypes relationship model of the user.
-
-The ontology database is deliberately separate from every earlier Hypes store.
-Connections are opened per operation, and this module owns only persistence
-mechanics: schema initialization, connection safety, and write transactions.
-"""
+"""Minimal SQLite storage for the Hypes relationship model of the user."""
 
 from __future__ import annotations
 
@@ -11,22 +6,17 @@ import json
 import os
 import sqlite3
 import stat
-import threading
-import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from .errors import HypesError
 
-_INITIALIZATION_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
-    weakref.WeakValueDictionary()
-)
-_INITIALIZATION_LOCKS_GUARD = threading.Lock()
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 DATA_ROOT_MODE = 0o700
 DATABASE_MODE = 0o600
 DATABASE_COMPANION_SUFFIXES = ("-journal", "-shm", "-wal")
+_REQUIRED_TABLES = {"nodes", "predicates", "edges", "nodes_fts", "predicates_fts"}
 
 
 class UnsafeStorageError(HypesError):
@@ -34,16 +24,6 @@ class UnsafeStorageError(HypesError):
 
     def __init__(self, message: str) -> None:
         super().__init__("unsafe_storage", message)
-
-
-def _initialization_lock(database_path: Path) -> threading.Lock:
-    key = str(database_path)
-    with _INITIALIZATION_LOCKS_GUARD:
-        lock = _INITIALIZATION_LOCKS.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _INITIALIZATION_LOCKS[key] = lock
-        return lock
 
 
 def default_data_root() -> Path:
@@ -70,7 +50,9 @@ def _lstat(path: Path, *, description: str) -> os.stat_result | None:
     except FileNotFoundError:
         return None
     except OSError as exc:
-        raise UnsafeStorageError(f"Hypes {description} metadata is unavailable") from exc
+        raise UnsafeStorageError(
+            f"Hypes {description} metadata is unavailable"
+        ) from exc
 
 
 def _require_private_path(
@@ -176,7 +158,7 @@ def _secure_created_path(
 
 
 class HypesStore:
-    """Open isolated, per-operation connections to the ontology database."""
+    """Own one initialized graph database and separate read/write connections."""
 
     def __init__(self, data_root: Path | None = None) -> None:
         requested_root = (data_root or default_data_root()).expanduser()
@@ -193,7 +175,6 @@ class HypesStore:
                 directory=True,
             )
             return
-
         try:
             self.data_root.mkdir(mode=DATA_ROOT_MODE, parents=True, exist_ok=False)
         except FileExistsError as exc:
@@ -210,8 +191,9 @@ class HypesStore:
             )
             return
         except OSError as exc:
-            raise UnsafeStorageError("Hypes data directory could not be created") from exc
-
+            raise UnsafeStorageError(
+                "Hypes data directory could not be created"
+            ) from exc
         _secure_created_path(
             self.data_root,
             description="data directory",
@@ -229,7 +211,6 @@ class HypesStore:
                 directory=False,
             )
             return
-
         try:
             _secure_created_path(
                 self.database_path,
@@ -287,8 +268,21 @@ class HypesStore:
             )
         return tuple(identities)
 
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
+    @staticmethod
+    def _configure(connection: sqlite3.Connection, *, writable: bool) -> None:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA foreign_keys = ON")
+        if writable:
+            secure_delete = connection.execute("PRAGMA secure_delete = ON").fetchone()
+            if secure_delete is None or secure_delete[0] != 1:
+                raise RuntimeError("SQLite secure deletion is unavailable")
+        else:
+            connection.execute("PRAGMA query_only = ON")
+
+    def initialize(self) -> None:
+        """Create or migrate the graph schema once before serving operations."""
+
         self._prepare_data_root()
         self._prepare_database()
         storage_identity = self._require_storage_boundary()
@@ -298,25 +292,75 @@ class HypesStore:
                 raise UnsafeStorageError(
                     "Hypes storage changed while the database was being opened"
                 )
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA busy_timeout = 30000")
-            connection.execute("PRAGMA foreign_keys = ON")
-            secure_delete = connection.execute("PRAGMA secure_delete = ON").fetchone()
-            if secure_delete is None or secure_delete[0] != 1:
-                raise RuntimeError("SQLite secure deletion is unavailable")
-
-            with _initialization_lock(self.database_path):
-                connection.execute("PRAGMA journal_mode = WAL")
-                connection.execute("BEGIN IMMEDIATE")
-                try:
-                    self._initialize(connection)
-                except Exception:
-                    connection.rollback()
-                    raise
+            self._configure(connection, writable=True)
+            version_row = connection.execute("PRAGMA user_version").fetchone()
+            version = int(version_row[0]) if version_row is not None else 0
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if version == CURRENT_SCHEMA_VERSION and _REQUIRED_TABLES.issubset(tables):
+                return
+            if version not in {0, 1}:
+                raise RuntimeError(
+                    "the Hypes ontology database uses an unsupported schema version"
+                )
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                if version == 0:
+                    self._create_schema(connection)
                 else:
-                    connection.commit()
-            self._require_storage_boundary()
+                    self._migrate_v1(connection)
+                connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+        finally:
+            connection.close()
+        self._require_storage_boundary()
 
+    @contextmanager
+    def connect_read(self) -> Iterator[sqlite3.Connection]:
+        """Open a true read-only connection without schema or journal writes."""
+
+        storage_identity = self._require_storage_boundary()
+        connection = sqlite3.connect(
+            f"file:{self.database_path}?mode=ro",
+            uri=True,
+            timeout=30.0,
+            isolation_level=None,
+        )
+        try:
+            if self._require_storage_boundary() != storage_identity:
+                raise UnsafeStorageError(
+                    "Hypes storage changed while the database was being opened"
+                )
+            self._configure(connection, writable=False)
+            yield connection
+        finally:
+            connection.close()
+
+    @contextmanager
+    def connect_write(self) -> Iterator[sqlite3.Connection]:
+        """Open one write connection after initialization has completed."""
+
+        storage_identity = self._require_storage_boundary()
+        connection = sqlite3.connect(
+            self.database_path,
+            timeout=30.0,
+            isolation_level=None,
+        )
+        try:
+            if self._require_storage_boundary() != storage_identity:
+                raise UnsafeStorageError(
+                    "Hypes storage changed while the database was being opened"
+                )
+            self._configure(connection, writable=True)
             yield connection
             connection.commit()
         except Exception:
@@ -324,18 +368,12 @@ class HypesStore:
             raise
         finally:
             connection.close()
+        self._require_storage_boundary()
 
     @staticmethod
-    def _initialize(connection: sqlite3.Connection) -> None:
-        version_row = connection.execute("PRAGMA user_version").fetchone()
-        version = int(version_row[0]) if version_row is not None else 0
-        if version not in {0, CURRENT_SCHEMA_VERSION}:
-            raise RuntimeError(
-                "the Hypes ontology database uses an unsupported schema version"
-            )
-
+    def _create_schema(connection: sqlite3.Connection) -> None:
         statements = (
-            """CREATE TABLE IF NOT EXISTS nodes (
+            """CREATE TABLE nodes (
                 node_id TEXT PRIMARY KEY,
                 labels_json TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -343,88 +381,87 @@ class HypesStore:
                 aliases_json TEXT NOT NULL,
                 attributes_json TEXT NOT NULL
             )""",
-            """CREATE TABLE IF NOT EXISTS predicates (
+            """CREATE TABLE predicates (
                 predicate_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 aliases_json TEXT NOT NULL
             )""",
-            """CREATE TABLE IF NOT EXISTS edges (
+            """CREATE TABLE edges (
                 edge_id TEXT PRIMARY KEY,
                 source_id TEXT NOT NULL
-                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE CASCADE,
                 predicate_id TEXT NOT NULL
-                    REFERENCES predicates(predicate_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+                    REFERENCES predicates(predicate_id) ON UPDATE RESTRICT ON DELETE CASCADE,
                 target_id TEXT NOT NULL
-                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE CASCADE,
                 qualifiers_json TEXT NOT NULL
             )""",
-            """CREATE INDEX IF NOT EXISTS edges_source
-                ON edges(source_id, edge_id)""",
-            """CREATE INDEX IF NOT EXISTS edges_target
-                ON edges(target_id, edge_id)""",
-            """CREATE INDEX IF NOT EXISTS edges_predicate
-                ON edges(predicate_id, edge_id)""",
-            """CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
-                ref UNINDEXED,
-                name,
-                aliases,
-                description,
-                tokenize = 'unicode61'
+            "CREATE INDEX edges_source ON edges(source_id, edge_id)",
+            "CREATE INDEX edges_target ON edges(target_id, edge_id)",
+            "CREATE INDEX edges_predicate ON edges(predicate_id, edge_id)",
+            """CREATE VIRTUAL TABLE nodes_fts USING fts5(
+                ref UNINDEXED, name, aliases, description, tokenize = 'unicode61'
             )""",
-            """CREATE VIRTUAL TABLE IF NOT EXISTS predicates_fts USING fts5(
-                ref UNINDEXED,
-                name,
-                aliases,
-                description,
-                tokenize = 'unicode61'
+            """CREATE VIRTUAL TABLE predicates_fts USING fts5(
+                ref UNINDEXED, name, aliases, description, tokenize = 'unicode61'
             )""",
-            """CREATE TRIGGER IF NOT EXISTS nodes_fts_insert
-                AFTER INSERT ON nodes BEGIN
-                    INSERT INTO nodes_fts(ref, name, aliases, description)
-                    VALUES (new.node_id, new.name, new.aliases_json, new.description);
-                END""",
-            """CREATE TRIGGER IF NOT EXISTS nodes_fts_update
+            """CREATE TRIGGER nodes_fts_insert AFTER INSERT ON nodes BEGIN
+                INSERT INTO nodes_fts(ref, name, aliases, description)
+                VALUES (new.node_id, new.name, new.aliases_json, new.description);
+            END""",
+            """CREATE TRIGGER nodes_fts_update
                 AFTER UPDATE OF node_id, name, aliases_json, description ON nodes BEGIN
-                    DELETE FROM nodes_fts WHERE ref = old.node_id;
-                    INSERT INTO nodes_fts(ref, name, aliases, description)
-                    VALUES (new.node_id, new.name, new.aliases_json, new.description);
-                END""",
-            """CREATE TRIGGER IF NOT EXISTS nodes_fts_delete
-                AFTER DELETE ON nodes BEGIN
-                    DELETE FROM nodes_fts WHERE ref = old.node_id;
-                END""",
-            """CREATE TRIGGER IF NOT EXISTS predicates_fts_insert
-                AFTER INSERT ON predicates BEGIN
-                    INSERT INTO predicates_fts(ref, name, aliases, description)
-                    VALUES (
-                        new.predicate_id,
-                        new.name,
-                        new.aliases_json,
-                        new.description
-                    );
-                END""",
-            """CREATE TRIGGER IF NOT EXISTS predicates_fts_update
+                DELETE FROM nodes_fts WHERE ref = old.node_id;
+                INSERT INTO nodes_fts(ref, name, aliases, description)
+                VALUES (new.node_id, new.name, new.aliases_json, new.description);
+            END""",
+            """CREATE TRIGGER nodes_fts_delete AFTER DELETE ON nodes BEGIN
+                DELETE FROM nodes_fts WHERE ref = old.node_id;
+            END""",
+            """CREATE TRIGGER predicates_fts_insert AFTER INSERT ON predicates BEGIN
+                INSERT INTO predicates_fts(ref, name, aliases, description)
+                VALUES (new.predicate_id, new.name, new.aliases_json, new.description);
+            END""",
+            """CREATE TRIGGER predicates_fts_update
                 AFTER UPDATE OF predicate_id, name, aliases_json, description
                 ON predicates BEGIN
-                    DELETE FROM predicates_fts WHERE ref = old.predicate_id;
-                    INSERT INTO predicates_fts(ref, name, aliases, description)
-                    VALUES (
-                        new.predicate_id,
-                        new.name,
-                        new.aliases_json,
-                        new.description
-                    );
-                END""",
-            """CREATE TRIGGER IF NOT EXISTS predicates_fts_delete
-                AFTER DELETE ON predicates BEGIN
-                    DELETE FROM predicates_fts WHERE ref = old.predicate_id;
-                END""",
+                DELETE FROM predicates_fts WHERE ref = old.predicate_id;
+                INSERT INTO predicates_fts(ref, name, aliases, description)
+                VALUES (new.predicate_id, new.name, new.aliases_json, new.description);
+            END""",
+            """CREATE TRIGGER predicates_fts_delete AFTER DELETE ON predicates BEGIN
+                DELETE FROM predicates_fts WHERE ref = old.predicate_id;
+            END""",
         )
         for statement in statements:
             connection.execute(statement)
-        if version == 0:
-            connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate_v1(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """CREATE TABLE edges_v2 (
+                edge_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL
+                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE CASCADE,
+                predicate_id TEXT NOT NULL
+                    REFERENCES predicates(predicate_id) ON UPDATE RESTRICT ON DELETE CASCADE,
+                target_id TEXT NOT NULL
+                    REFERENCES nodes(node_id) ON UPDATE RESTRICT ON DELETE CASCADE,
+                qualifiers_json TEXT NOT NULL
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO edges_v2(edge_id, source_id, predicate_id, target_id, qualifiers_json) "
+            "SELECT edge_id, source_id, predicate_id, target_id, qualifiers_json FROM edges"
+        )
+        connection.execute("DROP TABLE edges")
+        connection.execute("ALTER TABLE edges_v2 RENAME TO edges")
+        connection.execute("CREATE INDEX edges_source ON edges(source_id, edge_id)")
+        connection.execute("CREATE INDEX edges_target ON edges(target_id, edge_id)")
+        connection.execute(
+            "CREATE INDEX edges_predicate ON edges(predicate_id, edge_id)"
+        )
 
     @staticmethod
     def begin_write(connection: sqlite3.Connection) -> None:

@@ -1,25 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sqlite3
 import stat
 from pathlib import Path
 
 import pytest
-
-from sense.errors import PreviewReadOnlyError, RevisionConflictError, UnsafeStorageError
+from sense.errors import (
+    ConfirmationRequiredError,
+    SectionConflictError,
+    UnsafeStorageError,
+)
 from sense.exposure import guidance_overview
 from sense.mcp_server import create_server
-from sense.model import ProfileDocument, ProfileSection, SectionRevision, SourceRef, section_sha256
+from sense.model import ProfileDocument, ProfileSection, SectionChange, section_sha256
+from sense.service import SenseService
 from sense.store import SenseStore
-
-
-def source_ref() -> SourceRef:
-    return SourceRef(
-        kind="file",
-        locator="/private/owner.md",
-        sha256="a" * 64,
-        origin="user_set",
-    )
 
 
 def section(section_id: str, text: str, *, sensitive: bool = False) -> ProfileSection:
@@ -28,177 +25,203 @@ def section(section_id: str, text: str, *, sensitive: bool = False) -> ProfileSe
         purpose=f"Purpose for {section_id}",
         text=text,
         origins=["user_set"],
-        use_for=["important choices"],
-        review_when=["the guidance changes"],
         sensitivity="sensitive" if sensitive else "ordinary",
-        source_refs=[source_ref()],
     )
 
 
 def profile() -> ProfileDocument:
     return ProfileDocument(
-        revision=1,
         sections=[
-            section("working-together", "Use independent judgment."),
-            section("writing", "Write for the intended reader."),
-        ],
+            section("questions-and-choices", "Use independent judgment."),
+            section("conversation-and-writing", "Write for the intended reader."),
+        ]
     )
 
 
-def activate(store: SenseStore) -> None:
-    current = store.read()
-    store.activate(
-        expected_revision=current.profile.revision,
-        confirm_profile_digest=current.digest,
-    )
-
-
-def change(previous: ProfileSection, text: str) -> SectionRevision:
-    return SectionRevision(
+def change(previous: ProfileSection, text: str) -> SectionChange:
+    return SectionChange(
         section_id=previous.id,
         previous_section_sha256=section_sha256(previous),
-        previous_understanding=f"Previous guidance for {previous.id}.",
-        changed_future_judgment=f"Future judgment for {previous.id} changes.",
         new_section=previous.model_copy(update={"text": text}),
     )
 
 
-def test_private_storage_and_preview_boundary(tmp_path: Path) -> None:
-    root = tmp_path / "private" / "Sense"
-    store = SenseStore(root)
-    current = store.initialize(profile())
-
-    assert stat.S_IMODE(root.stat().st_mode) == 0o700
-    assert stat.S_IMODE(store.database_path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(store.lock_path.stat().st_mode) == 0o600
-    with pytest.raises(PreviewReadOnlyError):
-        store.revise_batch(
-            expected_revision=1,
-            idempotency_key="preview-write",
-            changes=[change(current.profile.sections[0], "Do not write this.")],
-            user_confirmed=False,
+def test_legacy_profile_becomes_one_current_state_without_provenance(
+    tmp_path: Path,
+) -> None:
+    marker = "REMOVE-LEGACY-SOURCE-7f3e9832"
+    root = tmp_path / "Sense"
+    root.mkdir(mode=0o700)
+    database = root / "sense.sqlite3"
+    legacy = {
+        "schema_version": 1,
+        "revision": 18,
+        "sections": [
+            {
+                "id": "working-together",
+                "purpose": "Choose carefully.",
+                "text": "Use independent judgment.",
+                "origins": ["user_set", "learned_from_work"],
+                "use_for": [],
+                "review_when": [],
+                "sensitivity": "ordinary",
+                "source_refs": [
+                    {
+                        "kind": "file",
+                        "locator": f"/private/{marker}.md",
+                        "sha256": "a" * 64,
+                        "origin": "user_set",
+                    }
+                ],
+            }
+        ],
+        "controls": {
+            "raw_conversation_storage": "never",
+            "sensitive_persistence": "explicit_confirmation",
+            "external_effects": "responsibility_based",
+            "provider_memory_management": "provider_owned",
+        },
+    }
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE current_profile (
+                singleton INTEGER PRIMARY KEY,
+                lifecycle TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                profile_json TEXT NOT NULL,
+                profile_sha256 TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE profile_revisions (
+                revision INTEGER PRIMARY KEY,
+                profile_json TEXT NOT NULL,
+                profile_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE remote_operation_replays (
+                operation TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_sha256 TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE runtime_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            """
         )
-    assert store.read().profile.revision == 1
+        serialized = json.dumps(legacy)
+        connection.execute(
+            "INSERT INTO current_profile VALUES (1, 'active', 18, ?, ?, ?)",
+            (serialized, "b" * 64, "2026-08-20T00:00:00Z"),
+        )
+        connection.execute(
+            "INSERT INTO profile_revisions VALUES (17, ?, ?, ?)",
+            (serialized, "c" * 64, "2026-08-19T00:00:00Z"),
+        )
+        connection.execute(
+            "INSERT INTO remote_operation_replays VALUES (?, ?, ?, ?, ?)",
+            ("revise", "old-key", "d" * 64, marker, "2026-08-20T00:00:00Z"),
+        )
+    database.chmod(0o600)
+
+    stored = SenseService(root).store.read()
+    item = stored.profile.sections[0]
+    assert item.id == "questions-and-choices"
+    assert item.origins == ["user_set", "learned_from_results"]
+    assert set(item.model_dump()) == {"id", "purpose", "text", "origins", "sensitivity"}
+
+    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert tables == {"current_profile"}
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert marker.encode() not in database.read_bytes()
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(database.stat().st_mode) == 0o600
 
 
-def test_batch_revision_is_atomic_and_idempotent(tmp_path: Path) -> None:
+def test_atomic_update_uses_only_section_tokens_and_natural_noop(
+    tmp_path: Path,
+) -> None:
     store = SenseStore(tmp_path / "Sense")
     store.initialize(profile())
-    activate(store)
     original = store.read()
-    working, writing = original.profile.sections
+    first, second = original.profile.sections
     changes = [
-        change(working, "Use one final judgment."),
-        change(writing, "Write the final result for its reader."),
+        change(first, "Use one final judgment."),
+        change(second, "Write the final result for its reader."),
     ]
 
-    preview = store.preview_revise_batch(
-        expected_revision=1,
-        changes=changes,
-        user_confirmed=False,
-    )
-    assert preview.proposed_profile.revision == 2
-    assert store.read().profile.revision == 1
-
-    result = store.revise_batch(
-        expected_revision=1,
-        idempotency_key="two-sections",
-        changes=changes,
-        user_confirmed=False,
-    )
-    replay = store.revise_batch(
-        expected_revision=1,
-        idempotency_key="two-sections",
-        changes=changes,
-        user_confirmed=False,
-    )
-    assert result["revision"] == 2
-    assert replay["replayed"] is True
-    assert [item.text for item in store.read().profile.sections] == [
-        "Use one final judgment.",
-        "Write the final result for its reader.",
-    ]
+    result = store.revise(changes=changes)
+    repeated = store.revise(changes=changes)
+    assert result == {
+        "effect": "sections_updated",
+        "changed_section_ids": ["conversation-and-writing", "questions-and-choices"],
+        "unchanged_section_ids": [],
+    }
+    assert repeated["effect"] == "no_change"
 
     current = store.read()
     valid = change(current.profile.sections[0], "Must not be partially written.")
-    invalid = SectionRevision(
-        section_id="writing",
+    invalid = SectionChange(
+        section_id="conversation-and-writing",
         previous_section_sha256="0" * 64,
-        previous_understanding="Old writing guidance.",
-        changed_future_judgment="New writing guidance.",
-        new_section=current.profile.sections[1].model_copy(update={"text": "Conflict."}),
+        new_section=current.profile.sections[1].model_copy(
+            update={"text": "Conflict."}
+        ),
     )
-    with pytest.raises(RevisionConflictError):
-        store.revise_batch(
-            expected_revision=2,
-            idempotency_key="atomic-conflict",
-            changes=[valid, invalid],
-            user_confirmed=False,
-        )
+    with pytest.raises(SectionConflictError):
+        store.revise(changes=[valid, invalid])
     assert store.read().profile == current.profile
 
 
-def test_overview_hides_sensitive_content_and_source_locations() -> None:
+def test_sensitive_guidance_needs_local_confirmation_and_stays_out_of_overview(
+    tmp_path: Path,
+) -> None:
     document = ProfileDocument(
-        revision=1,
         sections=[
-            section("working-together", "Read /Users/example/private.md."),
+            section("questions-and-choices", "Use independent judgment."),
             section("private-life", "SECRET-MARKER", sensitive=True),
-        ],
+        ]
     )
+    store = SenseStore(tmp_path / "Sense")
+    store.initialize(document)
+    sensitive = store.read().profile.sections[1]
+    update = change(sensitive, "UPDATED-SECRET")
+
+    with pytest.raises(ConfirmationRequiredError):
+        store.revise(changes=[update])
+    store.revise(changes=[update], user_confirmed=True)
 
     overview = guidance_overview(
-        document,
-        lifecycle="active",
-        updated_at="2026-08-13T00:00:00Z",
+        store.read().profile,
+        updated_at="2026-08-20T00:00:00Z",
     )
-    serialized = str(overview)
-    assert "SECRET-MARKER" not in serialized
-    assert "/Users/example/private.md" not in serialized
-    assert source_ref().sha256 not in serialized
-    assert "[연결된 자료]" in serialized
+    assert "UPDATED-SECRET" not in str(overview)
 
 
-def test_forget_removes_content_from_current_and_retained_revisions(tmp_path: Path) -> None:
-    marker = "FORGET-ME-7f3e9832"
+def test_permanent_deletion_requires_confirmation(tmp_path: Path) -> None:
     store = SenseStore(tmp_path / "Sense")
-    initial = ProfileDocument(
-        revision=1,
-        sections=[
-            section("working-together", marker),
-            section("writing", "Keep this section."),
-        ],
-    )
-    store.initialize(initial)
-    activate(store)
-    current = store.read()
-    store.revise_batch(
-        expected_revision=1,
-        idempotency_key="before-forget",
-        changes=[change(current.profile.sections[0], f"{marker} revised")],
-        user_confirmed=False,
-    )
-
-    replacement = section("working-together", "Use independent judgment.")
-    preview = store.preview_forget(
-        section_id="working-together",
-        replacement_section=replacement,
-    )
-    current = store.read()
-    store.forget(
-        expected_revision=current.profile.revision,
-        section_id="working-together",
-        confirmation_digest=preview["confirmation_digest"],
-        replacement_section=replacement,
+    store.initialize(profile())
+    target = store.read().profile.sections[0]
+    with pytest.raises(ConfirmationRequiredError):
+        store.remove_section(
+            section_id=target.id,
+            previous_section_sha256=section_sha256(target),
+            user_confirmed=False,
+        )
+    store.remove_section(
+        section_id=target.id,
+        previous_section_sha256=section_sha256(target),
         user_confirmed=True,
     )
-
-    assert marker not in store.read().profile.model_dump_json()
-    assert all(marker not in item.model_dump_json() for item in store.history())
-    for name in ("sense.sqlite3", "sense.sqlite3-wal", "sense.sqlite3-shm"):
-        path = store.data_root / name
-        if path.exists():
-            assert marker.encode() not in path.read_bytes()
+    assert [item.id for item in store.read().profile.sections] == [
+        "conversation-and-writing"
+    ]
 
 
 def test_storage_rejects_a_symlinked_data_root(tmp_path: Path) -> None:
@@ -212,21 +235,24 @@ def test_storage_rejects_a_symlinked_data_root(tmp_path: Path) -> None:
     assert list(target.iterdir()) == []
 
 
-def test_mcp_exposes_one_revision_path_and_reads_without_writing(tmp_path: Path) -> None:
+def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
     root = tmp_path / "Sense"
     SenseStore(root).initialize(profile())
     server = create_server(root)
-    tools = {tool.name for tool in asyncio.run(server.list_tools())}
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
 
-    assert tools == {
-        "sense_read",
-        "sense_overview",
-        "sense_preview_revision",
-        "sense_revise_batch",
-        "sense_control",
-        "sense_status",
-    }
+    assert set(tools) == {"sense_read", "sense_overview", "sense_revise"}
+    revise_schema = str(tools["sense_revise"].input_schema)
+    for removed_field in (
+        "expected_revision",
+        "idempotency_key",
+        "previous_understanding",
+        "changed_future_judgment",
+        "source_refs",
+        "use_for",
+        "review_when",
+    ):
+        assert removed_field not in revise_schema
     result = asyncio.run(server.call_tool("sense_read", {"view": "index"}))
     assert result.structured_content["ok"] is True
-    assert result.structured_content["result"]["revision"] == 1
-    assert SenseStore(root).read().profile.revision == 1
+    assert set(result.structured_content["result"]) == {"sections"}

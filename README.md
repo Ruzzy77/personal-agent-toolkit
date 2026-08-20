@@ -172,9 +172,8 @@ Start a new task or session after installing or updating a plugin.
 
 ### Sense
 
-Sense intentionally starts without active guidance. Copy the example, replace its placeholder text
-with the small set of guidance you want important choices to use, and import it as a read-only
-preview.
+Sense starts without guidance. Copy the example, replace its placeholder text with the small set of
+guidance you want important choices to use, review the file, and import it as the current profile.
 
 ```sh
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
@@ -186,17 +185,9 @@ cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 ./plugins/sense/bin/sense status
 ```
 
-After reviewing the exact preview, activate the revision and digest returned by `status`:
-
-```sh
-./plugins/sense/bin/sense activate \
-  --expected-revision 1 \
-  --confirm-profile-digest PROFILE_SHA256_FROM_STATUS \
-  --confirm-reviewed-profile
-```
-
-Activation is deliberately a local user action. An AI tool cannot activate, forget, or remove the
-guidance on the user's behalf.
+Sense keeps only this current profile. Ordinary corrections use the affected section's change token
+and one atomic update. Replacing the whole profile, changing sensitive guidance, and permanent
+deletion remain explicit local actions.
 
 ### Corpus
 
@@ -228,8 +219,9 @@ choose an active named context, then connect a separate local work folder:
 Only this explicitly connected folder is writable. Its local files remain the latest copy, and the
 Mac and local Corpus connection must be available when Chat reads or writes them. Existing files
 are replaced only from a freshly observed version; concurrent local changes stop the write rather
-than being overwritten. Corpus keeps a private recovery copy for a successful replacement. It does
-not provide file deletion, move, execution, offline cloud copies, or multi-device merging.
+than being overwritten. Corpus keeps only the latest recoverable replacement for each path. File
+deletion requires an explicit request and is permanent. Corpus does not move or execute files and
+does not provide offline cloud copies or multi-device merging.
 
 ### Hypes
 
@@ -262,6 +254,7 @@ The local MCP exposes two tools:
 - `hypes_read` searches Node and Predicate names, aliases, and descriptions, then reads a bounded
   graph neighborhood.
 - `hypes_rewrite` applies Node, Predicate, and Edge puts or deletes as one atomic graph patch.
+  Deleting a Node or Predicate also removes its incident Edges in that transaction.
 
 Start a new task or session after installation. Codex or Claude can select Hypes without a named
 request. To inspect or correct the model, ask “How do you currently understand me here?” or state
@@ -272,7 +265,7 @@ revisable view rather than a user-approved fact.
 
 By default on macOS:
 
-- Sense stores its private guidance as one profile under `~/Library/Application Support/Sense/`.
+- Sense stores only its current private profile under `~/Library/Application Support/Sense/`.
 - Corpus stores its catalog, indexes, and context under
   `~/Library/Application Support/Corpus/`.
 - Provider-linked records remain with their original providers. Corpus stores limited record

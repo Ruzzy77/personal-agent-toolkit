@@ -6,7 +6,6 @@ import json
 import os
 import sqlite3
 import unicodedata
-import uuid
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
@@ -51,22 +50,6 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _require_rollback_journal_header(path: Path, header: bytes) -> None:
-    if (
-        len(header) >= 20
-        and header.startswith(b"SQLite format 3\x00")
-        and (header[18] == 2 or header[19] == 2)
-    ):
-        raise MigrationRequiredError(
-            "database journal mode requires explicit normalization",
-            details={
-                "path": str(path),
-                "reason": "wal_journal_mode_requires_explicit_normalization",
-                "command": "corpus migrate --corpus <corpus-id>",
-            },
-        )
-
-
 def _configure_write_connection(connection: sqlite3.Connection, *, path: Path) -> None:
     connection.execute("PRAGMA busy_timeout = 30000")
     connection.execute("PRAGMA secure_delete = ON")
@@ -101,7 +84,7 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def connect_readonly(path: Path) -> sqlite3.Connection:
-    _require_existing_database(path, require_rollback_journal=True)
+    _require_existing_database(path)
     connection = sqlite3.connect(
         f"{path.absolute().as_uri()}?mode=ro",
         uri=True,
@@ -141,7 +124,6 @@ def _require_existing_database(
     path: Path,
     *,
     corpus_id: str | None = None,
-    require_rollback_journal: bool = False,
 ) -> None:
     try:
         with _database_parent(path) as parent_descriptor:
@@ -150,10 +132,7 @@ def _require_existing_database(
                 path.name,
                 path=path,
             )
-            try:
-                header = os.pread(descriptor, 100, 0)
-            finally:
-                os.close(descriptor)
+            os.close(descriptor)
     except ConfigurationError as exc:
         if exc.details.get("reason") != "missing":
             raise
@@ -161,8 +140,6 @@ def _require_existing_database(
             "corpus is not registered" if corpus_id else "corpus catalog does not exist",
             details={"corpus_id": corpus_id} if corpus_id else {},
         ) from exc
-    if require_rollback_journal:
-        _require_rollback_journal_header(path, header)
 
 
 def _ensure_private_database(path: Path, *, parent_descriptor: int) -> bool:
@@ -205,6 +182,9 @@ def ensure_corpus_db(paths: RuntimePaths) -> Path:
             parent_descriptor=parent_descriptor,
         )
     if not created:
+        state = inspect_schema(paths.corpus_db)
+        if state.migration_required:
+            migrate_corpus_database(paths)
         require_current_schema(paths.corpus_db)
         return paths.corpus_db
     with closing(connect(paths.corpus_db)) as connection, connection:
@@ -228,7 +208,6 @@ def _require_current_context_schema(path: Path) -> None:
         "target_version": CONTEXT_SCHEMA_VERSION,
     }
     if user_version in {1, 2, 3, 4} and schema_version == user_version:
-        details["command"] = "corpus context migrate"
         raise MigrationRequiredError(
             "context database migration is required",
             details=details,
@@ -244,7 +223,11 @@ def ensure_context_db(data_root: Path) -> Path:
     with private_directory(data_root, create=True) as parent_descriptor:
         created = _ensure_private_database(path, parent_descriptor=parent_descriptor)
     if not created:
-        _require_current_context_schema(path)
+        try:
+            _require_current_context_schema(path)
+        except MigrationRequiredError:
+            migrate_context_database(data_root)
+            _require_current_context_schema(path)
         return path
     with closing(connect(path)) as connection, connection:
         connection.executescript(CONTEXT_SCHEMA)
@@ -295,7 +278,7 @@ def ensure_workspace_db(data_root: Path) -> Path:
 
 
 def migrate_context_database(data_root: Path) -> dict:
-    """Explicitly create or migrate the private context database."""
+    """Create or migrate the private context database."""
 
     path = data_root / "contexts.sqlite3"
     if not path.exists():
@@ -307,7 +290,7 @@ def migrate_context_database(data_root: Path) -> dict:
             "migrated": True,
         }
 
-    _require_existing_database(path, require_rollback_journal=True)
+    _require_existing_database(path)
     with closing(connect(path)) as connection:
         user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         try:
@@ -593,31 +576,6 @@ def migrate_context_database(data_root: Path) -> dict:
     }
 
 
-def migrate_corpus(data_root: Path, corpus_id: str) -> dict:
-    corpus_id = normalize_corpus_id(corpus_id)
-    catalog = data_root / "catalog.sqlite"
-    with closing(connect(catalog)):
-        pass
-    get_corpus(data_root, corpus_id)
-    paths = RuntimePaths(data_root=data_root, corpus_id=corpus_id)
-    paths.ensure()
-    return migrate_corpus_database(paths)
-
-
-def corpus_schema_status(data_root: Path, corpus_id: str) -> dict:
-    corpus_id = normalize_corpus_id(corpus_id)
-    get_corpus(data_root, corpus_id)
-    paths = RuntimePaths(data_root=data_root, corpus_id=corpus_id)
-    _require_existing_database(paths.corpus_db, corpus_id=corpus_id)
-    state = inspect_schema(paths.corpus_db)
-    return {
-        "corpus_id": corpus_id,
-        "current_version": state.current_version,
-        "target_version": state.target_version,
-        "migration_required": state.migration_required,
-    }
-
-
 def register_corpus(
     *,
     data_root: Path,
@@ -775,11 +733,14 @@ def rebind_corpus_source_root(
                 },
             )
 
-        backup_name = (
-            f"catalog-source-root-rebind-{corpus_id}-"
-            f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-"
-            f"{uuid.uuid4().hex[:12]}.sqlite"
-        )
+        backup_name = f"catalog-source-root-rebind-{corpus_id}.sqlite"
+        with private_directory(data_root / "backups", create=True) as backup_descriptor:
+            try:
+                os.unlink(backup_name, dir_fd=backup_descriptor)
+            except FileNotFoundError:
+                pass
+            else:
+                os.fsync(backup_descriptor)
         with private_directory(data_root) as data_root_descriptor:
             backup_path = backup_database_to_private_subdirectory(
                 connection,
@@ -1000,6 +961,12 @@ def corpus_read_connection(
     get_corpus(data_root, corpus_id)
     paths = RuntimePaths(data_root=data_root, corpus_id=corpus_id)
     _require_existing_database(paths.corpus_db, corpus_id=corpus_id)
+    state = inspect_schema(paths.corpus_db)
+    if state.migration_required:
+        from .locking import writer_lock
+
+        with writer_lock(paths.corpus_root / "writer.lock"):
+            ensure_corpus_db(paths)
     require_current_schema(paths.corpus_db)
     connection = connect_readonly(paths.corpus_db)
     try:
@@ -1030,7 +997,14 @@ def context_read_connection(data_root: Path) -> Iterator[sqlite3.Connection]:
     path = data_root / "contexts.sqlite3"
     if not path.exists():
         raise ContextNotFoundError("context database does not exist")
-    _require_current_context_schema(path)
+    try:
+        _require_current_context_schema(path)
+    except MigrationRequiredError:
+        from .locking import context_writer_lock
+
+        with context_writer_lock(data_root):
+            ensure_context_db(data_root)
+        _require_current_context_schema(path)
     connection = connect_readonly(path)
     try:
         connection.execute("BEGIN")

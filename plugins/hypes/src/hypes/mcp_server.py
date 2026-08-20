@@ -228,8 +228,6 @@ def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
         )
 
 
-
-
 def _public_error_details(error: HypesError) -> dict[str, str]:
     """Return only fixed, non-caller-controlled error metadata."""
 
@@ -249,8 +247,12 @@ def _reject_unsupported_fields() -> Any:
     )
 
 
-def create_server(data_root: Path | None = None) -> MCPServer:
-    service = HypesService(data_root)
+def create_server(
+    data_root: Path | None = None,
+    *,
+    prepare: bool = True,
+) -> MCPServer:
+    service = HypesService(data_root, prepare=prepare)
     server = MCPServer("Hypes", version=__version__, instructions=SERVER_INSTRUCTIONS)
 
     @server.tool(
@@ -291,8 +293,8 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             "Maintain the assistant's revisable user model with one atomic patch when an interaction "
             "reveals, changes, or weakens a reusable relation. No separate save request or preview is "
             "required. Read first only when an existing object must be found or checked. Use "
-            "put_node, put_predicate, put_edge, and delete operations, deleting incident edges before "
-            "their nodes or predicates. Do not store task facts, transcripts, sensitive traits, "
+            "put_node, put_predicate, put_edge, and delete operations. Deleting a node or predicate "
+            "also removes its incident edges. Do not store task facts, transcripts, sensitive traits, "
             "Sense guidance, Corpus context, or the assistant's own recommendation."
         ),
         annotations=REWRITE,
@@ -320,13 +322,14 @@ def create_server(data_root: Path | None = None) -> MCPServer:
     return server
 
 
-mcp = create_server()
+mcp = create_server(prepare=False)
 
 
 def main() -> None:
+    server = create_server()
     transport = os.environ.get("HYPES_MCP_TRANSPORT", "stdio")
     if transport == "stdio":
-        mcp.run(transport="stdio")
+        server.run(transport="stdio")
         return
     if transport != "streamable-http":
         raise ValueError("HYPES_MCP_TRANSPORT must be stdio or streamable-http")
@@ -340,7 +343,7 @@ def main() -> None:
             "HYPES_MCP_HOST must be loopback until an authenticated OAuth resource server is "
             "configured"
         )
-    mcp.run(
+    server.run(
         transport="streamable-http",
         host=host,
         port=int(os.environ.get("HYPES_MCP_PORT", "8000")),

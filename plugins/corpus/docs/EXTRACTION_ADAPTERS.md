@@ -11,8 +11,7 @@ registered source
   -> private temporary staging copy
   -> bounded adapter
   -> validated ExtractionEnvelope
-  -> immutable extraction projection
-  -> projection-pinned snapshot
+  -> current extraction projection
   -> request-scoped agent context
 ```
 

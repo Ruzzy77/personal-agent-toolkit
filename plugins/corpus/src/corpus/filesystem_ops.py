@@ -12,18 +12,17 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class FileMetadataSnapshot:
-    """Metadata that must survive replacement of an existing workspace file."""
+    """Ownership, permissions, and ACL metadata preserved on replacement."""
 
     uid: int
     gid: int
     mode: int
-    flags: int
-    xattrs: tuple[tuple[bytes, bytes], ...]
     acl: bytes | None
+    posix_acl_xattrs: tuple[tuple[str, bytes], ...]
 
 
 class FileMetadataPreservationError(OSError):
-    """A stable low-level failure raised before unsafe metadata loss."""
+    """A stable low-level failure raised before essential metadata loss."""
 
     def __init__(self, error: int, message: str, *, reason: str) -> None:
         super().__init__(error, message)
@@ -31,24 +30,15 @@ class FileMetadataPreservationError(OSError):
 
 
 _DARWIN_ACL_TYPE_EXTENDED = 0x00000100
-_DARWIN_ACL_FIRST_ENTRY = 0
-_DARWIN_ACL_NEXT_ENTRY = -1
-_DARWIN_ACL_EXTENDED_ALLOW = 1
-_DARWIN_ACL_EXTENDED_DENY = 2
-_DARWIN_ACL_DELETE = 1 << 4
-_DARWIN_ACL_DELETE_CHILD = 1 << 6
-_DARWIN_ACL_ENTRY_FILE_INHERIT = 1 << 5
-_DARWIN_ACL_ENTRY_ONLY_INHERIT = 1 << 8
 _DARWIN_COPYFILE_ACL = 1 << 0
-_DARWIN_COPYFILE_XATTR = 1 << 2
-_DARWIN_PER_INODE_XATTRS = {b"com.apple.provenance"}
-_DARWIN_NAMESPACE_BLOCKING_FLAGS = (
+_NAMESPACE_BLOCKING_FLAGS = (
     0x00000002  # UF_IMMUTABLE
     | 0x00000004  # UF_APPEND
     | 0x00020000  # SF_IMMUTABLE
     | 0x00040000  # SF_APPEND
     | 0x00100000  # SF_NOUNLINK
 )
+_POSIX_ACL_XATTRS = {"system.posix_acl_access", "system.posix_acl_default"}
 
 
 def _metadata_error(error: int, message: str, *, reason: str) -> FileMetadataPreservationError:
@@ -56,19 +46,11 @@ def _metadata_error(error: int, message: str, *, reason: str) -> FileMetadataPre
 
 
 def _darwin_libc() -> ctypes.CDLL:
-    if sys.platform != "darwin":
-        raise _metadata_error(
-            errno.ENOTSUP,
-            "complete file metadata preservation is unavailable",
-            reason="unsupported_platform",
-        )
     return ctypes.CDLL(None, use_errno=True)
 
 
-def _darwin_acl(
-    descriptor: int,
-) -> tuple[bytes | None, bool, bool, bool]:
-    """Return an external ACL snapshot and namespace-denial indicators."""
+def _darwin_acl(descriptor: int) -> bytes | None:
+    """Return the macOS extended ACL without interpreting policy in advance."""
 
     libc = _darwin_libc()
     acl_get_fd_np = libc.acl_get_fd_np
@@ -83,22 +65,20 @@ def _darwin_acl(
     if not acl:
         error = ctypes.get_errno()
         if error == errno.ENOENT:
-            return (None, False, False, False)
+            return None
         raise _metadata_error(
             error or errno.EIO,
             "file ACL could not be read",
             reason="acl_unreadable",
         )
-
     try:
         acl_size = libc.acl_size
         acl_size.argtypes = [ctypes.c_void_p]
         acl_size.restype = ctypes.c_ssize_t
         size = acl_size(acl)
         if size < 0:
-            error = ctypes.get_errno()
             raise _metadata_error(
-                error or errno.EIO,
+                ctypes.get_errno() or errno.EIO,
                 "file ACL size could not be read",
                 reason="acl_unreadable",
             )
@@ -108,201 +88,45 @@ def _darwin_acl(
         acl_copy_ext.restype = ctypes.c_ssize_t
         copied = acl_copy_ext(buffer, acl, size)
         if copied != size:
-            error = ctypes.get_errno()
             raise _metadata_error(
-                error or errno.EIO,
-                "file ACL could not be serialized completely",
+                ctypes.get_errno() or errno.EIO,
+                "file ACL could not be serialized",
                 reason="acl_unreadable",
             )
-
-        acl_get_entry = libc.acl_get_entry
-        acl_get_entry.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
-        acl_get_entry.restype = ctypes.c_int
-        acl_get_tag_type = libc.acl_get_tag_type
-        acl_get_tag_type.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
-        acl_get_tag_type.restype = ctypes.c_int
-        acl_get_permset = libc.acl_get_permset
-        acl_get_permset.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-        acl_get_permset.restype = ctypes.c_int
-        acl_get_perm_np = libc.acl_get_perm_np
-        acl_get_perm_np.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        acl_get_perm_np.restype = ctypes.c_int
-        acl_get_flagset_np = libc.acl_get_flagset_np
-        acl_get_flagset_np.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-        acl_get_flagset_np.restype = ctypes.c_int
-        acl_get_flag_np = libc.acl_get_flag_np
-        acl_get_flag_np.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        acl_get_flag_np.restype = ctypes.c_int
-
-        denies_delete = False
-        denies_delete_child = False
-        inherits_delete = False
-        entry_id = _DARWIN_ACL_FIRST_ENTRY
-        while True:
-            entry = ctypes.c_void_p()
-            ctypes.set_errno(0)
-            result = acl_get_entry(acl, entry_id, ctypes.byref(entry))
-            if result != 0:
-                error = ctypes.get_errno()
-                if error == errno.EINVAL:
-                    break
-                raise _metadata_error(
-                    error or errno.EIO,
-                    "file ACL entries could not be read",
-                    reason="acl_unreadable",
-                )
-            tag = ctypes.c_int()
-            if acl_get_tag_type(entry, ctypes.byref(tag)) != 0:
-                error = ctypes.get_errno()
-                raise _metadata_error(
-                    error or errno.EIO,
-                    "file ACL tag could not be read",
-                    reason="acl_unreadable",
-                )
-            if tag.value not in {
-                _DARWIN_ACL_EXTENDED_ALLOW,
-                _DARWIN_ACL_EXTENDED_DENY,
-            }:
-                raise _metadata_error(
-                    errno.EINVAL,
-                    "file ACL contains an unsupported entry type",
-                    reason="acl_unreadable",
-                )
-            if tag.value == _DARWIN_ACL_EXTENDED_DENY:
-                permissions = ctypes.c_void_p()
-                if acl_get_permset(entry, ctypes.byref(permissions)) != 0:
-                    error = ctypes.get_errno()
-                    raise _metadata_error(
-                        error or errno.EIO,
-                        "file ACL permissions could not be read",
-                        reason="acl_unreadable",
-                    )
-                delete = acl_get_perm_np(permissions, _DARWIN_ACL_DELETE)
-                delete_child = acl_get_perm_np(permissions, _DARWIN_ACL_DELETE_CHILD)
-                flags = ctypes.c_void_p()
-                if acl_get_flagset_np(entry, ctypes.byref(flags)) != 0:
-                    error = ctypes.get_errno()
-                    raise _metadata_error(
-                        error or errno.EIO,
-                        "file ACL flags could not be read",
-                        reason="acl_unreadable",
-                    )
-                only_inherit = acl_get_flag_np(flags, _DARWIN_ACL_ENTRY_ONLY_INHERIT)
-                file_inherit = acl_get_flag_np(flags, _DARWIN_ACL_ENTRY_FILE_INHERIT)
-                if min(delete, delete_child, only_inherit, file_inherit) < 0:
-                    error = ctypes.get_errno()
-                    raise _metadata_error(
-                        error or errno.EIO,
-                        "file ACL permissions or flags could not be evaluated",
-                        reason="acl_unreadable",
-                    )
-                denies_delete = denies_delete or (delete == 1 and only_inherit == 0)
-                denies_delete_child = denies_delete_child or (
-                    delete_child == 1 and only_inherit == 0
-                )
-                inherits_delete = inherits_delete or (delete == 1 and file_inherit == 1)
-            entry_id = _DARWIN_ACL_NEXT_ENTRY
-
-        return (
-            bytes(buffer.raw[:copied]),
-            denies_delete,
-            denies_delete_child,
-            inherits_delete,
-        )
+        return bytes(buffer.raw[:copied])
     finally:
         acl_free(acl)
 
 
-def _darwin_xattrs(descriptor: int) -> tuple[tuple[bytes, bytes], ...]:
-    libc = _darwin_libc()
-    flistxattr = libc.flistxattr
-    flistxattr.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
-    flistxattr.restype = ctypes.c_ssize_t
-    fgetxattr = libc.fgetxattr
-    fgetxattr.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_void_p,
-        ctypes.c_size_t,
-        ctypes.c_uint32,
-        ctypes.c_int,
-    ]
-    fgetxattr.restype = ctypes.c_ssize_t
-
-    ctypes.set_errno(0)
-    size = flistxattr(descriptor, None, 0, 0)
-    if size < 0:
-        error = ctypes.get_errno()
-        raise _metadata_error(
-            error or errno.EIO,
-            "file extended attributes could not be listed",
-            reason="xattr_unreadable",
-        )
-    if size == 0:
+def _posix_acl_xattrs(descriptor: int) -> tuple[tuple[str, bytes], ...]:
+    if not sys.platform.startswith("linux"):
         return ()
-    names_buffer = ctypes.create_string_buffer(size)
-    names_size = flistxattr(descriptor, names_buffer, size, 0)
-    if names_size < 0:
-        error = ctypes.get_errno()
-        reason = "metadata_changed" if error == errno.ERANGE else "xattr_unreadable"
+    try:
+        names = os.listxattr(descriptor)
+    except OSError as exc:
+        if exc.errno in {errno.ENOTSUP, errno.EOPNOTSUPP}:
+            return ()
         raise _metadata_error(
-            error or errno.EIO,
-            "file extended attributes changed while being listed",
-            reason=reason,
-        )
-    names_raw = bytes(names_buffer.raw[:names_size])
-    if not names_raw.endswith(b"\0"):
-        raise _metadata_error(
-            errno.EIO,
-            "file extended attribute list is malformed",
-            reason="xattr_unreadable",
-        )
-    names = sorted(
-        name
-        for name in names_raw[:-1].split(b"\0")
-        if name and name not in _DARWIN_PER_INODE_XATTRS
-    )
-    result: list[tuple[bytes, bytes]] = []
-    for name in names:
-        ctypes.set_errno(0)
-        value_size = fgetxattr(descriptor, name, None, 0, 0, 0)
-        if value_size < 0:
-            error = ctypes.get_errno()
+            exc.errno or errno.EIO,
+            "file ACL attributes could not be listed",
+            reason="acl_unreadable",
+        ) from exc
+    values = []
+    for name in sorted(set(names) & _POSIX_ACL_XATTRS):
+        try:
+            values.append((name, os.getxattr(descriptor, name)))
+        except OSError as exc:
             raise _metadata_error(
-                error or errno.EIO,
-                "file extended attribute could not be read",
-                reason="metadata_changed"
-                if error in {errno.ENOENT, errno.ERANGE}
-                else "xattr_unreadable",
-            )
-        if value_size == 0:
-            value = b""
-        else:
-            value_buffer = ctypes.create_string_buffer(value_size)
-            copied = fgetxattr(descriptor, name, value_buffer, value_size, 0, 0)
-            if copied != value_size:
-                error = ctypes.get_errno()
-                raise _metadata_error(
-                    error or errno.EIO,
-                    "file extended attribute changed while being read",
-                    reason="metadata_changed"
-                    if error in {errno.ENOENT, errno.ERANGE}
-                    else "xattr_unreadable",
-                )
-            value = bytes(value_buffer.raw[:copied])
-        result.append((name, value))
-    return tuple(result)
+                exc.errno or errno.EIO,
+                "file ACL attribute could not be read",
+                reason="acl_unreadable",
+            ) from exc
+    return tuple(values)
 
 
 def snapshot_file_metadata(descriptor: int) -> FileMetadataSnapshot:
-    """Read all macOS metadata that an existing-file replacement must retain."""
+    """Read only metadata that replacement must preserve."""
 
-    if sys.platform != "darwin":
-        raise _metadata_error(
-            errno.ENOTSUP,
-            "complete file metadata preservation is unavailable",
-            reason="unsupported_platform",
-        )
     try:
         metadata = os.fstat(descriptor)
     except OSError as exc:
@@ -317,21 +141,18 @@ def snapshot_file_metadata(descriptor: int) -> FileMetadataSnapshot:
             "metadata preservation requires a regular file",
             reason="not_regular_file",
         )
-    acl, _denies_delete, _denies_delete_child, _inherits_delete = _darwin_acl(descriptor)
     return FileMetadataSnapshot(
         uid=int(metadata.st_uid),
         gid=int(metadata.st_gid),
         mode=stat.S_IMODE(metadata.st_mode),
-        flags=int(metadata.st_flags),
-        xattrs=_darwin_xattrs(descriptor),
-        acl=acl,
+        acl=_darwin_acl(descriptor) if sys.platform == "darwin" else None,
+        posix_acl_xattrs=_posix_acl_xattrs(descriptor),
     )
 
 
 def ensure_parent_directory_allows_replacement(parent_descriptor: int) -> None:
-    """Reject a directory whose flags or ACL can strand an exchange temporary."""
+    """Reject actual namespace flags and leave ACL policy to the OS operation."""
 
-    _darwin_libc()
     parent = os.fstat(parent_descriptor)
     if not stat.S_ISDIR(parent.st_mode):
         raise _metadata_error(
@@ -339,18 +160,11 @@ def ensure_parent_directory_allows_replacement(parent_descriptor: int) -> None:
             "metadata parent is not a directory",
             reason="unsafe_metadata_parent",
         )
-    if int(parent.st_flags) & _DARWIN_NAMESPACE_BLOCKING_FLAGS:
+    if int(getattr(parent, "st_flags", 0)) & _NAMESPACE_BLOCKING_FLAGS:
         raise _metadata_error(
             errno.EPERM,
             "parent directory flags prevent replacement",
             reason="parent_flags_block_replacement",
-        )
-    _acl, _denies_delete, denies_delete_child, inherits_delete = _darwin_acl(parent_descriptor)
-    if denies_delete_child or inherits_delete:
-        raise _metadata_error(
-            errno.EPERM,
-            "parent directory ACL prevents a safe replacement temporary",
-            reason="parent_acl_blocks_replacement",
         )
 
 
@@ -359,34 +173,17 @@ def ensure_file_metadata_is_replaceable(
     *,
     parent_descriptor: int,
 ) -> FileMetadataSnapshot:
-    """Reject metadata that can prevent a safe exchange or rollback."""
+    """Reject immutable namespace flags and capture essential metadata."""
 
-    _darwin_libc()
     source = os.fstat(source_descriptor)
-    if int(source.st_flags) & _DARWIN_NAMESPACE_BLOCKING_FLAGS:
+    if int(getattr(source, "st_flags", 0)) & _NAMESPACE_BLOCKING_FLAGS:
         raise _metadata_error(
             errno.EPERM,
             "immutable, append-only, or no-unlink files cannot be replaced",
             reason="immutable_append_or_nounlink_flags",
         )
-    acl, denies_delete, _denies_delete_child, _inherits_delete = _darwin_acl(source_descriptor)
-    if denies_delete:
-        raise _metadata_error(
-            errno.EPERM,
-            "file ACL denies the namespace change required for replacement",
-            reason="acl_denies_delete",
-        )
-
     ensure_parent_directory_allows_replacement(parent_descriptor)
-
-    return FileMetadataSnapshot(
-        uid=int(source.st_uid),
-        gid=int(source.st_gid),
-        mode=stat.S_IMODE(source.st_mode),
-        flags=int(source.st_flags),
-        xattrs=_darwin_xattrs(source_descriptor),
-        acl=acl,
-    )
+    return snapshot_file_metadata(source_descriptor)
 
 
 def copy_file_metadata(
@@ -395,15 +192,7 @@ def copy_file_metadata(
     *,
     parent_descriptor: int,
 ) -> FileMetadataSnapshot:
-    """Copy and verify complete existing-file metadata before an exchange.
-
-    Content and timestamps are deliberately excluded: replacement supplies new
-    content and therefore a new modification time.  ACLs, stable extended
-    attributes, ownership, permission bits, and file flags must match exactly.
-    macOS assigns ``com.apple.provenance`` to each inode, so its value cannot
-    match across an atomic replacement. Any unsupported or racing metadata
-    fails before the namespace is changed.
-    """
+    """Copy and verify ownership, permissions, and ACLs before exchange."""
 
     before = ensure_file_metadata_is_replaceable(
         source_descriptor,
@@ -416,56 +205,53 @@ def copy_file_metadata(
             "metadata destination is not a private regular file",
             reason="unsafe_metadata_destination",
         )
-
-    libc = _darwin_libc()
-    fcopyfile = libc.fcopyfile
-    fcopyfile.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
-    fcopyfile.restype = ctypes.c_int
-    fchflags = libc.fchflags
-    fchflags.argtypes = [ctypes.c_int, ctypes.c_uint]
-    fchflags.restype = ctypes.c_int
     try:
         os.fchown(destination_descriptor, before.uid, before.gid)
         os.fchmod(destination_descriptor, before.mode)
-        for copy_flags in (_DARWIN_COPYFILE_XATTR, _DARWIN_COPYFILE_ACL):
+        if sys.platform == "darwin" and before.acl is not None:
+            libc = _darwin_libc()
+            fcopyfile = libc.fcopyfile
+            fcopyfile.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            fcopyfile.restype = ctypes.c_int
             ctypes.set_errno(0)
-            if fcopyfile(source_descriptor, destination_descriptor, None, copy_flags) != 0:
-                error = ctypes.get_errno()
+            if fcopyfile(
+                source_descriptor,
+                destination_descriptor,
+                None,
+                _DARWIN_COPYFILE_ACL,
+            ) != 0:
                 raise _metadata_error(
-                    error or errno.EIO,
-                    "file metadata could not be copied completely",
+                    ctypes.get_errno() or errno.EIO,
+                    "file ACL could not be copied",
                     reason="metadata_copy_failed",
                 )
-        ctypes.set_errno(0)
-        if fchflags(destination_descriptor, before.flags) != 0:
-            error = ctypes.get_errno()
-            raise _metadata_error(
-                error or errno.EIO,
-                "file flags could not be preserved",
-                reason="metadata_copy_failed",
-            )
+        target_acl_names = {name for name, _value in before.posix_acl_xattrs}
+        if sys.platform.startswith("linux"):
+            inherited_acl_names = set(os.listxattr(destination_descriptor)) & _POSIX_ACL_XATTRS
+            for name in inherited_acl_names - target_acl_names:
+                os.removexattr(destination_descriptor, name)
+        for name, value in before.posix_acl_xattrs:
+            os.setxattr(destination_descriptor, name, value)
         os.fsync(destination_descriptor)
     except FileMetadataPreservationError:
         raise
     except OSError as exc:
         raise _metadata_error(
             exc.errno or errno.EIO,
-            "file metadata could not be copied completely",
+            "essential file metadata could not be copied",
             reason="metadata_copy_failed",
         ) from exc
 
-    after_source = snapshot_file_metadata(source_descriptor)
-    if after_source != before:
+    if snapshot_file_metadata(source_descriptor) != before:
         raise _metadata_error(
             errno.EBUSY,
-            "source metadata changed while it was being copied",
+            "essential source metadata changed while it was copied",
             reason="metadata_changed",
         )
-    after_destination = snapshot_file_metadata(destination_descriptor)
-    if after_destination != before:
+    if snapshot_file_metadata(destination_descriptor) != before:
         raise _metadata_error(
             errno.ENOTSUP,
-            "the filesystem did not preserve all file metadata",
+            "the filesystem did not preserve essential file metadata",
             reason="metadata_verification_failed",
         )
     return before

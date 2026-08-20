@@ -639,11 +639,9 @@ class SpaceService:
         detail = self.contexts.read(
             context_id=context_id,
             state=space["state"],
-            include_history=False,
             limit=limit,
             offset=offset,
             audience="local_cli",
-            view="restricted",
         )
         items = [
             {

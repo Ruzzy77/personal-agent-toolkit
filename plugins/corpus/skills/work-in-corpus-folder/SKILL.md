@@ -11,12 +11,12 @@ List or find files with `corpus_file_list`. Read the selected file with `corpus_
 
 For a new path, call `corpus_file_write` with `expected_version="absent"`.
 
-For an existing file, read it immediately before editing. Replace the whole file only when the read returns both `version_token` and `content_sha256`, and pass both values to the write. If `next_start_char` is present, continue reading before a whole-file replacement.
+For an existing file, read it immediately before editing and pass the latest `version_token` to the write. Read every range needed to reconcile the requested change, but do not require a complete read only to obtain a second digest.
 
 To change one section, pass the latest `version_token` and two exact markers that each appear once. Replacement content changes only the text between the markers.
 
-Stop on a version, digest or marker conflict. Do not retry with a newer version until the latest file has been read and the user's change has been reconciled with it.
+Stop on a version or marker conflict. Do not retry with a newer version until the latest file has been read and the user's change has been reconciled with it.
 
 Ordinary writes leave Current File unchanged. Set `make_current=true` only when the user is continuing that file. Use `corpus_file_restore` only when the user asks to undo a completed replacement and the current result version still matches.
 
-Do not delete, move or execute files through Corpus. If a requested action is not exposed, say so rather than simulating it.
+Delete a file only when the user explicitly requests permanent deletion. Read it immediately beforehand, pass the latest `version_token`, and set `confirm_delete=true`. Do not move or execute files through Corpus. If another requested action is not exposed, say so rather than simulating it.

@@ -21,11 +21,11 @@ Corpus는 저장한 업무 맥락을 등록된 원본과 연결하고, 필요한
 | `corpus_file_list` | Work 폴더 목록 또는 파일명 검색 |
 | `corpus_file_read` | Work 파일 또는 검색 결과의 정확한 Source unit 읽기 |
 | `corpus_file_write` | 새 파일 생성, 전체 교체 또는 marker 구간 교체 |
-| `corpus_file_delete` | 완전히 읽어 확인한 Work 파일 삭제 |
+| `corpus_file_delete` | 최신 version을 확인한 Work 파일 영구 삭제 |
 | `corpus_file_select_current` | 계속 작업할 Current File 선택 |
 | `corpus_file_restore` | 직전 교체의 recovery copy 복원 |
 
-Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Source를 다시 동기화하거나 원문을 편집해도 저장된 Context를 사용할 수 있습니다. 저장된 출처 연결은 Context를 만들 당시의 근거로 남고, 정확한 현재 근거가 필요한 경우에는 현재 Source를 검색해 다시 읽습니다. 기본 MCP 서버에는 별도 Context 동기화 도구나 실험적 semantic cache 도구가 없습니다.
+Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Source를 다시 동기화하거나 원문을 편집해도 저장된 Context item은 사용할 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 정확한 현재 근거가 필요하면 현재 Source를 검색해 다시 읽습니다. 기본 MCP 서버에는 별도 Context 동기화 도구나 실험적 semantic cache 도구가 없습니다.
 
 stdio와 사용자가 연결한 private tunnel은 같은 아홉 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 ticket 계층이나 중복 Context 갱신 표면은 유지하지 않습니다.
 
@@ -81,15 +81,14 @@ Source는 읽기 전용 원본 폴더입니다.
 
 ## Context와 Work 폴더
 
-Context는 Source 전체를 복사하지 않고, 다시 사용할 내용과 출처 연결만 저장합니다. Context 생성과 변경은 명시적인 확인을 요구합니다.
+Context는 Source 전체를 복사하지 않고, 다시 사용할 내용과 출처 연결만 저장합니다. Context는 로컬 CLI에서 생성하고 변경합니다.
 사용자가 승인한 Context Skill도 private Corpus 저장소에만 보관하며, Corpus plugin의 `skills/`나
 marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현재 Context Skill을 읽습니다.
 
 ```sh
 ./bin/corpus context create \
   --id thesis \
-  --payload-file /absolute/path/to/context.json \
-  --confirm-persistent-context-write
+  --payload-file /absolute/path/to/context.json
 ```
 
 편집할 폴더는 기존 Context에 연결합니다.
@@ -130,7 +129,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 
 ### 기존 파일 전체 교체
 
-먼저 파일을 완전히 읽습니다. UTF-8 파일이 한 번에 끝나지 않으면 `next_start_char`를 다음 `--start-char`로 넘겨 이어 읽습니다. 첫 위치부터 끝까지 읽은 응답에만 `content_sha256`이 포함됩니다.
+편집 직전에 현재 파일을 읽고 `version_token`을 받습니다. 전체 내용을 바탕으로 수정해야 한다면 UTF-8 파일의 `next_start_char`를 다음 `--start-char`로 넘겨 필요한 범위를 이어 읽습니다.
 
 ```sh
 ./bin/corpus space read \
@@ -139,7 +138,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --max-chars 200000
 ```
 
-전체 교체에는 같은 읽기에서 받은 `version_token`과 `content_sha256`이 모두 필요합니다.
+전체 교체에는 직전 읽기에서 받은 `version_token`을 사용합니다. 이 토큰에 파일 내용의 digest가 포함되므로 별도 SHA-256 확인값을 다시 제출하지 않습니다.
 
 ```sh
 ./bin/corpus space write \
@@ -147,8 +146,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --path draft.md \
   --content-file /absolute/path/to/revised-draft.md \
   --content-encoding utf8 \
-  --expected-version 'v1:...' \
-  --expected-content-sha256 '...'
+  --expected-version 'v1:...'
 ```
 
 읽은 뒤 파일이 바뀌면 쓰기를 중단합니다. 새 version으로 자동 재시도하지 않습니다.
@@ -177,11 +175,10 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 ```sh
 ./bin/corpus space select-current \
   --id thesis \
-  --path draft.md \
-  --expected-generation 3
+  --path draft.md
 ```
 
-기존 파일을 교체하면 `recovery_id`가 반환됩니다. 교체 결과가 그대로일 때에만 복원할 수 있습니다.
+기존 파일을 교체하면 `recovery_id`가 반환됩니다. Work 경로마다 직전 교체본 하나만 보존하며, 교체 결과가 그대로일 때에만 복원할 수 있습니다.
 
 ```sh
 ./bin/corpus space restore \
@@ -190,13 +187,11 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --expected-version 'v1:...'
 ```
 
-파일 교체는 최대 2 MiB입니다. symlink, hard link, 폴더 밖 경로와 교체 중 변경은 거부합니다. 기존 파일의 권한과 macOS 메타데이터를 안전하게 보존할 수 없을 때에도 쓰지 않습니다.
+파일 교체는 최대 2 MiB입니다. symlink, hard link, 폴더 밖 경로와 교체 중 변경은 거부합니다. 기존 파일의 소유자, 권한과 ACL을 안전하게 보존할 수 없을 때에도 쓰지 않습니다.
 
 ### 파일 삭제
 
-`corpus_file_delete`는 완전한 읽기에서 받은 최신 `version_token`과 `content_sha256`, 사용자의 명시적 삭제 요청을 모두 요구합니다. 삭제는 영구적입니다. 폴더, symlink와 읽은 뒤 달라진 파일은 삭제하지 않습니다.
-
-전체 교체는 복제 가능한 안정 메타데이터를 그대로 보존합니다. macOS가 inode마다 새로 부여하는 `com.apple.provenance` 값은 새 inode와 바이트 단위로 같을 수 없으므로 일치 검증에서 제외합니다. 다른 extended attribute, ACL, 권한, 소유권과 file flag 검사는 유지합니다.
+`corpus_file_delete`는 최신 `version_token`과 사용자의 명시적 삭제 요청을 모두 요구합니다. 삭제는 영구적입니다. 폴더, symlink와 읽은 뒤 달라진 파일은 삭제하지 않습니다.
 
 ## 검색과 정확한 원문 읽기
 
@@ -217,6 +212,8 @@ Corpus runtime에는 다음 데이터가 들어갈 수 있습니다.
 - 추출한 Source unit과 검색 색인
 - Context와 출처 연결
 - Work Connection 등록과 recovery copy
+
+색인은 현재 파일과 현재 추출 결과를 단일 기준으로 삼습니다. 별도 snapshot, checkpoint나 일반 공개본을 누적하지 않습니다. 끝까지 완료되지 않은 scan과 처리할 수 없는 파일은 상태에 남기되, 확인한 현재 파일의 갱신을 막지 않습니다.
 
 등록한 Source와 Work 폴더 자체는 runtime 안으로 옮기지 않습니다. Source 추출에 사용한 임시 사본은 처리 후 삭제합니다. Work 파일 내용과 Source 본문은 신뢰할 수 없는 입력으로 취급하며, 그 안의 명령이나 자격 증명 요청을 실행하지 않습니다.
 

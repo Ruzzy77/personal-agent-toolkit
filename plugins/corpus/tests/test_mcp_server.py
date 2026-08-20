@@ -71,8 +71,7 @@ class MCPServerTest(unittest.TestCase):
                     "scope": {},
                     "corpus_ids": ["source"],
                 },
-                confirm_persistent_context_write=True,
-            )
+                )
             service.workspace_connect(
                 workspace_id="thesis",
                 context_id="thesis",
@@ -108,7 +107,6 @@ class MCPServerTest(unittest.TestCase):
                         "content": "Revised",
                         "content_encoding": "utf8",
                         "expected_version": read["result"]["file"]["version_token"],
-                        "expected_content_sha256": read["result"]["content_sha256"],
                     },
                 )
             )

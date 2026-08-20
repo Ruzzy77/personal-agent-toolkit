@@ -33,11 +33,9 @@ from .database import (
     configure_corpus_source_scope,
     corpus_connection,
     corpus_read_connection,
-    corpus_schema_status,
     encode_json,
     get_corpus,
     list_corpora,
-    migrate_corpus,
     rebind_corpus_source_root,
     register_corpus,
     utc_now,
@@ -332,15 +330,6 @@ class CorpusService:
                 latest_scan = connection.execute(
                     "SELECT status FROM scan_runs ORDER BY rowid DESC LIMIT 1"
                 ).fetchone()
-                snapshot = connection.execute(
-                    """
-                    SELECT coverage_state
-                    FROM snapshots
-                    WHERE state = 'complete'
-                    ORDER BY rowid DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
                 summary = connection.execute(
                     """
                     SELECT COUNT(*) AS supported_documents,
@@ -378,10 +367,7 @@ class CorpusService:
         except (CorpusError, OSError):
             return "unavailable"
 
-        if latest_scan is None or latest_scan["status"] != "complete":
-            return "needs_refresh"
-
-        if snapshot is None and summary["supported_documents"]:
+        if latest_scan is None:
             return "needs_refresh"
 
         if summary["stale_projections"] or any(
@@ -396,13 +382,160 @@ class CorpusService:
             return "needs_refresh"
 
         partial = (
-            (snapshot is not None and snapshot["coverage_state"] == "partial")
+            latest_scan["status"] != "complete"
             or bool(summary["missing_projections"])
             or bool(summary["partial_projections"])
         )
         if partial:
             return "partial"
         return "ready"
+
+    def _prune_corpus_history_locked(self, corpus_id: str) -> None:
+        """Keep only the current searchable projection and current failures."""
+
+        with corpus_connection(self.data_root, corpus_id) as connection:
+            legacy_tables = {
+                row["name"]
+                for row in connection.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name IN ('snapshot_documents', 'snapshots', 'events')
+                    """
+                )
+            }
+            for table in ("snapshot_documents", "snapshots", "events"):
+                if table in legacy_tables:
+                    connection.execute(f"DELETE FROM {table}")
+            connection.execute(
+                """
+                UPDATE documents
+                SET current_revision_id = NULL
+                WHERE deleted_at IS NOT NULL OR eligibility_state != 'supported'
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM extraction_issues
+                WHERE lifecycle_state != 'active'
+                   OR (
+                       revision_id IS NOT NULL
+                       AND revision_id NOT IN (
+                           SELECT current_revision_id FROM documents
+                           WHERE current_revision_id IS NOT NULL
+                       )
+                   )
+                   OR (
+                       projection_id IS NOT NULL
+                       AND projection_id NOT IN (
+                           SELECT p.projection_id
+                           FROM documents d
+                           JOIN extraction_projections p
+                             ON p.revision_id = d.current_revision_id
+                            AND p.is_active = 1
+                           WHERE d.deleted_at IS NULL
+                             AND d.eligibility_state = 'supported'
+                       )
+                   )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM extraction_attempts
+                WHERE revision_id NOT IN (
+                    SELECT current_revision_id FROM documents
+                    WHERE current_revision_id IS NOT NULL
+                )
+                   OR (
+                       projection_id IS NOT NULL
+                       AND projection_id NOT IN (
+                           SELECT p.projection_id
+                           FROM documents d
+                           JOIN extraction_projections p
+                             ON p.revision_id = d.current_revision_id
+                            AND p.is_active = 1
+                       )
+                   )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM extraction_attempts
+                WHERE attempt_id IN (
+                    SELECT attempt_id FROM (
+                        SELECT attempt_id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY revision_id, adapter_id,
+                                                adapter_version, config_hash
+                                   ORDER BY started_at DESC, attempt_id DESC
+                               ) AS attempt_rank
+                        FROM extraction_attempts
+                    )
+                    WHERE attempt_rank > 1
+                )
+                  AND attempt_id NOT IN (
+                      SELECT attempt_id FROM extraction_issues
+                      WHERE lifecycle_state = 'active' AND attempt_id IS NOT NULL
+                  )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM source_units
+                WHERE projection_id NOT IN (
+                    SELECT p.projection_id
+                    FROM documents d
+                    JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id
+                     AND p.is_active = 1
+                    WHERE d.deleted_at IS NULL
+                      AND d.eligibility_state = 'supported'
+                )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM source_units_fts
+                WHERE unit_id NOT IN (SELECT unit_id FROM source_units)
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM extraction_projections
+                WHERE projection_id NOT IN (
+                    SELECT p.projection_id
+                    FROM documents d
+                    JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id
+                     AND p.is_active = 1
+                    WHERE d.deleted_at IS NULL
+                      AND d.eligibility_state = 'supported'
+                )
+                """
+            )
+            connection.execute("UPDATE revisions SET predecessor_revision_id = NULL")
+            connection.execute(
+                """
+                DELETE FROM revisions
+                WHERE revision_id NOT IN (
+                    SELECT current_revision_id FROM documents
+                    WHERE current_revision_id IS NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM scan_runs
+                WHERE scan_id NOT IN (
+                    SELECT last_seen_scan_id FROM documents
+                    UNION
+                    SELECT scan_id FROM extraction_issues WHERE scan_id IS NOT NULL
+                )
+                  AND scan_id != (
+                      SELECT scan_id FROM scan_runs ORDER BY rowid DESC LIMIT 1
+                  )
+                """
+            )
 
     def _require_source_outside_workspaces(self, source_root: Path) -> None:
         # Let the existing source registration/rebind validation report a missing
@@ -411,9 +544,11 @@ class CorpusService:
         requested = source_root.expanduser().resolve(strict=False)
         for workspace_root in self.workspaces.roots():
             connected = workspace_root.expanduser().resolve(strict=False)
+            if requested == connected:
+                continue
             if is_within(requested, connected) or is_within(connected, requested):
                 raise SourceBoundaryError(
-                    "registered sources and editable work folders must not overlap",
+                    "registered sources and editable work folders must not partially overlap",
                     details={"reason": "workspace_root_overlap"},
                 )
 
@@ -503,20 +638,16 @@ class CorpusService:
         *,
         context_id: str | None = None,
         state: str = "active",
-        include_history: bool = False,
         limit: int = 100,
         offset: int = 0,
         audience: str = "local_cli",
-        view: str = "restricted",
     ) -> dict:
         return self.contexts.read(
             context_id=context_id,
             state=state,
-            include_history=include_history,
             limit=limit,
             offset=offset,
             audience=audience,
-            view=view,
         )
 
     def context_update(
@@ -526,8 +657,6 @@ class CorpusService:
         context_id: str,
         expected_version: int,
         payload: dict,
-        confirm_persistent_context_write: bool,
-        confirm_general_release_approval: bool = False,
         audience: str = "local_cli",
     ) -> dict:
         def update_context() -> dict:
@@ -536,8 +665,6 @@ class CorpusService:
                 context_id=context_id,
                 expected_version=expected_version,
                 payload=payload,
-                confirm_persistent_context_write=confirm_persistent_context_write,
-                confirm_general_release_approval=confirm_general_release_approval,
                 audience=audience,
             )
 
@@ -545,9 +672,6 @@ class CorpusService:
             with workspace_writer_lock(self.data_root):
                 return update_context()
         return update_context()
-
-    def context_migrate(self) -> dict:
-        return self.contexts.migrate()
 
     def context_skill_read(
         self,
@@ -1132,7 +1256,6 @@ class CorpusService:
         content: str,
         content_encoding: str,
         expected_version: str,
-        expected_content_sha256: str | None = None,
         replace_start_marker: str | None = None,
         replace_end_marker: str | None = None,
         connection_id: str | None = None,
@@ -1151,7 +1274,6 @@ class CorpusService:
                 or replace_end_marker is None
                 or expected_version == "absent"
                 or content_encoding != "utf8"
-                or expected_content_sha256 is not None
                 or not isinstance(replace_start_marker, str)
                 or not isinstance(replace_end_marker, str)
                 or not isinstance(content, str)
@@ -1182,16 +1304,12 @@ class CorpusService:
                     details={"reason": "marker_range_changed"},
                 )
             content = current_content[:start_index] + content + current_content[end_index:]
-            expected_content_sha256 = current["content_sha256"]
-        elif (expected_version == "absent") == (expected_content_sha256 is not None):
-            raise SpaceValidationError("full-file replacement proof is invalid")
         result = self.workspaces.write(
             workspace_id=resolved["_workspace_id"],
             relative_path=relative_path,
             content=content,
             content_encoding=content_encoding,
             expected_version=expected_version,
-            expected_content_sha256=expected_content_sha256,
             make_current=make_current,
             audience=audience,
         )
@@ -1212,7 +1330,6 @@ class CorpusService:
         *,
         space_id: str,
         relative_path: str,
-        expected_generation: int,
         connection_id: str | None = None,
         audience: str = "local_cli",
     ) -> dict:
@@ -1225,7 +1342,6 @@ class CorpusService:
         result = self.workspaces.select_current(
             workspace_id=resolved["_workspace_id"],
             relative_path=relative_path,
-            expected_generation=expected_generation,
             audience=audience,
         )
         return {
@@ -1244,7 +1360,6 @@ class CorpusService:
         space_id: str,
         relative_path: str,
         expected_version: str,
-        expected_content_sha256: str,
         confirm_delete: bool,
         connection_id: str | None = None,
         audience: str = "local_cli",
@@ -1259,7 +1374,6 @@ class CorpusService:
             workspace_id=resolved["_workspace_id"],
             relative_path=relative_path,
             expected_version=expected_version,
-            expected_content_sha256=expected_content_sha256,
             confirm_delete=confirm_delete,
             audience=audience,
         )
@@ -1327,13 +1441,9 @@ class CorpusService:
         self,
         *,
         workspace_id: str,
-        expected_generation: int,
-        confirm_disconnect: bool,
     ) -> dict:
         return self.workspaces.disconnect(
             workspace_id=workspace_id,
-            expected_generation=expected_generation,
-            confirm_disconnect=confirm_disconnect,
         )
 
     def workspace_list(self, *, audience: str = "local_cli") -> dict:
@@ -1461,7 +1571,6 @@ class CorpusService:
         corpus_id: str,
         binding_id: str,
         payload: dict,
-        confirm_persistent_context_write: bool,
         audience: str = "local_cli",
     ) -> dict:
         return self.contexts.source_update(
@@ -1469,7 +1578,6 @@ class CorpusService:
             corpus_id=corpus_id,
             binding_id=binding_id,
             payload=payload,
-            confirm_persistent_context_write=confirm_persistent_context_write,
             audience=audience,
         )
 
@@ -1490,24 +1598,15 @@ class CorpusService:
             audience=audience,
         )
 
-    def migrate(self, corpus_id: str) -> dict:
-        corpus_id = normalize_corpus_id(corpus_id)
-        paths = self._paths(corpus_id)
-        paths.ensure()
-        with writer_lock(paths.corpus_root / "writer.lock"):
-            return migrate_corpus(self.data_root, corpus_id)
-
-    def migration_status(self, corpus_id: str) -> dict:
-        return corpus_schema_status(self.data_root, corpus_id)
-
     def scan(self, corpus_id: str) -> dict:
         corpus_id = normalize_corpus_id(corpus_id)
         paths = self._paths(corpus_id)
         paths.ensure()
         with writer_lock(paths.corpus_root / "writer.lock"):
             result = scan_corpus(self.data_root, corpus_id)
-            result["snapshot"] = self._publish_snapshot(corpus_id)
+            self._prune_corpus_history_locked(corpus_id)
         self._reconcile_workspace_index_changes(corpus_id)
+        result["source_state"] = self._space_source_state(corpus_id)
         return result
 
     def cleanup_source_copies(
@@ -1699,14 +1798,6 @@ class CorpusService:
                     """
                 )
             }
-            snapshot = connection.execute(
-                """
-                SELECT * FROM snapshots
-                WHERE state = 'complete'
-                ORDER BY rowid DESC
-                LIMIT 1
-                """
-            ).fetchone()
         outdated_projections = 0
         partial_projections = 0
         for row in active_projection_rows:
@@ -1744,7 +1835,7 @@ class CorpusService:
             "active_source_units": active_units,
             "extraction_projections": projections,
             "extraction_attempts": attempts,
-            "current_snapshot": dict(snapshot) if snapshot else None,
+            "source_state": self._space_source_state(corpus_id),
             "coverage_gaps": coverage_gaps,
             "issues": issues,
             "issue_lifecycle": issue_lifecycle,
@@ -1869,15 +1960,6 @@ class CorpusService:
                 LIMIT 1
                 """
             ).fetchone()
-            snapshot = connection.execute(
-                """
-                SELECT snapshot_id, coverage_state
-                FROM snapshots
-                WHERE state = 'complete'
-                ORDER BY rowid DESC
-                LIMIT 1
-                """
-            ).fetchone()
             rows = connection.execute(
                 """
                 SELECT d.document_id, d.relative_path, d.relative_path_nfc,
@@ -1964,8 +2046,7 @@ class CorpusService:
                 "inventory_complete": bool(
                     latest_scan is not None and latest_scan["status"] == "complete"
                 ),
-                "current_snapshot_id": (snapshot["snapshot_id"] if snapshot else None),
-                "snapshot_coverage_state": (snapshot["coverage_state"] if snapshot else None),
+                "source_state": self._space_source_state(corpus_id),
             },
             "filters": {
                 "path_contains": normalized_path_filter,
@@ -2020,6 +2101,7 @@ class CorpusService:
         include_remote: bool,
         max_file_bytes: int,
         remote_only: bool = False,
+        observed_scan_id: str | None = None,
     ) -> tuple[list[dict], dict]:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
@@ -2032,15 +2114,29 @@ class CorpusService:
                        p.projection_id AS active_projection_id,
                        p.adapter_id AS projection_adapter_id,
                        p.adapter_version AS projection_adapter_version,
-                       p.config_hash AS projection_config_hash
+                       p.config_hash AS projection_config_hash,
+                       failed.adapter_id AS failed_adapter_id,
+                       failed.adapter_version AS failed_adapter_version,
+                       failed.config_hash AS failed_config_hash
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
                   ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                LEFT JOIN extraction_attempts failed
+                  ON failed.attempt_id = (
+                    SELECT candidate.attempt_id
+                    FROM extraction_attempts candidate
+                    WHERE candidate.revision_id = d.current_revision_id
+                      AND candidate.state = 'failed'
+                    ORDER BY candidate.completed_at DESC, candidate.attempt_id DESC
+                    LIMIT 1
+                  )
                 WHERE d.deleted_at IS NULL
                   AND d.eligibility_state = 'supported'
+                  AND (? IS NULL OR d.last_seen_scan_id = ?)
                 ORDER BY d.is_dataless ASC, d.logical_size ASC, d.relative_path_nfc ASC
-                """
+                """,
+                (observed_scan_id, observed_scan_id),
             ).fetchall()
         pending: list[dict] = []
         skipped = {
@@ -2049,12 +2145,22 @@ class CorpusService:
             "local": 0,
             "too_large": 0,
             "not_selected": 0,
+            "failed": 0,
         }
         for row in rows:
             document = dict(row)
-            document_index_state, _ = self._document_index_state(document)
+            document_index_state, reasons = self._document_index_state(document)
             if document_index_state == "current":
                 skipped["current"] += 1
+                continue
+            descriptor = self.adapter_registry.resolve(document["extension"]).descriptor
+            if (
+                "source_observation_changed" not in reasons
+                and document.get("failed_adapter_id") == descriptor.adapter_id
+                and document.get("failed_adapter_version") == descriptor.adapter_version
+                and document.get("failed_config_hash") == descriptor.config_hash
+            ):
+                skipped["failed"] += 1
                 continue
             if document["logical_size"] > max_file_bytes:
                 skipped["too_large"] += 1
@@ -2182,6 +2288,8 @@ class CorpusService:
         corpus_id: str,
         *,
         max_file_bytes: int,
+        include_remote: bool,
+        observed_scan_id: str | None = None,
     ) -> dict:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
@@ -2194,33 +2302,63 @@ class CorpusService:
                        p.projection_id AS active_projection_id,
                        p.adapter_id AS projection_adapter_id,
                        p.adapter_version AS projection_adapter_version,
-                       p.config_hash AS projection_config_hash
+                       p.config_hash AS projection_config_hash,
+                       failed.adapter_id AS failed_adapter_id,
+                       failed.adapter_version AS failed_adapter_version,
+                       failed.config_hash AS failed_config_hash
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
                   ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                LEFT JOIN extraction_attempts failed
+                  ON failed.attempt_id = (
+                    SELECT candidate.attempt_id
+                    FROM extraction_attempts candidate
+                    WHERE candidate.revision_id = d.current_revision_id
+                      AND candidate.state = 'failed'
+                    ORDER BY candidate.completed_at DESC, candidate.attempt_id DESC
+                    LIMIT 1
+                  )
                 WHERE d.deleted_at IS NULL
                   AND d.eligibility_state = 'supported'
-                """
+                  AND (? IS NULL OR d.last_seen_scan_id = ?)
+                """,
+                (observed_scan_id, observed_scan_id),
             ).fetchall()
         result = {
             "remaining": 0,
             "refreshable": 0,
             "pending_remote": 0,
             "too_large": 0,
+            "failed": 0,
+            "coverage_gaps": 0,
         }
         for row in rows:
             document = dict(row)
-            document_index_state, _ = self._document_index_state(document)
+            document_index_state, reasons = self._document_index_state(document)
             if document_index_state == "current":
                 continue
-            result["remaining"] += 1
-            if document["is_dataless"]:
-                result["pending_remote"] += 1
+            descriptor = self.adapter_registry.resolve(document["extension"]).descriptor
+            failed = (
+                "source_observation_changed" not in reasons
+                and document.get("failed_adapter_id") == descriptor.adapter_id
+                and document.get("failed_adapter_version") == descriptor.adapter_version
+                and document.get("failed_config_hash") == descriptor.config_hash
+            )
             if document["logical_size"] > max_file_bytes:
                 result["too_large"] += 1
-            if not document["is_dataless"] and document["logical_size"] <= max_file_bytes:
-                result["refreshable"] += 1
+                result["coverage_gaps"] += 1
+                continue
+            if document["is_dataless"] and not include_remote:
+                result["pending_remote"] += 1
+                result["coverage_gaps"] += 1
+                continue
+            if failed:
+                result["failed"] += 1
+                result["coverage_gaps"] += 1
+                continue
+            result["refreshable"] += 1
+            result["remaining"] += 1
         return result
 
     def _ingest_locked(
@@ -2235,6 +2373,7 @@ class CorpusService:
         remote_only: bool,
         document_ids: list[str] | None,
         timeout_seconds: float,
+        observed_scan_id: str | None = None,
     ) -> dict:
         corpus_id = corpus["corpus_id"]
         abandoned_staging_cleanup = cleanup_abandoned_staging(paths)
@@ -2245,6 +2384,7 @@ class CorpusService:
                 include_remote=include_remote,
                 max_file_bytes=max_file_bytes,
                 remote_only=remote_only,
+                observed_scan_id=observed_scan_id,
             )
             outcome_by_id: dict[str, dict] = {}
         else:
@@ -2414,8 +2554,9 @@ class CorpusService:
                 document_ids=document_ids,
                 timeout_seconds=timeout_seconds,
             )
-            result["snapshot"] = self._publish_snapshot(corpus_id)
+            self._prune_corpus_history_locked(corpus_id)
         self._reconcile_workspace_index_changes(corpus_id)
+        result["source_state"] = self._space_source_state(corpus_id)
         return {
             "corpus_id": corpus_id,
             **result,
@@ -2468,26 +2609,26 @@ class CorpusService:
         with writer_lock(paths.corpus_root / "writer.lock"):
             scan = dict(scan_corpus(self.data_root, corpus_id))
             inventory_complete = bool(scan.get("observation_complete"))
-            ingested: dict | None = None
-            pending_state: dict | None = None
-            if inventory_complete:
-                ingested = self._ingest_locked(
-                    corpus=corpus,
-                    paths=paths,
-                    max_files=max_files,
-                    max_bytes=max_bytes,
-                    max_file_bytes=max_file_bytes,
-                    include_remote=include_remote,
-                    remote_only=False,
-                    document_ids=None,
-                    timeout_seconds=timeout_seconds,
-                )
-                pending_state = self._pending_state_summary(
-                    corpus_id,
-                    max_file_bytes=max_file_bytes,
-                )
-            snapshot = self._publish_snapshot(corpus_id)
-
+            observed_scan_id = None if inventory_complete else scan["scan_id"]
+            ingested = self._ingest_locked(
+                corpus=corpus,
+                paths=paths,
+                max_files=max_files,
+                max_bytes=max_bytes,
+                max_file_bytes=max_file_bytes,
+                include_remote=include_remote,
+                remote_only=False,
+                document_ids=None,
+                timeout_seconds=timeout_seconds,
+                observed_scan_id=observed_scan_id,
+            )
+            pending_state = self._pending_state_summary(
+                corpus_id,
+                max_file_bytes=max_file_bytes,
+                include_remote=include_remote,
+                observed_scan_id=observed_scan_id,
+            )
+            self._prune_corpus_history_locked(corpus_id)
         self._reconcile_workspace_index_changes(corpus_id)
         scan.pop("source_root", None)
         change_counts = dict(scan.get("change_counts", {}))
@@ -2511,50 +2652,19 @@ class CorpusService:
             "timeout_seconds": timeout_seconds,
             "concurrency": 1,
         }
-        if not inventory_complete:
-            summary = {
-                "added": int(change_counts.get("added", 0)),
-                "changed": int(scan.get("changed_documents", 0)),
-                "reappeared": int(change_counts.get("reappeared", 0)),
-                "deleted": int(change_counts.get("deleted", 0)),
-                "indexed": 0,
-                "reused": 0,
-                "failed": 0,
-                "pending_remote": None,
-                "too_large": None,
-                "remaining": None,
-            }
-            return {
-                "corpus_id": corpus_id,
-                "state": "scan_incomplete",
-                "policy": policy,
-                "inventory": inventory,
-                "refresh": {
-                    "state": "skipped",
-                    "reason": "incomplete_metadata_scan",
-                    "selected_files": 0,
-                    "selected_logical_bytes": 0,
-                    "results": [],
-                },
-                "pending": {
-                    "remaining": None,
-                    "refreshable": None,
-                    "pending_remote": None,
-                    "too_large": None,
-                },
-                "summary": summary,
-                "snapshot": snapshot,
-            }
-
-        if ingested is None or pending_state is None:
-            raise AssertionError("complete sync did not produce refresh state")
         refreshable = int(pending_state["refreshable"])
         pending_remote = int(pending_state["pending_remote"])
         too_large = int(pending_state["too_large"])
+        coverage_gaps = int(pending_state["coverage_gaps"])
         remaining = int(pending_state["remaining"])
         refresh_summary = ingested["summary"]
-        failed = int(refresh_summary["failed"])
-        state = "complete" if remaining == 0 and failed == 0 else "pending"
+        failed = int(pending_state["failed"])
+        if remaining:
+            state = "pending"
+        elif not inventory_complete or coverage_gaps:
+            state = "partial"
+        else:
+            state = "complete"
         summary = {
             "added": int(change_counts.get("added", 0)),
             "changed": int(scan.get("changed_documents", 0)),
@@ -2566,6 +2676,7 @@ class CorpusService:
             "pending_remote": pending_remote,
             "too_large": too_large,
             "remaining": remaining,
+            "coverage_gaps": coverage_gaps,
         }
         return {
             "corpus_id": corpus_id,
@@ -2573,7 +2684,11 @@ class CorpusService:
             "policy": policy,
             "inventory": inventory,
             "refresh": {
-                "state": "completed" if failed == 0 else "completed_with_failures",
+                "state": (
+                    "completed"
+                    if int(refresh_summary["failed"]) == 0
+                    else "completed_with_failures"
+                ),
                 "selected_files": ingested["selected_files"],
                 "selected_logical_bytes": ingested["selected_logical_bytes"],
                 "skipped": ingested["skipped"],
@@ -2586,323 +2701,11 @@ class CorpusService:
                 "refreshable": refreshable,
                 "pending_remote": pending_remote,
                 "too_large": too_large,
+                "failed": failed,
+                "coverage_gaps": coverage_gaps,
             },
             "summary": summary,
-            "snapshot": snapshot,
-        }
-
-    def _publish_snapshot(self, corpus_id: str) -> dict:
-        import unicodedata
-
-        source_root = Path(get_corpus(self.data_root, corpus_id)["source_root"])
-        with corpus_connection(self.data_root, corpus_id) as connection:
-            rows = connection.execute(
-                """
-                SELECT d.document_id, d.current_revision_id AS revision_id,
-                       d.extension, p.projection_id, p.completeness_state,
-                       p.adapter_id, p.adapter_version, p.config_hash
-                FROM documents d
-                JOIN revisions r ON r.revision_id = d.current_revision_id
-                JOIN extraction_projections p
-                  ON p.revision_id = d.current_revision_id AND p.is_active = 1
-                WHERE d.deleted_at IS NULL
-                  AND d.eligibility_state = 'supported'
-                  AND r.source_size = d.logical_size
-                  AND r.source_modified_ns = d.modified_ns
-                  AND r.source_changed_ns = d.changed_ns
-                  AND r.source_inode = d.inode
-                ORDER BY d.document_id
-                """
-            ).fetchall()
-            supported_rows = connection.execute(
-                """
-                SELECT document_id, relative_path_nfc, logical_size, allocated_size,
-                       modified_ns, changed_ns, device, inode, is_dataless,
-                       residency_state
-                FROM documents
-                WHERE deleted_at IS NULL AND eligibility_state = 'supported'
-                ORDER BY document_id
-                """
-            ).fetchall()
-            supported_count = len(supported_rows)
-            inventory_manifest = [dict(supported_document) for supported_document in supported_rows]
-            inventory_set_hash = hashlib.sha256(
-                encode_json(inventory_manifest).encode()
-            ).hexdigest()
-            mapping = [
-                (row["document_id"], row["revision_id"], row["projection_id"]) for row in rows
-            ]
-            revision_manifest = "\n".join(
-                f"{document_id}={revision_id}"
-                for document_id, revision_id, _projection_id_value in mapping
-            )
-            projection_manifest = "\n".join(
-                f"{document_id}={revision_id}@{projection_id}"
-                for document_id, revision_id, projection_id in mapping
-            )
-            revision_set_hash = hashlib.sha256(revision_manifest.encode()).hexdigest()
-            projection_set_hash = hashlib.sha256(projection_manifest.encode()).hexdigest()
-            has_partial_projection = any(row["completeness_state"] != "complete" for row in rows)
-            latest_scan = connection.execute(
-                """
-                SELECT scan_id, status
-                FROM scan_runs
-                ORDER BY rowid DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            has_incomplete_scan = bool(latest_scan is None or latest_scan["status"] != "complete")
-            completeness_failure_counts: dict[tuple[str, str], int] = {}
-            if latest_scan is not None:
-                completeness_issues = connection.execute(
-                    """
-                    SELECT code, details_json, structural_locator_json
-                    FROM extraction_issues
-                    WHERE scan_id = ?
-                      AND stage = 'scan'
-                      AND code IN (
-                          'source_root_open_failed',
-                          'source_root_changed_during_scan',
-                          'directory_scan_failed',
-                          'directory_changed_during_scan',
-                          'directory_open_failed',
-                          'scan_resource_exhausted',
-                          'scan_permission_denied',
-                          'source_root_revalidation_failed',
-                          'stat_failed'
-                      )
-                    ORDER BY rowid
-                    """,
-                    (latest_scan["scan_id"],),
-                ).fetchall()
-                for issue in completeness_issues:
-                    try:
-                        structural_locator = json.loads(issue["structural_locator_json"])
-                    except (TypeError, json.JSONDecodeError):
-                        structural_locator = {}
-                    relative_path = (
-                        structural_locator.get("relative_path")
-                        if isinstance(structural_locator, dict)
-                        else None
-                    )
-                    if not isinstance(relative_path, str) or not relative_path:
-                        try:
-                            details = json.loads(issue["details_json"])
-                        except (TypeError, json.JSONDecodeError):
-                            details = {}
-                        raw_path = details.get("path") if isinstance(details, dict) else None
-                        if isinstance(raw_path, str):
-                            try:
-                                relative_path = Path(raw_path).relative_to(source_root).as_posix()
-                            except ValueError:
-                                relative_path = None
-                    if not isinstance(relative_path, str) or not relative_path:
-                        relative_path = "__unlocated__"
-                    relative_path = unicodedata.normalize("NFC", relative_path)
-                    path_segments = relative_path.split("/")
-                    if relative_path.startswith("/") or ".." in path_segments:
-                        relative_path = "__unlocated__"
-                    else:
-                        relative_path = (
-                            "/".join(
-                                segment for segment in path_segments if segment not in ("", ".")
-                            )
-                            or "."
-                        )
-                    normalized_locator = {
-                        "relative_path": relative_path,
-                    }
-                    locator_sha256 = hashlib.sha256(
-                        encode_json(normalized_locator).encode()
-                    ).hexdigest()
-                    failure_key = (issue["code"], locator_sha256)
-                    completeness_failure_counts[failure_key] = (
-                        completeness_failure_counts.get(failure_key, 0) + 1
-                    )
-            completeness_failure_scope = [
-                {
-                    "code": code,
-                    "locator_sha256": locator_sha256,
-                    "count": count,
-                }
-                for (code, locator_sha256), count in sorted(completeness_failure_counts.items())
-            ]
-            completeness_failure_scope_fingerprint = hashlib.sha256(
-                encode_json(completeness_failure_scope).encode()
-            ).hexdigest()
-            has_outdated_projection = False
-            adapter_expectations = []
-            for row in rows:
-                descriptor = self.adapter_registry.resolve(row["extension"]).descriptor
-                adapter_expectations.append(
-                    {
-                        "projection_id": row["projection_id"],
-                        "adapter_id": descriptor.adapter_id,
-                        "adapter_version": descriptor.adapter_version,
-                        "config_hash": descriptor.config_hash,
-                    }
-                )
-                projection_identity = (
-                    row["adapter_id"],
-                    row["adapter_version"],
-                    row["config_hash"],
-                )
-                current_identity = (
-                    descriptor.adapter_id,
-                    descriptor.adapter_version,
-                    descriptor.config_hash,
-                )
-                if projection_identity != current_identity:
-                    has_outdated_projection = True
-            coverage_state = (
-                "complete"
-                if (
-                    len(mapping) == supported_count
-                    and not has_partial_projection
-                    and not has_outdated_projection
-                    and not has_incomplete_scan
-                )
-                else "partial"
-            )
-            coverage_gaps = []
-            if len(mapping) != supported_count:
-                coverage_gaps.append("supported_documents_without_usable_projection")
-            if has_partial_projection:
-                coverage_gaps.append("partial_extraction_projection")
-            if has_outdated_projection:
-                coverage_gaps.append("outdated_extraction_projection")
-            if has_incomplete_scan:
-                coverage_gaps.append("incomplete_metadata_scan")
-            publication_manifest = {
-                "schema_version": 1,
-                "extraction_schema_version": EXTRACTION_SCHEMA_VERSION,
-                "inventory_set_hash": inventory_set_hash,
-                "document_revision_set_hash": revision_set_hash,
-                "extraction_projection_set_hash": projection_set_hash,
-                "document_count": len(mapping),
-                "supported_document_count": supported_count,
-                "coverage_state": coverage_state,
-                "coverage_gaps": coverage_gaps,
-                "completeness_failure_scope": completeness_failure_scope,
-                "completeness_failure_scope_fingerprint": (completeness_failure_scope_fingerprint),
-                "projection_completeness": [
-                    {
-                        "projection_id": row["projection_id"],
-                        "completeness_state": row["completeness_state"],
-                    }
-                    for row in rows
-                ],
-                "adapter_expectations": adapter_expectations,
-            }
-            publication_state_hash = hashlib.sha256(
-                encode_json(publication_manifest).encode()
-            ).hexdigest()
-            latest_snapshot = connection.execute(
-                """
-                SELECT snapshot_id
-                FROM snapshots
-                WHERE state = 'complete'
-                ORDER BY rowid DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            latest_publication = connection.execute(
-                """
-                SELECT payload_json
-                FROM events
-                WHERE event_type = 'snapshot_published'
-                ORDER BY rowid DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            reuse_latest_snapshot = False
-            if latest_snapshot is not None and latest_publication is not None:
-                try:
-                    latest_payload = json.loads(latest_publication["payload_json"])
-                except (TypeError, json.JSONDecodeError):
-                    latest_payload = {}
-                reuse_latest_snapshot = (
-                    latest_payload.get("snapshot_id") == latest_snapshot["snapshot_id"]
-                    and latest_payload.get("publication_state_hash") == publication_state_hash
-                )
-
-            now = utc_now()
-            if reuse_latest_snapshot:
-                snapshot_id = latest_snapshot["snapshot_id"]
-            else:
-                publication_nonce = uuid.uuid4().hex
-                snapshot_digest = hashlib.sha256(
-                    (f"state={publication_state_hash}\npublication={publication_nonce}").encode()
-                ).hexdigest()
-                snapshot_id = f"snap_{snapshot_digest[:32]}"
-                connection.execute(
-                    """
-                    INSERT INTO snapshots(
-                        snapshot_id, state, coverage_state, document_revision_set_hash,
-                        extraction_projection_set_hash, document_count,
-                        supported_document_count, extraction_schema_version,
-                        created_at, completed_at
-                    ) VALUES (?, 'complete', ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        snapshot_id,
-                        coverage_state,
-                        revision_set_hash,
-                        projection_set_hash,
-                        len(mapping),
-                        supported_count,
-                        EXTRACTION_SCHEMA_VERSION,
-                        now,
-                        now,
-                    ),
-                )
-                connection.executemany(
-                    """
-                    INSERT INTO snapshot_documents(
-                        snapshot_id, document_id, revision_id, projection_id
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    [
-                        (snapshot_id, document_id, revision_id, projection_id)
-                        for document_id, revision_id, projection_id in mapping
-                    ],
-                )
-                connection.execute(
-                    """
-                    INSERT INTO events(
-                        event_id, event_type, payload_json, created_at
-                    ) VALUES (?, 'snapshot_published', ?, ?)
-                    """,
-                    (
-                        f"event_{uuid.uuid4().hex}",
-                        encode_json(
-                            {
-                                "schema_version": 1,
-                                "snapshot_id": snapshot_id,
-                                "publication_state_hash": publication_state_hash,
-                                "inventory_set_hash": inventory_set_hash,
-                                "coverage_gaps": coverage_gaps,
-                                "completeness_failure_scope": (completeness_failure_scope),
-                                "completeness_failure_scope_fingerprint": (
-                                    completeness_failure_scope_fingerprint
-                                ),
-                            }
-                        ),
-                        now,
-                    ),
-                )
-        return {
-            "snapshot_id": snapshot_id,
-            "coverage_state": coverage_state,
-            "document_count": len(mapping),
-            "supported_document_count": supported_count,
-            "document_revision_set_hash": revision_set_hash,
-            "extraction_projection_set_hash": projection_set_hash,
-            "inventory_set_hash": inventory_set_hash,
-            "publication_state_hash": publication_state_hash,
-            "coverage_gaps": coverage_gaps,
-            "completeness_failure_scope": completeness_failure_scope,
-            "completeness_failure_scope_fingerprint": (completeness_failure_scope_fingerprint),
+            "source_state": self._space_source_state(corpus_id),
         }
 
     def _ingest_document(
@@ -2977,7 +2780,6 @@ class CorpusService:
                         connection,
                         document=document,
                         revision_id=revision_id,
-                        projection_id=existing["projection_id"],
                         captured=captured,
                         blob_ref=capture_ref,
                     )
@@ -3132,12 +2934,9 @@ class CorpusService:
         *,
         document: dict,
         revision_id: str,
-        projection_id: str,
         captured: CapturedSource,
         blob_ref: str,
     ) -> None:
-        previous_revision_id = document.get("current_revision_id")
-        now = utc_now()
         self._refresh_revision_observation(
             connection,
             revision_id=revision_id,
@@ -3145,31 +2944,6 @@ class CorpusService:
             blob_ref=blob_ref,
         )
         self._set_document_current(connection, document, revision_id, captured)
-        reason = (
-            "reactivated_source_revision"
-            if previous_revision_id and previous_revision_id != revision_id
-            else "source_observation_reconfirmed"
-        )
-        connection.execute(
-            """
-            INSERT INTO events(
-                event_id, event_type, document_id, revision_id, payload_json, created_at
-            ) VALUES (?, 'revision_reactivated', ?, ?, ?, ?)
-            """,
-            (
-                f"event_{uuid.uuid4().hex}",
-                document["document_id"],
-                revision_id,
-                encode_json(
-                    {
-                        "projection_id": projection_id,
-                        "previous_revision_id": previous_revision_id,
-                        "reason": reason,
-                    }
-                ),
-                now,
-            ),
-        )
 
     def _insert_revision(
         self,
@@ -3553,26 +3327,6 @@ class CorpusService:
                 WHERE attempt_id = ?
                 """,
                 (projection_id, now, attempt_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO events(
-                    event_id, event_type, document_id, revision_id, payload_json, created_at
-                ) VALUES (?, 'revision_extracted', ?, ?, ?, ?)
-                """,
-                (
-                    f"event_{uuid.uuid4().hex}",
-                    document["document_id"],
-                    revision_id,
-                    encode_json(
-                        {
-                            "projection_id": projection_id,
-                            "source_units": len(extraction.units),
-                            "completeness_state": completeness_state,
-                        }
-                    ),
-                    now,
-                ),
             )
         return {
             "projection_id": projection_id,

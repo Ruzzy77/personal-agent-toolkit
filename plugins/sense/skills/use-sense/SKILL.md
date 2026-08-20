@@ -9,25 +9,21 @@ Sense is background for a choice, not a template for the answer. Do not turn its
 wording into headings, lists, or policy language in the answer.
 
 Read `sense_read` with `view=index`, then only the sections that could change the choice. When the
-relevant section is already known in a direct continuation, read that section without reopening the
-index. Current requests, facts and sources take priority over retained guidance. Reach your own
-conclusion and do not mention Sense or its internal categories unless the user asks.
+relevant section is already known in a direct continuation, read it without reopening the index.
+Current requests, facts and sources take priority. Reach your own conclusion and do not mention
+Sense or its internal categories unless the user asks.
 
 If Sense is unavailable, continue from the conversation and current sources. Diagnose it only when
 the user asks about Sense.
 
 Sense keeps only guidance that should affect important choices in different contexts. Do not copy
-source material, conversation text, hidden reasoning or one project's facts into it.
+source material, source locators, conversation text, hidden reasoning or one project's facts into it.
 
-Revise Sense only when the user asks to save a correction or observed result as durable guidance.
-Read every affected section first and preserve anything still valid. If the user supplies the final
-ordinary wording, call `sense_revise_batch` once with that wording and a unique idempotency key.
+Revise Sense only when the user asks to save durable guidance. Read every affected section first and
+preserve anything still valid. If the assistant drafted the wording or several sections change, show
+the complete final wording in the conversation before writing. Then call `sense_revise` once with
+each section's `section_sha256` and complete replacement. An exact repeated final state is a no-op.
+Do not retry a section conflict in the same response.
 
-Use `sense_preview_revision` before the write when the assistant drafted the replacement, the change
-spans several sections, or the user asks to review it. Preview all related replacements together,
-then save the reviewed batch once. Do not require a preview for an explicit final ordinary
-replacement. Sensitive or scope-expanding persistence remains a trusted local action; do not retry
-it through Chat. Do not retry a revision conflict in the same response.
-
-Use `sense_overview` when the user asks to review Sense. Use `sense_control` only for an explicit
-request to inspect, export, or remove Sense data.
+Sensitive changes and permanent deletion require a trusted local command. Use `sense_overview` when
+the user asks to review the current ordinary guidance.
