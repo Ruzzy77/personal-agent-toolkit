@@ -42,15 +42,15 @@ Sense를 고칠 때에는 관련 항목을 읽어 받은 `section_sha256`와 최
 
 ```sh
 uv sync
-./bin/sense read --view full
-./bin/sense status
+./launchers/sense read --view full
+./launchers/sense status
 ```
 
 검토한 프로필을 처음 가져올 수 있으며, 기존 프로필을 교체할 때에는 명시적인 확인이 필요하다.
 
 ```sh
-./bin/sense import-profile --input profile.json
-./bin/sense import-profile --input profile.json --replace --confirm-replace
+./launchers/sense import-profile --input profile.json
+./launchers/sense import-profile --input profile.json --replace --confirm-replace
 ```
 
 항목 또는 전체 데이터의 영구 삭제도 로컬 확인 플래그가 있어야 실행된다.

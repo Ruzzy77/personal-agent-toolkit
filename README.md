@@ -179,10 +179,10 @@ guidance you want important choices to use, review the file, and import it as th
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 # Edit /tmp/my-sense-profile.json before continuing.
 
-./plugins/sense/bin/sense import-profile \
+./plugins/sense/launchers/sense import-profile \
   --input /tmp/my-sense-profile.json
-./plugins/sense/bin/sense read --view full
-./plugins/sense/bin/sense status
+./plugins/sense/launchers/sense read --view full
+./plugins/sense/launchers/sense status
 ```
 
 Sense keeps only this current profile. Ordinary corrections use the affected section's change token
@@ -194,7 +194,7 @@ deletion remain explicit local actions.
 Corpus also starts empty. Register only a folder you want Corpus to search:
 
 ```sh
-./plugins/corpus/bin/corpus corpus add \
+./plugins/corpus/launchers/corpus corpus add \
   --id my-work \
   --root /absolute/path/to/my-work \
   --execution-policy local_only
@@ -208,7 +208,7 @@ For drafts and other results that Chat and local Work should edit in the same pl
 choose an active named context, then connect a separate local work folder:
 
 ```sh
-./plugins/corpus/bin/corpus workspace connect \
+./plugins/corpus/launchers/corpus workspace connect \
   --id my-drafts \
   --context ACTIVE_CONTEXT_ID \
   --name "My drafts" \

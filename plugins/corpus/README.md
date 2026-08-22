@@ -35,8 +35,8 @@ Python 3.11 이상과 `uv`가 필요합니다.
 
 ```sh
 uv sync --frozen
-./bin/corpus --help
-./bin/corpus-mcp
+./launchers/corpus --help
+./launchers/corpus-mcp
 ```
 
 이 plugin 폴더가 실행 코드, 스킬, 문서, launcher와 Codex·Claude manifest를 함께 보관하는
@@ -45,7 +45,7 @@ uv sync --frozen
 기본 데이터 위치는 `~/Library/Application Support/Corpus`입니다. 다른 위치를 쓰려면 `CORPUS_DATA_DIR`을 지정합니다.
 
 ```sh
-CORPUS_DATA_DIR=/absolute/private/path ./bin/corpus-mcp
+CORPUS_DATA_DIR=/absolute/private/path ./launchers/corpus-mcp
 ```
 
 MCP 전송은 기본적으로 stdio입니다. 로컬 loopback HTTP가 필요할 때만 다음 환경 변수를 사용합니다.
@@ -54,7 +54,7 @@ MCP 전송은 기본적으로 stdio입니다. 로컬 loopback HTTP가 필요할 
 CORPUS_MCP_TRANSPORT=streamable-http \
 CORPUS_MCP_HOST=127.0.0.1 \
 CORPUS_MCP_PORT=8000 \
-./bin/corpus-mcp
+./launchers/corpus-mcp
 ```
 
 ## Source 등록과 색인
@@ -62,19 +62,19 @@ CORPUS_MCP_PORT=8000 \
 Source는 읽기 전용 원본 폴더입니다.
 
 ```sh
-./bin/corpus corpus add \
+./launchers/corpus corpus add \
   --id thesis-sources \
   --root /absolute/path/to/sources \
   --execution-policy local_only
 
-./bin/corpus scan --corpus thesis-sources
-./bin/corpus ingest --corpus thesis-sources
+./launchers/corpus scan --corpus thesis-sources
+./launchers/corpus ingest --corpus thesis-sources
 ```
 
 `scan`은 파일 메타데이터를 갱신합니다. `ingest`는 선택한 파일을 임시로 읽어 검색 가능한 Source unit을 만듭니다. 두 작업을 함께 수행하려면 `sync`를 사용합니다.
 
 ```sh
-./bin/corpus sync --corpus thesis-sources
+./launchers/corpus sync --corpus thesis-sources
 ```
 
 현재 기본 추출기는 Markdown·텍스트·HTML·PDF·DOCX·PPTX·XLSX·HWP·HWPX를 지원합니다. 형식별 세부 내용은 [docs/EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
@@ -86,7 +86,7 @@ Context는 Source 전체를 복사하지 않고, 다시 사용할 내용과 출�
 marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현재 Context Skill을 읽습니다.
 
 ```sh
-./bin/corpus context create \
+./launchers/corpus context create \
   --id thesis \
   --payload-file /absolute/path/to/context.json
 ```
@@ -94,7 +94,7 @@ marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현
 편집할 폴더는 기존 Context에 연결합니다.
 
 ```sh
-./bin/corpus workspace connect \
+./launchers/corpus workspace connect \
   --id thesis \
   --context thesis \
   --name "Thesis" \
@@ -108,8 +108,8 @@ marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현
 Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니다. 별도 Space registry, migration plan이나 identifier cutover 절차는 없습니다.
 
 ```sh
-./bin/corpus space list
-./bin/corpus space show --id thesis
+./launchers/corpus space list
+./launchers/corpus space show --id thesis
 ```
 
 ## 파일 읽기와 쓰기
@@ -119,7 +119,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 새 경로에는 `expected_version=absent`를 사용합니다.
 
 ```sh
-./bin/corpus space write \
+./launchers/corpus space write \
   --id thesis \
   --path notes/new-section.md \
   --content-file /absolute/path/to/new-section.md \
@@ -132,7 +132,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 편집 직전에 현재 파일을 읽고 `version_token`을 받습니다. 전체 내용을 바탕으로 수정해야 한다면 UTF-8 파일의 `next_start_char`를 다음 `--start-char`로 넘겨 필요한 범위를 이어 읽습니다.
 
 ```sh
-./bin/corpus space read \
+./launchers/corpus space read \
   --id thesis \
   --path draft.md \
   --max-chars 200000
@@ -141,7 +141,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 전체 교체에는 직전 읽기에서 받은 `version_token`을 사용합니다. 이 토큰에 파일 내용의 digest가 포함되므로 별도 SHA-256 확인값을 다시 제출하지 않습니다.
 
 ```sh
-./bin/corpus space write \
+./launchers/corpus space write \
   --id thesis \
   --path draft.md \
   --content-file /absolute/path/to/revised-draft.md \
@@ -156,7 +156,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 큰 문서의 한 부분만 바꿀 때에는 현재 파일에 한 번씩만 나타나는 시작 marker와 끝 marker를 지정합니다. Marker는 남기고 그 사이 내용만 교체합니다.
 
 ```sh
-./bin/corpus space write \
+./launchers/corpus space write \
   --id thesis \
   --path draft.md \
   --content-file /absolute/path/to/replacement.txt \
@@ -173,7 +173,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 일반 쓰기는 Current File을 바꾸지 않습니다. 계속 작업할 파일만 따로 선택합니다.
 
 ```sh
-./bin/corpus space select-current \
+./launchers/corpus space select-current \
   --id thesis \
   --path draft.md
 ```
@@ -181,7 +181,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
 기존 파일을 교체하면 `recovery_id`가 반환됩니다. Work 경로마다 직전 교체본 하나만 보존하며, 교체 결과가 그대로일 때에만 복원할 수 있습니다.
 
 ```sh
-./bin/corpus space restore \
+./launchers/corpus space restore \
   --id thesis \
   --recovery-id 'wrec_...' \
   --expected-version 'v1:...'

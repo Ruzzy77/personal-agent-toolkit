@@ -25,10 +25,10 @@ Binding에는 provider와 관찰할 workspace 범위를 지정합니다.
 ```
 
 ```sh
-./bin/corpus source bind --corpus completed-work --id codex --payload-file binding.json
-./bin/corpus source refresh --corpus completed-work --id codex
-./bin/corpus source list --corpus completed-work --binding codex
-./bin/corpus source fetch --corpus completed-work --id codex --external-id turn_...
+./launchers/corpus source bind --corpus completed-work --id codex --payload-file binding.json
+./launchers/corpus source refresh --corpus completed-work --id codex
+./launchers/corpus source list --corpus completed-work --binding codex
+./launchers/corpus source fetch --corpus completed-work --id codex --external-id turn_...
 ```
 
 Claude는 `provider_kind`를 `claude`로 바꿉니다. Subagent 기록이 실제로 필요할 때만 `actor`가 `subagent_task`인 별도 binding을 만듭니다.

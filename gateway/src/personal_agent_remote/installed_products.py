@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 PRODUCTS = ("sense", "corpus", "hypes")
-MCP_LAUNCHERS = {product: f"bin/{product}-mcp" for product in PRODUCTS}
+MCP_LAUNCHERS = {product: f"launchers/{product}-mcp" for product in PRODUCTS}
 DEFAULT_MARKETPLACE = "personal-agent-toolkit"
 
 
