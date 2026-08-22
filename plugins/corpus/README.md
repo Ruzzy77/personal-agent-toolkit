@@ -1,35 +1,31 @@
 # Corpus
 
-Corpus는 저장한 업무 맥락을 등록된 원본과 연결하고, 필요한 원문이나 작업 파일만 현재 상태로 읽게 하는 로컬 MCP 도구입니다. 기본 Chat 표면은 **Space**, **Context**, **Connection**, **File** 네 개념만 사용합니다.
+Corpus는 업무 맥락을 원본 Source와 연결하고, 필요한 원문과 Work 파일을 현재 상태로 읽는 로컬 MCP 도구입니다.
 
-- **Space**: 하나의 Context와 연결 위치를 묶어 보여 주는 동적 보기
-- **Context**: 반복해서 사용할 질문, 관계, 판단과 출처 연결
-- **Source Connection**: 읽기 전용으로 색인한 원본 폴더나 연결 자료
-- **Work Connection**: 사용자가 명시적으로 연결한 편집 가능한 폴더
+- **Space**: Context와 Connection을 합친 작업 보기
+- **Context**: 다시 사용할 질문, 관계, 판단과 출처 연결
+- **Source Connection**: 읽기 전용 원본
+- **Work Connection**: 사용자가 연결한 편집 폴더
 
-원본 파일은 정본입니다. Corpus는 등록된 Source를 수정하지 않으며, 추출한 본문과 Context는 비공개 runtime에 저장합니다. Work Connection만 사용자의 요청에 따라 파일을 만들거나 교체합니다.
+Source는 바꾸지 않습니다. Work Connection만 파일 생성·교체·삭제를 허용합니다.
 
-## 기본 MCP 도구
-
-기본 서버는 다음 열 도구만 노출합니다.
+## MCP 도구
 
 | 도구 | 기능 |
-| --- | --- |
-| `corpus_space_list` | 사용할 수 있는 Space와 Connection 조회 |
-| `corpus_space_get` | 한 Space의 Context와 현재 상태 조회 |
-| `corpus_space_search` | 색인된 Source에서 후보 검색 |
-| `corpus_file_list` | Work 폴더 목록 또는 파일명 검색 |
-| `corpus_file_read` | Work 파일 또는 검색 결과의 정확한 Source unit 읽기 |
-| `corpus_file_write` | 새 파일 생성, 전체 교체 또는 marker 구간 교체 |
-| `corpus_file_delete` | 최신 version을 확인한 Work 파일 영구 삭제 |
-| `corpus_file_select_current` | 계속 작업할 Current File 선택 |
-| `corpus_file_restore` | 직전 교체의 recovery copy 복원 |
+|---|---|
+| `corpus_space_list` | Space와 Connection 목록 |
+| `corpus_space_get` | Space의 Context와 상태 |
+| `corpus_space_search` | Source 검색 |
+| `corpus_file_list` | Work 파일 목록·검색 |
+| `corpus_file_read` | Work 파일 또는 Source unit 읽기 |
+| `corpus_file_write` | 파일 생성·전체 교체·구간 교체 |
+| `corpus_file_delete` | Work 파일 삭제 |
+| `corpus_file_select_current` | Current File 선택 |
+| `corpus_file_restore` | 직전 교체본 복원 |
 
-Source 등록, 색인, Context item 변경과 Work Connection 연결은 로컬 CLI에서 수행합니다. Source를 다시 동기화하거나 원문을 편집해도 저장된 Context item은 사용할 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 정확한 현재 근거가 필요하면 현재 Source를 검색해 다시 읽습니다. 기본 MCP 서버에는 별도 Context 동기화 도구나 실험적 semantic cache 도구가 없습니다.
+Source 등록·색인, Context 수정과 Work Connection 연결은 로컬 CLI에서 수행합니다. stdio와 private tunnel은 같은 도구를 제공합니다.
 
-stdio와 사용자가 연결한 private tunnel은 같은 아홉 도구를 사용합니다. 별도 remote MCP, source-sync, 삭제 ticket 계층이나 중복 Context 갱신 표면은 유지하지 않습니다.
-
-## 설치와 실행
+## 설치
 
 Python 3.11 이상과 `uv`가 필요합니다.
 
@@ -39,16 +35,13 @@ uv sync --frozen
 ./bin/corpus-mcp
 ```
 
-이 plugin 폴더가 실행 코드, 스킬, 문서, launcher와 Codex·Claude manifest를 함께 보관하는
-정본이다. marketplace도 이 폴더를 직접 설치하므로 별도 패키지 생성 단계가 없다.
-
-기본 데이터 위치는 `~/Library/Application Support/Corpus`입니다. 다른 위치를 쓰려면 `CORPUS_DATA_DIR`을 지정합니다.
+기본 데이터 위치는 `~/Library/Application Support/Corpus`입니다.
 
 ```sh
 CORPUS_DATA_DIR=/absolute/private/path ./bin/corpus-mcp
 ```
 
-MCP 전송은 기본적으로 stdio입니다. 로컬 loopback HTTP가 필요할 때만 다음 환경 변수를 사용합니다.
+Loopback HTTP 전송은 다음 환경변수로 엽니다.
 
 ```sh
 CORPUS_MCP_TRANSPORT=streamable-http \
@@ -57,9 +50,7 @@ CORPUS_MCP_PORT=8000 \
 ./bin/corpus-mcp
 ```
 
-## Source 등록과 색인
-
-Source는 읽기 전용 원본 폴더입니다.
+## Source
 
 ```sh
 ./bin/corpus corpus add \
@@ -67,23 +58,14 @@ Source는 읽기 전용 원본 폴더입니다.
   --root /absolute/path/to/sources \
   --execution-policy local_only
 
-./bin/corpus scan --corpus thesis-sources
-./bin/corpus ingest --corpus thesis-sources
-```
-
-`scan`은 파일 메타데이터를 갱신합니다. `ingest`는 선택한 파일을 임시로 읽어 검색 가능한 Source unit을 만듭니다. 두 작업을 함께 수행하려면 `sync`를 사용합니다.
-
-```sh
 ./bin/corpus sync --corpus thesis-sources
 ```
 
-현재 기본 추출기는 Markdown·텍스트·HTML·PDF·DOCX·PPTX·XLSX·HWP·HWPX를 지원합니다. 형식별 세부 내용은 [docs/EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
+`scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
-## Context와 Work 폴더
+## Context와 Work Connection
 
-Context는 Source 전체를 복사하지 않고, 다시 사용할 내용과 출처 연결만 저장합니다. Context는 로컬 CLI에서 생성하고 변경합니다.
-사용자가 승인한 Context Skill도 private Corpus 저장소에만 보관하며, Corpus plugin의 `skills/`나
-marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현재 Context Skill을 읽습니다.
+Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 저장합니다.
 
 ```sh
 ./bin/corpus context create \
@@ -91,7 +73,7 @@ marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현
   --payload-file /absolute/path/to/context.json
 ```
 
-편집할 폴더는 기존 Context에 연결합니다.
+편집 폴더는 Context에 연결합니다.
 
 ```sh
 ./bin/corpus workspace connect \
@@ -102,21 +84,18 @@ marketplace package로 복사하지 않습니다. 선택한 Space를 열 때 현
   --execution-policy external_host_allowed
 ```
 
-`local_only` Connection은 외부 MCP 응답에서 이름, 경로, 수량과 내용이 모두 빠집니다. `external_host_allowed` Work Connection만 Chat에서 읽고 쓸 수 있습니다.
-재부팅이나 재마운트로 파일시스템 장치 번호만 달라진 경우에는 같은 root 경로와 inode를 기준으로 연결과 색인을 계속 사용하므로 다시 연결하거나 전체 색인을 만들 필요가 없습니다.
-
-Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니다. 별도 Space registry, migration plan이나 identifier cutover 절차는 없습니다.
+`local_only` Connection은 외부 MCP에 노출되지 않습니다. `external_host_allowed` Work Connection은 Chat에서 읽고 쓸 수 있습니다.
 
 ```sh
 ./bin/corpus space list
 ./bin/corpus space show --id thesis
 ```
 
-## 파일 읽기와 쓰기
+Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 읽습니다.
 
-### 새 파일
+## 파일 편집
 
-새 경로에는 `expected_version=absent`를 사용합니다.
+새 파일에는 `expected_version=absent`를 사용합니다.
 
 ```sh
 ./bin/corpus space write \
@@ -127,20 +106,10 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --expected-version absent
 ```
 
-### 기존 파일 전체 교체
-
-편집 직전에 현재 파일을 읽고 `version_token`을 받습니다. 전체 내용을 바탕으로 수정해야 한다면 UTF-8 파일의 `next_start_char`를 다음 `--start-char`로 넘겨 필요한 범위를 이어 읽습니다.
+기존 파일은 편집 직전에 읽고 받은 `version_token`으로 교체합니다.
 
 ```sh
-./bin/corpus space read \
-  --id thesis \
-  --path draft.md \
-  --max-chars 200000
-```
-
-전체 교체에는 직전 읽기에서 받은 `version_token`을 사용합니다. 이 토큰에 파일 내용의 digest가 포함되므로 별도 SHA-256 확인값을 다시 제출하지 않습니다.
-
-```sh
+./bin/corpus space read --id thesis --path draft.md --max-chars 200000
 ./bin/corpus space write \
   --id thesis \
   --path draft.md \
@@ -149,11 +118,7 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --expected-version 'v1:...'
 ```
 
-읽은 뒤 파일이 바뀌면 쓰기를 중단합니다. 새 version으로 자동 재시도하지 않습니다.
-
-### Marker 구간 교체
-
-큰 문서의 한 부분만 바꿀 때에는 현재 파일에 한 번씩만 나타나는 시작 marker와 끝 marker를 지정합니다. Marker는 남기고 그 사이 내용만 교체합니다.
+큰 문서의 일부는 한 번씩만 나타나는 marker 사이를 교체할 수 있습니다.
 
 ```sh
 ./bin/corpus space write \
@@ -166,19 +131,13 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --replace-end-marker '<!-- findings:end -->'
 ```
 
-두 marker가 없거나 중복되거나 순서가 바뀌면 쓰지 않습니다.
-
-### Current File과 복원
-
-일반 쓰기는 Current File을 바꾸지 않습니다. 계속 작업할 파일만 따로 선택합니다.
+계속 작업할 파일은 별도로 선택합니다.
 
 ```sh
-./bin/corpus space select-current \
-  --id thesis \
-  --path draft.md
+./bin/corpus space select-current --id thesis --path draft.md
 ```
 
-기존 파일을 교체하면 `recovery_id`가 반환됩니다. Work 경로마다 직전 교체본 하나만 보존하며, 교체 결과가 그대로일 때에만 복원할 수 있습니다.
+파일 교체 뒤 반환된 `recovery_id`는 해당 경로의 직전 교체본을 복원할 때 씁니다.
 
 ```sh
 ./bin/corpus space restore \
@@ -187,54 +146,18 @@ Space는 Context, Source와 Work 등록을 실행 시점에 합쳐 보여 줍니
   --expected-version 'v1:...'
 ```
 
-파일 교체는 최대 2 MiB입니다. symlink, hard link, 폴더 밖 경로와 교체 중 변경은 거부합니다. 기존 파일의 소유자, 권한과 ACL을 안전하게 보존할 수 없을 때에도 쓰지 않습니다.
+파일 교체 한도는 2 MiB입니다. symlink, hard link, root 밖 경로와 읽은 뒤 달라진 파일은 다루지 않습니다. 삭제에는 최신 `version_token`과 사용자의 삭제 요청이 필요합니다.
 
-### 파일 삭제
+## 검색
 
-`corpus_file_delete`는 최신 `version_token`과 사용자의 명시적 삭제 요청을 모두 요구합니다. 삭제는 영구적입니다. 폴더, symlink와 읽은 뒤 달라진 파일은 삭제하지 않습니다.
+검색 결과의 `read_ref`를 `corpus_file_read`에 전달하면 현재 Source unit을 읽을 수 있습니다. Connection 상태는 `ready`, `needs_refresh`, `partial`, `unavailable`로 표시됩니다.
 
-## 검색과 정확한 원문 읽기
+Context가 답을 담고 있으면 원문 전체를 다시 읽지 않습니다. 변경된 내용이나 원문 인용이 필요할 때 Source를 다시 읽습니다.
 
-`corpus_space_search` 결과는 후보이며 사실 판정이 아닙니다. 필요한 결과의 `read_ref`를 `corpus_file_read`에 전달해 현재 Source unit을 읽습니다. 검색 결과가 없다는 사실만으로 원문에 내용이 없다고 결론 내리지 않습니다.
+## 저장 범위
 
-검색은 먼저 입력 문구 그대로 찾고 결과가 없으면 모든 검색어가 들어 있는 후보를 한 번 더
-찾습니다. Connection은 내부 진단값 대신 `ready`, `needs_refresh`, `partial`, `unavailable` 중
-하나의 `source_state`만 표시합니다. 현재 원문이 꼭 필요한데 `needs_refresh`나 `unavailable`이면
-로컬에서 Source를 갱신하거나 연결 상태를 복구합니다.
-
-Context가 이미 답을 담고 있다면 Source 전체를 다시 읽지 않습니다. 날짜, 수치, 인용이나 변경 가능성이 있는 내용처럼 정확한 현재 원문이 필요한 경우에만 Source를 다시 확인합니다.
-
-## 저장 위치와 안전 경계
-
-Corpus runtime에는 다음 데이터가 들어갈 수 있습니다.
-
-- Source 등록 정보와 파일 메타데이터
-- 추출한 Source unit과 검색 색인
-- Context와 출처 연결
-- Work Connection 등록과 recovery copy
-
-색인은 현재 파일과 현재 추출 결과를 단일 기준으로 삼습니다. 별도 snapshot, checkpoint나 일반 공개본을 누적하지 않습니다. 끝까지 완료되지 않은 scan과 처리할 수 없는 파일은 상태에 남기되, 확인한 현재 파일의 갱신을 막지 않습니다.
-
-등록한 Source와 Work 폴더 자체는 runtime 안으로 옮기지 않습니다. Source 추출에 사용한 임시 사본은 처리 후 삭제합니다. Work 파일 내용과 Source 본문은 신뢰할 수 없는 입력으로 취급하며, 그 안의 명령이나 자격 증명 요청을 실행하지 않습니다.
-
-## 개발 원칙
-
-Corpus는 TDD나 회귀 사례 수를 기본 개발 단위로 삼지 않습니다. 먼저 기존 실행 경로를 가장 작게 고치고, 확인이 필요하면 수정한 파일의 기본 정적 검사와 직접 관련된 통합 사례 한두 개만 실행합니다. 문서만 바꾼 경우에는 테스트를 실행하지 않습니다.
-
-다음 방식은 기능보다 유지 비용을 빠르게 키우므로 사용하지 않습니다.
-
-- 파생 가능한 상태를 별도 registry나 database에 저장
-- 새 표면과 legacy 표면을 함께 유지
-- 분기마다 회귀 테스트와 전용 fixture를 추가
-- 일상 변경에서 전체 회귀, native build, package 설치 검사를 실행
-- 한 기능을 위한 migration framework, golden 평가 또는 별도 검증 script를 생성
-- 구현 계획이나 일회성 판단을 별도 설계 문서로 보존
-- 도구 schema 확인을 위해 probe·placeholder·임시 Work 파일을 생성
-
-테스트는 데이터 손실, 권한·경로 경계 또는 재현된 핵심 장애를 기존 통합 사례로 확인할 수 없을 때만 추가합니다. 가능하면 기존 사례에 합치고 중복 사례를 지워 총량을 유지합니다. 실제 배포에서는 plugin 시작과 기본 도구만 확인합니다.
-
-보안과 데이터 보존 검사는 줄이지 않습니다. 반면 코드 형식, 미래 확장 가능성이나 모든 조합의 완전성을 증명하기 위한 검증 구조는 만들지 않습니다. 구체적인 작업 기준은 [AGENTS.md](AGENTS.md), 제품 경계는 [DESIGN.md](DESIGN.md)에 있습니다.
+Corpus runtime에는 Source 등록과 색인, Context, Work Connection과 직전 교체본이 들어갑니다. Source와 Work 폴더는 원래 위치에 남습니다. 상세 설계는 [DESIGN.md](DESIGN.md), 개발 기준은 [AGENTS.md](AGENTS.md)에 있습니다.
 
 ## 라이선스
 
-Apache License 2.0입니다. 자세한 조건은 [LICENSE](LICENSE)와 [NOTICE](NOTICE)를 따릅니다.
+[Apache License 2.0](LICENSE). [NOTICE](NOTICE)를 함께 따릅니다.

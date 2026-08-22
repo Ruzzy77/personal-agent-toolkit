@@ -1,11 +1,8 @@
 # Corpus native helpers
 
+macOS의 File Provider 자료와 PDF 추출을 맡는 native subprocess입니다. 빌드 결과는 로컬 runtime에 두며 Git에 포함하지 않습니다.
+
 ## File Provider capture
-
-This macOS-only helper is the narrow boundary between a File Provider-backed
-source tree and the Corpus staging area.
-
-It has two operations:
 
 ```sh
 corpus-file-provider probe --source /absolute/source/file
@@ -18,50 +15,24 @@ corpus-file-provider copy \
   --max-bytes 1048576
 ```
 
-Each successful invocation writes one JSON object to standard output. A
-failure writes one JSON object to standard error and exits nonzero.
+성공 결과는 stdout, 오류는 stderr에 JSON 객체 하나로 기록합니다.
 
-`probe` coordinates the URL with
-`NSFileCoordinator.ReadingOptions.immediatelyAvailableMetadataOnly` and only
-uses `lstat`; it never opens the file body. Its result reports the dataless
-flag, logical and allocated sizes, timestamps, device, inode, file type, and
-whether metadata changed during coordination.
+`probe`는 `NSFileCoordinator.ReadingOptions.immediatelyAvailableMetadataOnly`와 `lstat`으로 File Provider 상태와 파일 metadata를 읽습니다. 본문은 열지 않습니다.
 
-`copy` is the explicit materialization boundary. Python first traverses the
-registered source root component by component with `openat` and `O_NOFOLLOW`,
-then passes that exact securely opened regular file as `--source-fd`. The
-helper never reopens the source path and copies only from the inherited
-descriptor. It creates a new destination with mode `0600`, copies no more
-than the required `--max-bytes` ceiling,
-sequentially, flushes it, and verifies source identity/version
-(device, inode, logical size, and nanosecond modification time) and the exact
-source/destination byte count. A failed or unstable copy removes the
-incomplete destination.
+`copy`는 Python이 `openat`과 `O_NOFOLLOW`로 연 파일 descriptor에서 private staging 파일로 복사합니다. 복사 한도는 `--max-bytes`이며, source identity와 version, byte count가 달라지면 staging 파일을 지웁니다.
 
-The Python runtime also passes an already verified private staging
-directory as `--destination-dir-fd` with one `--destination-name`. In that
-mode the helper creates and removes the staged file with `openat`/`unlinkat`;
-the absolute `--destination` remains only the independently checked boundary
-and diagnostic path.
+Python runtime은 staging directory descriptor와 destination name을 함께 전달할 수 있습니다. 이 경우 helper는 `openat`과 `unlinkat`으로 staging 파일을 다룹니다.
 
-The caller remains responsible for:
+Caller가 맡는 범위는 다음과 같습니다.
 
-- enforcing per-file timeout, run byte budget, and concurrency;
-- passing the approved per-file byte ceiling to `--max-bytes`;
-- creating a private staging directory outside the synchronized source tree;
-- treating a timeout as an unknown hydration state, because the provider may
-  continue work after the helper is terminated;
-- hashing and parsing only the verified staged copy.
+- 파일별 timeout, 전체 byte budget과 concurrency
+- private staging directory 생성
+- staged copy의 hash와 parsing
+- timeout 뒤 hydration 상태 처리
 
-After the helper returns, Python securely reopens the registered source-root
-path component by component, requires its original directory identity, and
-opens the relative file from that freshly pinned root. The capture is discarded
-unless the registered root and file still name the observed objects. Remote-only
-File Provider fault-in through the inherited descriptor remains unverified
-after this boundary change; resident capture and fail-closed outcomes are the
-current supported claim.
+Helper 반환 뒤 Python은 Source root와 대상 파일을 다시 열어 처음 관찰한 객체와 같은지 대조합니다. 현재 지원 범위는 resident file capture와 실패 시 중단입니다.
 
-Build:
+### Build
 
 ```sh
 swiftc -O \
@@ -69,22 +40,13 @@ swiftc -O \
   -o runtime/native/corpus-file-provider
 ```
 
-The compiled binary is a local build artifact and should not be committed.
-
 ## PDFKit + Vision extraction
 
-`src/corpus/native/corpus_pdf_vision.swift` is the packaged JSONL subprocess behind the
-`work-corpus.native.pdfkit-vision` persisted adapter identity. It only opens the inherited
-`/dev/fd/N` staged copy. PDFKit emits native page text and renders page images;
-Vision emits OCR paragraphs and table cells with normalized geometry and
-line-derived confidence.
+`src/corpus/native/corpus_pdf_vision.swift`는 `work-corpus.native.pdfkit-vision` adapter의 JSONL subprocess입니다. 전달받은 `/dev/fd/N` staged copy만 열며, PDFKit으로 본문과 페이지 이미지를 만들고 Vision으로 문단과 표 셀을 추출합니다.
 
-On macOS 26+ and a compatible SDK it uses `RecognizeDocumentsRequest`.
-`VNRecognizeTextRequest` remains the compiled fallback. The Python adapter
-builds a source-hashed executable in the private Corpus runtime, not in
-the registered source tree.
+macOS 26 이상과 호환 SDK에서는 `RecognizeDocumentsRequest`, 그 밖에는 `VNRecognizeTextRequest`를 사용합니다. Python adapter는 source hash를 반영한 실행 파일을 private Corpus runtime에 빌드합니다.
 
-PDF 또는 native helper를 실제로 바꾼 경우에만 type-check합니다.
+Swift 코드를 바꾼 경우 다음 명령을 사용합니다.
 
 ```sh
 swiftc -parse-as-library -typecheck \

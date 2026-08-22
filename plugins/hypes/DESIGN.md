@@ -26,7 +26,7 @@ Predicate의 이름·별칭·설명은 SQLite FTS5로 찾고, Edge는 source·ta
 `$concept` 같은 patch 내부 참조를 사용할 수 있고, 기존 영속 참조에 put하면 ID를 유지한 채 값
 전체를 교체한다.
 
-입력과 참조를 확인한 뒤 Node·Predicate를 저장하고 Edge를 삭제·교체한 다음 개체 삭제를 적용한다.
+입력과 참조를 검사한 뒤 Node·Predicate를 저장하고 Edge를 삭제·교체한 다음 개체 삭제를 적용한다.
 Node나 Predicate 삭제는 외래 키 cascade로 남아 있는 연결 Edge도 함께 삭제한다. 삭제된 Edge
 참조와 수는 결과에 포함한다. 같은 patch에서 삭제할 개체를 Edge가 가리키면 전체 patch를 거부한다.
 
@@ -36,7 +36,7 @@ Node나 Predicate 삭제는 외래 키 cascade로 남아 있는 연결 Edge도 �
 없으면 이름순 목차를 반환한다. 반환되는 모든 Edge의 source Node, target Node와 Predicate를 같은
 결과에 포함하며, 전체 객체 수는 `limit`을 넘지 않는다.
 
-서버 시작 시 저장 경계와 스키마를 한 번 확인한다. 정상 초기화 이후 `hypes_read`는 SQLite
+서버 시작 시 저장 경계와 스키마를 검사한다. 초기화 이후 `hypes_read`는 SQLite
 `mode=ro`와 `query_only`를 사용하는 별도 연결을 열며, 스키마 생성·WAL 전환·쓰기 잠금을 수행하지
 않는다. 쓰기만 `BEGIN IMMEDIATE` 트랜잭션을 사용한다.
 
@@ -46,9 +46,7 @@ Node나 Predicate 삭제는 외래 키 cascade로 남아 있는 연결 Edge도 �
 이해가 달라지면 에이전트가 별도의 저장 요청·미리보기·확인 없이 rewrite할 수 있다. 기존 관계를
 적용했거나 작업을 완료했다는 사실만으로는 쓰지 않는다.
 
-현재 MCP SDK는 공개 입력 스키마와 안전한 런타임 오류 처리를 따로 지정하는 기능을 제공하지 않는다.
-따라서 두 도구의 현재 입력 경계는 호출자 값을 오류에 노출하지 않기 위한 제한된 adapter 하나만
-유지한다. 별도 검증 계층이나 legacy 입력은 추가하지 않는다.
+현재 MCP SDK의 공개 입력 스키마와 런타임 오류 처리는 제한된 adapter 하나에서 연결한다.
 
 ## 저장
 
@@ -56,9 +54,3 @@ Node나 Predicate 삭제는 외래 키 cascade로 남아 있는 연결 Edge도 �
 `hypes-ontology.sqlite3`다. 디렉터리는 `0700`, 데이터베이스와 SQLite 보조 파일은 `0600`으로
 유지한다. 원 대화, 작업 기록, 프로젝트 자료, Sense 지침, Corpus 맥락, 자격 증명, 직접 식별자와
 민감한 개인 특성은 저장하지 않는다.
-
-## 개발 판단
-
-이 plugin 폴더가 실행 코드, 스킬, launcher와 manifest의 정본이다. 모델 응답 평가, scenario
-matrix, golden 결과, 복구 protocol과 별도 배포 사본을 만들지 않는다. 원자적 rewrite, 제한된 읽기,
-참조 무결성과 비공개 저장 경계만 직접 확인한다.

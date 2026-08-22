@@ -22,7 +22,7 @@ CorpusService
     └── Source scan / extraction / search
 ```
 
-`CorpusService`가 CLI와 MCP의 공통 진입점입니다. 각 서비스는 같은 private data root를 사용하지만, Source 원본과 Work 파일은 등록된 실제 폴더에서 매번 확인합니다.
+`CorpusService`가 CLI와 MCP의 공통 진입점입니다. 각 서비스는 같은 private data root를 사용하고 Source 원본과 Work 파일은 등록 폴더에서 읽습니다.
 
 ### Private storage
 
@@ -54,8 +54,7 @@ Connection의 공개 속성은 다음과 같습니다.
 `scan`은 파일을 열지 않고 메타데이터와 residency를 기록합니다. `ingest`는 bounded capture로 선택한 파일을 읽고 형식별 adapter가 Source unit을 만듭니다. 각 unit은 revision과 extraction projection에 연결됩니다.
 
 검색은 입력 문구와 정확히 일치하는 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가
-들어 있는 후보를 한 번 더 찾습니다. 순위는 증거가 아니며, 정확한 내용은 선택한 unit을 다시
-읽어 확인합니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
+들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며, 내용은 선택한 unit에서 읽습니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
 제외합니다. 상세 색인 진단은 Chat에 펼치지 않고 Connection의 `source_state`로 계산합니다.
 
 Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준으로 삼습니다. 불완전한 scan에서도 확인한 파일은 갱신하고 `partial`로 표시합니다. 처리할 수 없는 파일은 coverage gap으로 남기지만, 다른 파일의 갱신을 막지 않습니다. snapshot, event history와 모델이 만든 claim의 semantic cache는 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
@@ -83,7 +82,7 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 - 전체 교체: 편집 직전의 version token 사용
 - 구간 교체: 현재 파일에서 한 번씩만 나타나는 두 marker 사이를 교체
 
-교체 직전 실제 파일 identity와 digest를 다시 확인합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, Work 경로마다 직전 파일 하나를 private recovery로 보존합니다. 소유자, 권한과 ACL을 안전하게 복제할 수 없으면 중단합니다.
+교체 직전 파일 identity와 digest를 대조합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, Work 경로마다 직전 파일 하나를 private recovery로 보존합니다. 소유자, 권한과 ACL을 보존하지 못하면 중단합니다.
 
 삭제도 최신 version token을 다시 확인하며, 사용자가 명시적으로 확인한 경우에만 수행합니다. 복원은 교체 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
 
@@ -94,18 +93,3 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 
 응답은 로컬 절대 경로를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.
-
-## 복잡도가 커지는 경로
-
-파생 상태를 저장하면 원본과의 동기화, migration, rollback과 별도 검증이 뒤따릅니다. 같은 기능을 여러 CLI·MCP 이름으로 제공하면 각 표면의 schema와 회귀 사례도 함께 늘어납니다. 모든 분기를 테스트로 고정하면 작은 구현 변경도 큰 fixture와 검증 helper를 유지해야 합니다.
-
-Corpus는 다음 기준으로 이 증가를 막습니다.
-
-- 현재 등록 정보에서 계산할 수 있는 보기는 실행 시점에 계산
-- 하나의 기능에는 하나의 정본 서비스 경로와 공개 도구 표면 사용
-- 기존 데이터를 실제로 변환해야 할 때에만 schema migration 작성
-- 사용자 승인 없이 모델 해석, 평가 결과나 중간 queue를 영구 저장하지 않음
-- 테스트는 데이터 손실·접근 경계와 재현된 핵심 장애에 한정
-- 별도 설계 문서는 장기간 유지할 외부 형식이나 protocol에만 사용
-
-일상 변경에서는 수정한 파일과 직접 관련된 확인만 합니다. 전체 회귀, native helper build와 package 설치 확인은 사용자가 요청하거나 release 후보를 만들 때만 수행합니다. 검사 수나 coverage를 기능 완성도의 지표로 사용하지 않습니다.
