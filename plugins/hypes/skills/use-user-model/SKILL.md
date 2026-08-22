@@ -36,6 +36,12 @@ relationship. A separate save request, preview or confirmation is not required. 
 existing relation may need replacement or deletion; a clearly new relation can be written directly.
 Applying an existing relation or merely completing a task is not by itself a reason to write.
 
+Do not model operational cautions, verification thresholds, completion states, evidence taxonomies,
+stop conditions or one-task QA procedures as broad user preferences. When a correction reveals a
+reusable style or interpretation preference, store that preference without carrying over the audit
+vocabulary of the task that revealed it. Stored relationships guide interpretation; their names,
+labels and qualifiers are not headings or a required structure for the answer.
+
 Apply one atomic patch:
 
 - replace existing Node, Predicate, or Edge values instead of accumulating duplicates;

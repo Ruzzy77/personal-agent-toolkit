@@ -18,6 +18,10 @@ the user asks about Sense.
 
 Sense keeps only guidance that should affect important choices in different contexts. Do not copy
 source material, source locators, conversation text, hidden reasoning or one project's facts into it.
+Task-specific checks, completion boundaries, verification states, evidence labels, stop conditions
+and one-project failure lessons stay with that task by default. Do not promote them to general
+guidance merely because they helped once. Preserve the underlying user intent without importing the
+audit vocabulary or workflow that happened to reveal it.
 
 Revise Sense only when the user asks to save durable guidance. Read every affected section first and
 preserve anything still valid. If the assistant drafted the wording or several sections change, show
