@@ -12,11 +12,11 @@ SECTION_PRESENTATION = {
         "group": "질문과 답",
     },
     "scope-and-checking": {
-        "title": "답의 범위와 확인",
+        "title": "일의 크기와 쓰임",
         "group": "질문과 답",
     },
     "evidence-and-judgment": {
-        "title": "자료를 읽는 기준",
+        "title": "자료와 해석",
         "group": "자료와 표현",
     },
     "conversation-and-writing": {
@@ -25,17 +25,17 @@ SECTION_PRESENTATION = {
     },
     "research-and-long-term-goals": {
         "title": "관계 학습 연구",
-        "group": "오래 이어갈 기준",
+        "group": "오래 이어갈 내용",
     },
     "what-to-keep": {
         "title": "무엇을 남길지",
-        "group": "오래 이어갈 기준",
+        "group": "오래 이어갈 내용",
     },
 }
-GROUP_ORDER = ("질문과 답", "자료와 표현", "오래 이어갈 기준", "그 밖의 내용")
+GROUP_ORDER = ("질문과 답", "자료와 표현", "오래 이어갈 내용", "그 밖의 내용")
 ORIGIN_LABELS = {
     "user_set": "사용자가 정함",
-    "learned_from_results": "작업 결과에서 확인함",
+    "learned_from_results": "함께 작업하며 배움",
 }
 
 
@@ -107,7 +107,7 @@ def guidance_overview(
     return {
         "title": "Sense에서 참고하는 내용",
         "description": (
-            "여러 대화의 중요한 선택에 참고하는 현재 기준입니다. "
+            "여러 대화의 중요한 선택에 참고하는 내용입니다. "
             "대화 기록과 프로젝트 자료는 이곳에 복사하지 않습니다."
         ),
         "groups": groups,
