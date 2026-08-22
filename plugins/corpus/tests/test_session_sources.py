@@ -365,6 +365,78 @@ class SessionLinkedSourceTest(unittest.TestCase):
         self.assertTrue(first["run_id"].startswith("run_"))
         self.assertNotEqual(first["run_id"], second["run_id"])
 
+    def test_paged_observation_preserves_base_run_until_completion(self) -> None:
+        self.service.corpus_source_update(
+            action="bind",
+            corpus_id="project",
+            binding_id="project-codex",
+            payload={
+                "provider_kind": "codex",
+                "selector": {
+                    "cwd_prefix": "/workspace/project",
+                    "actor": "all",
+                    "lookback_days": 30,
+                    "include_archived": False,
+                },
+            },
+        )
+
+        def record(index: int) -> dict:
+            return {
+                "external_id": f"turn_{index}",
+                "parent_external_id": "session-safe",
+                "occurred_at": "2026-08-03T00:00:00Z",
+                "provider_metadata": {
+                    "session_id": "session-safe",
+                    "turn_id": f"turn-{index}",
+                    "cwd": "/workspace/project",
+                    "workspace": "/workspace/project",
+                    "actor": "user_task",
+                    "task_kind": "codex_turn",
+                },
+                "locator": {
+                    "root_ref": "active",
+                    "relative_path": "2026/08/session.jsonl",
+                    "session_id": "session-safe",
+                    "turn_id": f"turn-{index}",
+                },
+                "freshness_identity": "sha256:" + f"{index:064x}",
+            }
+
+        self.service.corpus_source_update(
+            action="observe",
+            corpus_id="project",
+            binding_id="project-codex",
+            payload={
+                "run_id": "initial-run",
+                "records": [record(0)],
+                "complete": True,
+            },
+        )
+        self.service.corpus_source_update(
+            action="observe",
+            corpus_id="project",
+            binding_id="project-codex",
+            payload={
+                "run_id": "paged-run",
+                "records": [record(1)],
+                "complete": False,
+            },
+        )
+        completed = self.service.corpus_source_update(
+            action="observe",
+            corpus_id="project",
+            binding_id="project-codex",
+            payload={
+                "run_id": "paged-run",
+                "records": [record(2)],
+                "complete": True,
+            },
+        )
+
+        self.assertEqual(completed["status"], "complete")
+        self.assertEqual(completed["observed_in_run"], 2)
+
     def test_restricted_context_tracks_changed_and_missing_provider_record(
         self,
     ) -> None:

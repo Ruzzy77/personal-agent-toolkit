@@ -382,7 +382,11 @@ class ContextService:
             """
         )
         connection.execute(
-            "UPDATE external_source_runs SET base_complete_run_id = NULL"
+            """
+            UPDATE external_source_runs
+            SET base_complete_run_id = NULL
+            WHERE status = 'complete' OR superseded_at IS NOT NULL
+            """
         )
         connection.execute(
             """
