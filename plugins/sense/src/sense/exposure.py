@@ -12,7 +12,7 @@ SECTION_PRESENTATION = {
         "group": "질문과 답",
     },
     "scope-and-checking": {
-        "title": "일의 크기와 쓰임",
+        "title": "업무 범위",
         "group": "질문과 답",
     },
     "evidence-and-judgment": {
@@ -25,14 +25,14 @@ SECTION_PRESENTATION = {
     },
     "research-and-long-term-goals": {
         "title": "관계 학습 연구",
-        "group": "오래 이어갈 내용",
+        "group": "장기 맥락",
     },
     "what-to-keep": {
-        "title": "무엇을 남길지",
-        "group": "오래 이어갈 내용",
+        "title": "기억 체계",
+        "group": "장기 맥락",
     },
 }
-GROUP_ORDER = ("질문과 답", "자료와 표현", "오래 이어갈 내용", "그 밖의 내용")
+GROUP_ORDER = ("질문과 답", "자료와 표현", "장기 맥락", "기타 지침")
 ORIGIN_LABELS = {
     "user_set": "사용자가 정함",
     "learned_from_results": "함께 작업하며 배움",
@@ -86,8 +86,8 @@ def guidance_overview(
         presentation = SECTION_PRESENTATION.get(
             section.id,
             {
-                "title": "추가로 참고할 내용",
-                "group": "그 밖의 내용",
+                "title": "기타 지침",
+                "group": "기타 지침",
             },
         )
         grouped[presentation["group"]].append(
@@ -105,10 +105,10 @@ def guidance_overview(
         if grouped[group]
     ]
     return {
-        "title": "Sense에서 참고하는 내용",
+        "title": "Sense 지침",
         "description": (
-            "여러 대화에서 이어지는 사용자 의도와 선택을 정리한 내용입니다. "
-            "대화 기록과 프로젝트 자료는 각각의 시스템에서 관리합니다."
+            "사용자 의도와 의사결정에 관한 범용 지침입니다. "
+            "대화 기록과 프로젝트 자료는 각 시스템에서 관리합니다."
         ),
         "groups": groups,
         "updated_at": updated_at,

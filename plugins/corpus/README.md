@@ -1,9 +1,9 @@
 # Corpus
 
-Corpus는 업무 맥락을 원본 Source와 연결하고, 필요한 원문과 Work 파일을 현재 상태로 읽는 로컬 MCP 도구입니다.
+Corpus는 Context, Source와 Work를 연결하는 로컬 MCP 시스템입니다.
 
-- **Space**: Context와 Connection을 합친 작업 보기
-- **Context**: 다시 사용할 질문, 관계, 판단과 출처 연결
+- **Space**: Context와 Connection의 통합 작업면
+- **Context**: 출처 기반 재사용 지식
 - **Source Connection**: 읽기 전용 원본
 - **Work Connection**: 사용자가 연결한 편집 폴더
 
@@ -65,7 +65,7 @@ CORPUS_MCP_PORT=8000 \
 
 ## Context와 Work Connection
 
-Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 저장합니다.
+Context는 출처 기반 재사용 지식을 저장합니다.
 
 ```sh
 ./launchers/corpus context create \
@@ -152,7 +152,7 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
 
 검색 결과의 `read_ref`를 `corpus_file_read`에 전달하면 현재 Source unit을 읽을 수 있습니다. Connection 상태는 `ready`, `needs_refresh`, `partial`, `unavailable`로 표시됩니다.
 
-Context가 답을 담고 있으면 원문 전체를 다시 읽지 않습니다. 변경된 내용이나 원문 인용이 필요할 때 Source를 다시 읽습니다.
+Context는 기본 조회 자료입니다. 최신 정보와 원문 인용은 Source에서 조회합니다.
 
 ## 저장 범위
 

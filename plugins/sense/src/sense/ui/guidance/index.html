@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Sense에서 참고하는 내용</title>
+    <title>Sense 지침</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -418,14 +418,14 @@
         const hero = element("header", "hero");
         hero.append(
           element("div", "eyebrow", "Sense"),
-          element("h1", "", result.title ?? "Sense에서 참고하는 내용"),
+          element("h1", "", result.title ?? "Sense 지침"),
           element("p", "description", result.description ?? "")
         );
 
         const status = element("div", "status");
         const statusCopy = element("div");
         statusCopy.append(
-          element("strong", "", "참고하는 내용"),
+          element("strong", "", "장기 지침"),
           element("span", "", "중요한 선택을 돕는 장기 지침입니다.")
         );
         const formattedDate = formatDate(result.updated_at);
