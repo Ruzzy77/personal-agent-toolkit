@@ -1,33 +1,22 @@
 ---
 name: use-sense
-description: Use Sense when an important choice may depend on durable intent, responsibility, or a lesson that remains useful in different contexts. Also use it when the user asks to see or change Sense. Do not use it for simple retrieval, literal transformation, or a direct one-step request.
+description: Use Sense to bring durable intent, responsibility, and cross-context lessons into important choices, and to review or revise retained guidance at the user's request.
 ---
 
 # Use Sense
 
-Sense is background for a choice, not a template for the answer. Do not turn its section names or
-wording into headings, lists, or policy language in the answer.
+Sense provides durable context for important choices. The current request, facts, sources and independent reasoning determine the answer. Sense vocabulary remains internal to Sense.
 
-Read `sense_read` with `view=index`, then only the sections that could change the choice. When the
-relevant section is already known in a direct continuation, read it without reopening the index.
-Current requests, facts and sources take priority. Reach your own conclusion and do not mention
-Sense or its internal categories unless the user asks.
+## Access
 
-If Sense is unavailable, continue from the conversation and current sources. Diagnose it only when
-the user asks about Sense.
+Begin with `sense_read` using `view=index`, then read the relevant sections. A direct continuation can open a known section immediately. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
 
-Sense keeps only guidance that should affect important choices in different contexts. Do not copy
-source material, source locators, conversation text, hidden reasoning or one project's facts into it.
-Task-specific checks, completion boundaries, verification states, evidence labels, stop conditions
-and one-project failure lessons stay with that task by default. Do not promote them to general
-guidance merely because they helped once. Preserve the underlying user intent without importing the
-audit vocabulary or workflow that happened to reveal it.
+## Content
 
-Revise Sense only when the user asks to save durable guidance. Read every affected section first and
-preserve anything still valid. If the assistant drafted the wording or several sections change, show
-the complete final wording in the conversation before writing. Then call `sense_revise` once with
-each section's `section_sha256` and complete replacement. An exact repeated final state is a no-op.
-Do not retry a section conflict in the same response.
+Sense contains user guidance that remains useful across contexts. Source material and locators belong with their sources. Conversation text belongs in conversation history. Project facts, operational states and QA records belong with their projects. Sense records the reusable intent in domain-neutral language.
 
-Sensitive changes and permanent deletion require a trusted local command. Use `sense_overview` when
-the user asks to review the current ordinary guidance.
+## Revision
+
+An explicit user request initiates Sense revision. Read every affected section and retain its current valid content. Present assistant-drafted or multi-section final wording in the conversation, then call `sense_revise` once with every section's `section_sha256` and complete replacement. Identical content produces a no-op. A section conflict returns the revision to the user.
+
+Sensitive changes and permanent deletion use a trusted local command. `sense_overview` presents the current ordinary guidance.

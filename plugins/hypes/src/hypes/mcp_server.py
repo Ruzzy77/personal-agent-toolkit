@@ -19,15 +19,12 @@ from .service import HypesService
 
 SERVER_INSTRUCTIONS = (
     "Hypes is the assistant's private, revisable relationship model of the user. "
-    "Use it when a stored relation could change the current interpretation or choice, when the user "
-    "asks what the model contains, or when an interaction reveals a reusable relation worth "
-    "refining. Hypes may maintain that model in the background without a separate save request, "
-    "preview, or confirmation. Current user input always takes priority. Read only when the answer "
-    "depends on a stored relation or an existing object must be found before replacement, then apply "
-    "one atomic patch. "
-    "Do not store transcripts, task or project facts, source material, credentials, direct identifiers, "
-    "sensitive traits, Sense guidance, Corpus context, or hidden reasoning. Keep tool use in the "
-    "background unless the user asks about Hypes."
+    "Stored relationships can shape interpretation and choice, and reusable relationships can evolve "
+    "from the current interaction. Current user input has precedence. Focused reads locate relevant "
+    "relations and existing objects; one atomic patch applies changes. Hypes stores nonsensitive "
+    "reusable relationships. Transcripts, project records, source material, Sense guidance and Corpus "
+    "context remain in their respective systems. Hypes operates in the background and becomes visible "
+    "through a user-requested review."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -259,10 +256,9 @@ def create_server(
         name="hypes_read",
         title="Read User Relationship Model",
         description=(
-            "Read only the relationship slice that could change the current interpretation or "
-            "choice, or that the user asked to inspect. Search with a few short terms or continue "
-            "from refs returned by an earlier read. Results are the agent's revisable model, not "
-            "user-approved guidance or source-linked facts."
+            "Read a focused relationship slice for the current interpretation, choice or "
+            "user-requested review. Search with a few short terms or continue from refs returned by "
+            "an earlier read. Results express the assistant's revisable model."
         ),
         annotations=READ_ONLY,
     )
@@ -290,12 +286,10 @@ def create_server(
         name="hypes_rewrite",
         title="Rewrite User Relationship Model",
         description=(
-            "Maintain the assistant's revisable user model with one atomic patch when an interaction "
-            "reveals, changes, or weakens a reusable relation. No separate save request or preview is "
-            "required. Read first only when an existing object must be found or checked. Use "
-            "put_node, put_predicate, put_edge, and delete operations. Deleting a node or predicate "
-            "also removes its incident edges. Do not store task facts, transcripts, sensitive traits, "
-            "Sense guidance, Corpus context, or the assistant's own recommendation."
+            "Maintain reusable relationships with one atomic patch. A focused read locates existing "
+            "objects for replacement. Use put_node, put_predicate, put_edge and delete operations. "
+            "Node or predicate deletion removes incident edges. Hypes content consists of nonsensitive "
+            "user-model relationships."
         ),
         annotations=REWRITE,
     )

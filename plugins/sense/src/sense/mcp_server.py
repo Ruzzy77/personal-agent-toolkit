@@ -26,12 +26,11 @@ from .model import (
 from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
-    "Use Sense only when durable guidance could change an important choice or when the user asks "
-    "to inspect or change it. Current requests and current sources take priority. Read the index "
-    "first, then only relevant sections. Change Sense only at the user's request. When the assistant "
-    "drafts wording or several sections change, show the final wording in the conversation before "
-    "one atomic update. A section token protects against conflicting edits. Sensitive persistence "
-    "and permanent deletion remain local."
+    "Sense supplies durable user guidance for important choices. Current requests and sources have "
+    "precedence. Read the index, then the relevant sections. An explicit user request initiates a "
+    "revision. Present assistant-drafted or multi-section final wording before one atomic update. "
+    "Section tokens provide conflict safety. Sensitive persistence and permanent deletion use the "
+    "local interface."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -123,9 +122,9 @@ def create_server(
         name="sense_read",
         title="Read Sense",
         description=(
-            "Read Sense only when retained guidance could change the current choice or when the user "
-            "asks what it contains. Start with view=index and then request only relevant sections. "
-            "Sensitive text is absent from the index but can be read by explicit section id."
+            "Read durable guidance relevant to the current choice or a user-requested review. Begin "
+            "with view=index and continue with the relevant sections. Sensitive text is available "
+            "through an explicit section id."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -169,10 +168,10 @@ def create_server(
         name="sense_revise",
         title="Revise Sense",
         description=(
-            "Replace one or more complete ordinary Sense sections atomically after the user asks to "
-            "save the final wording. Read every affected section first and use its section_sha256. "
-            "An exact repeated final state is a no-op. Do not retry a section conflict automatically. "
-            "Sensitive changes require a local command."
+            "An explicit user request authorizes atomic replacement of complete ordinary Sense "
+            "sections. Read every affected section and use its section_sha256. Identical content "
+            "produces a no-op. A section conflict returns the revision to the user. Sensitive changes "
+            "use the local interface."
         ),
         annotations=PROFILE_WRITE,
         meta={"ui": {"visibility": ["model"]}},

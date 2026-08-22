@@ -4,5 +4,5 @@
 
 - 제품 기능과 manifest는 해당 폴더에서 수정한다.
 - plugin base version은 manifest, `pyproject.toml`, package `__version__`와 lockfile에 함께 반영한다.
-- 사용자 데이터, 자격 증명과 runtime 파일은 package에 넣지 않는다.
-- 배포 전 수정한 plugin의 시작과 MCP 도구 노출을 점검한다.
+- 사용자 데이터, 자격 증명과 runtime 파일은 private runtime에서 관리한다.
+- 배포에는 수정한 plugin의 시작과 MCP 도구 노출 확인이 포함된다.

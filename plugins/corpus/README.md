@@ -7,7 +7,7 @@ Corpus는 업무 맥락을 원본 Source와 연결하고, 필요한 원문과 Wo
 - **Source Connection**: 읽기 전용 원본
 - **Work Connection**: 사용자가 연결한 편집 폴더
 
-Source는 바꾸지 않습니다. Work Connection만 파일 생성·교체·삭제를 허용합니다.
+Source Connection은 읽기 전용 원본을 제공하고, Work Connection은 파일 생성·교체·삭제를 제공합니다.
 
 ## MCP 도구
 
@@ -84,7 +84,7 @@ Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 �
   --execution-policy external_host_allowed
 ```
 
-`local_only` Connection은 외부 MCP에 노출되지 않습니다. `external_host_allowed` Work Connection은 Chat에서 읽고 쓸 수 있습니다.
+`local_only` Connection은 로컬에서 사용합니다. `external_host_allowed` Work Connection은 Chat에서 읽고 쓸 수 있습니다.
 
 ```sh
 ./launchers/corpus space list
@@ -146,7 +146,7 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
   --expected-version 'v1:...'
 ```
 
-파일 교체 한도는 2 MiB입니다. symlink, hard link, root 밖 경로와 읽은 뒤 달라진 파일은 다루지 않습니다. 삭제에는 최신 `version_token`과 사용자의 삭제 요청이 필요합니다.
+파일 교체 용량은 2 MiB입니다. 편집 표면은 root 내부의 변경되지 않은 일반 파일로 구성됩니다. 삭제는 사용자의 요청과 최신 `version_token`으로 수행합니다.
 
 ## 검색
 
