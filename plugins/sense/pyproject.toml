@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sense"
-version = "0.3.0"
+version = "0.3.1"
 description = "Keep private guidance for important choices available across AI tools"
 authors = [
   {name = "Ruzzy77"},
