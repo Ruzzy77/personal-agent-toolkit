@@ -34,8 +34,8 @@ SECTION_PRESENTATION = {
 }
 GROUP_ORDER = ("질문과 답", "자료와 표현", "장기 맥락", "기타 지침")
 ORIGIN_LABELS = {
-    "user_set": "사용자가 정함",
-    "learned_from_results": "함께 작업하며 배움",
+    "user_set": "사용자 지정",
+    "learned_from_results": "경험 학습",
 }
 
 
