@@ -103,9 +103,9 @@ claude plugin update hypes@personal-agent-toolkit --scope user
 
 ```sh
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
-./plugins/sense/bin/sense import-profile --input /tmp/my-sense-profile.json
-./plugins/sense/bin/sense read --view full
-./plugins/sense/bin/sense status
+./plugins/sense/launchers/sense import-profile --input /tmp/my-sense-profile.json
+./plugins/sense/launchers/sense read --view full
+./plugins/sense/launchers/sense status
 ```
 
 Sense는 현재 프로필 하나만 유지합니다. 일반 수정은 관련 section을 교체하며, 민감 항목과 영구 삭제는 로컬 명령에서 처리합니다.
@@ -115,7 +115,7 @@ Sense는 현재 프로필 하나만 유지합니다. 일반 수정은 관련 sec
 읽을 Source를 등록합니다.
 
 ```sh
-./plugins/corpus/bin/corpus corpus add \
+./plugins/corpus/launchers/corpus corpus add \
   --id my-work \
   --root /absolute/path/to/my-work \
   --execution-policy local_only
@@ -124,7 +124,7 @@ Sense는 현재 프로필 하나만 유지합니다. 일반 수정은 관련 sec
 Chat과 로컬 작업이 함께 편집할 폴더는 Context에 Work Connection으로 연결합니다.
 
 ```sh
-./plugins/corpus/bin/corpus workspace connect \
+./plugins/corpus/launchers/corpus workspace connect \
   --id my-drafts \
   --context ACTIVE_CONTEXT_ID \
   --name "My drafts" \

@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.12.0+codex.20260820112212",
+  "version": "0.12.1+codex.20260822102127",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -19,7 +19,7 @@
   "skills": "./skills/",
   "mcpServers": {
     "corpus": {
-      "command": "./bin/corpus-mcp",
+      "command": "./launchers/corpus-mcp",
       "args": [],
       "cwd": "."
     }

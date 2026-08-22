@@ -31,14 +31,14 @@ Python 3.11 이상과 `uv`가 필요합니다.
 
 ```sh
 uv sync --frozen
-./bin/corpus --help
-./bin/corpus-mcp
+./launchers/corpus --help
+./launchers/corpus-mcp
 ```
 
 기본 데이터 위치는 `~/Library/Application Support/Corpus`입니다.
 
 ```sh
-CORPUS_DATA_DIR=/absolute/private/path ./bin/corpus-mcp
+CORPUS_DATA_DIR=/absolute/private/path ./launchers/corpus-mcp
 ```
 
 Loopback HTTP 전송은 다음 환경변수로 엽니다.
@@ -47,18 +47,18 @@ Loopback HTTP 전송은 다음 환경변수로 엽니다.
 CORPUS_MCP_TRANSPORT=streamable-http \
 CORPUS_MCP_HOST=127.0.0.1 \
 CORPUS_MCP_PORT=8000 \
-./bin/corpus-mcp
+./launchers/corpus-mcp
 ```
 
 ## Source
 
 ```sh
-./bin/corpus corpus add \
+./launchers/corpus corpus add \
   --id thesis-sources \
   --root /absolute/path/to/sources \
   --execution-policy local_only
 
-./bin/corpus sync --corpus thesis-sources
+./launchers/corpus sync --corpus thesis-sources
 ```
 
 `scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
@@ -68,7 +68,7 @@ CORPUS_MCP_PORT=8000 \
 Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 저장합니다.
 
 ```sh
-./bin/corpus context create \
+./launchers/corpus context create \
   --id thesis \
   --payload-file /absolute/path/to/context.json
 ```
@@ -76,7 +76,7 @@ Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 �
 편집 폴더는 Context에 연결합니다.
 
 ```sh
-./bin/corpus workspace connect \
+./launchers/corpus workspace connect \
   --id thesis \
   --context thesis \
   --name "Thesis" \
@@ -87,8 +87,8 @@ Context는 원문을 복사하지 않고 다시 쓸 내용과 출처 연결을 �
 `local_only` Connection은 외부 MCP에 노출되지 않습니다. `external_host_allowed` Work Connection은 Chat에서 읽고 쓸 수 있습니다.
 
 ```sh
-./bin/corpus space list
-./bin/corpus space show --id thesis
+./launchers/corpus space list
+./launchers/corpus space show --id thesis
 ```
 
 Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 읽습니다.
@@ -98,7 +98,7 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
 새 파일에는 `expected_version=absent`를 사용합니다.
 
 ```sh
-./bin/corpus space write \
+./launchers/corpus space write \
   --id thesis \
   --path notes/new-section.md \
   --content-file /absolute/path/to/new-section.md \
@@ -109,8 +109,8 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
 기존 파일은 편집 직전에 읽고 받은 `version_token`으로 교체합니다.
 
 ```sh
-./bin/corpus space read --id thesis --path draft.md --max-chars 200000
-./bin/corpus space write \
+./launchers/corpus space read --id thesis --path draft.md --max-chars 200000
+./launchers/corpus space write \
   --id thesis \
   --path draft.md \
   --content-file /absolute/path/to/revised-draft.md \
@@ -121,7 +121,7 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
 큰 문서의 일부는 한 번씩만 나타나는 marker 사이를 교체할 수 있습니다.
 
 ```sh
-./bin/corpus space write \
+./launchers/corpus space write \
   --id thesis \
   --path draft.md \
   --content-file /absolute/path/to/replacement.txt \
@@ -134,13 +134,13 @@ Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 �
 계속 작업할 파일은 별도로 선택합니다.
 
 ```sh
-./bin/corpus space select-current --id thesis --path draft.md
+./launchers/corpus space select-current --id thesis --path draft.md
 ```
 
 파일 교체 뒤 반환된 `recovery_id`는 해당 경로의 직전 교체본을 복원할 때 씁니다.
 
 ```sh
-./bin/corpus space restore \
+./launchers/corpus space restore \
   --id thesis \
   --recovery-id 'wrec_...' \
   --expected-version 'v1:...'

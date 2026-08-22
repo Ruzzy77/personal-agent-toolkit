@@ -45,10 +45,10 @@ class CLILauncherTest(unittest.TestCase):
             with self.subTest(launcher=launcher_name), tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary)
                 isolated = base / "plugin"
-                (isolated / "bin").mkdir(parents=True)
+                (isolated / "launchers").mkdir(parents=True)
                 shutil.copytree(project / "src/corpus", isolated / "src/corpus")
-                launcher = isolated / "bin" / launcher_name
-                shutil.copy2(project / "bin" / launcher_name, launcher)
+                launcher = isolated / "launchers" / launcher_name
+                shutil.copy2(project / "launchers" / launcher_name, launcher)
                 launcher.chmod(0o700)
 
                 data = base / "private-data"
