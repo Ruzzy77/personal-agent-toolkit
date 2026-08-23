@@ -20,6 +20,17 @@ edges
 Predicate의 이름·별칭·설명은 SQLite FTS5로 찾고, Edge는 source·target·predicate index로
 탐색한다.
 
+## 의미 규칙
+
+선호, 이해, 불확실성, 적용과 채택은 같은 관계 모델에서 에이전트가 필요한 만큼 구분한다. 제품은
+인식론적 상태의 고정 열거형이나 등급 체계를 강제하지 않는다. Node의 label·attribute와 Edge의
+predicate·qualifier로 현재 해석을 표현하고, 상호작용에서 이해가 달라지면 기존 관계를 교체하거나
+삭제한다.
+
+인식론적 조정은 감사 기록이 아니다. 프로젝트 파일과 공동 산출물은 사용자 지식 수준 추정에서
+제외하며, 출처 연결·근거 장부·별도 Evidence 저장소를 요구하지 않는다. 원 대화와 자료는 기존
+저장 경계에 남긴다.
+
 ## 쓰기
 
 `hypes_rewrite`는 `put_node`, `put_predicate`, `put_edge`, `delete`만 받는다. 새 객체는

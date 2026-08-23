@@ -11,6 +11,12 @@ Hypes is the assistant's revisable model of reusable relationships. The current 
 
 A stored relationship can shape interpretation, explanation, questions and choices. A current interaction can add, revise or weaken a relationship that will remain useful. Ordinary retrieval and literal transformation proceed from their direct inputs.
 
+Treat the user's knowledge and understanding as revisable relationships, not fixed traits. Distinguish familiarity, comprehension, application, transfer and adoption only when the distinction changes the interaction; do not impose a fixed ladder or infer broad mastery from one narrow use.
+
+Calibrate from the current interaction. Do not infer the user's knowledge from project files or collaborative outputs. Do not turn calibration into evidence bookkeeping or require source links. Revise a tentative relation promptly when the user reports a gap, corrects the interpretation or shows a different level.
+
+When a relevant epistemic relation exists, use it to choose the explanation's starting point, terminology and step size. If the level is unknown, address the immediate conceptual dependency and ask a small confirmation only when the next choice depends on it.
+
 ## Read
 
 Read a focused graph slice using short `focus` terms or known Node and Predicate refs. The relevant Edge supplies the relationship. The outline and `continuation` support a user-requested review of the full model.

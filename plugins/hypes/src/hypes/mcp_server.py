@@ -20,7 +20,10 @@ from .service import HypesService
 SERVER_INSTRUCTIONS = (
     "Hypes is the assistant's private, revisable relationship model of the user. "
     "Stored relationships can shape interpretation and choice, and reusable relationships can evolve "
-    "from the current interaction. Current user input has precedence. Focused reads locate relevant "
+    "from the current interaction. Current user input has precedence. Knowledge and understanding are "
+    "tentative relations rather than fixed traits: do not infer them from project files or collaborative "
+    "outputs, and do not require evidence or source bookkeeping. Use the current interaction to adjust "
+    "the explanation level and revise the relation when it changes. Focused reads locate relevant "
     "relations and existing objects; one atomic patch applies changes. Hypes stores nonsensitive "
     "reusable relationships. Transcripts, project records, source material, Sense guidance and Corpus "
     "context remain in their respective systems. Hypes operates in the background and becomes visible "
