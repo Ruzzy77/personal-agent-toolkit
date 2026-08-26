@@ -28,7 +28,7 @@ from .config import (
     normalize_corpus_id,
 )
 from .context_skills import ContextSkillService
-from .contexts import ContextService
+from .contexts import ContextService, normalize_context_id
 from .database import (
     configure_corpus_source_scope,
     corpus_connection,
@@ -645,12 +645,40 @@ class CorpusService:
         corpus_id: str,
         expected_source_root: Path,
         confirm_unregister: bool,
+        archived_context_id: str | None = None,
+        expected_context_version: int | None = None,
+        confirm_remove_linked_history: bool = False,
     ) -> dict:
         if confirm_unregister is not True:
             raise ConfigurationError(
                 "corpus unregister requires explicit confirmation",
                 details={"reason": "confirmation_required"},
             )
+        cleanup_requested = any(
+            value is not None
+            for value in (archived_context_id, expected_context_version)
+        ) or confirm_remove_linked_history
+        if cleanup_requested:
+            if archived_context_id is None or expected_context_version is None:
+                raise ConfigurationError(
+                    "archived Context cleanup requires its id and current version",
+                    details={"reason": "archived_context_options_incomplete"},
+                )
+            archived_context_id = normalize_context_id(archived_context_id)
+            if (
+                isinstance(expected_context_version, bool)
+                or not isinstance(expected_context_version, int)
+                or expected_context_version < 1
+            ):
+                raise ConfigurationError(
+                    "expected Context version must be a positive integer",
+                    details={"reason": "invalid_context_version"},
+                )
+            if confirm_remove_linked_history is not True:
+                raise ConfigurationError(
+                    "linked Context and source history removal requires confirmation",
+                    details={"reason": "linked_history_confirmation_required"},
+                )
         corpus_id = normalize_corpus_id(corpus_id)
         get_corpus(self.data_root, corpus_id)
         paths = self._paths(corpus_id)
@@ -669,6 +697,8 @@ class CorpusService:
                     data_root=self.data_root,
                     corpus_id=corpus_id,
                     expected_source_root=expected_source_root,
+                    archived_context_id=archived_context_id,
+                    expected_context_version=expected_context_version,
                 )
 
     def context_read(

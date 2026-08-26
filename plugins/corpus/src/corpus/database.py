@@ -843,11 +843,252 @@ def configure_corpus_source_scope(
     return get_corpus(data_root, corpus_id)
 
 
+_CONTEXT_CORPUS_REFERENCE_TABLES = (
+    "context_corpora",
+    "context_sources",
+    "context_external_sources",
+    "corpus_source_bindings",
+)
+
+
+def _context_corpus_reference_counts(
+    connection: sqlite3.Connection,
+    corpus_id: str,
+) -> dict[str, int]:
+    references: dict[str, int] = {}
+    for table in _CONTEXT_CORPUS_REFERENCE_TABLES:
+        count = int(
+            connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE corpus_id = ?",
+                (corpus_id,),
+            ).fetchone()[0]
+        )
+        if count:
+            references[table] = count
+    return references
+
+
+def _backup_registry_database(
+    *,
+    data_root: Path,
+    connection: sqlite3.Connection,
+    backup_name: str,
+) -> Path:
+    with private_directory(data_root) as data_root_descriptor:
+        return backup_database_to_private_subdirectory(
+            connection,
+            parent_descriptor=data_root_descriptor,
+            backup_directory_name="backups",
+            backup_directory=data_root / "backups",
+            backup_name=backup_name,
+        )
+
+
+def _remove_archived_context_and_linked_history(
+    *,
+    data_root: Path,
+    catalog_connection: sqlite3.Connection,
+    corpus_id: str,
+    archived_context_id: str,
+    expected_context_version: int,
+    backup_token: str,
+) -> dict:
+    context_path = data_root / "contexts.sqlite3"
+    _require_current_context_schema(context_path)
+
+    with closing(connect(context_path)) as connection:
+        linked_contexts = connection.execute(
+            """
+            SELECT c.context_id, c.state, c.version
+            FROM context_corpora AS cc
+            JOIN contexts AS c ON c.context_id = cc.context_id
+            WHERE cc.corpus_id = ?
+            ORDER BY c.context_id
+            """,
+            (corpus_id,),
+        ).fetchall()
+        if (
+            len(linked_contexts) != 1
+            or linked_contexts[0]["context_id"] != archived_context_id
+            or linked_contexts[0]["state"] != "archived"
+            or linked_contexts[0]["version"] != expected_context_version
+        ):
+            raise ConfigurationError(
+                "saved Context does not match the requested archived cleanup",
+                details={
+                    "corpus_id": corpus_id,
+                    "reason": "archived_context_mismatch",
+                    "expected_context_id": archived_context_id,
+                    "expected_context_version": expected_context_version,
+                    "linked_contexts": [dict(row) for row in linked_contexts],
+                },
+            )
+
+        linked_item_contexts = {
+            str(row["context_id"])
+            for row in connection.execute(
+                """
+                SELECT DISTINCT ci.context_id
+                FROM context_sources AS cs
+                JOIN context_items AS ci ON ci.item_id = cs.item_id
+                WHERE cs.corpus_id = ?
+                UNION
+                SELECT DISTINCT ci.context_id
+                FROM context_external_sources AS ces
+                JOIN context_items AS ci ON ci.item_id = ces.item_id
+                WHERE ces.corpus_id = ?
+                """,
+                (corpus_id, corpus_id),
+            ).fetchall()
+        }
+        if linked_item_contexts - {archived_context_id}:
+            raise ConfigurationError(
+                "source links belong to another saved Context",
+                details={
+                    "corpus_id": corpus_id,
+                    "reason": "other_context_source_links",
+                    "context_ids": sorted(linked_item_contexts),
+                },
+            )
+
+        context_skill_root = data_root / "contexts" / archived_context_id / "skill"
+        if context_skill_root.exists() or context_skill_root.is_symlink():
+            raise ConfigurationError(
+                "archived Context still has a Context Skill",
+                details={
+                    "corpus_id": corpus_id,
+                    "context_id": archived_context_id,
+                    "reason": "context_skill_present",
+                },
+            )
+
+        removed = {
+            "contexts": 1,
+            "context_items": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM context_items WHERE context_id = ?",
+                    (archived_context_id,),
+                ).fetchone()[0]
+            ),
+            "context_source_links": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM context_sources WHERE corpus_id = ?",
+                    (corpus_id,),
+                ).fetchone()[0]
+            ),
+            "context_external_source_links": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM context_external_sources WHERE corpus_id = ?",
+                    (corpus_id,),
+                ).fetchone()[0]
+            ),
+            "source_bindings": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM corpus_source_bindings WHERE corpus_id = ?",
+                    (corpus_id,),
+                ).fetchone()[0]
+            ),
+            "source_runs": int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM external_source_runs AS r
+                    JOIN corpus_source_bindings AS b ON b.binding_id = r.binding_id
+                    WHERE b.corpus_id = ?
+                    """,
+                    (corpus_id,),
+                ).fetchone()[0]
+            ),
+            "source_records": int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM external_source_records AS r
+                    JOIN corpus_source_bindings AS b ON b.binding_id = r.binding_id
+                    WHERE b.corpus_id = ?
+                    """,
+                    (corpus_id,),
+                ).fetchone()[0]
+            ),
+        }
+        catalog_backup_path = _backup_registry_database(
+            data_root=data_root,
+            connection=catalog_connection,
+            backup_name=f"catalog-source-unregister-{corpus_id}-{backup_token}.sqlite",
+        )
+        context_backup_path = _backup_registry_database(
+            data_root=data_root,
+            connection=connection,
+            backup_name=f"contexts-source-unregister-{corpus_id}-{backup_token}.sqlite",
+        )
+        backups = [str(catalog_backup_path), str(context_backup_path)]
+
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                """
+                SELECT c.context_id, c.state, c.version
+                FROM context_corpora AS cc
+                JOIN contexts AS c ON c.context_id = cc.context_id
+                WHERE cc.corpus_id = ?
+                ORDER BY c.context_id
+                """,
+                (corpus_id,),
+            ).fetchall()
+            if (
+                len(current) != 1
+                or current[0]["context_id"] != archived_context_id
+                or current[0]["state"] != "archived"
+                or current[0]["version"] != expected_context_version
+            ):
+                raise ConfigurationError(
+                    "archived Context changed before unregister",
+                    details={
+                        "corpus_id": corpus_id,
+                        "reason": "archived_context_changed",
+                        "backups": backups,
+                    },
+                )
+            deleted_contexts = connection.execute(
+                "DELETE FROM contexts WHERE context_id = ?",
+                (archived_context_id,),
+            ).rowcount
+            if deleted_contexts != 1:
+                raise ConfigurationError(
+                    "archived Context could not be removed",
+                    details={"context_id": archived_context_id},
+                )
+            connection.execute(
+                "DELETE FROM corpus_source_bindings WHERE corpus_id = ?",
+                (corpus_id,),
+            )
+            remaining = _context_corpus_reference_counts(connection, corpus_id)
+            if remaining:
+                raise ConfigurationError(
+                    "saved Context references remain after cleanup",
+                    details={
+                        "corpus_id": corpus_id,
+                        "reason": "context_references_remain",
+                        "references": remaining,
+                        "backups": backups,
+                    },
+                )
+
+    return {
+        "context_id": archived_context_id,
+        "context_version": expected_context_version,
+        "removed": removed,
+        "backups": backups,
+    }
+
+
 def unregister_corpus(
     *,
     data_root: Path,
     corpus_id: str,
     expected_source_root: Path,
+    archived_context_id: str | None = None,
+    expected_context_version: int | None = None,
 ) -> dict:
     """Remove one source registration while retaining its private index."""
 
@@ -855,35 +1096,8 @@ def unregister_corpus(
     expected_root_nfc = _expected_source_root_nfc(expected_source_root)
     catalog = data_root / "catalog.sqlite"
     _require_existing_database(catalog, corpus_id=corpus_id)
-
-    context_path = data_root / "contexts.sqlite3"
-    context_references: dict[str, int] = {}
-    if context_path.exists():
-        _require_current_context_schema(context_path)
-        with closing(connect_readonly(context_path)) as connection:
-            for table in (
-                "context_corpora",
-                "context_sources",
-                "context_external_sources",
-                "corpus_source_bindings",
-            ):
-                count = int(
-                    connection.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE corpus_id = ?",
-                        (corpus_id,),
-                    ).fetchone()[0]
-                )
-                if count:
-                    context_references[table] = count
-    if context_references:
-        raise ConfigurationError(
-            "corpus is still referenced by saved Context data",
-            details={
-                "corpus_id": corpus_id,
-                "reason": "context_references",
-                "references": context_references,
-            },
-        )
+    context_cleanup = None
+    backups: list[str] = []
 
     workspace_path = data_root / "workspaces.sqlite3"
     with closing(connect(catalog)) as connection:
@@ -914,13 +1128,14 @@ def unregister_corpus(
                     SELECT workspace_id, context_id, root_path
                     FROM workspaces
                     WHERE root_path_nfc = ?
+                       OR (? IS NOT NULL AND context_id = ?)
                     LIMIT 1
                     """,
-                    (existing_root_nfc,),
+                    (existing_root_nfc, archived_context_id, archived_context_id),
                 ).fetchone()
             if workspace is not None:
                 raise ConfigurationError(
-                    "corpus source root is still connected as a work folder",
+                    "corpus source or archived Context is still connected to a work folder",
                     details={
                         "corpus_id": corpus_id,
                         "reason": "workspace_connection",
@@ -928,6 +1143,44 @@ def unregister_corpus(
                         "context_id": workspace["context_id"],
                     },
                 )
+
+        context_path = data_root / "contexts.sqlite3"
+        context_references: dict[str, int] = {}
+        if context_path.exists():
+            _require_current_context_schema(context_path)
+            with closing(connect_readonly(context_path)) as context_connection:
+                context_references = _context_corpus_reference_counts(
+                    context_connection,
+                    corpus_id,
+                )
+        if context_references:
+            if archived_context_id is None or expected_context_version is None:
+                raise ConfigurationError(
+                    "corpus is still referenced by saved Context data",
+                    details={
+                        "corpus_id": corpus_id,
+                        "reason": "context_references",
+                        "references": context_references,
+                    },
+                )
+            backup_token = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            context_cleanup = _remove_archived_context_and_linked_history(
+                data_root=data_root,
+                catalog_connection=connection,
+                corpus_id=corpus_id,
+                archived_context_id=archived_context_id,
+                expected_context_version=expected_context_version,
+                backup_token=backup_token,
+            )
+            backups.extend(context_cleanup["backups"])
+        elif archived_context_id is not None:
+            raise ConfigurationError(
+                "archived Context cleanup was requested but no references remain",
+                details={
+                    "corpus_id": corpus_id,
+                    "reason": "archived_context_cleanup_not_needed",
+                },
+            )
 
         with connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -947,6 +1200,7 @@ def unregister_corpus(
                         "corpus_id": corpus_id,
                         "existing_root": current["source_root"],
                         "expected_root": str(expected_source_root),
+                        "backups": backups,
                     },
                 )
             connection.execute("DELETE FROM corpora WHERE corpus_id = ?", (corpus_id,))
@@ -962,6 +1216,8 @@ def unregister_corpus(
         "changed": True,
         "corpus_id": corpus_id,
         "source_root": existing["source_root"],
+        "context_cleanup": context_cleanup,
+        "backups": backups,
         "private_index_retained": private_index_retained,
         "private_index_root": str(private_index_root)
         if private_index_retained

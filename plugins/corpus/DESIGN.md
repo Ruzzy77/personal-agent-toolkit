@@ -88,7 +88,7 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록·등록 해제, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. 등록 해제는 현재 경로의 명시적 확인을 요구하며 Context나 Work Connection이 남아 있으면 중단합니다. 비공개 색인은 자동으로 지우지 않습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록·등록 해제, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. 등록 해제는 현재 경로의 명시적 확인을 요구하며 Context나 Work Connection이 남아 있으면 중단합니다. 다른 정본으로 옮겨진 보관 Context가 유일한 연결이면 Context ID와 version을 지정해 Corpus 내부 연결 기록까지 정리할 수 있으며, 이때 등록부와 Context 데이터베이스의 비공개 사본을 먼저 남깁니다. 비공개 색인과 원래 제공자의 세션 파일은 자동으로 지우지 않습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
 stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 

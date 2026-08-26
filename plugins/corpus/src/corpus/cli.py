@@ -200,6 +200,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Confirm removal of this source registration.",
     )
+    unregister.add_argument(
+        "--remove-archived-context",
+        dest="archived_context_id",
+        help="Remove this archived Context when it is the only saved Context reference.",
+    )
+    unregister.add_argument(
+        "--expected-context-version",
+        type=int,
+        help="Current version of the archived Context selected for removal.",
+    )
+    unregister.add_argument(
+        "--confirm-remove-linked-history",
+        action="store_true",
+        help="Confirm removal of the archived Context and Corpus-held linked source history.",
+    )
     corpus_commands.add_parser("list", help="List registered corpora.")
 
     space = commands.add_parser(
@@ -697,6 +712,9 @@ def execute(args: argparse.Namespace) -> dict | list:
                 corpus_id=args.corpus_id,
                 expected_source_root=args.expected_root,
                 confirm_unregister=args.confirm_unregister,
+                archived_context_id=args.archived_context_id,
+                expected_context_version=args.expected_context_version,
+                confirm_remove_linked_history=args.confirm_remove_linked_history,
             )
         return {"corpora": service.corpora()}
     if args.command == "space":

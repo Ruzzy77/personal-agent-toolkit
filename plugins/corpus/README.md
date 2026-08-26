@@ -74,6 +74,20 @@ CORPUS_MCP_PORT=8000 \
 
 현재 등록 경로가 `--expected-root`와 다르거나 Context·Work Connection이 남아 있으면 중단합니다. 등록만 해제하며 비공개 색인은 이후 정리를 위해 그대로 둡니다.
 
+이미 다른 정본으로 옮겨진 보관 Context가 유일한 연결이라면, 그 Context의 현재 version을 지정해 Corpus 내부의 연결 기록과 함께 정리할 수 있습니다.
+
+```sh
+./launchers/corpus corpus unregister \
+  --id thesis-sources \
+  --expected-root /absolute/path/to/sources \
+  --remove-archived-context retired-thesis-context \
+  --expected-context-version 6 \
+  --confirm-remove-linked-history \
+  --confirm-unregister
+```
+
+이 동작은 삭제 전 `catalog.sqlite`와 `contexts.sqlite3`의 비공개 사본을 남깁니다. 지정한 Context가 보관 상태가 아니거나 다른 Context·Work Connection·Context Skill이 남아 있으면 중단합니다. 원래 Source 폴더, Codex·Claude의 세션 파일과 Corpus 비공개 색인은 삭제하지 않습니다.
+
 ## Context와 Work Connection
 
 Context는 출처 기반 재사용 지식을 저장합니다.
