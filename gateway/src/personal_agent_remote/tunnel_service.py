@@ -122,12 +122,28 @@ def _gateway_profile_command(product: str, *, tunnel_client: Path) -> list[str]:
 
 
 def _resolve_uv_program(path: Path | None = None) -> Path:
-    candidate = path
+    candidate = path.expanduser() if path is not None else None
     if candidate is None:
         discovered = shutil.which("uv")
         if discovered is None:
             raise TunnelServiceError("uv is required to install the gateway LaunchAgent")
-        candidate = Path(discovered).resolve(strict=True)
+        candidate = Path(discovered)
+    if not candidate.is_absolute():
+        raise TunnelServiceError("uv program must be an absolute path")
+    try:
+        metadata = candidate.lstat()
+        canonical = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise TunnelServiceError("uv program is unavailable") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        if metadata.st_uid != os.geteuid():
+            raise TunnelServiceError("uv program symlink must be owned by the current user")
+        _owned_regular_file(
+            canonical,
+            executable=True,
+            description="uv program target",
+        )
+        return candidate
     return _owned_regular_file(
         candidate,
         executable=True,
