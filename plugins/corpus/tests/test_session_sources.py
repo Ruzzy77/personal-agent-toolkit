@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -22,7 +23,15 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
     )
 
 
-def _codex_records(*, final_text: str = "완료된 답변입니다.") -> list[dict]:
+def _iso_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _codex_records(
+    *,
+    completed_at: datetime,
+    final_text: str = "완료된 답변입니다.",
+) -> list[dict]:
     return [
         {
             "type": "session_meta",
@@ -63,24 +72,24 @@ def _codex_records(*, final_text: str = "완료된 답변입니다.") -> list[di
         },
         {
             "type": "event_msg",
-            "timestamp": "2026-07-27T03:04:05Z",
+            "timestamp": _iso_timestamp(completed_at),
             "payload": {
                 "type": "task_complete",
                 "turn_id": "codex-turn-1",
-                "completed_at": 1785121445,
+                "completed_at": int(completed_at.timestamp()),
             },
         },
     ]
 
 
-def _claude_records() -> list[dict]:
+def _claude_records(*, completed_at: datetime) -> list[dict]:
     return [
         {
             "type": "user",
             "uuid": "claude-turn-1",
             "sessionId": "claude-session-1",
             "cwd": "/workspace/project",
-            "timestamp": "2026-07-27T04:00:00Z",
+            "timestamp": _iso_timestamp(completed_at - timedelta(minutes=1)),
             "message": {
                 "content": [
                     {
@@ -94,7 +103,7 @@ def _claude_records() -> list[dict]:
             "type": "assistant",
             "sessionId": "claude-session-1",
             "cwd": "/workspace/project",
-            "timestamp": "2026-07-27T04:01:00Z",
+            "timestamp": _iso_timestamp(completed_at),
             "message": {
                 "stop_reason": "end_turn",
                 "content": [
@@ -121,6 +130,9 @@ class SessionLinkedSourceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         base = Path(self.temporary.name)
+        self.completed_at = datetime.now(UTC).replace(
+            microsecond=0
+        ) - timedelta(days=1)
         self.data = base / "private-data"
         self.source = base / "source"
         self.codex_root = base / "codex-sessions"
@@ -128,13 +140,22 @@ class SessionLinkedSourceTest(unittest.TestCase):
         self.source.mkdir()
         (self.source / "README.md").write_text("# Project\n", encoding="utf-8")
         self.codex_file = (
-            self.codex_root / "2026" / "07" / "rollout-codex-session-1.jsonl"
+            self.codex_root
+            / self.completed_at.strftime("%Y")
+            / self.completed_at.strftime("%m")
+            / "rollout-codex-session-1.jsonl"
         )
         self.claude_file = (
             self.claude_root / "project" / "claude-session-1.jsonl"
         )
-        _write_jsonl(self.codex_file, _codex_records())
-        _write_jsonl(self.claude_file, _claude_records())
+        _write_jsonl(
+            self.codex_file,
+            _codex_records(completed_at=self.completed_at),
+        )
+        _write_jsonl(
+            self.claude_file,
+            _claude_records(completed_at=self.completed_at),
+        )
         self.environment = mock.patch.dict(
             "os.environ",
             {
@@ -322,7 +343,10 @@ class SessionLinkedSourceTest(unittest.TestCase):
 
         _write_jsonl(
             self.codex_file,
-            _codex_records(final_text="변경된 완료 답변입니다."),
+            _codex_records(
+                completed_at=self.completed_at,
+                final_text="변경된 완료 답변입니다.",
+            ),
         )
         changed = self.service.corpus_source_fetch(
             corpus_id="project",
@@ -489,7 +513,10 @@ class SessionLinkedSourceTest(unittest.TestCase):
 
         _write_jsonl(
             self.codex_file,
-            _codex_records(final_text="변경된 완료 답변입니다."),
+            _codex_records(
+                completed_at=self.completed_at,
+                final_text="변경된 완료 답변입니다.",
+            ),
         )
         changed = self.service.context_read(context_id="project-experience")
         self.assertEqual(
