@@ -38,6 +38,7 @@ from .database import (
     list_corpora,
     rebind_corpus_source_root,
     register_corpus,
+    unregister_corpus,
     utc_now,
 )
 from .errors import (
@@ -52,7 +53,12 @@ from .errors import (
     SpaceValidationError,
     WorkspaceConflictError,
 )
-from .locking import source_workspace_registry_lock, workspace_writer_lock, writer_lock
+from .locking import (
+    context_writer_lock,
+    source_workspace_registry_lock,
+    workspace_writer_lock,
+    writer_lock,
+)
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -632,6 +638,38 @@ class CorpusService:
 
     def corpora(self) -> list[dict]:
         return list_corpora(self.data_root)
+
+    def unregister(
+        self,
+        *,
+        corpus_id: str,
+        expected_source_root: Path,
+        confirm_unregister: bool,
+    ) -> dict:
+        if confirm_unregister is not True:
+            raise ConfigurationError(
+                "corpus unregister requires explicit confirmation",
+                details={"reason": "confirmation_required"},
+            )
+        corpus_id = normalize_corpus_id(corpus_id)
+        get_corpus(self.data_root, corpus_id)
+        paths = self._paths(corpus_id)
+        with (
+            source_workspace_registry_lock(self.data_root),
+            workspace_writer_lock(self.data_root),
+            context_writer_lock(self.data_root),
+        ):
+            corpus_lock = (
+                writer_lock(paths.corpus_root / "writer.lock")
+                if paths.corpus_root.exists() or paths.corpus_root.is_symlink()
+                else nullcontext()
+            )
+            with corpus_lock:
+                return unregister_corpus(
+                    data_root=self.data_root,
+                    corpus_id=corpus_id,
+                    expected_source_root=expected_source_root,
+                )
 
     def context_read(
         self,

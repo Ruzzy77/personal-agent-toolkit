@@ -797,6 +797,7 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            get_corpus(self.data_root, corpus_id)
             self._prune_history(connection)
             existing = connection.execute(
                 "SELECT * FROM corpus_source_bindings WHERE binding_id = ?",
@@ -1888,6 +1889,8 @@ class ContextService:
             context_writer_lock(self.data_root),
             context_connection(self.data_root) as connection,
         ):
+            for corpus_id in corpus_ids:
+                get_corpus(self.data_root, corpus_id)
             self._prune_history(connection)
             existing = connection.execute(
                 "SELECT * FROM contexts WHERE context_id = ?",

@@ -184,6 +184,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Current registered root; the command stops if it does not match.",
     )
+    unregister = corpus_commands.add_parser(
+        "unregister",
+        help="Remove one source registration while retaining its private index.",
+    )
+    unregister.add_argument("--id", required=True, dest="corpus_id")
+    unregister.add_argument(
+        "--expected-root",
+        required=True,
+        type=Path,
+        help="Current registered root; the command stops if it does not match.",
+    )
+    unregister.add_argument(
+        "--confirm-unregister",
+        action="store_true",
+        help="Confirm removal of this source registration.",
+    )
     corpus_commands.add_parser("list", help="List registered corpora.")
 
     space = commands.add_parser(
@@ -675,6 +691,12 @@ def execute(args: argparse.Namespace) -> dict | list:
                 corpus_id=args.corpus_id,
                 source_root=args.root,
                 expected_source_root=args.expected_root,
+            )
+        if args.corpus_command == "unregister":
+            return service.unregister(
+                corpus_id=args.corpus_id,
+                expected_source_root=args.expected_root,
+                confirm_unregister=args.confirm_unregister,
             )
         return {"corpora": service.corpora()}
     if args.command == "space":

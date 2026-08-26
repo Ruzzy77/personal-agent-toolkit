@@ -63,6 +63,17 @@ CORPUS_MCP_PORT=8000 \
 
 `scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
+더 이상 존재하지 않는 Source 등록은 로컬에서 해제할 수 있습니다.
+
+```sh
+./launchers/corpus corpus unregister \
+  --id thesis-sources \
+  --expected-root /absolute/path/to/sources \
+  --confirm-unregister
+```
+
+현재 등록 경로가 `--expected-root`와 다르거나 Context·Work Connection이 남아 있으면 중단합니다. 등록만 해제하며 비공개 색인은 이후 정리를 위해 그대로 둡니다.
+
 ## Context와 Work Connection
 
 Context는 출처 기반 재사용 지식을 저장합니다.

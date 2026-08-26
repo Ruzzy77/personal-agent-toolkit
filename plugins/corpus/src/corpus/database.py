@@ -843,6 +843,132 @@ def configure_corpus_source_scope(
     return get_corpus(data_root, corpus_id)
 
 
+def unregister_corpus(
+    *,
+    data_root: Path,
+    corpus_id: str,
+    expected_source_root: Path,
+) -> dict:
+    """Remove one source registration while retaining its private index."""
+
+    corpus_id = normalize_corpus_id(corpus_id)
+    expected_root_nfc = _expected_source_root_nfc(expected_source_root)
+    catalog = data_root / "catalog.sqlite"
+    _require_existing_database(catalog, corpus_id=corpus_id)
+
+    context_path = data_root / "contexts.sqlite3"
+    context_references: dict[str, int] = {}
+    if context_path.exists():
+        _require_current_context_schema(context_path)
+        with closing(connect_readonly(context_path)) as connection:
+            for table in (
+                "context_corpora",
+                "context_sources",
+                "context_external_sources",
+                "corpus_source_bindings",
+            ):
+                count = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE corpus_id = ?",
+                        (corpus_id,),
+                    ).fetchone()[0]
+                )
+                if count:
+                    context_references[table] = count
+    if context_references:
+        raise ConfigurationError(
+            "corpus is still referenced by saved Context data",
+            details={
+                "corpus_id": corpus_id,
+                "reason": "context_references",
+                "references": context_references,
+            },
+        )
+
+    workspace_path = data_root / "workspaces.sqlite3"
+    with closing(connect(catalog)) as connection:
+        existing = connection.execute(
+            "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+        ).fetchone()
+        if existing is None:
+            raise CorpusNotFoundError(
+                "corpus is not registered",
+                details={"corpus_id": corpus_id},
+            )
+        existing_root_nfc = unicodedata.normalize("NFC", str(existing["source_root"]))
+        if existing_root_nfc != expected_root_nfc:
+            raise ConfigurationError(
+                "registered source root does not match the expected root",
+                details={
+                    "corpus_id": corpus_id,
+                    "existing_root": existing["source_root"],
+                    "expected_root": str(expected_source_root),
+                },
+            )
+
+        if workspace_path.exists():
+            _require_current_workspace_schema(workspace_path)
+            with closing(connect_readonly(workspace_path)) as workspace_connection:
+                workspace = workspace_connection.execute(
+                    """
+                    SELECT workspace_id, context_id, root_path
+                    FROM workspaces
+                    WHERE root_path_nfc = ?
+                    LIMIT 1
+                    """,
+                    (existing_root_nfc,),
+                ).fetchone()
+            if workspace is not None:
+                raise ConfigurationError(
+                    "corpus source root is still connected as a work folder",
+                    details={
+                        "corpus_id": corpus_id,
+                        "reason": "workspace_connection",
+                        "workspace_id": workspace["workspace_id"],
+                        "context_id": workspace["context_id"],
+                    },
+                )
+
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+            if current is None:
+                raise CorpusNotFoundError(
+                    "corpus is not registered",
+                    details={"corpus_id": corpus_id},
+                )
+            current_root_nfc = unicodedata.normalize("NFC", str(current["source_root"]))
+            if current_root_nfc != expected_root_nfc:
+                raise ConfigurationError(
+                    "registered source root changed before unregister",
+                    details={
+                        "corpus_id": corpus_id,
+                        "existing_root": current["source_root"],
+                        "expected_root": str(expected_source_root),
+                    },
+                )
+            connection.execute("DELETE FROM corpora WHERE corpus_id = ?", (corpus_id,))
+
+    private_index_root = RuntimePaths(
+        data_root=data_root,
+        corpus_id=corpus_id,
+    ).corpus_root
+    private_index_retained = (
+        private_index_root.exists() or private_index_root.is_symlink()
+    )
+    return {
+        "changed": True,
+        "corpus_id": corpus_id,
+        "source_root": existing["source_root"],
+        "private_index_retained": private_index_retained,
+        "private_index_root": str(private_index_root)
+        if private_index_retained
+        else None,
+    }
+
+
 def _decode_source_scope(raw_scope: object) -> dict[str, list[str]]:
     try:
         parsed = json.loads(str(raw_scope))
