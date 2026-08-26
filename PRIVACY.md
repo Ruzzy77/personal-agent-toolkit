@@ -4,19 +4,22 @@ Personal Agent Toolkit is local-first and ships with no user data.
 
 ## Sense
 
-Sense stores one private set of user-controlled guidance on the user's machine. It covers durable
-intent, responsibility, and lessons that should affect important choices in different contexts,
-not project facts, project files, or raw conversation history.
+Sense stores one private set of user-controlled guidance and user-approved Section Skills on the
+user's machine. The profile covers durable intent, responsibility, and lessons that should affect
+important choices in different contexts. A Section Skill holds one reusable workflow attached to a
+profile section. Neither holds project facts, project files, or raw conversation history.
 
 - The plugin package contains no default or active guidance.
-- The private database stores one current profile and no revision history, replay receipts, source
+- The private database stores one current profile. Section Skills are stored as private `SKILL.md`
+  files under their linked sections. Sense stores no revision history, replay receipts, source
   locations, or source hashes.
 - Import uses a profile the user has already reviewed. Replacing an existing profile requires an
   explicit local confirmation.
-- Sensitive guidance and permanent deletion require explicit local confirmation.
+- Section Skill changes, sensitive guidance, and permanent deletion require explicit local
+  confirmation.
 - Ordinary updates use only the current section's change token and complete replacement text.
-- Plugin updates do not replace the current guidance. The schema 2 upgrade keeps the active profile
-  and removes superseded history and provenance fields.
+- Plugin updates do not replace the current guidance or Section Skills. The schema 2 upgrade keeps
+  the active profile and removes superseded history and provenance fields.
 
 ## Corpus
 
