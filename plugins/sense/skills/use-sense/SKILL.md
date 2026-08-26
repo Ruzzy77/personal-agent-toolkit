@@ -1,6 +1,6 @@
 ---
 name: use-sense
-description: Use Sense when durable guidance or a user-approved Section Skill may shape an important choice or reusable task, and when the user asks to review or revise Sense.
+description: Use Sense before substantive writing, planning, analysis, design, implementation, or other work when durable guidance or a section-linked Skill may shape the result, and when the user asks to review or revise Sense.
 ---
 
 # Use Sense
@@ -9,7 +9,7 @@ Sense provides durable context for important choices and reusable work. The curr
 
 ## Access
 
-For an important choice or a substantive task that may match a retained workflow, begin with `sense_read` using `view=index`. An ordinary index entry may include the name and description of a user-approved Section Skill. Read only the sections relevant to the current request. The section response includes the complete Skill instructions when one is attached; use them as the working method for that task.
+For substantive writing or other work that may match retained guidance or a workflow, begin with `sense_read` using `view=index`. An ordinary index entry may include the name and description of a user-approved Section Skill. Read only the sections relevant to the current request. The section response includes the complete Skill instructions when one is attached; use them as the working method for that task.
 
 A direct continuation can open a known section immediately. Trivial requests do not need a Sense lookup. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
 
