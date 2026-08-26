@@ -137,6 +137,30 @@ def _parse_skill(content: bytes) -> dict[str, str]:
     }
 
 
+def _serialize_skill(
+    *,
+    name: str,
+    description: str,
+    instructions: str,
+) -> bytes:
+    if not all(isinstance(value, str) for value in (name, description, instructions)):
+        raise SectionSkillValidationError("Section Skill fields must be text")
+    normalized_name = name.strip()
+    normalized_description = description.strip()
+    normalized_instructions = (
+        instructions.replace("\r\n", "\n").replace("\r", "\n").strip()
+    )
+    content = (
+        "---\n"
+        f"name: {normalized_name}\n"
+        f"description: {json.dumps(normalized_description, ensure_ascii=False)}\n"
+        "---\n\n"
+        f"{normalized_instructions}\n"
+    ).encode("utf-8")
+    _parse_skill(content)
+    return content
+
+
 def _is_within(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -405,6 +429,49 @@ class SectionSkillService:
             raise SectionSkillValidationError("expected Section Skill version is required")
         content = _read_source_skill(skill_file, data_root=self.data_root)
 
+        return self._set_content(
+            section_id=normalized_id,
+            content=content,
+            expected_version=expected_version,
+        )
+
+    def set_content(
+        self,
+        *,
+        section_id: str,
+        name: str,
+        description: str,
+        instructions: str,
+        expected_version: str,
+        confirm_section_skill_write: bool,
+    ) -> dict[str, Any]:
+        normalized_id = self._validate_section_id(section_id)
+        if not confirm_section_skill_write:
+            raise ConfirmationRequiredError(
+                "Section Skill write requires explicit confirmation"
+            )
+        if not isinstance(expected_version, str) or not expected_version:
+            raise SectionSkillValidationError("expected Section Skill version is required")
+        content = _serialize_skill(
+            name=name,
+            description=description,
+            instructions=instructions,
+        )
+        return self._set_content(
+            section_id=normalized_id,
+            content=content,
+            expected_version=expected_version,
+        )
+
+    def _set_content(
+        self,
+        *,
+        section_id: str,
+        content: bytes,
+        expected_version: str,
+    ) -> dict[str, Any]:
+        normalized_id = self._validate_section_id(section_id)
+
         with closing(self.store._connect_write()) as connection:
             self.store._begin_exclusive(connection)
             current_profile = self.store._load_current(connection).profile
@@ -415,6 +482,14 @@ class SectionSkillService:
                 require_section=False,
             )
             observed_version = current["version"] if current is not None else "absent"
+            new_version = _skill_version(content)
+            if new_version == observed_version:
+                connection.execute("COMMIT")
+                return {
+                    "section_id": normalized_id,
+                    "changed": False,
+                    "skill": current,
+                }
             if expected_version != observed_version:
                 raise SectionSkillConflictError(
                     "Section Skill changed before it could be replaced",
@@ -424,15 +499,6 @@ class SectionSkillService:
                         "observed_version": observed_version,
                     },
                 )
-            new_version = _skill_version(content)
-            if new_version == observed_version:
-                connection.execute("COMMIT")
-                return {
-                    "section_id": normalized_id,
-                    "changed": False,
-                    "skill": current,
-                }
-
             skill_root = self._ensure_skill_root(normalized_id)
             temporary_path = skill_root / f".SKILL.{uuid.uuid4().hex}.tmp"
             flags = (

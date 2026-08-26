@@ -143,6 +143,30 @@ def _parse_skill(content: bytes) -> dict[str, str]:
     }
 
 
+def _serialize_skill(
+    *,
+    name: str,
+    description: str,
+    instructions: str,
+) -> bytes:
+    if not all(isinstance(value, str) for value in (name, description, instructions)):
+        raise ContextValidationError("Context Skill fields must be text")
+    normalized_name = name.strip()
+    normalized_description = description.strip()
+    normalized_instructions = (
+        instructions.replace("\r\n", "\n").replace("\r", "\n").strip()
+    )
+    content = (
+        "---\n"
+        f"name: {normalized_name}\n"
+        f"description: {json.dumps(normalized_description, ensure_ascii=False)}\n"
+        "---\n\n"
+        f"{normalized_instructions}\n"
+    ).encode("utf-8")
+    _parse_skill(content)
+    return content
+
+
 def _read_source_skill(path: Path, *, data_root: Path) -> bytes:
     expanded = path.expanduser()
     if not expanded.is_absolute():
@@ -348,6 +372,47 @@ class ContextSkillService:
             raise ContextValidationError("expected Context Skill version is required")
         content = _read_source_skill(skill_file, data_root=self.data_root)
 
+        return self._set_content(
+            context_id=normalized_id,
+            content=content,
+            expected_version=expected_version,
+        )
+
+    def set_content(
+        self,
+        *,
+        context_id: str,
+        name: str,
+        description: str,
+        instructions: str,
+        expected_version: str,
+        confirm_context_skill_write: bool,
+    ) -> dict[str, Any]:
+        normalized_id = normalize_context_id(context_id)
+        if not confirm_context_skill_write:
+            raise ContextValidationError("Context Skill write requires explicit confirmation")
+        if not isinstance(expected_version, str) or not expected_version:
+            raise ContextValidationError("expected Context Skill version is required")
+        content = _serialize_skill(
+            name=name,
+            description=description,
+            instructions=instructions,
+        )
+        return self._set_content(
+            context_id=normalized_id,
+            content=content,
+            expected_version=expected_version,
+        )
+
+    def _set_content(
+        self,
+        *,
+        context_id: str,
+        content: bytes,
+        expected_version: str,
+    ) -> dict[str, Any]:
+        normalized_id = normalize_context_id(context_id)
+
         with context_writer_lock(self.data_root):
             self._require_context(normalized_id, writable=True)
             current = self.read(
@@ -356,6 +421,13 @@ class ContextSkillService:
                 require_context=False,
             )
             observed_version = current["version"] if current is not None else "absent"
+            new_version = _skill_version(content)
+            if new_version == observed_version:
+                return {
+                    "context_id": normalized_id,
+                    "changed": False,
+                    "skill": current,
+                }
             if expected_version != observed_version:
                 raise ContextConflictError(
                     "Context Skill changed before it could be replaced",
@@ -365,14 +437,6 @@ class ContextSkillService:
                         "observed_version": observed_version,
                     },
                 )
-            new_version = _skill_version(content)
-            if new_version == observed_version:
-                return {
-                    "context_id": normalized_id,
-                    "changed": False,
-                    "skill": current,
-                }
-
             with self._open_skill_root(normalized_id, create=True) as parent_descriptor:
                 temporary_name = f".SKILL.{uuid.uuid4().hex}.tmp"
                 temporary_path = self._skill_root(normalized_id) / temporary_name

@@ -28,6 +28,7 @@ class MCPServerTest(unittest.TestCase):
             {
                 "corpus_space_list",
                 "corpus_space_get",
+                "corpus_context_skill_revise",
                 "corpus_space_search",
                 "corpus_file_list",
                 "corpus_file_read",
@@ -118,6 +119,70 @@ class MCPServerTest(unittest.TestCase):
             self.assertNotIn(str(source), serialized)
             self.assertNotIn(str(work), serialized)
             self.assertIn("/Users/example/private text.", serialized)
+
+    def test_remote_context_skill_replacement_is_version_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            data = base / "private-data"
+            source = base / "source"
+            source.mkdir()
+            (source / "source.md").write_text("source", encoding="utf-8")
+
+            service = CorpusService(data)
+            service.register(
+                corpus_id="library",
+                source_root=source,
+                execution_policy="external_host_allowed",
+            )
+            service.context_update(
+                action="create",
+                context_id="library-editorial",
+                expected_version=0,
+                payload={
+                    "title": "Library editorial",
+                    "purpose": "Edit Library issues.",
+                    "scope": {},
+                    "corpus_ids": ["library"],
+                },
+            )
+            server = create_server(data)
+
+            _, created = asyncio.run(
+                call_tool(
+                    server,
+                    "corpus_context_skill_revise",
+                    {
+                        "space_id": "library-editorial",
+                        "expected_version": "absent",
+                        "new_skill": {
+                            "name": "library-editorial",
+                            "description": "Edit Library issues.",
+                            "instructions": "Read the Context before editing one issue.",
+                        },
+                    },
+                )
+            )
+            self.assertTrue(created["ok"])
+            self.assertTrue(created["result"]["changed"])
+            self.assertNotIn("storage_path", created["result"]["skill"])
+
+            _, conflict = asyncio.run(
+                call_tool(
+                    server,
+                    "corpus_context_skill_revise",
+                    {
+                        "space_id": "library-editorial",
+                        "expected_version": "absent",
+                        "new_skill": {
+                            "name": "library-editorial",
+                            "description": "Edit Library issues.",
+                            "instructions": "Conflicting replacement.",
+                        },
+                    },
+                )
+            )
+            self.assertFalse(conflict["ok"])
+            self.assertEqual(conflict["error"]["code"], "context_conflict")
 
 
 if __name__ == "__main__":

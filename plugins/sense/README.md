@@ -14,6 +14,7 @@ Sense는 여러 AI가 공유하는 비공개 작업 프로필이다. 프로필�
 | `sense_read` | 색인 또는 관련 항목과 연결 Skill 조회 |
 | `sense_overview` | 일반 프로필과 연결 Skill 표시 |
 | `sense_revise` | 최종 항목 교체를 한 트랜잭션으로 저장함 |
+| `sense_skill_revise` | 일반 Section Skill 전체를 최신 버전과 대조해 교체 |
 
 `sense_read`의 색인은 Section Skill의 이름과 설명만 보여 준다. 관련 항목을 열면 항목 본문과
 Skill 전체 지침을 함께 반환한다. Section Skill은 사용자가 반영한 `SKILL.md`이며, 자료나 사실의
@@ -24,7 +25,8 @@ Sense 개정은 관련 항목의 `section_sha256`와 최종 항목 전체를 한
 원자적 교체로 이루어진다.
 
 에이전트가 문안을 작성했거나 여러 항목을 함께 바꿀 때에는 Chat에서 최종 문안을 먼저 보여 준다.
-민감 항목의 저장과 영구 삭제는 로컬 명령에서 처리한다.
+일반 Section Skill도 현재 `version`과 전체 교체안을 사용해 Chat에서 수정할 수 있다. 민감 항목과
+민감 Section Skill의 저장, Skill 제거와 영구 삭제는 로컬 명령에서 처리한다.
 
 ## 저장 위치
 

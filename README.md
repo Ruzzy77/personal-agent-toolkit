@@ -115,8 +115,9 @@ cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 
 Sense는 현재 프로필 하나만 유지합니다. 일반 수정은 관련 section을 교체하며, 민감 항목과 영구 삭제는 로컬 명령에서 처리합니다.
 각 section에는 검토한 `SKILL.md`를 하나까지 연결할 수 있습니다. 색인에는 Skill의 이름과 설명이
-나타나고, 해당 section을 읽으면 전체 작업 방법을 함께 불러옵니다. Skill 반영과 제거는 Sense의
-로컬 명령에서 처리합니다.
+나타나고, 해당 section을 읽으면 전체 작업 방법을 함께 불러옵니다. 일반 Section Skill은 사용자가
+명시적으로 요청하면 현재 버전과 전체 교체안을 대조해 Chat에서 수정할 수 있습니다. 민감 Skill의
+반영과 Skill 제거는 Sense의 로컬 명령에서 처리합니다.
 
 ## Corpus 시작
 
@@ -140,7 +141,7 @@ Chat과 로컬 작업이 함께 편집할 폴더는 Context에 Work Connection�
   --execution-policy external_host_allowed
 ```
 
-Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 로컬 파일이 정본이고, 교체에는 직전 읽기에서 받은 version token을 사용합니다.
+Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 로컬 파일이 정본이고, 교체에는 직전 읽기에서 받은 version token을 사용합니다. Context Skill은 Source와 분리되어 있으며, 사용자가 요청한 전체 교체안을 현재 Skill 버전과 대조해 Chat에서 수정할 수 있습니다.
 
 ## Hypes 시작
 

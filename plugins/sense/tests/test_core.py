@@ -298,7 +298,7 @@ def test_section_skill_uses_index_then_section_disclosure(tmp_path: Path) -> Non
     with pytest.raises(SectionSkillConflictError):
         service.section_skill_set(
             section_id="conversation-and-writing",
-            skill_file=source,
+            skill_file=skill_file(tmp_path, body="Use a conflicting workflow."),
             expected_version="absent",
             confirm_section_skill_write=True,
         )
@@ -328,7 +328,7 @@ def test_removing_section_also_removes_its_skill(tmp_path: Path) -> None:
     assert not section_root.exists()
 
 
-def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
+def test_mcp_exposes_read_and_version_checked_updates(tmp_path: Path) -> None:
     root = tmp_path / "Sense"
     service = SenseService(root)
     service.import_profile(profile())
@@ -341,7 +341,12 @@ def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
     server = create_server(root)
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
 
-    assert set(tools) == {"sense_read", "sense_overview", "sense_revise"}
+    assert set(tools) == {
+        "sense_read",
+        "sense_overview",
+        "sense_revise",
+        "sense_skill_revise",
+    }
     revise_schema = str(tools["sense_revise"].input_schema)
     for removed_field in (
         "expected_revision",
@@ -363,3 +368,94 @@ def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
     )
     assert indexed["skill"]["name"] == "korean-writing"
     assert "instructions" not in indexed["skill"]
+
+    current = asyncio.run(
+        server.call_tool(
+            "sense_read",
+            {
+                "view": "sections",
+                "section_ids": ["conversation-and-writing"],
+            },
+        )
+    ).structured_content["result"]["sections"][0]["skill"]
+    revised = asyncio.run(
+        server.call_tool(
+            "sense_skill_revise",
+            {
+                "section_id": "conversation-and-writing",
+                "expected_version": current["version"],
+                "new_skill": {
+                    "name": "korean-writing",
+                    "description": "Write complete Korean prose for the intended reader.",
+                    "instructions": "Rewrite the structure, predicates, and ending together.",
+                },
+            },
+        )
+    ).structured_content
+    assert revised["ok"] is True
+    assert revised["result"]["changed"] is True
+    assert revised["result"]["skill"]["instructions"].startswith("Rewrite the structure")
+    assert "storage_path" not in revised["result"]["skill"]
+
+    replay = asyncio.run(
+        server.call_tool(
+            "sense_skill_revise",
+            {
+                "section_id": "conversation-and-writing",
+                "expected_version": current["version"],
+                "new_skill": {
+                    "name": "korean-writing",
+                    "description": "Write complete Korean prose for the intended reader.",
+                    "instructions": "Rewrite the structure, predicates, and ending together.",
+                },
+            },
+        )
+    ).structured_content
+    assert replay["ok"] is True
+    assert replay["result"]["changed"] is False
+
+    conflict = asyncio.run(
+        server.call_tool(
+            "sense_skill_revise",
+            {
+                "section_id": "conversation-and-writing",
+                "expected_version": current["version"],
+                "new_skill": {
+                    "name": "korean-writing",
+                    "description": "Write complete Korean prose for the intended reader.",
+                    "instructions": "A conflicting replacement.",
+                },
+            },
+        )
+    ).structured_content
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "section_skill_conflict"
+
+
+def test_mcp_keeps_sensitive_section_skill_changes_local(tmp_path: Path) -> None:
+    root = tmp_path / "Sense"
+    service = SenseService(root)
+    service.import_profile(
+        ProfileDocument(
+            sections=[
+                section("private-life", "Keep this private.", sensitive=True),
+            ]
+        )
+    )
+    server = create_server(root)
+    response = asyncio.run(
+        server.call_tool(
+            "sense_skill_revise",
+            {
+                "section_id": "private-life",
+                "expected_version": "absent",
+                "new_skill": {
+                    "name": "private-work",
+                    "description": "Private workflow.",
+                    "instructions": "Do the private work.",
+                },
+            },
+        )
+    ).structured_content
+    assert response["ok"] is False
+    assert response["error"]["code"] == "confirmation_required"

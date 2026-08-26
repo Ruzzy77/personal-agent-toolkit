@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .errors import SenseError
@@ -31,7 +31,8 @@ SERVER_INSTRUCTIONS = (
     "user-approved Section Skill; opening that section returns the complete workflow guidance. "
     "An explicit user request initiates a revision. Present assistant-drafted or multi-section final "
     "wording before one atomic update. Section tokens provide conflict safety. Sensitive persistence, "
-    "Section Skill changes, and permanent deletion use the local interface."
+    "sensitive Section Skill changes, and permanent deletion use the local interface. An explicit "
+    "user request can replace an ordinary Section Skill after its current version is read."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -46,6 +47,20 @@ PROFILE_WRITE = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
+
+
+class SectionSkillReplacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    )
+    description: str = Field(min_length=1, max_length=1_000)
+    instructions: str = Field(min_length=1, max_length=24_000)
+
+
 GUIDANCE_UI_URI = "ui://sense/guidance-v1.html"
 GUIDANCE_UI_RESOURCE = (
     resources.files("sense").joinpath("ui").joinpath("guidance").joinpath("index.html")
@@ -189,6 +204,40 @@ def create_server(
             lambda: service.revise(
                 changes=changes,
                 trusted_user_action=False,
+            )
+        )
+
+    @server.tool(
+        name="sense_skill_revise",
+        title="Revise Sense Section Skill",
+        description=(
+            "Replace one complete ordinary Section Skill after an explicit user request. Read the "
+            "linked section first, pass the current skill version (or 'absent'), and provide the "
+            "complete name, description, and instructions. Identical content is a no-op; a version "
+            "conflict preserves the current Skill. Sensitive Skill changes remain local."
+        ),
+        annotations=PROFILE_WRITE,
+        meta={"ui": {"visibility": ["model"]}},
+    )
+    def sense_skill_revise(
+        section_id: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=64,
+                pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            ),
+        ],
+        expected_version: Annotated[str, Field(min_length=6, max_length=128)],
+        new_skill: SectionSkillReplacement,
+    ) -> ToolResponse:
+        return _safe_call(
+            lambda: service.section_skill_revise(
+                section_id=section_id,
+                name=new_skill.name,
+                description=new_skill.description,
+                instructions=new_skill.instructions,
+                expected_version=expected_version,
             )
         )
 

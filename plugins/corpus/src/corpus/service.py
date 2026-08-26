@@ -770,6 +770,38 @@ class CorpusService:
             confirm_context_skill_write=confirm_context_skill_write,
         )
 
+    def context_skill_revise(
+        self,
+        *,
+        context_id: str,
+        name: str,
+        description: str,
+        instructions: str,
+        expected_version: str,
+        audience: str = "local_cli",
+    ) -> dict:
+        if audience == "external_mcp":
+            self.space_get(
+                space_id=context_id,
+                audience=audience,
+                context_limit=1,
+                context_offset=0,
+            )
+        result = self.context_skills.set_content(
+            context_id=context_id,
+            name=name,
+            description=description,
+            instructions=instructions,
+            expected_version=expected_version,
+            confirm_context_skill_write=True,
+        )
+        result["skill"] = self.context_skills.read(
+            context_id=context_id,
+            audience=audience,
+            require_context=False,
+        )
+        return result
+
     def context_skill_remove(
         self,
         *,

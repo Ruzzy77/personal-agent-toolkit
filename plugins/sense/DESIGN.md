@@ -69,13 +69,15 @@ Section Skill은 프로필 JSON에 넣지 않고 Sense 비공개 저장소의
 
 ## MCP와 로컬 제어
 
-공개 도구는 `sense_read`, `sense_overview`, `sense_revise` 세 개다. `sense_read` 색인은 연결된
+공개 도구는 `sense_read`, `sense_overview`, `sense_revise`, `sense_skill_revise` 네 개다. `sense_read` 색인은 연결된
 Section Skill의 소개를 포함하고, 항목 읽기는 전체 지침을 포함한다. 일반 항목은 사용자가 저장을
 요청한 최종 문안만 수정한다. 에이전트가 작성한 문안과 여러 항목 변경은 도구 미리보기 대신 Chat에서
 최종 내용을 검토한다.
 
-Section Skill 반영과 제거, 민감 항목 수정, 항목 삭제, 전체 데이터 삭제와 기존 프로필 교체는
-로컬 CLI에서만 실행한다. 삭제와 Skill 반영에는 해당 확인 플래그를 사용한다.
+일반 Section Skill은 사용자가 명시적으로 요청한 경우 현재 `version`과 전체 교체안을 대조해 Chat에서
+수정한다. 동일한 최종안은 무변경으로 끝나며 충돌하면 기존 Skill을 보존한다. 민감 Section Skill의
+반영, Skill 제거, 민감 항목 수정, 항목 삭제, 전체 데이터 삭제와 기존 프로필 교체는 로컬 CLI에서만
+실행한다. 삭제와 로컬 Skill 반영에는 해당 확인 플래그를 사용한다.
 
 ## 검토 화면
 

@@ -15,6 +15,7 @@ Source Connection은 읽기 전용 원본을 제공하고, Work Connection은 �
 |---|---|
 | `corpus_space_list` | Space와 Connection 목록 |
 | `corpus_space_get` | Space의 Context와 상태 |
+| `corpus_context_skill_revise` | Context Skill 전체를 최신 버전과 대조해 교체 |
 | `corpus_space_search` | Source 검색 |
 | `corpus_file_list` | Work 파일 목록·검색 |
 | `corpus_file_read` | Work 파일 또는 Source unit 읽기 |
@@ -23,7 +24,7 @@ Source Connection은 읽기 전용 원본을 제공하고, Work Connection은 �
 | `corpus_file_select_current` | Current File 선택 |
 | `corpus_file_restore` | 직전 교체본 복원 |
 
-Source 등록·색인, Context 수정과 Work Connection 연결은 로컬 CLI에서 수행합니다. stdio와 private tunnel은 같은 도구를 제공합니다.
+Source 등록·색인, Context item 수정과 Work Connection 연결은 로컬 CLI에서 수행합니다. 사용자가 명시적으로 요청한 Context Skill 전체 교체는 Chat에서도 할 수 있습니다. stdio와 private tunnel은 같은 도구를 제공합니다.
 
 ## 설치
 
@@ -116,7 +117,9 @@ Context는 출처 기반 재사용 지식을 저장합니다.
 ./launchers/corpus space show --id thesis
 ```
 
-Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 읽습니다.
+Context Skill은 private Corpus 저장소에 두며 선택한 Space와 함께 읽습니다. Chat에서 고칠 때에는
+Space를 다시 열어 현재 `version`을 받은 뒤 이름, 설명과 지침 전체를 `corpus_context_skill_revise`에
+전달합니다. Source Connection은 이 동작과 관계없이 읽기 전용으로 남습니다.
 
 ## 파일 편집
 

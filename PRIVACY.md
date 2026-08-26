@@ -15,8 +15,9 @@ profile section. Neither holds project facts, project files, or raw conversation
   locations, or source hashes.
 - Import uses a profile the user has already reviewed. Replacing an existing profile requires an
   explicit local confirmation.
-- Section Skill changes, sensitive guidance, and permanent deletion require explicit local
-  confirmation.
+- Ordinary Section Skill replacement requires an explicit user request and the current Skill
+  version. Sensitive Skill changes, Skill removal, sensitive guidance, and permanent deletion
+  require explicit local confirmation.
 - Ordinary updates use only the current section's change token and complete replacement text.
 - Plugin updates do not replace the current guidance or Section Skills. The schema 2 upgrade keeps
   the active profile and removes superseded history and provenance fields.
@@ -34,6 +35,8 @@ Corpus indexes only sources the user explicitly registers.
   used to detect changes.
 - Exact provider content is read at request time and is not copied into the Corpus index.
 - Archived context remains readable. Destructive context purge is not currently provided.
+- A complete Context Skill replacement requires an explicit user request and the current Skill
+  version. It does not make a Source Connection writable or change Source bytes.
 - A separately connected local work folder is writable only when the user explicitly registers it
   for an active Corpus context. The local file remains the latest copy; Corpus does not upload or
   maintain an offline cloud copy of the folder.

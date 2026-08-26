@@ -204,6 +204,36 @@ class SenseService:
             confirm_section_skill_write=confirm_section_skill_write,
         )
 
+    def section_skill_revise(
+        self,
+        *,
+        section_id: str,
+        name: str,
+        description: str,
+        instructions: str,
+        expected_version: str,
+    ) -> dict[str, Any]:
+        stored = self.store.read()
+        section = self.store._find_section(stored.profile, section_id)
+        if section.sensitivity != "ordinary":
+            raise ConfirmationRequiredError(
+                "sensitive Section Skill changes require explicit local confirmation"
+            )
+        result = self.section_skills.set_content(
+            section_id=section_id,
+            name=name,
+            description=description,
+            instructions=instructions,
+            expected_version=expected_version,
+            confirm_section_skill_write=True,
+        )
+        result["skill"] = self.section_skills.read(
+            section_id=section_id,
+            audience="external_mcp",
+            require_section=False,
+        )
+        return result
+
     def section_skill_remove(
         self,
         *,

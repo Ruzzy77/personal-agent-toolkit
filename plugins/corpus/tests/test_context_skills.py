@@ -110,7 +110,7 @@ class ContextSkillServiceTest(unittest.TestCase):
         with self.assertRaises(ContextConflictError):
             self.service.context_skill_set(
                 context_id="research-administration",
-                skill_file=source,
+                skill_file=self._skill_file("Use a conflicting workflow."),
                 expected_version="absent",
                 confirm_context_skill_write=True,
             )
@@ -124,6 +124,39 @@ class ContextSkillServiceTest(unittest.TestCase):
         self.assertIsNone(
             self.service.context_skill_read(context_id="research-administration")["skill"]
         )
+
+    def test_context_skill_can_be_replaced_from_complete_chat_content(self) -> None:
+        first = self.service.context_skill_revise(
+            context_id="research-administration",
+            name="research-administration",
+            description="Apply source-aware research administration guidance.",
+            instructions="Read the current Context, then use exact Source text only when needed.",
+            expected_version="absent",
+            audience="external_mcp",
+        )
+        self.assertTrue(first["changed"])
+        self.assertNotIn("storage_path", first["skill"])
+
+        replay = self.service.context_skill_revise(
+            context_id="research-administration",
+            name="research-administration",
+            description="Apply source-aware research administration guidance.",
+            instructions="Read the current Context, then use exact Source text only when needed.",
+            expected_version="absent",
+            audience="external_mcp",
+        )
+        self.assertFalse(replay["changed"])
+
+        with self.assertRaises(ContextValidationError) as caught:
+            self.service.context_skill_revise(
+                context_id="research-administration",
+                name="research-administration",
+                description="Apply source-aware research administration guidance.",
+                instructions="Use /Users/private/secret.md.",
+                expected_version=first["skill"]["version"],
+                audience="external_mcp",
+            )
+        self.assertEqual(caught.exception.details["reason"], "private_content_detected")
 
     def test_context_skill_requires_confirmation_and_rejects_private_paths(self) -> None:
         source = self._skill_file()

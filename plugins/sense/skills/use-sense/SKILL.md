@@ -21,4 +21,6 @@ Sense sections contain user guidance that remains useful across contexts. A Sect
 
 An explicit user request initiates Sense revision. Read every affected section and retain its current valid content. Present assistant-drafted or multi-section final wording in the conversation, then call `sense_revise` once with every section's `section_sha256` and complete replacement. Identical content produces a no-op. A section conflict returns the revision to the user.
 
-Section Skill changes, sensitive changes and permanent deletion use a trusted local command. `sense_overview` presents the current ordinary guidance and its linked Skills.
+An explicit request can also replace one ordinary Section Skill. Read the linked section and its current Skill, present the complete final Skill wording, then call `sense_skill_revise` with the current Skill `version` and complete name, description and instructions. Use `expected_version="absent"` only when the section has no Skill. A conflict preserves the current Skill.
+
+Sensitive section or Skill changes and permanent deletion use a trusted local command. `sense_overview` presents the current ordinary guidance and its linked Skills.
