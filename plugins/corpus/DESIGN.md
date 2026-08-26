@@ -53,7 +53,7 @@ Connection의 공개 속성은 다음과 같습니다.
 
 `scan`은 파일을 열지 않고 메타데이터와 residency를 기록합니다. `ingest`는 bounded capture로 선택한 파일을 읽고 형식별 adapter가 Source unit을 만듭니다. 각 unit은 revision과 extraction projection에 연결됩니다.
 
-검색은 입력 문구와 정확히 일치하는 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가
+검색은 입력 문구와 같은 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가
 들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며, 내용은 선택한 unit에서 읽습니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
 제외합니다. 상세 색인 진단은 Chat에 펼치지 않고 Connection의 `source_state`로 계산합니다.
 
@@ -63,7 +63,7 @@ Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준�
 
 Context에는 제목, 목적, 범위, 연결 Source와 item이 들어갑니다. Item은 질문, 관계, 판단 또는 gap을 표현하며 Source unit이나 연결 provider record를 가리킬 수 있습니다.
 
-Context는 Source 원문을 대체하지 않습니다. 변경 가능성이 있는 사실이나 정확한 인용이 필요하면 연결된 현재 Source를 다시 읽습니다. Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source evidence와 구분합니다. Context Skill은 private Corpus 저장소에서 선택한 Space와 함께 읽으며, plugin이나 marketplace 배포본에 복사하지 않습니다.
+Context는 Source 원문을 대체하지 않습니다. 변경 가능성이 있는 사실이나 원문 인용이 필요하면 연결된 현재 Source를 다시 읽습니다. Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. Context Skill은 private Corpus 저장소에서 선택한 Space와 함께 읽으며, plugin이나 marketplace 배포본에 복사하지 않습니다.
 
 ## Work 파일
 
@@ -88,7 +88,7 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 근거가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 아홉 개만 있습니다. 등록, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
 stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 

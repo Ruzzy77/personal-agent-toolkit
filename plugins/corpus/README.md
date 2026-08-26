@@ -156,7 +156,7 @@ Context는 기본 조회 자료입니다. 최신 정보와 원문 인용은 Sour
 
 ## 저장 범위
 
-Corpus runtime에는 Source 등록과 색인, Context, Work Connection과 직전 교체본이 들어갑니다. Source와 Work 폴더는 원래 위치에 남습니다. 상세 설계는 [DESIGN.md](DESIGN.md), 개발 기준은 [AGENTS.md](AGENTS.md)에 있습니다.
+Corpus runtime에는 Source 등록과 색인, Context, Work Connection과 직전 교체본이 들어갑니다. Source와 Work 폴더는 원래 위치에 남습니다. 사용법은 이 문서에, 제품의 구조와 경계는 [DESIGN.md](DESIGN.md)에, 외부 형식은 [docs](docs/)에 둡니다.
 
 ## 라이선스
 
