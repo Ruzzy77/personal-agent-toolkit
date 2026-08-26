@@ -271,6 +271,41 @@
         white-space: pre-line;
       }
 
+      .skill {
+        margin-top: 16px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+
+      .skill-label {
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 720;
+      }
+
+      .skill-title {
+        margin: 5px 0 0;
+        font-size: 14px;
+      }
+
+      .skill-description {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .skill-instructions {
+        margin: 12px 0 0;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        line-height: 1.72;
+        white-space: pre-line;
+      }
+
       .privacy {
         display: grid;
         gap: 8px;
@@ -389,6 +424,20 @@
 
         const body = element("div", "section-body");
         body.append(element("p", "section-text", section?.text ?? ""));
+        if (section?.skill) {
+          const skill = element("section", "skill");
+          skill.append(
+            element("div", "skill-label", "SECTION SKILL"),
+            element("h3", "skill-title", section.skill.name ?? "이름 없는 스킬"),
+            element("p", "skill-description", section.skill.description ?? "")
+          );
+          if (section.skill.instructions) {
+            skill.append(
+              element("p", "skill-instructions", section.skill.instructions)
+            );
+          }
+          body.append(skill);
+        }
         card.append(body);
         return card;
       }

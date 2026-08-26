@@ -10,6 +10,7 @@ import pytest
 from sense.errors import (
     ConfirmationRequiredError,
     SectionConflictError,
+    SectionSkillConflictError,
     UnsafeStorageError,
 )
 from sense.exposure import guidance_overview
@@ -44,6 +45,19 @@ def change(previous: ProfileSection, text: str) -> SectionChange:
         previous_section_sha256=section_sha256(previous),
         new_section=previous.model_copy(update={"text": text}),
     )
+
+
+def skill_file(root: Path, *, body: str = "Write complete Korean prose.") -> Path:
+    path = root / "SKILL.md"
+    path.write_text(
+        "---\n"
+        "name: korean-writing\n"
+        "description: Write or substantially revise Korean prose.\n"
+        "---\n\n"
+        f"{body}\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def test_legacy_profile_becomes_one_current_state_without_provenance(
@@ -235,9 +249,95 @@ def test_storage_rejects_a_symlinked_data_root(tmp_path: Path) -> None:
     assert list(target.iterdir()) == []
 
 
+def test_section_skill_uses_index_then_section_disclosure(tmp_path: Path) -> None:
+    root = tmp_path / "Sense"
+    service = SenseService(root)
+    service.import_profile(profile())
+    source = skill_file(tmp_path)
+
+    with pytest.raises(ConfirmationRequiredError):
+        service.section_skill_set(
+            section_id="conversation-and-writing",
+            skill_file=source,
+            expected_version="absent",
+            confirm_section_skill_write=False,
+        )
+
+    installed = service.section_skill_set(
+        section_id="conversation-and-writing",
+        skill_file=source,
+        expected_version="absent",
+        confirm_section_skill_write=True,
+    )
+    assert installed["changed"] is True
+    assert installed["skill"]["version"].startswith("sense-section-skill-v1:")
+    stored_root = Path(installed["skill"]["storage_path"])
+    assert stored_root == root / "sections" / "conversation-and-writing" / "skill"
+    assert stat.S_IMODE(stored_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE((stored_root / "SKILL.md").stat().st_mode) == 0o600
+
+    index = service.read(view="index", audience="external_mcp")
+    indexed = next(
+        item
+        for item in index["sections"]
+        if item["id"] == "conversation-and-writing"
+    )["skill"]
+    assert indexed["name"] == "korean-writing"
+    assert indexed["provenance"] == "user_approved_sense_skill"
+    assert "instructions" not in indexed
+    assert "storage_path" not in indexed
+
+    opened = service.read(
+        view="sections",
+        section_ids=["conversation-and-writing"],
+        audience="external_mcp",
+    )["sections"][0]["skill"]
+    assert opened["instructions"] == "Write complete Korean prose."
+    assert "storage_path" not in opened
+
+    with pytest.raises(SectionSkillConflictError):
+        service.section_skill_set(
+            section_id="conversation-and-writing",
+            skill_file=source,
+            expected_version="absent",
+            confirm_section_skill_write=True,
+        )
+
+
+def test_removing_section_also_removes_its_skill(tmp_path: Path) -> None:
+    root = tmp_path / "Sense"
+    service = SenseService(root)
+    service.import_profile(profile())
+    installed = service.section_skill_set(
+        section_id="conversation-and-writing",
+        skill_file=skill_file(tmp_path),
+        expected_version="absent",
+        confirm_section_skill_write=True,
+    )
+    section_root = root / "sections" / "conversation-and-writing"
+    assert section_root.exists()
+
+    target = service.store.read().profile.sections[1]
+    removed = service.remove_section(
+        section_id=target.id,
+        previous_section_sha256=section_sha256(target),
+        trusted_user_action=True,
+    )
+    assert installed["skill"]["name"] == "korean-writing"
+    assert removed["removed_skill_storage"] == [str(section_root)]
+    assert not section_root.exists()
+
+
 def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
     root = tmp_path / "Sense"
-    SenseStore(root).initialize(profile())
+    service = SenseService(root)
+    service.import_profile(profile())
+    service.section_skill_set(
+        section_id="conversation-and-writing",
+        skill_file=skill_file(tmp_path),
+        expected_version="absent",
+        confirm_section_skill_write=True,
+    )
     server = create_server(root)
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
 
@@ -256,3 +356,10 @@ def test_mcp_exposes_only_read_overview_and_update(tmp_path: Path) -> None:
     result = asyncio.run(server.call_tool("sense_read", {"view": "index"}))
     assert result.structured_content["ok"] is True
     assert set(result.structured_content["result"]) == {"sections"}
+    indexed = next(
+        item
+        for item in result.structured_content["result"]["sections"]
+        if item["id"] == "conversation-and-writing"
+    )
+    assert indexed["skill"]["name"] == "korean-writing"
+    assert "instructions" not in indexed["skill"]

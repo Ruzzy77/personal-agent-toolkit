@@ -33,6 +33,14 @@ class SectionNotFoundError(SenseError):
     code = "section_not_found"
 
 
+class SectionSkillConflictError(SenseError):
+    code = "section_skill_conflict"
+
+
+class SectionSkillValidationError(SenseError):
+    code = "section_skill_invalid"
+
+
 class ConfirmationRequiredError(SenseError):
     code = "confirmation_required"
 

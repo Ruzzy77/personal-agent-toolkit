@@ -1,7 +1,7 @@
 interface:
   display_name: "Use Sense"
-  short_description: "Use durable guidance for an important choice"
-  default_prompt: "Use $use-sense only if my Sense guidance could change this choice, then answer the subject directly."
+  short_description: "Use durable guidance and linked workflows"
+  default_prompt: "Use $use-sense when my Sense guidance or a linked workflow could shape this task, then answer the subject directly."
 dependencies:
   tools:
     - type: "mcp"

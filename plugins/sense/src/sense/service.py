@@ -9,6 +9,7 @@ from . import BUILD_ID, __version__
 from .errors import ConfirmationRequiredError, SectionNotFoundError
 from .exposure import guidance_overview, profile_index, section_view
 from .model import ProfileDocument, SectionChange
+from .section_skills import SectionSkillService
 from .store import SenseStore
 
 ReadView = Literal["index", "sections", "full"]
@@ -19,6 +20,10 @@ class SenseService:
         self.store = SenseStore(data_root)
         if prepare:
             self.store.ensure_ready()
+        self.section_skills = SectionSkillService(
+            self.store.data_root,
+            store=self.store,
+        )
 
     def import_profile(
         self,
@@ -48,16 +53,41 @@ class SenseService:
         *,
         view: ReadView = "index",
         section_ids: list[str] | None = None,
+        audience: str = "local_cli",
     ) -> dict[str, Any]:
+        if audience not in {"local_cli", "external_mcp"}:
+            raise ValueError("unsupported Sense audience")
         stored = self.store.read()
         if view == "index":
-            return {"sections": profile_index(stored.profile)}
+            sections = profile_index(stored.profile)
+            ordinary_ids = {
+                section.id
+                for section in stored.profile.sections
+                if section.sensitivity == "ordinary"
+            }
+            for item in sections:
+                section_id = item["id"]
+                if section_id not in ordinary_ids:
+                    continue
+                skill = self.section_skills.read(
+                    section_id=section_id,
+                    audience=audience,
+                    include_instructions=False,
+                    require_section=False,
+                )
+                if skill is not None:
+                    item["skill"] = skill
+            return {"sections": sections}
         if view == "full":
             result = self._summary(stored)
             result["profile"] = {
                 "schema_version": stored.profile.schema_version,
                 "sections": [
-                    section_view(section, include_change_token=False)
+                    self._section_view_with_skill(
+                        section,
+                        include_change_token=False,
+                        audience=audience,
+                    )
                     for section in stored.profile.sections
                 ],
             }
@@ -82,8 +112,35 @@ class SenseService:
                     "Sense section was not found",
                     details={"section_id": section_id},
                 )
-            sections.append(section_view(section, include_change_token=True))
+            sections.append(
+                self._section_view_with_skill(
+                    section,
+                    include_change_token=True,
+                    audience=audience,
+                )
+            )
         return {"sections": sections}
+
+    def _section_view_with_skill(
+        self,
+        section: Any,
+        *,
+        include_change_token: bool,
+        audience: str,
+    ) -> dict[str, Any]:
+        result = section_view(
+            section,
+            include_change_token=include_change_token,
+        )
+        skill = self.section_skills.read(
+            section_id=section.id,
+            audience=audience,
+            include_instructions=True,
+            require_section=False,
+        )
+        if skill is not None:
+            result["skill"] = skill
+        return result
 
     def revise(
         self,
@@ -98,9 +155,66 @@ class SenseService:
 
     def overview(self) -> dict[str, Any]:
         stored = self.store.read()
+        section_skills = {
+            section.id: skill
+            for section in stored.profile.sections
+            if section.sensitivity == "ordinary"
+            and (
+                skill := self.section_skills.read(
+                    section_id=section.id,
+                    audience="external_mcp",
+                    include_instructions=True,
+                    require_section=False,
+                )
+            )
+            is not None
+        }
         return guidance_overview(
             stored.profile,
             updated_at=stored.updated_at,
+            section_skills=section_skills,
+        )
+
+    def section_skill_read(
+        self,
+        *,
+        section_id: str,
+        audience: str = "local_cli",
+    ) -> dict[str, Any]:
+        return {
+            "section_id": section_id,
+            "skill": self.section_skills.read(
+                section_id=section_id,
+                audience=audience,
+            ),
+        }
+
+    def section_skill_set(
+        self,
+        *,
+        section_id: str,
+        skill_file: Path,
+        expected_version: str,
+        confirm_section_skill_write: bool,
+    ) -> dict[str, Any]:
+        return self.section_skills.set(
+            section_id=section_id,
+            skill_file=skill_file,
+            expected_version=expected_version,
+            confirm_section_skill_write=confirm_section_skill_write,
+        )
+
+    def section_skill_remove(
+        self,
+        *,
+        section_id: str,
+        expected_version: str,
+        confirm_section_skill_remove: bool,
+    ) -> dict[str, Any]:
+        return self.section_skills.remove(
+            section_id=section_id,
+            expected_version=expected_version,
+            confirm_section_skill_remove=confirm_section_skill_remove,
         )
 
     def remove_section(
@@ -110,14 +224,20 @@ class SenseService:
         previous_section_sha256: str,
         trusted_user_action: bool,
     ) -> dict[str, Any]:
-        return self.store.remove_section(
+        result = self.store.remove_section(
             section_id=section_id,
             previous_section_sha256=previous_section_sha256,
             user_confirmed=trusted_user_action,
         )
+        result["removed_skill_storage"] = self.section_skills.purge(
+            section_id=section_id
+        )
+        return result
 
     def remove_database(self, *, trusted_user_action: bool) -> dict[str, Any]:
-        return self.store.remove_database(user_confirmed=trusted_user_action)
+        result = self.store.remove_database(user_confirmed=trusted_user_action)
+        result["removed"].extend(self.section_skills.purge_all())
+        return result
 
     def status(self) -> dict[str, Any]:
         stored = self.store.read()

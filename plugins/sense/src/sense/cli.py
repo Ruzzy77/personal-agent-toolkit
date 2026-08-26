@@ -41,6 +41,61 @@ def _parser() -> argparse.ArgumentParser:
     )
     read.add_argument("--section-id", action="append", default=[])
 
+    section = commands.add_parser(
+        "section",
+        help="Manage content attached to one current Sense section.",
+    )
+    section_commands = section.add_subparsers(
+        dest="section_command",
+        required=True,
+    )
+    section_skill = section_commands.add_parser(
+        "skill",
+        help="Read or change the approved workflow guidance attached to one section.",
+    )
+    section_skill_commands = section_skill.add_subparsers(
+        dest="section_skill_command",
+        required=True,
+    )
+    section_skill_show = section_skill_commands.add_parser(
+        "show",
+        help="Read the Section Skill and its current version token.",
+    )
+    section_skill_show.add_argument("--id", required=True, dest="section_id")
+
+    section_skill_set = section_skill_commands.add_parser(
+        "set",
+        help="Copy one reviewed SKILL.md into the private section skill folder.",
+    )
+    section_skill_set.add_argument("--id", required=True, dest="section_id")
+    section_skill_set.add_argument(
+        "--skill-file",
+        required=True,
+        type=Path,
+        help="Reviewed SKILL.md to store with the selected Sense section.",
+    )
+    section_skill_set.add_argument(
+        "--expected-version",
+        required=True,
+        help="Current Section Skill version, or 'absent' when creating it.",
+    )
+    section_skill_set.add_argument(
+        "--confirm-section-skill-write",
+        action="store_true",
+        help="Confirm that this guidance may be returned to Chat with the selected section.",
+    )
+
+    section_skill_remove = section_skill_commands.add_parser(
+        "remove",
+        help="Remove the approved Section Skill without changing the source draft.",
+    )
+    section_skill_remove.add_argument("--id", required=True, dest="section_id")
+    section_skill_remove.add_argument("--expected-version", required=True)
+    section_skill_remove.add_argument(
+        "--confirm-section-skill-remove",
+        action="store_true",
+    )
+
     remove_section = commands.add_parser(
         "remove-section",
         help="Permanently remove one current Sense section.",
@@ -84,6 +139,30 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             view=args.view,
             section_ids=args.section_id or None,
         )
+    if args.command == "section":
+        if args.section_command == "skill":
+            if args.section_skill_command == "show":
+                return service.section_skill_read(
+                    section_id=args.section_id,
+                    audience="local_cli",
+                )
+            if args.section_skill_command == "set":
+                return service.section_skill_set(
+                    section_id=args.section_id,
+                    skill_file=args.skill_file,
+                    expected_version=args.expected_version,
+                    confirm_section_skill_write=args.confirm_section_skill_write,
+                )
+            if args.section_skill_command == "remove":
+                return service.section_skill_remove(
+                    section_id=args.section_id,
+                    expected_version=args.expected_version,
+                    confirm_section_skill_remove=args.confirm_section_skill_remove,
+                )
+            raise AssertionError(
+                f"unsupported Section Skill command: {args.section_skill_command}"
+            )
+        raise AssertionError(f"unsupported section command: {args.section_command}")
     if args.command == "remove-section":
         return service.remove_section(
             section_id=args.section_id,

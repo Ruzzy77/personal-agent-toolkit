@@ -27,10 +27,11 @@ from .service import ReadView, SenseService
 
 SERVER_INSTRUCTIONS = (
     "Sense supplies durable user guidance for important choices. Current requests and sources have "
-    "precedence. Read the index, then the relevant sections. An explicit user request initiates a "
-    "revision. Present assistant-drafted or multi-section final wording before one atomic update. "
-    "Section tokens provide conflict safety. Sensitive persistence and permanent deletion use the "
-    "local interface."
+    "precedence. Read the index, then the relevant sections. An index entry may advertise a "
+    "user-approved Section Skill; opening that section returns the complete workflow guidance. "
+    "An explicit user request initiates a revision. Present assistant-drafted or multi-section final "
+    "wording before one atomic update. Section tokens provide conflict safety. Sensitive persistence, "
+    "Section Skill changes, and permanent deletion use the local interface."
 )
 
 READ_ONLY = ToolAnnotations(
@@ -123,8 +124,9 @@ def create_server(
         title="Read Sense",
         description=(
             "Read durable guidance relevant to the current choice or a user-requested review. Begin "
-            "with view=index and continue with the relevant sections. Sensitive text is available "
-            "through an explicit section id."
+            "with view=index, where ordinary sections may advertise a user-approved Section Skill. "
+            "Continue with the relevant sections to receive their guidance and complete Skill "
+            "instructions. Sensitive text is available through an explicit section id."
         ),
         annotations=READ_ONLY,
         meta={"ui": {"visibility": ["model"]}},
@@ -140,6 +142,7 @@ def create_server(
             lambda: service.read(
                 view=view,
                 section_ids=section_ids,
+                audience="external_mcp",
             )
         )
 
@@ -147,8 +150,8 @@ def create_server(
         name="sense_overview",
         title="Show Sense",
         description=(
-            "Show the complete ordinary guidance when the user asks to review Sense. The read-only "
-            "view omits sensitive sections."
+            "Show the complete ordinary guidance and linked Section Skills when the user asks to "
+            "review Sense. The read-only view omits sensitive sections."
         ),
         annotations=READ_ONLY,
         meta={
