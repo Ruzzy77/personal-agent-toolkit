@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-auth-spike",
+  "main": "test/fixtures/worker.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "vars": {
+    "RESOURCE_REGISTRY_JSON": "{\"resources\":[{\"id\":\"library\",\"name\":\"Library\",\"resource\":\"https://library.example.test/api/mcp\",\"scopes\":[\"library.read\",\"library.write\"],\"baselineScopes\":[\"library.read\"]},{\"id\":\"corpus\",\"name\":\"Corpus\",\"resource\":\"https://corpus.example.test/mcp\",\"scopes\":[\"corpus.read\",\"corpus.write\"],\"baselineScopes\":[\"corpus.read\"]}]}"
+  }
+}

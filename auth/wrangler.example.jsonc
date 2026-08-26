@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-auth",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://personal-agent-auth.YOUR_SUBDOMAIN.workers.dev",
+    "RESOURCE_REGISTRY_JSON": "REPLACE_WITH_RESOURCE_REGISTRY_JSON"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

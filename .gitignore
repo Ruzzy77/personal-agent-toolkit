@@ -7,6 +7,15 @@
 **/.env.*
 !**/.env.example
 
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
+
+auth/wrangler.jsonc
+
+**/node_modules/
+**/.wrangler/
+
 *.sqlite
 *.sqlite3
 *.sqlite-shm

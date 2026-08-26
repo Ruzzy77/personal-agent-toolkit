@@ -102,6 +102,26 @@ Registering a tunnel-backed MCP endpoint for private developer testing does not 
 availability still requires a separate submission and review for each product. The gateway is not
 a hosted service, cross-product profile, or model router.
 
+## Optional remote authentication template
+
+The `auth` directory is a self-deploy template for one owner to authorize selected remote services.
+It is separate from the local gateway and does not turn Sense, Corpus, or Hypes into hosted products.
+
+- The public repository contains no Google client secret, Cloudflare credential, owner identifier,
+  production resource URI, token, grant, or session.
+- A deployer supplies the resource registry and secrets directly to their own Cloudflare account.
+- OAuth grants and opaque tokens remain in the deployer's `OAUTH_KV` namespace.
+- Every resource has an exact audience URI and its own scopes. A token for one resource is rejected
+  by another resource.
+- Resource Workers validate tokens through a Cloudflare Service Binding to a private RPC entrypoint.
+  The template does not expose a public token-inspection endpoint.
+- Google login uses the authorization code flow with PKCE. The authentication Worker verifies the
+  ID token signature, issuer, audience, expiry, nonce, subject, and verified email before checking
+  the owner's allowlist.
+- The authentication Worker does not retain Google's access token or refresh token. It keeps only
+  the approved Google identity claims in its own OAuth grant.
+- Production deployment and credentials are not part of the repository.
+
 ## Repository contents
 
 The release repository must not contain:
@@ -110,8 +130,12 @@ The release repository must not contain:
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;
-- generated caches, virtual environments, or staging files.
+- generated caches, virtual environments, Node dependency folders, local Worker state, or staging
+  files.
 
 The three product directories under `plugins/` are both the source and the marketplace installation
 targets. They contain no build-time copy of runtime data or maintainer credentials. The optional
 gateway remains a separate package and follows the same repository-content boundary.
+
+The optional authentication template records its resolved JavaScript dependencies in
+`auth/package-lock.json`.

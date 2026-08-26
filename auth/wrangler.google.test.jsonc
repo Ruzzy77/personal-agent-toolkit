@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-auth-google-test",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://auth.example.test",
+    "GOOGLE_CLIENT_ID": "google-client-for-tests",
+    "GOOGLE_CLIENT_SECRET": "google-secret-for-tests",
+    "OWNER_GOOGLE_EMAILS": "owner@example.test",
+    "RESOURCE_REGISTRY_JSON": "{\"resources\":[{\"id\":\"library\",\"name\":\"Library\",\"resource\":\"https://library.example.test/api/mcp\",\"scopes\":[\"library.read\",\"library.write\"],\"baselineScopes\":[\"library.read\"]},{\"id\":\"corpus\",\"name\":\"Corpus\",\"resource\":\"https://corpus.example.test/mcp\",\"scopes\":[\"corpus.read\",\"corpus.write\"],\"baselineScopes\":[\"corpus.read\"]}]}"
+  }
+}

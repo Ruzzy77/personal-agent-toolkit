@@ -1,0 +1,18 @@
+{
+  "resources": [
+    {
+      "id": "library",
+      "name": "Library",
+      "resource": "https://library.example.com/api/mcp",
+      "scopes": ["library.read", "library.write"],
+      "baselineScopes": ["library.read"]
+    },
+    {
+      "id": "corpus",
+      "name": "Corpus",
+      "resource": "https://corpus.example.com/mcp",
+      "scopes": ["corpus.read", "corpus.write"],
+      "baselineScopes": ["corpus.read"]
+    }
+  ]
+}

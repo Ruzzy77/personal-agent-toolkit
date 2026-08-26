@@ -2,11 +2,12 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus와 Hypes를 로컬에서 운영하는 개인용 에이전트 도구 모음입니다.
+Sense, Corpus와 Hypes를 로컬에서 운영하고, 선택한 원격 서비스를 소유자 인증에 연결하는 개인용 에이전트 도구 모음입니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
+- **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
 제품 코드와 manifest, asset, lockfile만 배포하며 사용자 자료와 runtime database는 포함하지 않습니다.
 
@@ -26,6 +27,8 @@ Sense, Corpus와 Hypes를 로컬에서 운영하는 개인용 에이전트 도�
 - Codex, Claude Code 또는 plugin을 지원하는 로컬 Claude Cowork
 
 각 launcher는 committed lockfile에서 독립 Python 환경을 구성합니다.
+
+선택 기능인 Personal Agent Auth의 로컬 시험에는 Node.js 24 이상이 필요합니다. Cloudflare와 Google 설정은 실제 원격 배포 단계에서만 필요합니다.
 
 ## 설치
 
@@ -78,6 +81,8 @@ Gateway는 선택한 plugin의 MCP를 고정 loopback 경로로 전달합니다.
 | Hypes | `/hypes/mcp` |
 
 Gateway는 제품을 합치거나 데이터를 옮기지 않습니다. 한 LaunchAgent가 선택한 제품과 tunnel을 실행합니다.
+
+Cloudflare에 원격 MCP를 배포할 때에는 [`auth`](./auth/README.md)를 이용해 Google 소유자 인증을 연결할 수 있습니다. 인증 Worker와 같은 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 같은 별도 호스팅 서비스는 이 비공개 연결을 직접 쓴다고 가정하지 않습니다. 그런 화면은 그대로 두고, MCP endpoint만 같은 Cloudflare 계정의 Worker로 분리하는 구성이 현재 기본안입니다.
 
 ## 갱신
 
@@ -158,7 +163,7 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 ## 저장소 구조
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`와 `gateway`가 소스이자 설치·실행 경로입니다. 별도 package 생성 단계는 없습니다.
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`와 `gateway`가 로컬 제품의 소스이자 설치·실행 경로입니다. `auth`는 소유자가 직접 배포하는 원격 인증 구성입니다. 다중 리소스 권한 분리와 Google 소유자 로그인은 로컬 환경에서 먼저 살펴보며, 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 

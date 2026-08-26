@@ -8,8 +8,10 @@ Direct runtime dependencies:
 
 | Dependency | Used by | License |
 | --- | --- | --- |
+| `@cloudflare/workers-oauth-provider` | Optional Personal Agent Auth | MIT |
 | `defusedxml` | Corpus | Python Software Foundation License |
 | `httpx` | Optional personal gateway | BSD-3-Clause |
+| `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Hypes | MIT |
 | `olefile` | Corpus | BSD |
 | `openpyxl` | Corpus | MIT |
@@ -23,6 +25,7 @@ Direct runtime dependencies:
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
 `plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/hypes/uv.lock`, and
-`gateway/uv.lock`.
+`gateway/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
+`auth/package-lock.json`.
 
 This file is informational and does not replace the license text supplied by any dependency.
