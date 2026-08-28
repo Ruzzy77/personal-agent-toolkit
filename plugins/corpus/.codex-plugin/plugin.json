@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.12.2+codex.20260826101751",
+  "version": "0.12.3+codex.20260828060123",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -36,6 +36,7 @@
       "Version-checked Context Skill replacement",
       "Remote-safe Connection projection",
       "Indexed Source search and exact reading",
+      "Bounded local Source index refresh",
       "Local-only Source separation",
       "Explicitly connected Work files",
       "Version-checked file replacement, deletion, and restore"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh Corpus Sources"
+  short_description: "Refresh registered local source indexes"
+  default_prompt: "Use $refresh-corpus-sources to refresh every registered local Corpus Source index."
