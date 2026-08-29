@@ -268,11 +268,8 @@ class WorkspaceService:
     def _read_index_change_journal(
         paths: WorkspaceRuntimePaths,
     ) -> dict[str, dict[str, Any]]:
-        try:
-            workspace_root = paths.open_workspace_root()
-            root_descriptor = workspace_root.__enter__()
-        except WorkspaceUnavailableError:
-            raise
+        workspace_root = paths.open_workspace_root()
+        root_descriptor = workspace_root.__enter__()
         try:
             try:
                 before = os.stat(
@@ -1618,7 +1615,8 @@ class WorkspaceService:
                     canonical,
                     max_bytes=WORKSPACE_MAX_FILE_BYTES,
                 )
-            except Exception:
+            # Stale or malformed recovery entries must not stop reconciliation.
+            except Exception:  # noqa: BLE001, S112
                 continue
             if current.version_token == recovery["base_version_token"]:
                 if self._discard_recovery_state(
@@ -1654,7 +1652,8 @@ class WorkspaceService:
                     recovery_name=recovery_name,
                     relative_path=canonical,
                 )
-            except Exception:
+            # Any unreadable private copy is handled as a missing recovery copy.
+            except Exception:  # noqa: BLE001
                 if self._discard_recovery_state(
                     row=row,
                     recovery=recovery,
@@ -2048,7 +2047,7 @@ class WorkspaceService:
                                         action="replacement_rollback",
                                     )
                                     rollback_confirmed = True
-                                except Exception:
+                                except Exception:  # noqa: BLE001
                                     # If the rollback itself fails, the temporary
                                     # name may be the only remaining link to the
                                     # previous inode. Never delete it blindly.
@@ -2101,7 +2100,8 @@ class WorkspaceService:
                                 ).version_token
                                 == expected_version
                             )
-                    except Exception:
+                    # Cleanup only needs to know whether the original state survived.
+                    except Exception:  # noqa: BLE001
                         unchanged = False
                     if unchanged:
                         with suppress(Exception):
@@ -2701,7 +2701,8 @@ class WorkspaceService:
                             exchanged = False
                             self._sync_directory(parent_descriptor, action="restore_rollback")
                             rollback_confirmed = True
-                        except Exception:
+                        # Preserve the temporary inode when rollback cannot be confirmed.
+                        except Exception:  # noqa: BLE001
                             cleanup_temporary = False
                             rollback_confirmed = False
                     if isinstance(exc, OSError):
@@ -2755,7 +2756,7 @@ class WorkspaceService:
                             details={"reason": "recovery_state_changed"},
                         )
                 metadata_recorded = True
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # The user file has already been restored. Preserve the private
                 # recovery artifact and report the incomplete bookkeeping rather
                 # than claiming that the file operation itself failed.

@@ -245,6 +245,7 @@ def build_native_helper(paths: RuntimePaths) -> Path:
                 completed = subprocess.run(
                     command,
                     capture_output=True,
+                    check=False,
                     text=True,
                     timeout=120,
                 )
@@ -366,6 +367,7 @@ def _copy_with_native(
         completed = subprocess.run(
             command,
             capture_output=True,
+            check=False,
             text=True,
             timeout=timeout_seconds,
             pass_fds=(source_descriptor, destination_directory_descriptor),

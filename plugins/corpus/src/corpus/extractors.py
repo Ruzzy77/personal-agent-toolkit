@@ -10,6 +10,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
@@ -237,7 +238,7 @@ def extract_markdown(path: Path) -> ExtractionResult:
 
 
 class _HTMLUnitParser(html.parser.HTMLParser):
-    BLOCKS = {
+    BLOCKS: ClassVar[set[str]] = {
         "p",
         "li",
         "blockquote",
@@ -249,8 +250,8 @@ class _HTMLUnitParser(html.parser.HTMLParser):
         "title",
         "text",
     }
-    HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
-    VOID_TAGS = {
+    HEADINGS: ClassVar[set[str]] = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    VOID_TAGS: ClassVar[set[str]] = {
         "area",
         "base",
         "br",
@@ -266,7 +267,7 @@ class _HTMLUnitParser(html.parser.HTMLParser):
         "track",
         "wbr",
     }
-    SUPPRESSED_TAGS = {"script", "style", "noscript"}
+    SUPPRESSED_TAGS: ClassVar[set[str]] = {"script", "style", "noscript"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)

@@ -1165,9 +1165,9 @@ __all__ = [
     "opened_workspace_root",
     "read_workspace_file",
     "register_workspace_root",
-    "workspace_identity_from_stat",
     "workspace_file_observation_from_descriptor",
     "workspace_file_state_from_root_descriptor",
+    "workspace_identity_from_stat",
     "workspace_path_is_excluded",
     "workspace_root_identity",
 ]

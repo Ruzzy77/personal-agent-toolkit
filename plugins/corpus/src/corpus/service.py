@@ -2535,7 +2535,8 @@ class CorpusService:
                     maximum_bytes=document["logical_size"],
                     timeout_seconds=timeout_seconds,
                 )
-            except Exception as exc:
+            # Preserve per-document failure isolation for batch refreshes.
+            except Exception as exc:  # noqa: BLE001
                 result = {
                     "document_id": document["document_id"],
                     "relative_path": document["relative_path"],

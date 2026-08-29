@@ -213,9 +213,8 @@ def _require_session_identifier(
 def _require_session_relative_path(value: object, *, field: str) -> str:
     normalized = _require_string(value, field=field, maximum=2_000)
     if (
-        normalized.startswith(("/", "\\"))
+        normalized.startswith(("/", "\\", "~/", "~\\"))
         or normalized == "~"
-        or normalized.startswith(("~/", "~\\"))
         or re.match(r"^~[^/\\]+[/\\]", normalized)
         or normalized.casefold().startswith("file:")
         or _WINDOWS_DRIVE_PATH_RE.match(normalized)

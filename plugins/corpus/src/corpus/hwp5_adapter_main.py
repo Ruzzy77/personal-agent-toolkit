@@ -393,7 +393,8 @@ def main() -> int:
         )
         sys.stdout.write(encoded + "\n")
         return 0
-    except Exception as exc:
+    # The adapter boundary must fail without emitting an implementation traceback.
+    except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"HWP extraction adapter failed: {type(exc).__name__}.\n")
         return 2
 

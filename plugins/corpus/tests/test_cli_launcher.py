@@ -76,6 +76,7 @@ class CLILauncherTest(unittest.TestCase):
                 completed = subprocess.run(
                     [str(launcher), *arguments],
                     capture_output=True,
+                    check=False,
                     text=True,
                     env=environment,
                     timeout=30,

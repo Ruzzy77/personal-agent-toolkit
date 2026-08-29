@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 MAX_FILES = 50
 MAX_BYTES = 500 * 1024 * 1024
 MAX_FILE_BYTES = 250 * 1024 * 1024

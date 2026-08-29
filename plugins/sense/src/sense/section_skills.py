@@ -156,7 +156,7 @@ def _serialize_skill(
         f"description: {json.dumps(normalized_description, ensure_ascii=False)}\n"
         "---\n\n"
         f"{normalized_instructions}\n"
-    ).encode("utf-8")
+    ).encode()
     _parse_skill(content)
     return content
 

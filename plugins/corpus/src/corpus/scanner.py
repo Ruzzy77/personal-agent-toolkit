@@ -16,6 +16,7 @@ from collections import Counter
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
 from .database import corpus_connection, encode_json, get_corpus, utc_now
 from .errors import CorpusError, SourceChangedError
@@ -52,7 +53,7 @@ class _OwnedDescriptor:
             os.close(self.descriptor)
             self.descriptor = -1
 
-    def __enter__(self) -> _OwnedDescriptor:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_args: object) -> None:

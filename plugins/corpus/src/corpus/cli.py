@@ -992,7 +992,8 @@ def main(argv: list[str] | None = None) -> int:
             stream=sys.stderr,
         )
         return 2
-    except Exception as exc:
+    # Keep the command-line boundary machine-readable for unexpected faults.
+    except Exception as exc:  # noqa: BLE001
         _emit(
             {
                 "ok": False,

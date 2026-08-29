@@ -221,10 +221,8 @@ def _looks_like_absolute_path(value: object) -> bool:
     if not isinstance(value, str):
         return False
     return bool(
-        value.startswith("/")
-        or value.startswith("\\")
+        value.startswith(("/", "\\", "~/", "~\\"))
         or value == "~"
-        or value.startswith(("~/", "~\\"))
         or re.match(r"^~[^/\\]+[/\\]", value)
         or _FILE_ABSOLUTE_PREFIX_RE.match(value)
         or re.match(r"(?i)^[A-Z]:", value)
@@ -437,7 +435,8 @@ def _safe_call(
                 )
             ),
         )
-    except Exception:
+    # The MCP boundary deliberately hides unexpected internal failure details.
+    except Exception:  # noqa: BLE001
         return ToolResponse(
             ToolFailure(
                 error=ToolError(

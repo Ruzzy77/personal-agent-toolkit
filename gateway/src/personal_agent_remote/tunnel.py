@@ -6,7 +6,6 @@ import argparse
 import json
 import re
 import shlex
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 

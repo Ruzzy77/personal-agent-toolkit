@@ -6,11 +6,12 @@ import json
 import os
 import stat
 import subprocess
-import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import tomllib
 
 PRODUCTS = ("sense", "corpus", "hypes")
 MCP_LAUNCHERS = {product: f"launchers/{product}-mcp" for product in PRODUCTS}

@@ -6,7 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from corpus.errors import ContextConflictError, ContextNotFoundError, ContextValidationError
+from corpus.errors import (
+    ContextConflictError,
+    ContextNotFoundError,
+    ContextValidationError,
+)
 from corpus.service import CorpusService
 
 
