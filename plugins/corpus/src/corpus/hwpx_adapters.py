@@ -72,7 +72,9 @@ class HWPXContentRouter:
             with path.open("rb") as source:
                 signature = source.read(len(OLE_COMPOUND_FILE_SIGNATURE))
         except OSError as exc:
-            raise ExtractionError("adapter input is not a readable regular file") from exc
+            raise ExtractionError(
+                "adapter input is not a readable regular file"
+            ) from exc
 
         if signature == OLE_COMPOUND_FILE_SIGNATURE:
             delegated = self._binary_hwp_adapter.extract(path, format_id="hwp")

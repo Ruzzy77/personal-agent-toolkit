@@ -59,7 +59,9 @@ class ContextSkillServiceTest(unittest.TestCase):
         )
         return path
 
-    def test_context_skill_is_stored_privately_and_returned_to_chat_projection(self) -> None:
+    def test_context_skill_is_stored_privately_and_returned_to_chat_projection(
+        self,
+    ) -> None:
         installed = self.service.context_skill_set(
             context_id="research-administration",
             skill_file=self._skill_file(),
@@ -126,7 +128,9 @@ class ContextSkillServiceTest(unittest.TestCase):
         )
         self.assertTrue(removed["changed"])
         self.assertIsNone(
-            self.service.context_skill_read(context_id="research-administration")["skill"]
+            self.service.context_skill_read(context_id="research-administration")[
+                "skill"
+            ]
         )
 
     def test_context_skill_can_be_replaced_from_complete_chat_content(self) -> None:
@@ -162,7 +166,9 @@ class ContextSkillServiceTest(unittest.TestCase):
             )
         self.assertEqual(caught.exception.details["reason"], "private_content_detected")
 
-    def test_context_skill_requires_confirmation_and_rejects_private_paths(self) -> None:
+    def test_context_skill_requires_confirmation_and_rejects_private_paths(
+        self,
+    ) -> None:
         source = self._skill_file()
         with self.assertRaises(ContextValidationError):
             self.service.context_skill_set(
@@ -184,7 +190,9 @@ class ContextSkillServiceTest(unittest.TestCase):
             )
         self.assertEqual(caught.exception.details["reason"], "private_content_detected")
 
-    def test_archived_context_skill_remains_readable_but_cannot_be_changed(self) -> None:
+    def test_archived_context_skill_remains_readable_but_cannot_be_changed(
+        self,
+    ) -> None:
         installed = self.service.context_skill_set(
             context_id="research-administration",
             skill_file=self._skill_file(),
@@ -198,7 +206,9 @@ class ContextSkillServiceTest(unittest.TestCase):
             payload={},
         )
 
-        skill = self.service.context_skill_read(context_id="research-administration")["skill"]
+        skill = self.service.context_skill_read(context_id="research-administration")[
+            "skill"
+        ]
         self.assertEqual(skill["version"], installed["skill"]["version"])
         with self.assertRaises(ContextNotFoundError):
             self.service.context_skill_remove(

@@ -30,9 +30,7 @@ SESSION_SOURCE_FETCH_MIN_CHARS = 1_000
 SESSION_SOURCE_FETCH_DEFAULT_CHARS = 30_000
 SESSION_SOURCE_FETCH_MAX_CHARS = 200_000
 
-_TERMINAL_CLAUDE_STOP_REASONS = frozenset(
-    {"end_turn", "refusal", "stop_sequence"}
-)
+_TERMINAL_CLAUDE_STOP_REASONS = frozenset({"end_turn", "refusal", "stop_sequence"})
 _FRESHNESS_PREFIX = "sha256:"
 
 
@@ -77,9 +75,7 @@ def _normalize_timestamp(value: object) -> str | None:
             return None
     elif isinstance(value, str) and value.strip():
         try:
-            parsed = datetime.fromisoformat(
-                value.strip().replace("Z", "+00:00")
-            )
+            parsed = datetime.fromisoformat(value.strip())
         except ValueError:
             return None
     else:
@@ -90,7 +86,7 @@ def _normalize_timestamp(value: object) -> str | None:
 
 
 def _timestamp_value(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 def _cwd_in_scope(cwd: str, prefix: str) -> bool:
@@ -104,9 +100,7 @@ def _stable_external_id(
     session_id: str,
     turn_id: str,
 ) -> str:
-    digest = hashlib.sha256(
-        f"{provider}\0{session_id}\0{turn_id}".encode()
-    ).hexdigest()
+    digest = hashlib.sha256(f"{provider}\0{session_id}\0{turn_id}".encode()).hexdigest()
     return f"turn_{digest[:40]}"
 
 
@@ -203,9 +197,7 @@ def normalize_session_selector(
             details={"maximum": SESSION_SOURCE_MAX_LOOKBACK_DAYS},
         )
     normalized: dict[str, Any] = {
-        "cwd_prefix": os.path.realpath(
-            os.path.expanduser(cwd_prefix.strip())
-        ),
+        "cwd_prefix": os.path.realpath(os.path.expanduser(cwd_prefix.strip())),
         "actor": actor,
         "lookback_days": lookback_days,
     }
@@ -387,12 +379,8 @@ def _codex_records(
                     if value:
                         session_id = str(value)
                     source = payload.get("source")
-                    if (
-                        payload.get("thread_source") == "subagent"
-                        or (
-                            isinstance(source, dict)
-                            and bool(source.get("subagent"))
-                        )
+                    if payload.get("thread_source") == "subagent" or (
+                        isinstance(source, dict) and bool(source.get("subagent"))
                     ):
                         actor = "subagent_task"
                 if isinstance(payload.get("cwd"), str):
@@ -439,12 +427,7 @@ def _codex_records(
             if event_type != "task_complete":
                 continue
             turn_value = payload.get("turn_id") or active_turn
-            if (
-                not turn_value
-                or not session_id
-                or not cwd
-                or transcript is None
-            ):
+            if not turn_value or not session_id or not cwd or transcript is None:
                 active_turn = None
                 transcript = None
                 continue
@@ -528,9 +511,7 @@ def _claude_records(
         nonlocal last_assistant_timestamp
         if not active_turn or not session_id or not cwd or transcript is None:
             return False
-        completed_at = _normalize_timestamp(
-            completed_value or last_assistant_timestamp
-        )
+        completed_at = _normalize_timestamp(completed_value or last_assistant_timestamp)
         matched_target = capture_target == (session_id, active_turn)
         if (
             completed_at is not None
@@ -641,8 +622,7 @@ def _claude_records(
                         last_assistant_timestamp = timestamp
                 if (
                     isinstance(message, dict)
-                    and message.get("stop_reason")
-                    in _TERMINAL_CLAUDE_STOP_REASONS
+                    and message.get("stop_reason") in _TERMINAL_CLAUDE_STOP_REASONS
                     and assistant_text
                     and finish(timestamp)
                 ):
@@ -693,11 +673,7 @@ def _parse_file(
 
 
 def _strip_transient(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in record.items()
-        if not key.startswith("_")
-    }
+    return {key: value for key, value in record.items() if not key.startswith("_")}
 
 
 def discover_session_records(
@@ -812,7 +788,11 @@ def fetch_session_record(
     expected_freshness_identity: str | None,
     max_chars: int = SESSION_SOURCE_FETCH_DEFAULT_CHARS,
 ) -> dict[str, Any]:
-    if not SESSION_SOURCE_FETCH_MIN_CHARS <= max_chars <= SESSION_SOURCE_FETCH_MAX_CHARS:
+    if (
+        not SESSION_SOURCE_FETCH_MIN_CHARS
+        <= max_chars
+        <= SESSION_SOURCE_FETCH_MAX_CHARS
+    ):
         raise BudgetExceededError(
             "linked session source fetch character budget is invalid",
             details={

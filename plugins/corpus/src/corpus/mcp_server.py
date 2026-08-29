@@ -314,14 +314,17 @@ def _sanitize_mcp_payload(
         mapping_is_diagnostic = diagnostic
         sanitized: dict[Any, Any] = {}
         for key, child in value.items():
-            normalized_key = key.casefold().replace("-", "_") if isinstance(key, str) else None
+            normalized_key = (
+                key.casefold().replace("-", "_") if isinstance(key, str) else None
+            )
             sanitized_key = (
                 _sanitize_mcp_string(
                     key,
                     sensitive_paths=sensitive_paths,
                     diagnostic=True,
                 )
-                if isinstance(key, str) and (mapping_is_diagnostic or redact_content_paths)
+                if isinstance(key, str)
+                and (mapping_is_diagnostic or redact_content_paths)
                 else key
             )
             if (
@@ -387,7 +390,9 @@ def _mcp_sensitive_paths(
     paths = [service.data_root]
     with suppress(Exception):
         paths.extend(
-            Path(corpus["source_root"]) for corpus in service.corpora() if corpus.get("source_root")
+            Path(corpus["source_root"])
+            for corpus in service.corpora()
+            if corpus.get("source_root")
         )
     with suppress(Exception):
         paths.extend(service.workspaces.roots())

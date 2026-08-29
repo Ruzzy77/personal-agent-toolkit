@@ -156,12 +156,7 @@ def _validate_identifier(value: str, *, field_name: str) -> None:
 
 
 def _validate_short_string(value: object, *, field_name: str, limit: int = 256) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > limit
-        or "\x00" in value
-    ):
+    if not isinstance(value, str) or not value or len(value) > limit or "\x00" in value:
         raise ExtractionError(
             f"{field_name} must be a non-empty bounded string",
             details={"field": field_name, "limit": limit},
@@ -191,7 +186,9 @@ class AdapterCapabilities:
         format_ids = tuple(sorted(set(self.format_ids)))
         unit_types = tuple(sorted(set(self.structural_unit_types)))
         if not format_ids:
-            raise ExtractionError("adapter capabilities must declare at least one format")
+            raise ExtractionError(
+                "adapter capabilities must declare at least one format"
+            )
         for value in format_ids:
             _validate_identifier(value, field_name="format_id")
         if not unit_types:
@@ -256,7 +253,9 @@ class AdapterDescriptor:
             limit=128,
         )
         if not _HASH_RE.fullmatch(self.config_hash):
-            raise ExtractionError("adapter config hash must be a lowercase SHA-256 digest")
+            raise ExtractionError(
+                "adapter config hash must be a lowercase SHA-256 digest"
+            )
 
     @classmethod
     def from_config(
@@ -498,14 +497,20 @@ class ExtractionEnvelope:
         units = tuple(self.units)
         issues = tuple(self.issues)
         if not all(isinstance(unit, ExtractedUnit) for unit in units):
-            raise ExtractionError("extraction envelope units must be ExtractedUnit values")
+            raise ExtractionError(
+                "extraction envelope units must be ExtractedUnit values"
+            )
         if not all(isinstance(issue, ExtractionIssue) for issue in issues):
-            raise ExtractionError("extraction envelope issues must be ExtractionIssue values")
+            raise ExtractionError(
+                "extraction envelope issues must be ExtractionIssue values"
+            )
         object.__setattr__(self, "units", units)
         object.__setattr__(self, "issues", issues)
         expected_hash = _sha256_json(self._manifest_payload())
         if self.manifest_hash != expected_hash:
-            raise ExtractionError("extraction envelope manifest hash does not match its contents")
+            raise ExtractionError(
+                "extraction envelope manifest hash does not match its contents"
+            )
 
     @classmethod
     def create(
@@ -705,7 +710,8 @@ def _honest_completeness(
         return "partial"
     all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
     if any(
-        issue.severity in {"warning", "error"} and issue.code not in _INFORMATIONAL_ISSUES
+        issue.severity in {"warning", "error"}
+        and issue.code not in _INFORMATIONAL_ISSUES
         for issue in all_issues
     ):
         return "partial"
@@ -751,10 +757,9 @@ def _reject_adapter_control_fields(value: object, *, location: str = "$") -> Non
     if isinstance(value, Mapping):
         for key, item in value.items():
             normalized = key.strip().lower().replace("-", "_")
-            controls_anchor_or_authority = (
-                normalized.startswith(("anchor_", "authority_"))
-                or normalized.endswith(("_anchor", "_anchors", "_authority"))
-            )
+            controls_anchor_or_authority = normalized.startswith(
+                ("anchor_", "authority_")
+            ) or normalized.endswith(("_anchor", "_anchors", "_authority"))
             if normalized in _PROHIBITED_CONTROL_FIELDS or controls_anchor_or_authority:
                 raise ExtractionError(
                     "adapter output attempted to set a core-owned field",
@@ -1141,7 +1146,9 @@ class ExternalJSONLAdapter:
             isinstance(argument, str) and argument and "\x00" not in argument
             for argument in command
         ):
-            raise ExtractionError("external adapter command must contain bounded strings")
+            raise ExtractionError(
+                "external adapter command must contain bounded strings"
+            )
         executable = command[0]
         executable_path = (
             Path(os.path.abspath(Path(executable).expanduser()))
@@ -1240,7 +1247,9 @@ class ExternalJSONLAdapter:
             not isinstance(declared_completeness, str)
             or declared_completeness not in _COMPLETENESS_VALUES
         ):
-            raise ExtractionError("external adapter completeness must be complete or partial")
+            raise ExtractionError(
+                "external adapter completeness must be complete or partial"
+            )
         raw_units = raw["units"]
         raw_issues = raw.get("issues", [])
         if not isinstance(raw_units, list):
@@ -1298,7 +1307,10 @@ class ExternalJSONLAdapter:
             units,
             issues,
         )
-        if completeness == "partial" and not self.descriptor.capabilities.may_emit_partial:
+        if (
+            completeness == "partial"
+            and not self.descriptor.capabilities.may_emit_partial
+        ):
             raise ExtractionError(
                 "external adapter emitted a partial result without declaring that capability"
             )

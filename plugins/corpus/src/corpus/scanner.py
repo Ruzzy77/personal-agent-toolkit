@@ -449,7 +449,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
             stack: list[tuple[tuple[str, ...], tuple[os.stat_result, ...]]] = []
         else:
             initial_source_root_identity = source_root_identity(root_descriptor)
-            root_owner = open_directories.enter_context(_OwnedDescriptor(root_descriptor))
+            root_owner = open_directories.enter_context(
+                _OwnedDescriptor(root_descriptor)
+            )
             stack = [((), ())]
 
         while stack:
@@ -509,7 +511,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             )
                         ),
                     },
-                    structural_locator=_scan_issue_locator_from_relative(directory_relative),
+                    structural_locator=_scan_issue_locator_from_relative(
+                        directory_relative
+                    ),
                 )
                 continue
 
@@ -556,7 +560,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                                 )
                             ),
                         },
-                        structural_locator=_scan_issue_locator_from_relative(directory_relative),
+                        structural_locator=_scan_issue_locator_from_relative(
+                            directory_relative
+                        ),
                     )
                     continue
 
@@ -604,7 +610,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                                     )
                                 ),
                             },
-                            structural_locator=_scan_issue_locator_from_relative(relative_path),
+                            structural_locator=_scan_issue_locator_from_relative(
+                                relative_path
+                            ),
                         )
                         continue
 
@@ -616,7 +624,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             code="symlink_skipped",
                             message="Symbolic links are not followed.",
                             details={"path": str(entry_path)},
-                            structural_locator=_scan_issue_locator_from_relative(relative_path),
+                            structural_locator=_scan_issue_locator_from_relative(
+                                relative_path
+                            ),
                         )
                         continue
                     if stat.S_ISDIR(entry_stat.st_mode):
@@ -627,7 +637,10 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             or relative_path_nfc.startswith(f"{prefix}/")
                             for prefix in excluded_path_prefixes
                         )
-                        if entry_name_nfc in excluded_directory_names or excluded_by_prefix:
+                        if (
+                            entry_name_nfc in excluded_directory_names
+                            or excluded_by_prefix
+                        ):
                             summary.excluded_directories += 1
                             continue
                         # Keep identities, not open descriptors, in the width-first
@@ -641,8 +654,13 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                             scan_id=scan_id,
                             code="special_file_skipped",
                             message="Only regular files are indexed.",
-                            details={"path": str(entry_path), "mode": entry_stat.st_mode},
-                            structural_locator=_scan_issue_locator_from_relative(relative_path),
+                            details={
+                                "path": str(entry_path),
+                                "mode": entry_stat.st_mode,
+                            },
+                            structural_locator=_scan_issue_locator_from_relative(
+                                relative_path
+                            ),
                         )
                         continue
 
@@ -752,7 +770,9 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                 inventory_changes.setdefault(row["document_id"], set()).add("deleted")
         summary.deleted_since_previous_scan = deleted
         issue_count = (
-            summary.symlinks_skipped + summary.special_files_skipped + summary.stat_failures
+            summary.symlinks_skipped
+            + summary.special_files_skipped
+            + summary.stat_failures
         )
         scan_status = "complete" if summary.stat_failures == 0 else "incomplete"
         root_entry_count = sum(

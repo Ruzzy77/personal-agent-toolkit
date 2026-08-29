@@ -103,7 +103,9 @@ def _normalize_display_name(value: object) -> str:
     if (
         not normalized
         or len(normalized) > WORKSPACE_MAX_DISPLAY_NAME_CHARS
-        or any(unicodedata.category(character).startswith("C") for character in normalized)
+        or any(
+            unicodedata.category(character).startswith("C") for character in normalized
+        )
         or any(character in {"/", "\\"} for character in normalized)
     ):
         raise WorkspaceValidationError(
@@ -243,7 +245,10 @@ class WorkspaceService:
         if row is None:
             raise WorkspaceNotFoundError("work folder is not connected")
         result = _workspace_row(row)
-        if audience == "external_mcp" and result["execution_policy"] != "external_host_allowed":
+        if (
+            audience == "external_mcp"
+            and result["execution_policy"] != "external_host_allowed"
+        ):
             raise PolicyDeniedError(
                 "work folder policy does not permit Chat access; use the local CLI",
                 details={
@@ -251,7 +256,10 @@ class WorkspaceService:
                     "execution_policy": result["execution_policy"],
                 },
             )
-        if audience == "external_mcp" and self._context_lifecycle_state(result) != "active":
+        if (
+            audience == "external_mcp"
+            and self._context_lifecycle_state(result) != "active"
+        ):
             raise WorkspaceUnavailableError(
                 "work folder context is not active",
                 details={"reason": "context_archived"},
@@ -297,7 +305,9 @@ class WorkspaceService:
             try:
                 descriptor = os.open(
                     WORKSPACE_INDEX_CHANGE_JOURNAL,
-                    os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
                     dir_fd=root_descriptor,
                 )
             except OSError as exc:
@@ -377,7 +387,8 @@ class WorkspaceService:
         for relative_path, entry in value["entries"].items():
             if (
                 not isinstance(relative_path, str)
-                or access.normalize_workspace_relative_path(relative_path) != relative_path
+                or access.normalize_workspace_relative_path(relative_path)
+                != relative_path
                 or not isinstance(entry, dict)
                 or entry.get("state") not in {"prepared", "dirty"}
                 or not isinstance(entry.get("source_corpus_id"), str)
@@ -519,14 +530,20 @@ class WorkspaceService:
         """Return private live-observation state for an exact promoted source."""
 
         corpus = next(
-            (item for item in list_corpora(self.data_root) if item["corpus_id"] == corpus_id),
+            (
+                item
+                for item in list_corpora(self.data_root)
+                if item["corpus_id"] == corpus_id
+            ),
             None,
         )
         if corpus is None or not _workspace_database_exists(self.data_root):
             return None
         source_root = Path(corpus["source_root"]).expanduser().resolve(strict=False)
         with workspace_read_connection(self.data_root) as connection:
-            rows = connection.execute("SELECT * FROM workspaces ORDER BY workspace_id").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM workspaces ORDER BY workspace_id"
+            ).fetchall()
         for candidate in rows:
             row = _workspace_row(candidate)
             root = Path(row["root_path"]).expanduser().resolve(strict=False)
@@ -573,7 +590,9 @@ class WorkspaceService:
         if context_state != "active":
             return (
                 "suspended",
-                "context_archived" if context_state == "archived" else "context_missing",
+                "context_archived"
+                if context_state == "archived"
+                else "context_missing",
                 None,
             )
         try:
@@ -661,7 +680,9 @@ class WorkspaceService:
                 current_reason = str(exc.details.get("reason", "unavailable"))
                 result["current_file"] = {
                     "relative_path": current_relative_path,
-                    "state": "missing" if current_reason == "missing" else "unavailable",
+                    "state": "missing"
+                    if current_reason == "missing"
+                    else "unavailable",
                     "reason": current_reason,
                 }
         source_corpus_id = _matching_source_corpus_id(
@@ -865,7 +886,9 @@ class WorkspaceService:
                     """,
                     (workspace_id,),
                 ).fetchall()
-                recovery_names = {recovery["recovery_relative_path"] for recovery in recovery_rows}
+                recovery_names = {
+                    recovery["recovery_relative_path"] for recovery in recovery_rows
+                }
                 for recovery_name in recovery_names:
                     if not isinstance(recovery_name, str) or not re.fullmatch(
                         r"wrec_[0-9a-f]{32}\.bin", recovery_name
@@ -883,7 +906,9 @@ class WorkspaceService:
             if recovery_names:
                 paths = WorkspaceRuntimePaths(self.data_root, workspace_id)
                 try:
-                    with paths.open_workspace_directory("recovery") as parent_descriptor:
+                    with paths.open_workspace_directory(
+                        "recovery"
+                    ) as parent_descriptor:
                         for recovery_name in recovery_names:
                             with suppress(FileNotFoundError):
                                 os.unlink(recovery_name, dir_fd=parent_descriptor)
@@ -902,7 +927,9 @@ class WorkspaceService:
         if not _workspace_database_exists(self.data_root):
             return {"work_folders": [], "returned_count": 0}
         with workspace_read_connection(self.data_root) as connection:
-            rows = connection.execute("SELECT * FROM workspaces ORDER BY workspace_id").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM workspaces ORDER BY workspace_id"
+            ).fetchall()
         visible = [
             _workspace_row(row)
             for row in rows
@@ -1022,7 +1049,10 @@ class WorkspaceService:
             if not isinstance(path_contains, str):
                 raise WorkspaceValidationError("path_contains must be a string")
             normalized_filter = unicodedata.normalize("NFC", path_contains.strip())
-            if not normalized_filter or len(normalized_filter) > WORKSPACE_MAX_PATH_FILTER_CHARS:
+            if (
+                not normalized_filter
+                or len(normalized_filter) > WORKSPACE_MAX_PATH_FILTER_CHARS
+            ):
                 raise WorkspaceValidationError(
                     "path_contains is outside the supported range",
                     details={"maximum_chars": WORKSPACE_MAX_PATH_FILTER_CHARS},
@@ -1083,7 +1113,10 @@ class WorkspaceService:
         max_bytes: int = WORKSPACE_MAX_FILE_BYTES,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
-        if isinstance(max_bytes, bool) or not 1 <= max_bytes <= WORKSPACE_MAX_FILE_BYTES:
+        if (
+            isinstance(max_bytes, bool)
+            or not 1 <= max_bytes <= WORKSPACE_MAX_FILE_BYTES
+        ):
             raise WorkspaceValidationError(
                 "work folder read size is outside the supported range",
                 details={"maximum_bytes": WORKSPACE_MAX_FILE_BYTES},
@@ -1187,7 +1220,9 @@ class WorkspaceService:
     @staticmethod
     def _decode_content(content: str, *, content_encoding: str) -> bytes:
         if not isinstance(content, str):
-            raise WorkspaceValidationError("work folder content must be a string carrier")
+            raise WorkspaceValidationError(
+                "work folder content must be a string carrier"
+            )
         if content_encoding == "utf8":
             payload = content.encode("utf-8")
         elif content_encoding == "base64":
@@ -1284,7 +1319,9 @@ class WorkspaceService:
         try:
             source_descriptor = os.open(
                 existing_name,
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
                 dir_fd=parent_descriptor,
             )
             source = os.fstat(source_descriptor)
@@ -1484,7 +1521,7 @@ class WorkspaceService:
         if not isinstance(expires_at, str) or not expires_at:
             return False
         try:
-            observed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(expires_at)
         except ValueError:
             return False
         if observed.tzinfo is None:
@@ -1608,7 +1645,9 @@ class WorkspaceService:
             if recovery["state"] != "prepared" or recovery["operation"] != "replace":
                 continue
             try:
-                canonical = access.normalize_workspace_relative_path(recovery["relative_path"])
+                canonical = access.normalize_workspace_relative_path(
+                    recovery["relative_path"]
+                )
                 current = access.observe_workspace_file(
                     Path(row["root_path"]),
                     self._identity(row),
@@ -1701,7 +1740,10 @@ class WorkspaceService:
             for name in sorted(os.listdir(recovery_descriptor)):
                 if removed >= limit:
                     break
-                if name in referenced or re.fullmatch(r"wrec_[0-9a-f]{32}\.bin", name) is None:
+                if (
+                    name in referenced
+                    or re.fullmatch(r"wrec_[0-9a-f]{32}\.bin", name) is None
+                ):
                     continue
                 try:
                     metadata = os.stat(
@@ -1752,7 +1794,9 @@ class WorkspaceService:
         expires_at = (
             datetime.now(UTC) + timedelta(days=WORKSPACE_RECOVERY_RETENTION_DAYS)
         ).isoformat()
-        operation = "create" if expected_version == WORKSPACE_EXPECTED_ABSENT else "replace"
+        operation = (
+            "create" if expected_version == WORKSPACE_EXPECTED_ABSENT else "replace"
+        )
 
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
@@ -1763,7 +1807,9 @@ class WorkspaceService:
                 self._maintain_recoveries_locked(row=row, paths=paths)
             root = Path(row["root_path"])
             recovery_name = (
-                None if operation == "create" else self._private_recovery_name(recovery_id)
+                None
+                if operation == "create"
+                else self._private_recovery_name(recovery_id)
             )
             result_observation: Any | None = None
             source_corpus_id = self._source_corpus_id_for_row(row)
@@ -1854,7 +1900,9 @@ class WorkspaceService:
                             try:
                                 self._sync_directory(parent_descriptor, action="create")
                                 os.unlink(temporary_name, dir_fd=parent_descriptor)
-                                self._sync_directory(parent_descriptor, action="create_cleanup")
+                                self._sync_directory(
+                                    parent_descriptor, action="create_cleanup"
+                                )
                             except WorkspaceUnavailableError as exc:
                                 raise WorkspaceUnavailableError(
                                     "work folder create durability could not be confirmed",
@@ -1943,7 +1991,9 @@ class WorkspaceService:
                                     },
                                 ) from exc
                             exchanged = True
-                            self._sync_directory(parent_descriptor, action="replacement")
+                            self._sync_directory(
+                                parent_descriptor, action="replacement"
+                            )
                             old_descriptor = os.open(
                                 temporary_name,
                                 os.O_RDONLY
@@ -1951,10 +2001,12 @@ class WorkspaceService:
                                 | getattr(os, "O_NOFOLLOW", 0),
                                 dir_fd=parent_descriptor,
                             )
-                            observed_old = access.workspace_file_observation_from_descriptor(
-                                old_descriptor,
-                                relative_path=canonical,
-                                max_bytes=WORKSPACE_MAX_FILE_BYTES,
+                            observed_old = (
+                                access.workspace_file_observation_from_descriptor(
+                                    old_descriptor,
+                                    relative_path=canonical,
+                                    max_bytes=WORKSPACE_MAX_FILE_BYTES,
+                                )
                             )
                             if not self._same_file_after_exchange(before, observed_old):
                                 atomic_exchange_at(
@@ -1975,12 +2027,15 @@ class WorkspaceService:
                                 )
                             try:
                                 metadata_unchanged = (
-                                    snapshot_file_metadata(old_descriptor) == preserved_metadata
+                                    snapshot_file_metadata(old_descriptor)
+                                    == preserved_metadata
                                 )
-                                replacement_metadata_matches = self._metadata_matches_at(
-                                    parent_descriptor,
-                                    name=existing_raw_name,
-                                    expected=preserved_metadata,
+                                replacement_metadata_matches = (
+                                    self._metadata_matches_at(
+                                        parent_descriptor,
+                                        name=existing_raw_name,
+                                        expected=preserved_metadata,
+                                    )
                                 )
                             except OSError:
                                 metadata_unchanged = False
@@ -2068,7 +2123,9 @@ class WorkspaceService:
                             if old_descriptor is not None:
                                 os.close(old_descriptor)
                             if cleanup_temporary:
-                                self._remove_temporary(parent_descriptor, temporary_name)
+                                self._remove_temporary(
+                                    parent_descriptor, temporary_name
+                                )
 
                 mutation_completed = True
             except Exception:
@@ -2199,7 +2256,10 @@ class WorkspaceService:
                 # Replacement recovery was finalized in the same transaction as
                 # current-file selection. Reconcile it to an available undo
                 # point so a harmless selection failure does not hide recovery.
-                with suppress(Exception), workspace_connection(self.data_root) as connection:
+                with (
+                    suppress(Exception),
+                    workspace_connection(self.data_root) as connection,
+                ):
                     connection.execute(
                         """
                         UPDATE workspace_recoveries
@@ -2241,7 +2301,9 @@ class WorkspaceService:
                 "recovery_id": recovery_id if operation == "replace" else None,
                 "undo_available": operation == "replace",
                 "index_state": (
-                    "pending_refresh" if source_corpus_id is not None else "not_applicable"
+                    "pending_refresh"
+                    if source_corpus_id is not None
+                    else "not_applicable"
                 ),
             }
 
@@ -2260,7 +2322,9 @@ class WorkspaceService:
         if expected_version == WORKSPACE_EXPECTED_ABSENT:
             raise WorkspaceValidationError("delete requires an observed v1 version")
         if confirm_delete is not True:
-            raise WorkspaceValidationError("file deletion requires explicit confirmation")
+            raise WorkspaceValidationError(
+                "file deletion requires explicit confirmation"
+            )
 
         access = _workspace_access()
         canonical = access.normalize_workspace_relative_path(relative_path)
@@ -2404,7 +2468,9 @@ class WorkspaceService:
                 "relative_path": canonical,
                 "deleted": True,
                 "index_state": (
-                    "pending_refresh" if source_corpus_id is not None else "not_applicable"
+                    "pending_refresh"
+                    if source_corpus_id is not None
+                    else "not_applicable"
                 ),
             }
 
@@ -2430,7 +2496,9 @@ class WorkspaceService:
                 )
                 descriptor = os.open(
                     recovery_name,
-                    os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
                     dir_fd=parent_descriptor,
                 )
             except OSError as exc:
@@ -2473,7 +2541,9 @@ class WorkspaceService:
         self._validate_expected_version(expected_version)
         if expected_version == WORKSPACE_EXPECTED_ABSENT:
             raise WorkspaceValidationError("restore requires an observed v1 version")
-        if not isinstance(recovery_id, str) or not WORKSPACE_RECOVERY_ID_RE.fullmatch(recovery_id):
+        if not isinstance(recovery_id, str) or not WORKSPACE_RECOVERY_ID_RE.fullmatch(
+            recovery_id
+        ):
             raise WorkspaceValidationError("recovery_id is invalid")
         access = _workspace_access()
         with workspace_writer_lock(self.data_root):
@@ -2516,7 +2586,9 @@ class WorkspaceService:
                     "work folder recovery copy is unavailable",
                     details={"reason": "missing_recovery_path"},
                 )
-            canonical = access.normalize_workspace_relative_path(recovery["relative_path"])
+            canonical = access.normalize_workspace_relative_path(
+                recovery["relative_path"]
+            )
             recovery_read = self._read_private_recovery(
                 paths=paths,
                 recovery_name=recovery_name,
@@ -2618,7 +2690,9 @@ class WorkspaceService:
                     self._sync_directory(parent_descriptor, action="restore")
                     old_descriptor = os.open(
                         temporary_name,
-                        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                        os.O_RDONLY
+                        | getattr(os, "O_CLOEXEC", 0)
+                        | getattr(os, "O_NOFOLLOW", 0),
                         dir_fd=parent_descriptor,
                     )
                     observed_old = access.workspace_file_observation_from_descriptor(
@@ -2633,7 +2707,9 @@ class WorkspaceService:
                             existing_raw_name,
                         )
                         exchanged = False
-                        self._sync_directory(parent_descriptor, action="restore_rollback")
+                        self._sync_directory(
+                            parent_descriptor, action="restore_rollback"
+                        )
                         raise WorkspaceConflictError(
                             "work folder file changed during restore",
                             details={
@@ -2660,7 +2736,9 @@ class WorkspaceService:
                             existing_raw_name,
                         )
                         exchanged = False
-                        self._sync_directory(parent_descriptor, action="restore_rollback")
+                        self._sync_directory(
+                            parent_descriptor, action="restore_rollback"
+                        )
                         raise WorkspaceConflictError(
                             "work folder metadata changed during restore",
                             details={
@@ -2675,7 +2753,9 @@ class WorkspaceService:
                             existing_raw_name,
                         )
                         exchanged = False
-                        self._sync_directory(parent_descriptor, action="restore_rollback")
+                        self._sync_directory(
+                            parent_descriptor, action="restore_rollback"
+                        )
                         raise WorkspaceConflictError(
                             "replacement metadata changed during restore",
                             details={
@@ -2699,7 +2779,9 @@ class WorkspaceService:
                                 existing_raw_name,
                             )
                             exchanged = False
-                            self._sync_directory(parent_descriptor, action="restore_rollback")
+                            self._sync_directory(
+                                parent_descriptor, action="restore_rollback"
+                            )
                             rollback_confirmed = True
                         # Preserve the temporary inode when rollback cannot be confirmed.
                         except Exception:  # noqa: BLE001
@@ -2770,6 +2852,8 @@ class WorkspaceService:
                 "restored": True,
                 "recovery_metadata_recorded": metadata_recorded,
                 "index_state": (
-                    "pending_refresh" if source_corpus_id is not None else "not_applicable"
+                    "pending_refresh"
+                    if source_corpus_id is not None
+                    else "not_applicable"
                 ),
             }

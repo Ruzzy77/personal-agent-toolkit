@@ -188,7 +188,9 @@ def _metadata_is_dataless(metadata: os.stat_result) -> bool:
     return bool(_metadata_flags(metadata) & SF_DATALESS)
 
 
-def _validation_error(message: str, *, value: object, reason: str) -> WorkspaceValidationError:
+def _validation_error(
+    message: str, *, value: object, reason: str
+) -> WorkspaceValidationError:
     return WorkspaceValidationError(
         message,
         details={"relative_path": value, "reason": reason},
@@ -204,7 +206,9 @@ def _require_component(component: str, *, relative_path: str) -> None:
         or "\\" in component
         or "\x00" in component
         or len(encoded) > WORKSPACE_MAX_COMPONENT_BYTES
-        or any(unicodedata.category(character).startswith("C") for character in component)
+        or any(
+            unicodedata.category(character).startswith("C") for character in component
+        )
     ):
         raise _validation_error(
             "work folder path contains an unsafe component",
@@ -276,11 +280,17 @@ def workspace_path_is_excluded(
             return True
         if folded in policy.excluded_directory_names:
             return True
-        if any(folded.startswith(prefix.casefold()) for prefix in policy.temporary_prefixes):
+        if any(
+            folded.startswith(prefix.casefold()) for prefix in policy.temporary_prefixes
+        ):
             return True
-        if any(folded.endswith(suffix.casefold()) for suffix in policy.temporary_suffixes):
+        if any(
+            folded.endswith(suffix.casefold()) for suffix in policy.temporary_suffixes
+        ):
             return True
-        if any(folded.endswith(suffix.casefold()) for suffix in policy.sensitive_suffixes):
+        if any(
+            folded.endswith(suffix.casefold()) for suffix in policy.sensitive_suffixes
+        ):
             return True
     return False
 
@@ -334,7 +344,9 @@ def _open_absolute_directory(root: Path) -> int:
     except OSError as exc:
         os.close(descriptor)
         reason = (
-            "symlink_or_unsafe_root" if exc.errno in {getattr(os, "ELOOP", 62)} else "open_failed"
+            "symlink_or_unsafe_root"
+            if exc.errno in {getattr(os, "ELOOP", 62)}
+            else "open_failed"
         )
         raise WorkspaceUnavailableError(
             "work folder root could not be opened",
@@ -422,9 +434,16 @@ def _raw_component_for_canonical(
     except OSError as exc:
         raise WorkspaceUnavailableError(
             "work folder directory is unavailable",
-            details={"relative_path": relative_path, "reason": f"list_failed:{exc.errno}"},
+            details={
+                "relative_path": relative_path,
+                "reason": f"list_failed:{exc.errno}",
+            },
         ) from exc
-    matches = [name for name in names if unicodedata.normalize("NFC", name) == canonical_component]
+    matches = [
+        name
+        for name in names
+        if unicodedata.normalize("NFC", name) == canonical_component
+    ]
     if len(matches) > 1:
         raise WorkspaceConflictError(
             "work folder path collides after Unicode normalization",
@@ -445,7 +464,10 @@ def _open_child_directory(
     except OSError as exc:
         raise WorkspaceUnavailableError(
             "work folder directory is unavailable",
-            details={"relative_path": relative_path, "reason": f"stat_failed:{exc.errno}"},
+            details={
+                "relative_path": relative_path,
+                "reason": f"stat_failed:{exc.errno}",
+            },
         ) from exc
     if stat.S_ISLNK(before.st_mode):
         raise WorkspaceBoundaryError(
@@ -469,7 +491,10 @@ def _open_child_directory(
     except OSError as exc:
         raise WorkspaceUnavailableError(
             "work folder directory could not be opened",
-            details={"relative_path": relative_path, "reason": f"open_failed:{exc.errno}"},
+            details={
+                "relative_path": relative_path,
+                "reason": f"open_failed:{exc.errno}",
+            },
         ) from exc
     try:
         opened = os.fstat(descriptor)
@@ -536,7 +561,10 @@ def opened_workspace_parent(
                 if raw_component is None:
                     raise WorkspaceConflictError(
                         "created work folder parent could not be found",
-                        details={"relative_path": current_path, "reason": "create_race"},
+                        details={
+                            "relative_path": current_path,
+                            "reason": "create_race",
+                        },
                     )
             child = _open_child_directory(
                 current,
@@ -557,8 +585,14 @@ def opened_workspace_parent(
         os.close(current)
 
 
-def _validate_integer_bound(value: int, *, field: str, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+def _validate_integer_bound(
+    value: int, *, field: str, minimum: int, maximum: int
+) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
         raise WorkspaceValidationError(
             f"{field} is outside the supported range",
             details={"field": field, "minimum": minimum, "maximum": maximum},
@@ -577,7 +611,10 @@ def _entry_metadata(
     except OSError as exc:
         raise WorkspaceUnavailableError(
             "work folder entry is unavailable",
-            details={"relative_path": relative_path, "reason": f"stat_failed:{exc.errno}"},
+            details={
+                "relative_path": relative_path,
+                "reason": f"stat_failed:{exc.errno}",
+            },
         ) from exc
 
 
@@ -636,7 +673,9 @@ def list_workspace(
         maximum=WORKSPACE_MAX_LIST_DEPTH,
     )
     canonical_base = (
-        normalize_workspace_relative_path(relative_path) if relative_path is not None else None
+        normalize_workspace_relative_path(relative_path)
+        if relative_path is not None
+        else None
     )
 
     entries: list[WorkspaceEntry] = []
@@ -690,7 +729,9 @@ def list_workspace(
         for canonical_name, raw_name in sorted(
             canonical_names.items(), key=lambda item: item[0].encode("utf-8")
         ):
-            canonical_path = f"{parent_path}/{canonical_name}" if parent_path else canonical_name
+            canonical_path = (
+                f"{parent_path}/{canonical_name}" if parent_path else canonical_name
+            )
             if workspace_path_is_excluded(canonical_path, policy=policy):
                 skipped_excluded += 1
                 continue
@@ -918,7 +959,10 @@ def _stable_file_read(
         except OSError as exc:
             raise WorkspaceUnavailableError(
                 "work folder file could not be opened",
-                details={"relative_path": canonical, "reason": f"open_failed:{exc.errno}"},
+                details={
+                    "relative_path": canonical,
+                    "reason": f"open_failed:{exc.errno}",
+                },
             ) from exc
         try:
             opened = os.fstat(descriptor)
@@ -944,7 +988,9 @@ def _stable_file_read(
             raw_name,
             relative_path=canonical,
         )
-        observation = result.observation if isinstance(result, WorkspaceFileRead) else result
+        observation = (
+            result.observation if isinstance(result, WorkspaceFileRead) else result
+        )
         if (
             final_path.st_dev != observation.device
             or final_path.st_ino != observation.inode

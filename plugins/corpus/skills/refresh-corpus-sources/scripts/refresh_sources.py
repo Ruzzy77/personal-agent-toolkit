@@ -64,13 +64,17 @@ def _run_json(launcher: Path, arguments: list[str], *, timeout: int) -> dict[str
     return result
 
 
-def _warning_counts(pending: dict[str, Any], coverage: dict[str, Any]) -> dict[str, int]:
+def _warning_counts(
+    pending: dict[str, Any], coverage: dict[str, Any]
+) -> dict[str, int]:
     values = {
         "pending_remote": int(pending.get("pending_remote", 0)),
         "too_large": int(pending.get("too_large", 0)),
         "current_failures": int(pending.get("failed", 0)),
         "coverage_gaps": int(pending.get("coverage_gaps", 0)),
-        "partial_active_projections": int(coverage.get("partial_active_projections", 0)),
+        "partial_active_projections": int(
+            coverage.get("partial_active_projections", 0)
+        ),
         "supported_without_usable_projection": int(
             coverage.get("supported_documents_without_usable_projection", 0)
         ),
@@ -221,11 +225,16 @@ def main() -> int:
 
     corpora = listed.get("corpora", [])
     if not isinstance(corpora, list):
-        report = {"ok": False, "errors": ["Corpus returned an invalid registration list"]}
+        report = {
+            "ok": False,
+            "errors": ["Corpus returned an invalid registration list"],
+        }
         print(json.dumps(report, ensure_ascii=False, indent=2 if args.pretty else None))
         return 2
 
-    by_id = {str(item.get("corpus_id")): item for item in corpora if item.get("corpus_id")}
+    by_id = {
+        str(item.get("corpus_id")): item for item in corpora if item.get("corpus_id")
+    }
     requested = list(dict.fromkeys(args.corpus_ids))
     missing = [corpus_id for corpus_id in requested if corpus_id not in by_id]
     if missing:

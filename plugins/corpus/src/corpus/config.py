@@ -160,7 +160,9 @@ def validate_source_root(source_root: Path, data_root: Path) -> Path:
     return source_root
 
 
-def _runtime_path_error(path: Path, reason: str, *, mode: int | None = None) -> ConfigurationError:
+def _runtime_path_error(
+    path: Path, reason: str, *, mode: int | None = None
+) -> ConfigurationError:
     details: dict[str, str | int] = {"path": str(path), "reason": reason}
     if mode is not None:
         details["mode"] = oct(stat.S_IMODE(mode))
@@ -226,7 +228,9 @@ def _open_directory_at(
         try:
             before = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
         except OSError as exc:
-            raise _runtime_path_error(path, f"lstat_after_create_failed:{exc.errno}") from exc
+            raise _runtime_path_error(
+                path, f"lstat_after_create_failed:{exc.errno}"
+            ) from exc
     except OSError as exc:
         raise _runtime_path_error(path, f"lstat_failed:{exc.errno}") from exc
 
@@ -292,11 +296,7 @@ def open_private_directory(path: Path, *, create: bool = False) -> int:
                     require_private=target,
                 )
             except ConfigurationError as exc:
-                if (
-                    create
-                    and not target
-                    and exc.details.get("reason") == "missing"
-                ):
+                if create and not target and exc.details.get("reason") == "missing":
                     missing_parent_created = True
                     next_descriptor = _open_directory_at(
                         descriptor,
@@ -463,7 +463,9 @@ class RuntimePaths:
         try:
             path = allowed[name]
         except KeyError as exc:
-            raise _runtime_path_error(self.corpus_root / name, "unknown_owned_directory") from exc
+            raise _runtime_path_error(
+                self.corpus_root / name, "unknown_owned_directory"
+            ) from exc
         with self.open_corpus_root() as corpus_descriptor:
             child_descriptor = _open_directory_at(
                 corpus_descriptor,

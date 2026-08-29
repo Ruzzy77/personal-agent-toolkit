@@ -35,7 +35,6 @@ class SpaceFileServiceTest(unittest.TestCase):
             },
         )
 
-
     def test_promoted_remote_connection_uses_one_space_file_surface(self) -> None:
         root = self.base / "research-note"
         root.mkdir()
@@ -133,7 +132,9 @@ class SpaceFileServiceTest(unittest.TestCase):
             audience="external_mcp",
         )
         self.assertEqual(indexed["source_kind"], "indexed_source")
-        self.assertIn("adaptive relation marker", indexed["units"][0]["untrusted_content"])
+        self.assertIn(
+            "adaptive relation marker", indexed["units"][0]["untrusted_content"]
+        )
         self.assertNotIn("relation-learning-research", repr(indexed))
         rescan = self.service.scan("relation-learning-research")
         self.assertEqual(rescan["change_counts"]["metadata_changed"], 0)
@@ -148,7 +149,8 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertTrue(first_page["has_more"])
         self.assertTrue(first_page["next_cursor"].startswith("cursor1."))
         self.assertNotIn(
-            "drafts/nested.md", [item["relative_path"] for item in first_page["entries"]]
+            "drafts/nested.md",
+            [item["relative_path"] for item in first_page["entries"]],
         )
         second_page = self.service.space_file_list(
             space_id="research-note",
@@ -239,7 +241,9 @@ class SpaceFileServiceTest(unittest.TestCase):
             audience="external_mcp",
         )
         self.assertTrue(restored["restored"])
-        self.assertEqual((root / "working.md").read_text(encoding="utf-8"), "first version")
+        self.assertEqual(
+            (root / "working.md").read_text(encoding="utf-8"), "first version"
+        )
 
         live = self.service.space_file_read(
             space_id="research-note",
@@ -433,7 +437,9 @@ class SpaceFileServiceTest(unittest.TestCase):
         )
         self.assertEqual(registered_after_connect["corpus_id"], "hci-work-source")
 
-    def test_source_only_connection_uses_search_refs_and_indexed_file_find(self) -> None:
+    def test_source_only_connection_uses_search_refs_and_indexed_file_find(
+        self,
+    ) -> None:
         root = self.base / "shared-source"
         root.mkdir()
         (root / "guide.md").write_text("shared indexed marker", encoding="utf-8")

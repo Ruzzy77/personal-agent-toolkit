@@ -61,7 +61,9 @@ def _configure_write_connection(connection: sqlite3.Connection, *, path: Path) -
         )
     current = str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower()
     if current != "delete":
-        current = str(connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0]).lower()
+        current = str(
+            connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0]
+        ).lower()
     if current != "delete":
         raise ConfigurationError(
             "database could not enter rollback-journal mode",
@@ -137,7 +139,9 @@ def _require_existing_database(
         if exc.details.get("reason") != "missing":
             raise
         raise CorpusNotFoundError(
-            "corpus is not registered" if corpus_id else "corpus catalog does not exist",
+            "corpus is not registered"
+            if corpus_id
+            else "corpus catalog does not exist",
             details={"corpus_id": corpus_id} if corpus_id else {},
         ) from exc
 
@@ -161,7 +165,8 @@ def ensure_catalog(data_root: Path) -> Path:
     with closing(connect(path)) as connection, connection:
         connection.executescript(CATALOG_SCHEMA)
         columns = {
-            column["name"] for column in connection.execute("PRAGMA table_info(corpora)").fetchall()
+            column["name"]
+            for column in connection.execute("PRAGMA table_info(corpora)").fetchall()
         }
         if "source_scope_json" not in columns:
             connection.execute(
@@ -200,7 +205,10 @@ def _require_current_context_schema(path: Path) -> None:
             "SELECT version FROM schema_info ORDER BY rowid DESC LIMIT 1"
         ).fetchone()
     schema_version = int(row["version"]) if row is not None else 0
-    if user_version == CONTEXT_SCHEMA_VERSION and schema_version == CONTEXT_SCHEMA_VERSION:
+    if (
+        user_version == CONTEXT_SCHEMA_VERSION
+        and schema_version == CONTEXT_SCHEMA_VERSION
+    ):
         return
     details = {
         "path": str(path),
@@ -307,7 +315,10 @@ def migrate_context_database(data_root: Path) -> dict:
                 },
             ) from exc
         schema_version = int(row["version"]) if row is not None else 0
-        if user_version == CONTEXT_SCHEMA_VERSION and schema_version == CONTEXT_SCHEMA_VERSION:
+        if (
+            user_version == CONTEXT_SCHEMA_VERSION
+            and schema_version == CONTEXT_SCHEMA_VERSION
+        ):
             return {
                 "database": "contexts",
                 "from_version": CONTEXT_SCHEMA_VERSION,
@@ -329,7 +340,9 @@ def migrate_context_database(data_root: Path) -> dict:
             if from_version == 1:
                 columns = {
                     column["name"]
-                    for column in connection.execute("PRAGMA table_info(context_items)").fetchall()
+                    for column in connection.execute(
+                        "PRAGMA table_info(context_items)"
+                    ).fetchall()
                 }
                 if "disclosure_state" not in columns:
                     connection.execute(
@@ -589,7 +602,10 @@ def register_corpus(
     if execution_policy not in EXECUTION_POLICIES:
         raise ConfigurationError(
             "unsupported execution policy",
-            details={"execution_policy": execution_policy, "allowed": sorted(EXECUTION_POLICIES)},
+            details={
+                "execution_policy": execution_policy,
+                "allowed": sorted(EXECUTION_POLICIES),
+            },
         )
     source_root = validate_source_root(source_root, data_root)
     catalog = ensure_catalog(data_root)
@@ -1244,7 +1260,9 @@ def _corpus_row(row: sqlite3.Row) -> dict:
     corpus = dict(row)
     raw_scope = corpus.pop("source_scope_json", None)
     corpus["source_scope"] = (
-        normalize_source_scope() if raw_scope is None else _decode_source_scope(raw_scope)
+        normalize_source_scope()
+        if raw_scope is None
+        else _decode_source_scope(raw_scope)
     )
     return corpus
 

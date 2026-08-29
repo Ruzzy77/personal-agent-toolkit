@@ -153,7 +153,12 @@ def _assert_v2_structure(connection: sqlite3.Connection) -> None:
             "result_manifest_hash",
             "is_active",
         },
-        "source_units": {"unit_id", "revision_id", "projection_id", "derivation_method"},
+        "source_units": {
+            "unit_id",
+            "revision_id",
+            "projection_id",
+            "derivation_method",
+        },
         "extraction_issues": {
             "issue_id",
             "attempt_id",
@@ -434,7 +439,9 @@ def _create_projection_tables(connection: sqlite3.Connection) -> None:
     )
 
 
-def _legacy_projection_map(connection: sqlite3.Connection) -> tuple[dict[str, str], dict[str, str]]:
+def _legacy_projection_map(
+    connection: sqlite3.Connection,
+) -> tuple[dict[str, str], dict[str, str]]:
     config_hash = hashlib.sha256(b"{}").hexdigest()
     projection_by_revision: dict[str, str] = {}
     attempt_by_revision: dict[str, str] = {}
@@ -468,14 +475,18 @@ def _legacy_projection_map(connection: sqlite3.Connection) -> tuple[dict[str, st
                 (revision_id,),
             )
         ]
-        has_preserved_projection = revision["extraction_state"] == "complete" or bool(units)
+        has_preserved_projection = revision["extraction_state"] == "complete" or bool(
+            units
+        )
         if has_preserved_projection:
             projection_adapter_version = (
                 adapter_version
                 if revision["extraction_state"] == "complete"
                 else "legacy-preserved"
             )
-            result_manifest_hash = hashlib.sha256(_canonical_json(units).encode()).hexdigest()
+            result_manifest_hash = hashlib.sha256(
+                _canonical_json(units).encode()
+            ).hexdigest()
             projection_id = _stable_id(
                 "projection",
                 revision_id,
@@ -921,7 +932,9 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
 BACKUP_COPY_CHUNK_BYTES = 1024 * 1024
 
 
-def _stream_copy_descriptor(source_descriptor: int, destination_descriptor: int) -> tuple[int, str]:
+def _stream_copy_descriptor(
+    source_descriptor: int, destination_descriptor: int
+) -> tuple[int, str]:
     digest = hashlib.sha256()
     copied = 0
     os.lseek(source_descriptor, 0, os.SEEK_SET)
@@ -1012,10 +1025,7 @@ def _stage_streaming_backup(
                         temporary_descriptor,
                     )
                     os.fsync(temporary_descriptor)
-                    if (
-                        copied <= 0
-                        or os.fstat(temporary_descriptor).st_size != copied
-                    ):
+                    if copied <= 0 or os.fstat(temporary_descriptor).st_size != copied:
                         raise MigrationError(
                             "streamed migration backup has an unexpected size",
                             details={"backup": str(backup_path)},
@@ -1130,7 +1140,9 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             if migrated_version == 3:
                 _migrate_v3_to_v4(connection)
                 _assert_v4_structure(connection)
-            foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+            foreign_key_issues = connection.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
             if foreign_key_issues:
                 raise MigrationError(
                     "foreign-key validation failed after migration",
@@ -1142,8 +1154,12 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
                     "SQLite integrity check failed after migration",
                     details={"result": integrity},
                 )
-            unit_count = connection.execute("SELECT COUNT(*) FROM source_units").fetchone()[0]
-            fts_count = connection.execute("SELECT COUNT(*) FROM source_units_fts").fetchone()[0]
+            unit_count = connection.execute(
+                "SELECT COUNT(*) FROM source_units"
+            ).fetchone()[0]
+            fts_count = connection.execute(
+                "SELECT COUNT(*) FROM source_units_fts"
+            ).fetchone()[0]
             missing_fts = [
                 row["unit_id"]
                 for row in connection.execute(

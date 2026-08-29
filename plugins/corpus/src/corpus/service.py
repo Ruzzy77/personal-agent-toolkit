@@ -147,7 +147,9 @@ def _validate_ingest_budgets(
     timeout_seconds: float,
     exact_selection: bool = False,
 ) -> None:
-    max_request_bytes = _MAX_EXACT_INGEST_BYTES if exact_selection else _MAX_INGEST_BYTES
+    max_request_bytes = (
+        _MAX_EXACT_INGEST_BYTES if exact_selection else _MAX_INGEST_BYTES
+    )
     max_single_file_bytes = (
         _MAX_EXACT_INGEST_FILE_BYTES if exact_selection else _MAX_INGEST_FILE_BYTES
     )
@@ -193,9 +195,16 @@ def _safe_relative_inventory_path(value: object) -> bool:
         return False
     if value.startswith(("/", "\\")):
         return False
-    if len(value) >= 3 and value[0].isalpha() and value[1] == ":" and value[2] in {"/", "\\"}:
+    if (
+        len(value) >= 3
+        and value[0].isalpha()
+        and value[1] == ":"
+        and value[2] in {"/", "\\"}
+    ):
         return False
-    return all(part not in {"", ".", ".."} for part in value.replace("\\", "/").split("/"))
+    return all(
+        part not in {"", ".", ".."} for part in value.replace("\\", "/").split("/")
+    )
 
 
 def _normalize_inventory_path_filter(value: str | None) -> str | None:
@@ -238,7 +247,9 @@ def _normalize_inventory_extension(value: str | None) -> str | None:
 
 
 def _revision_id(document_id: str, sha256: str) -> str:
-    value = hashlib.sha256(f"work-corpus-revision-v1\0{document_id}\0{sha256}".encode()).hexdigest()
+    value = hashlib.sha256(
+        f"work-corpus-revision-v1\0{document_id}\0{sha256}".encode()
+    ).hexdigest()
     return f"rev_{value[:32]}"
 
 
@@ -655,10 +666,13 @@ class CorpusService:
                 "corpus unregister requires explicit confirmation",
                 details={"reason": "confirmation_required"},
             )
-        cleanup_requested = any(
-            value is not None
-            for value in (archived_context_id, expected_context_version)
-        ) or confirm_remove_linked_history
+        cleanup_requested = (
+            any(
+                value is not None
+                for value in (archived_context_id, expected_context_version)
+            )
+            or confirm_remove_linked_history
+        )
         if cleanup_requested:
             if archived_context_id is None or expected_context_version is None:
                 raise ConfigurationError(
@@ -882,7 +896,9 @@ class CorpusService:
                     "current_file": work_folder["current_file"],
                     "generation": work_folder["generation"],
                     "write_state": (
-                        "unknown" if work_folder["connection_state"] == "connected" else None
+                        "unknown"
+                        if work_folder["connection_state"] == "connected"
+                        else None
                     ),
                 }
             )
@@ -1027,7 +1043,9 @@ class CorpusService:
                 details={"limit": limit, "maximum": 200},
             )
         if mode == "list_directory" and query is not None:
-            raise SpaceValidationError("directory listing does not accept a filename query")
+            raise SpaceValidationError(
+                "directory listing does not accept a filename query"
+            )
         if mode == "find" and (not isinstance(query, str) or not query.strip()):
             raise SpaceValidationError("file search requires a non-empty query")
         normalized_query = query.strip() if isinstance(query, str) else None
@@ -1215,7 +1233,10 @@ class CorpusService:
             CORPUS_READ_MIN_CHARS <= max_chars <= CORPUS_READ_MAX_CHARS
         ):
             raise SpaceValidationError("max_chars must be between 1000 and 200000")
-        if type(start_char) is not int or not 0 <= start_char <= WORKSPACE_MAX_FILE_BYTES:
+        if (
+            type(start_char) is not int
+            or not 0 <= start_char <= WORKSPACE_MAX_FILE_BYTES
+        ):
             raise SpaceValidationError("start_char is outside the supported range")
         if read_ref is not None:
             if start_char != 0:
@@ -1276,7 +1297,9 @@ class CorpusService:
                             "read",
                             {
                                 "space_id": resolved["space"]["space_id"],
-                                "connection_id": resolved["connection"]["connection_id"],
+                                "connection_id": resolved["connection"][
+                                    "connection_id"
+                                ],
                                 "unit_id": unit["unit_id"],
                             },
                         ),
@@ -1325,14 +1348,18 @@ class CorpusService:
         if encoding == "utf8":
             total_chars = len(content)
             if start_char > total_chars:
-                raise SpaceValidationError("start_char is past the end of the Work file")
+                raise SpaceValidationError(
+                    "start_char is past the end of the Work file"
+                )
             end_char = min(total_chars, start_char + max_chars)
             content = content[start_char:end_char]
             complete = start_char == 0 and end_char == total_chars
             if end_char < total_chars:
                 next_start_char = end_char
         response = {
-            **self._space_connection_response(resolved, work_folder=live["work_folder"]),
+            **self._space_connection_response(
+                resolved, work_folder=live["work_folder"]
+            ),
             "source_kind": "live_file",
             "file": file_info,
             "encoding": live["encoding"],
@@ -1404,7 +1431,9 @@ class CorpusService:
                     "replacement markers do not identify one ordered range in the current file",
                     details={"reason": "marker_range_changed"},
                 )
-            content = current_content[:start_index] + content + current_content[end_index:]
+            content = (
+                current_content[:start_index] + content + current_content[end_index:]
+            )
         result = self.workspaces.write(
             workspace_id=resolved["_workspace_id"],
             relative_path=relative_path,
@@ -1618,14 +1647,19 @@ class CorpusService:
                         (unicodedata.normalize("NFC", relative_path),),
                     ).fetchone()
                     if row is None:
-                        if latest_scan is not None and latest_scan["status"] == "complete":
+                        if (
+                            latest_scan is not None
+                            and latest_scan["status"] == "complete"
+                        ):
                             current_paths.add(relative_path)
                         continue
                     document = dict(row)
                     try:
-                        state = workspace_access.workspace_file_state_from_root_descriptor(
-                            root_descriptor,
-                            relative_path,
+                        state = (
+                            workspace_access.workspace_file_state_from_root_descriptor(
+                                root_descriptor,
+                                relative_path,
+                            )
                         )
                     except CorpusError:
                         continue
@@ -1729,7 +1763,9 @@ class CorpusService:
             references_marked_ephemeral = 0
             with corpus_connection(self.data_root, corpus_id) as connection:
                 source_units_preserved = int(
-                    connection.execute("SELECT COUNT(*) FROM source_units").fetchone()[0]
+                    connection.execute("SELECT COUNT(*) FROM source_units").fetchone()[
+                        0
+                    ]
                 )
                 legacy_reference_rows = connection.execute(
                     """
@@ -1741,11 +1777,14 @@ class CorpusService:
                 canonical_reference_rows = [
                     row
                     for row in legacy_reference_rows
-                    if row["immutable_blob_ref"] == _canonical_legacy_blob_ref(row["sha256"])
+                    if row["immutable_blob_ref"]
+                    == _canonical_legacy_blob_ref(row["sha256"])
                 ]
                 present_digests = set(cleanup.canonical_blob_digests)
                 missing_legacy_references = sum(
-                    1 for row in canonical_reference_rows if row["sha256"] not in present_digests
+                    1
+                    for row in canonical_reference_rows
+                    if row["sha256"] not in present_digests
                 )
                 if confirm_delete:
                     for row in canonical_reference_rows:
@@ -1829,8 +1868,12 @@ class CorpusService:
                     """
                 ).fetchone()
             )
-            revisions = connection.execute("SELECT COUNT(*) FROM revisions").fetchone()[0]
-            units = connection.execute("SELECT COUNT(*) FROM source_units").fetchone()[0]
+            revisions = connection.execute("SELECT COUNT(*) FROM revisions").fetchone()[
+                0
+            ]
+            units = connection.execute("SELECT COUNT(*) FROM source_units").fetchone()[
+                0
+            ]
             active_units = connection.execute(
                 """
                 SELECT COUNT(*)
@@ -1888,7 +1931,9 @@ class CorpusService:
                   AND r.source_inode = d.inode
                 """
             ).fetchall()
-            issues = connection.execute("SELECT COUNT(*) FROM extraction_issues").fetchone()[0]
+            issues = connection.execute(
+                "SELECT COUNT(*) FROM extraction_issues"
+            ).fetchone()[0]
             issue_lifecycle = {
                 row["lifecycle_state"]: row["count"]
                 for row in connection.execute(
@@ -1971,14 +2016,13 @@ class CorpusService:
         if not source_observation_current:
             reasons.append("source_observation_changed")
 
-        adapter_current = (
-            document["active_projection_id"] is not None
-            and self.adapter_registry.accepts_projection(
-                document["extension"],
-                document["projection_adapter_id"],
-                document["projection_adapter_version"],
-                document["projection_config_hash"],
-            )
+        adapter_current = document[
+            "active_projection_id"
+        ] is not None and self.adapter_registry.accepts_projection(
+            document["extension"],
+            document["projection_adapter_id"],
+            document["projection_adapter_version"],
+            document["projection_config_hash"],
         )
         if document["active_projection_id"] is not None and not adapter_current:
             reasons.append("outdated_adapter")
@@ -2085,7 +2129,9 @@ class CorpusService:
             ).fetchall()
 
         path_filter_key = (
-            normalized_path_filter.casefold() if normalized_path_filter is not None else None
+            normalized_path_filter.casefold()
+            if normalized_path_filter is not None
+            else None
         )
         documents = []
         for row in rows:
@@ -2095,13 +2141,24 @@ class CorpusService:
                     "inventory contains an unsafe relative document locator",
                     details={"document_id": document["document_id"]},
                 )
-            if eligibility_state != "all" and document["eligibility_state"] != eligibility_state:
+            if (
+                eligibility_state != "all"
+                and document["eligibility_state"] != eligibility_state
+            ):
                 continue
-            if residency_state != "all" and document["residency_state"] != residency_state:
+            if (
+                residency_state != "all"
+                and document["residency_state"] != residency_state
+            ):
                 continue
-            if normalized_extension is not None and (document["extension"] != normalized_extension):
+            if normalized_extension is not None and (
+                document["extension"] != normalized_extension
+            ):
                 continue
-            if max_logical_bytes is not None and document["logical_size"] > max_logical_bytes:
+            if (
+                max_logical_bytes is not None
+                and document["logical_size"] > max_logical_bytes
+            ):
                 continue
             if path_filter_key is not None and path_filter_key not in (
                 unicodedata.normalize(
@@ -2141,7 +2198,9 @@ class CorpusService:
             "observation": {
                 "latest_scan_id": latest_scan["scan_id"] if latest_scan else None,
                 "latest_scan_status": latest_scan["status"] if latest_scan else None,
-                "scan_completed_at": latest_scan["completed_at"] if latest_scan else None,
+                "scan_completed_at": latest_scan["completed_at"]
+                if latest_scan
+                else None,
                 "inventory_complete": bool(
                     latest_scan is not None and latest_scan["status"] == "complete"
                 ),
@@ -2550,7 +2609,9 @@ class CorpusService:
                     result["source_copy_retention"] = "cleanup_failed"
                     result["source_copy_cleanup"] = cleanup_failure
             result["outcome"] = (
-                "refreshed" if result["state"] in {"indexed", "already_indexed"} else "selected"
+                "refreshed"
+                if result["state"] in {"indexed", "already_indexed"}
+                else "selected"
             )
             attempted_results.append(result)
             if exact_selection:
@@ -2579,7 +2640,9 @@ class CorpusService:
             "results": results,
             "summary": {
                 **{
-                    state: sum(1 for result in attempted_results if result["state"] == state)
+                    state: sum(
+                        1 for result in attempted_results if result["state"] == state
+                    )
                     for state in ("indexed", "already_indexed", "failed")
                 },
                 "source_copy_cleanup_failed": sum(
@@ -2619,7 +2682,9 @@ class CorpusService:
         if document_ids is not None and (
             len(document_ids) > _MAX_INGEST_DOCUMENT_IDS
             or any(
-                not isinstance(document_id, str) or not document_id or len(document_id) > 200
+                not isinstance(document_id, str)
+                or not document_id
+                or len(document_id) > 200
                 for document_id in document_ids
             )
         ):
@@ -2673,14 +2738,17 @@ class CorpusService:
         overlaps = [
             name
             for name, runtime_root in runtime_roots.items()
-            if is_within(runtime_root, source_root) or is_within(source_root, runtime_root)
+            if is_within(runtime_root, source_root)
+            or is_within(source_root, runtime_root)
         ]
         if overlaps:
             raise SourceBoundaryError(
                 "runtime data and source roots must not overlap",
                 details={
                     "source_root": str(source_root),
-                    "runtime_roots": {name: str(runtime_roots[name]) for name in overlaps},
+                    "runtime_roots": {
+                        name: str(runtime_roots[name]) for name in overlaps
+                    },
                 },
             )
         return paths
@@ -2741,7 +2809,9 @@ class CorpusService:
             "files": scan["files"],
             "dataless_files": scan["dataless_files"],
             "logical_bytes": scan["logical_bytes"],
-            "supported_files": int(scan.get("eligibility_counts", {}).get("supported", 0)),
+            "supported_files": int(
+                scan.get("eligibility_counts", {}).get("supported", 0)
+            ),
             "completeness_failure_count": scan["completeness_failure_count"],
             "changed_documents": int(scan.get("changed_documents", 0)),
             "change_counts": change_counts,
@@ -2795,8 +2865,12 @@ class CorpusService:
                 "selected_logical_bytes": ingested["selected_logical_bytes"],
                 "skipped": ingested["skipped"],
                 "results": ingested["results"],
-                "source_copy_cleanup_failed": refresh_summary["source_copy_cleanup_failed"],
-                "abandoned_staging_cleanup": ingested["policy"]["abandoned_staging_cleanup"],
+                "source_copy_cleanup_failed": refresh_summary[
+                    "source_copy_cleanup_failed"
+                ],
+                "abandoned_staging_cleanup": ingested["policy"][
+                    "abandoned_staging_cleanup"
+                ],
             },
             "pending": {
                 "remaining": remaining,
@@ -2847,7 +2921,9 @@ class CorpusService:
                 details={
                     "document_id": document["document_id"],
                     "relative_path": document["relative_path"],
-                    "existing_sqlite_index_unchanged": bool(document.get("current_revision_id")),
+                    "existing_sqlite_index_unchanged": bool(
+                        document.get("current_revision_id")
+                    ),
                     "source_error": exc.details,
                 },
             ) from exc
@@ -3204,7 +3280,8 @@ class CorpusService:
         completeness_state = extraction.completeness
         capability_manifest = descriptor.capabilities.to_dict()
         content_hashes = [
-            hashlib.sha256(unit.content.encode("utf-8")).hexdigest() for unit in extraction.units
+            hashlib.sha256(unit.content.encode("utf-8")).hexdigest()
+            for unit in extraction.units
         ]
         unit_ids = [
             _unit_id(projection_id, ordinal, content_hash)
@@ -3298,7 +3375,9 @@ class CorpusService:
                         "surface_open_target": document["absolute_path"],
                     }
                     previous_unit_id = unit_ids[index - 1] if index > 0 else None
-                    next_unit_id = unit_ids[index + 1] if index + 1 < len(unit_ids) else None
+                    next_unit_id = (
+                        unit_ids[index + 1] if index + 1 < len(unit_ids) else None
+                    )
                     connection.execute(
                         """
                         INSERT INTO source_units(
@@ -3742,7 +3821,11 @@ class CorpusService:
                 requested_ids,
             ).fetchall()
             seed_by_id = {row["unit_id"]: row for row in seed_rows}
-            seeds = [seed_by_id[unit_id] for unit_id in requested_ids if unit_id in seed_by_id]
+            seeds = [
+                seed_by_id[unit_id]
+                for unit_id in requested_ids
+                if unit_id in seed_by_id
+            ]
             selected_ids: list[str] = []
             selected: set[str] = set()
             for seed in seeds:
@@ -3860,7 +3943,9 @@ class CorpusService:
                 selected_ids,
             ).fetchall()
             row_by_id = {row["unit_id"]: row for row in body_rows}
-            rows = [row_by_id[unit_id] for unit_id in selected_ids if unit_id in row_by_id]
+            rows = [
+                row_by_id[unit_id] for unit_id in selected_ids if unit_id in row_by_id
+            ]
         promoted_live_current: dict[str, bool] = {}
         guard = self.workspaces.promoted_source_guard(corpus_id)
         if guard is not None:
@@ -3905,7 +3990,8 @@ class CorpusService:
                             promoted_live_current[relative_path] = False
             except CorpusError:
                 promoted_live_current = {
-                    unicodedata.normalize("NFC", row["relative_path"]): False for row in rows
+                    unicodedata.normalize("NFC", row["relative_path"]): False
+                    for row in rows
                 }
         units = []
         for row in rows:

@@ -47,7 +47,9 @@ def _rhwp_name() -> str:
     return "rhwp.exe" if platform.system().casefold() == "windows" else "rhwp"
 
 
-def _candidate_executables(runtime_root: Path, explicit: Path | None) -> tuple[Path, ...]:
+def _candidate_executables(
+    runtime_root: Path, explicit: Path | None
+) -> tuple[Path, ...]:
     key = _platform_key()
     candidates: list[Path] = []
     configured = os.environ.get("CORPUS_RHWP")
@@ -81,12 +83,16 @@ class RhwpPageTextAdapter:
         *,
         executable: Path | None = None,
     ) -> None:
-        self.runtime_root = Path(runtime_root or _global_cache_root()).expanduser().resolve()
+        self.runtime_root = (
+            Path(runtime_root or _global_cache_root()).expanduser().resolve()
+        )
         self._explicit_executable = executable
         try:
             source_hash = hashlib.sha256(_SOURCE.read_bytes()).hexdigest()
         except OSError as exc:
-            raise ExtractionError("packaged rhwp adapter source is unavailable") from exc
+            raise ExtractionError(
+                "packaged rhwp adapter source is unavailable"
+            ) from exc
         self.config = {
             "backend": "rhwp",
             "backend_version": RHWP_VERSION,
@@ -137,7 +143,11 @@ class RhwpPageTextAdapter:
                     capture_output=True,
                     check=False,
                     timeout=5,
-                    env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"},
+                    env={
+                        "PATH": "/usr/bin:/bin",
+                        "LANG": "C.UTF-8",
+                        "LC_ALL": "C.UTF-8",
+                    },
                 )
             except (OSError, subprocess.TimeoutExpired):
                 continue
@@ -171,7 +181,11 @@ class RhwpPageTextAdapter:
                     cwd=temporary,
                     close_fds=True,
                     pass_fds=(input_fd,),
-                    env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"},
+                    env={
+                        "PATH": "/usr/bin:/bin",
+                        "LANG": "C.UTF-8",
+                        "LC_ALL": "C.UTF-8",
+                    },
                 )
             except subprocess.TimeoutExpired as exc:
                 raise BudgetExceededError(
@@ -275,11 +289,16 @@ class RhwpPageTextAdapter:
                 )
             total_chars += len(content)
             if total_chars > self.budgets.max_total_content_chars:
-                raise BudgetExceededError("rhwp text exceeds its aggregate character budget")
+                raise BudgetExceededError(
+                    "rhwp text exceeds its aggregate character budget"
+                )
             units.append(
                 ExtractedUnit(
                     unit_type="page_text",
-                    structure_path={"page": backend_page + 1, "backend_page": backend_page},
+                    structure_path={
+                        "page": backend_page + 1,
+                        "backend_page": backend_page,
+                    },
                     content=content,
                     derivation_method="native_text",
                     quality_flags=("binary_hwp", "structure_partial"),

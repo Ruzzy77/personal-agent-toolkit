@@ -98,7 +98,9 @@ def result_script(result: dict) -> str:
 
 
 class BuiltinAdapterTest(unittest.TestCase):
-    def test_builtin_result_is_deterministic_immutable_and_identity_neutral(self) -> None:
+    def test_builtin_result_is_deterministic_immutable_and_identity_neutral(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "source.md"
             path.write_text("# 제목\n\n본문", encoding="utf-8")
@@ -128,7 +130,9 @@ class BuiltinAdapterTest(unittest.TestCase):
         self.assertEqual(result.issues[0].code, "no_extractable_text")
 
     @mock.patch("corpus.adapters.extract")
-    def test_builtin_unverified_reading_order_is_declared_and_partial(self, extract) -> None:
+    def test_builtin_unverified_reading_order_is_declared_and_partial(
+        self, extract
+    ) -> None:
         unit_types = {"docx": "paragraph", "pdf": "page", "pptx": "slide_text"}
         extract.side_effect = lambda _path, adapter_name: ExtractionResult(
             units=[UnitDraft(unit_types[adapter_name], {"ordinal": 1}, "text")]
@@ -139,7 +143,9 @@ class BuiltinAdapterTest(unittest.TestCase):
             for adapter_name in ("docx", "pdf", "pptx"):
                 with self.subTest(adapter=adapter_name):
                     result = run_builtin_extraction(path, adapter_name)
-                    self.assertFalse(result.descriptor.capabilities.preserves_reading_order)
+                    self.assertFalse(
+                        result.descriptor.capabilities.preserves_reading_order
+                    )
                     self.assertEqual(result.completeness, "partial")
                     self.assertIn(
                         "reading_order_unverified",
@@ -253,7 +259,9 @@ print(json.dumps({{
         self.assertEqual(result.units[0].structure_path["paragraph"], 1)
         self.assertNotIn("path", result.to_dict())
 
-    def test_external_jsonl_preserves_unicode_line_separators_inside_content(self) -> None:
+    def test_external_jsonl_preserves_unicode_line_separators_inside_content(
+        self,
+    ) -> None:
         content = "첫 줄\u2028둘째 줄\u2029셋째 줄"
         result = {
             "schema_version": RESULT_SCHEMA_VERSION,
@@ -344,7 +352,9 @@ print(json.dumps({{
                             {
                                 "code": "external_reference",
                                 "message": "reference",
-                                "details": {forbidden_field: "file:///private/source.hwp"},
+                                "details": {
+                                    forbidden_field: "file:///private/source.hwp"
+                                },
                             }
                         ],
                     }
@@ -355,7 +365,9 @@ print(json.dumps({{
                     with self.assertRaisesRegex(ExtractionError, "core-owned field"):
                         adapter.extract(path, format_id="hwp")
 
-    def test_external_ocr_markers_require_declared_capability_and_exact_method(self) -> None:
+    def test_external_ocr_markers_require_declared_capability_and_exact_method(
+        self,
+    ) -> None:
         base_unit = {
             "unit_type": "paragraph",
             "structure_path": {"paragraph": 1},
@@ -527,7 +539,9 @@ class PackagedAdapterTest(unittest.TestCase):
             )
         )
 
-    def test_rhwp_adapter_uses_only_inherited_fd_and_discards_source_locator(self) -> None:
+    def test_rhwp_adapter_uses_only_inherited_fd_and_discards_source_locator(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             executable = root / "rhwp"
@@ -608,14 +622,20 @@ class PackagedAdapterTest(unittest.TestCase):
 
         self.assertEqual(result.completeness, "complete")
         self.assertEqual(len(result.units), 1)
-        self.assertNotIn("pdf_page_without_text", {issue.code for issue in result.issues})
+        self.assertNotIn(
+            "pdf_page_without_text", {issue.code for issue in result.issues}
+        )
 
     @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
-    def test_pdf_native_adapter_uses_hybrid_ocr_and_keeps_text_pdf_complete(self) -> None:
+    def test_pdf_native_adapter_uses_hybrid_ocr_and_keeps_text_pdf_complete(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "text.pdf"
-            write_text_pdf(path, b"This native PDF page has enough searchable text for indexing")
+            write_text_pdf(
+                path, b"This native PDF page has enough searchable text for indexing"
+            )
             adapter = PDFKitVisionAdapter(root / "runtime")
             result = adapter.extract(path, format_id="pdf")
 
@@ -833,7 +853,9 @@ class PackagedAdapterTest(unittest.TestCase):
                     with self.assertRaisesRegex(HWPAdapterError, "unit count"):
                         _extract(base_request)
                     self.assertEqual(len(opened_file_descriptors), 1)
-                    self.assertNotEqual(opened_file_descriptors[0], file_descriptor.fileno())
+                    self.assertNotEqual(
+                        opened_file_descriptors[0], file_descriptor.fileno()
+                    )
                     traversal = {
                         **base_request,
                         "input": {

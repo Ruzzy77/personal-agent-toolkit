@@ -179,7 +179,9 @@ def _read_source_skill(path: Path, *, data_root: Path) -> bytes:
             details={"reason": f"stat_failed:{exc.errno}"},
         ) from exc
     if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
-        raise ContextValidationError("Context Skill source must be a regular file, not a link")
+        raise ContextValidationError(
+            "Context Skill source must be a regular file, not a link"
+        )
     canonical = expanded.resolve(strict=True)
     if is_within(canonical, data_root):
         raise ContextValidationError(
@@ -201,7 +203,9 @@ def _read_source_skill(path: Path, *, data_root: Path) -> bytes:
             or opened.st_dev != before.st_dev
             or opened.st_ino != before.st_ino
         ):
-            raise ContextValidationError("Context Skill source changed while it was opened")
+            raise ContextValidationError(
+                "Context Skill source changed while it was opened"
+            )
         chunks: list[bytes] = []
         remaining = CONTEXT_SKILL_MAX_BYTES + 1
         while remaining > 0:
@@ -219,7 +223,9 @@ def _read_source_skill(path: Path, *, data_root: Path) -> bytes:
             or final.st_mtime_ns != opened.st_mtime_ns
             or final.st_ctime_ns != opened.st_ctime_ns
         ):
-            raise ContextValidationError("Context Skill source changed while it was read")
+            raise ContextValidationError(
+                "Context Skill source changed while it was read"
+            )
     finally:
         os.close(descriptor)
     _parse_skill(content)
@@ -367,7 +373,9 @@ class ContextSkillService:
     ) -> dict[str, Any]:
         normalized_id = normalize_context_id(context_id)
         if not confirm_context_skill_write:
-            raise ContextValidationError("Context Skill write requires explicit confirmation")
+            raise ContextValidationError(
+                "Context Skill write requires explicit confirmation"
+            )
         if not isinstance(expected_version, str) or not expected_version:
             raise ContextValidationError("expected Context Skill version is required")
         content = _read_source_skill(skill_file, data_root=self.data_root)
@@ -390,7 +398,9 @@ class ContextSkillService:
     ) -> dict[str, Any]:
         normalized_id = normalize_context_id(context_id)
         if not confirm_context_skill_write:
-            raise ContextValidationError("Context Skill write requires explicit confirmation")
+            raise ContextValidationError(
+                "Context Skill write requires explicit confirmation"
+            )
         if not isinstance(expected_version, str) or not expected_version:
             raise ContextValidationError("expected Context Skill version is required")
         content = _serialize_skill(
@@ -453,7 +463,9 @@ class ContextSkillService:
                     while view:
                         written = os.write(descriptor, view)
                         if written <= 0:
-                            raise ConfigurationError("Context Skill write made no progress")
+                            raise ConfigurationError(
+                                "Context Skill write made no progress"
+                            )
                         view = view[written:]
                     os.fsync(descriptor)
                 finally:
@@ -491,7 +503,9 @@ class ContextSkillService:
     ) -> dict[str, Any]:
         normalized_id = normalize_context_id(context_id)
         if not confirm_context_skill_remove:
-            raise ContextValidationError("Context Skill removal requires explicit confirmation")
+            raise ContextValidationError(
+                "Context Skill removal requires explicit confirmation"
+            )
         with context_writer_lock(self.data_root):
             self._require_context(normalized_id, writable=True)
             current = self.read(
@@ -511,7 +525,9 @@ class ContextSkillService:
                 )
             if current is None:
                 return {"context_id": normalized_id, "changed": False, "skill": None}
-            with self._open_skill_root(normalized_id, create=False) as parent_descriptor:
+            with self._open_skill_root(
+                normalized_id, create=False
+            ) as parent_descriptor:
                 os.unlink("SKILL.md", dir_fd=parent_descriptor)
                 os.fsync(parent_descriptor)
             return {"context_id": normalized_id, "changed": True, "skill": None}

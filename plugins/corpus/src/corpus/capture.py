@@ -195,7 +195,9 @@ def _require_current_source_path_identity(
 def validate_file_boundary(source: Path, source_root: Path, staging_root: Path) -> None:
     relative_source_parts(source, source_root)
     canonical_staging = staging_root.resolve(strict=False)
-    if is_within(canonical_staging, source_root) or is_within(source_root, canonical_staging):
+    if is_within(canonical_staging, source_root) or is_within(
+        source_root, canonical_staging
+    ):
         raise SourceBoundaryError(
             "staging and source roots overlap",
             details={
@@ -280,9 +282,7 @@ def build_native_helper(paths: RuntimePaths) -> Path:
                         "native helper compiler output is unsafe",
                         details={"source": str(source)},
                     )
-                runtime_temporary_name = (
-                    f".{destination_name}.{uuid.uuid4().hex}.tmp"
-                )
+                runtime_temporary_name = f".{destination_name}.{uuid.uuid4().hex}.tmp"
                 runtime_temporary_path = paths.runtime / runtime_temporary_name
                 runtime_temporary_descriptor, _ = open_private_file_at(
                     runtime_descriptor,
@@ -303,7 +303,9 @@ def build_native_helper(paths: RuntimePaths) -> Path:
                             while view:
                                 written = os.write(runtime_temporary_descriptor, view)
                                 if written <= 0:
-                                    raise OSError("native helper install made no progress")
+                                    raise OSError(
+                                        "native helper install made no progress"
+                                    )
                                 view = view[written:]
                         os.fsync(runtime_temporary_descriptor)
                     finally:
@@ -436,7 +438,9 @@ def _copy_with_native(
         destination_size = os.fstat(destination_descriptor).st_size
     finally:
         os.close(destination_descriptor)
-    copied = int(result.get("bytesCopied", result.get("bytes_copied", destination_size)))
+    copied = int(
+        result.get("bytesCopied", result.get("bytes_copied", destination_size))
+    )
     return copied, result
 
 

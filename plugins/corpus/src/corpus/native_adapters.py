@@ -69,7 +69,12 @@ class PDFKitVisionAdapter:
             config=self.config,
             capabilities=AdapterCapabilities(
                 format_ids=("pdf",),
-                structural_unit_types=("page", "page_region", "paragraph", "table_cell"),
+                structural_unit_types=(
+                    "page",
+                    "page_region",
+                    "paragraph",
+                    "table_cell",
+                ),
                 execution_mode="jsonl_subprocess",
                 preserves_reading_order=False,
                 supports_geometry=True,
@@ -180,7 +185,9 @@ class PDFKitVisionAdapter:
         def convert_issue(raw: dict) -> ExtractionIssue:
             code = raw.get("code", "extraction_warning")
             message = raw.get("message", "The PDF fallback reported an issue.")
-            severity = raw.get("severity", "info" if code == "unit_split" else "warning")
+            severity = raw.get(
+                "severity", "info" if code == "unit_split" else "warning"
+            )
             details = {
                 key: value
                 for key, value in raw.items()

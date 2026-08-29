@@ -288,7 +288,10 @@ class SectionSkillService:
 
     @staticmethod
     def _validate_section_id(section_id: str) -> str:
-        if not isinstance(section_id, str) or SECTION_ID_RE.fullmatch(section_id) is None:
+        if (
+            not isinstance(section_id, str)
+            or SECTION_ID_RE.fullmatch(section_id) is None
+        ):
             raise SectionSkillValidationError(
                 "Section Skill section id must use lowercase hyphen-case"
             )
@@ -347,7 +350,9 @@ class SectionSkillService:
                 or opened.st_ino != before.st_ino
                 or not stat.S_ISREG(opened.st_mode)
             ):
-                raise UnsafeStorageError("Sense Section Skill changed while it was opened")
+                raise UnsafeStorageError(
+                    "Sense Section Skill changed while it was opened"
+                )
             chunks: list[bytes] = []
             remaining = SECTION_SKILL_MAX_BYTES + 1
             while remaining > 0:
@@ -426,7 +431,9 @@ class SectionSkillService:
                 "Section Skill write requires explicit confirmation"
             )
         if not isinstance(expected_version, str) or not expected_version:
-            raise SectionSkillValidationError("expected Section Skill version is required")
+            raise SectionSkillValidationError(
+                "expected Section Skill version is required"
+            )
         content = _read_source_skill(skill_file, data_root=self.data_root)
 
         return self._set_content(
@@ -451,7 +458,9 @@ class SectionSkillService:
                 "Section Skill write requires explicit confirmation"
             )
         if not isinstance(expected_version, str) or not expected_version:
-            raise SectionSkillValidationError("expected Section Skill version is required")
+            raise SectionSkillValidationError(
+                "expected Section Skill version is required"
+            )
         content = _serialize_skill(
             name=name,
             description=description,

@@ -42,7 +42,10 @@ class CLILauncherTest(unittest.TestCase):
     def test_runtime_environment_cannot_overlap_a_work_folder(self) -> None:
         project = Path(__file__).resolve().parents[1]
         for launcher_name in ("corpus", "corpus-mcp"):
-            with self.subTest(launcher=launcher_name), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(launcher=launcher_name),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 base = Path(temporary)
                 isolated = base / "plugin"
                 (isolated / "launchers").mkdir(parents=True)
@@ -58,7 +61,9 @@ class CLILauncherTest(unittest.TestCase):
 
                 uv_marker = base / "uv-ran"
                 fake_uv = base / "uv"
-                fake_uv.write_text('#!/bin/sh\n: > "$UV_MARKER"\nexit 0\n', encoding="utf-8")
+                fake_uv.write_text(
+                    '#!/bin/sh\n: > "$UV_MARKER"\nexit 0\n', encoding="utf-8"
+                )
                 fake_uv.chmod(0o700)
                 environment = {
                     **os.environ,

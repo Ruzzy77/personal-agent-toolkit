@@ -118,7 +118,10 @@ def _preflight_zip(path: Path) -> None:
             if len(members) > MAX_ARCHIVE_MEMBERS:
                 raise ExtractionError(
                     "archive has too many members",
-                    details={"member_count": len(members), "limit": MAX_ARCHIVE_MEMBERS},
+                    details={
+                        "member_count": len(members),
+                        "limit": MAX_ARCHIVE_MEMBERS,
+                    },
                 )
             expanded = sum(member.file_size for member in members)
             if expanded > MAX_ARCHIVE_EXPANDED_BYTES:
@@ -130,7 +133,9 @@ def _preflight_zip(path: Path) -> None:
                     },
                 )
     except zipfile.BadZipFile as exc:
-        raise ExtractionError("invalid ZIP-based document", details={"error": str(exc)}) from exc
+        raise ExtractionError(
+            "invalid ZIP-based document", details={"error": str(exc)}
+        ) from exc
 
 
 def _safe_archive_xml_root(
@@ -373,7 +378,8 @@ def extract_hwpx(path: Path) -> ExtractionResult:
             section_names = sorted(
                 name
                 for name in archive.namelist()
-                if name.lower().startswith("contents/section") and name.lower().endswith(".xml")
+                if name.lower().startswith("contents/section")
+                and name.lower().endswith(".xml")
             )
             if not section_names:
                 issues.append(
@@ -447,7 +453,9 @@ def extract_pdf(path: Path) -> ExtractionResult:
     except ExtractionError:
         raise
     except Exception as exc:
-        raise ExtractionError("could not extract PDF", details={"error": str(exc)}) from exc
+        raise ExtractionError(
+            "could not extract PDF", details={"error": str(exc)}
+        ) from exc
     return _finish(units, issues, preserve_empty=True)
 
 
@@ -496,7 +504,9 @@ def extract_docx(path: Path) -> ExtractionResult:
                     )
                 )
     except Exception as exc:
-        raise ExtractionError("could not extract DOCX", details={"error": str(exc)}) from exc
+        raise ExtractionError(
+            "could not extract DOCX", details={"error": str(exc)}
+        ) from exc
     return _finish(units)
 
 
@@ -531,9 +541,13 @@ def extract_pptx(path: Path) -> ExtractionResult:
             except (AttributeError, ValueError):
                 notes_text = ""
             if notes_text:
-                units.append(UnitDraft("speaker_notes", {"slide": slide_index}, notes_text))
+                units.append(
+                    UnitDraft("speaker_notes", {"slide": slide_index}, notes_text)
+                )
     except Exception as exc:
-        raise ExtractionError("could not extract PPTX", details={"error": str(exc)}) from exc
+        raise ExtractionError(
+            "could not extract PPTX", details={"error": str(exc)}
+        ) from exc
     return _finish(units)
 
 
@@ -612,7 +626,9 @@ def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
                 package.open(member) as source_member,
                 normalized.open(member, "w", force_zip64=True) as destination_member,
             ):
-                shutil.copyfileobj(source_member, destination_member, length=1024 * 1024)
+                shutil.copyfileobj(
+                    source_member, destination_member, length=1024 * 1024
+                )
     return removed
 
 
@@ -708,7 +724,9 @@ def extract_xlsx(path: Path) -> ExtractionResult:
             workbook = None
             package = None
     except Exception as exc:
-        raise ExtractionError("could not extract XLSX", details={"error": str(exc)}) from exc
+        raise ExtractionError(
+            "could not extract XLSX", details={"error": str(exc)}
+        ) from exc
     finally:
         if workbook is not None:
             workbook.close()
@@ -734,5 +752,7 @@ EXTRACTORS = {
 def extract(path: Path, adapter: str) -> ExtractionResult:
     extractor = EXTRACTORS.get(adapter)
     if extractor is None:
-        raise ExtractionError("no extractor is registered", details={"adapter": adapter})
+        raise ExtractionError(
+            "no extractor is registered", details={"adapter": adapter}
+        )
     return extractor(path)

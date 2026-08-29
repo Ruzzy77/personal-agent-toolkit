@@ -278,9 +278,7 @@ def test_section_skill_uses_index_then_section_disclosure(tmp_path: Path) -> Non
 
     index = service.read(view="index", audience="external_mcp")
     indexed = next(
-        item
-        for item in index["sections"]
-        if item["id"] == "conversation-and-writing"
+        item for item in index["sections"] if item["id"] == "conversation-and-writing"
     )["skill"]
     assert indexed["name"] == "korean-writing"
     assert indexed["provenance"] == "user_approved_sense_skill"
@@ -394,7 +392,9 @@ def test_mcp_exposes_read_and_version_checked_updates(tmp_path: Path) -> None:
     ).structured_content
     assert revised["ok"] is True
     assert revised["result"]["changed"] is True
-    assert revised["result"]["skill"]["instructions"].startswith("Rewrite the structure")
+    assert revised["result"]["skill"]["instructions"].startswith(
+        "Rewrite the structure"
+    )
     assert "storage_path" not in revised["result"]["skill"]
 
     replay = asyncio.run(

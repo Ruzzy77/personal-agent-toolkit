@@ -110,8 +110,6 @@ def _read_keychain_secret(
     return secret
 
 
-
-
 def _gateway_profile_command(product: str, *, tunnel_client: Path) -> list[str]:
     return [
         str(tunnel_client),
@@ -126,7 +124,9 @@ def _resolve_uv_program(path: Path | None = None) -> Path:
     if candidate is None:
         discovered = shutil.which("uv")
         if discovered is None:
-            raise TunnelServiceError("uv is required to install the gateway LaunchAgent")
+            raise TunnelServiceError(
+                "uv is required to install the gateway LaunchAgent"
+            )
         candidate = Path(discovered)
     if not candidate.is_absolute():
         raise TunnelServiceError("uv program must be an absolute path")
@@ -137,7 +137,9 @@ def _resolve_uv_program(path: Path | None = None) -> Path:
         raise TunnelServiceError("uv program is unavailable") from exc
     if stat.S_ISLNK(metadata.st_mode):
         if metadata.st_uid != os.geteuid():
-            raise TunnelServiceError("uv program symlink must be owned by the current user")
+            raise TunnelServiceError(
+                "uv program symlink must be owned by the current user"
+            )
         _owned_regular_file(
             canonical,
             executable=True,
@@ -175,9 +177,7 @@ def _product_backend_url(product: str, *, host: str) -> str:
 def _product_mcp_ready(*, product: str, host: str) -> bool:
     request = urllib.request.Request(
         _product_backend_url(product, host=host),
-        data=(
-            b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-        ),
+        data=(b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'),
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -270,7 +270,9 @@ def run_gateway_bundle(
             description=f"{product} gateway tunnel profile",
         )
         if stat.S_IMODE(profile.stat().st_mode) != 0o600:
-            raise TunnelServiceError(f"{product} gateway tunnel profile must use mode 0600")
+            raise TunnelServiceError(
+                f"{product} gateway tunnel profile must use mode 0600"
+            )
 
     children: list[subprocess.Popen[bytes]] = []
     try:
@@ -294,14 +296,19 @@ def run_gateway_bundle(
                 if stop_requested():
                     return 0
                 if time.monotonic() >= deadline:
-                    raise TunnelServiceError(f"{product} installed MCP did not become ready")
+                    raise TunnelServiceError(
+                        f"{product} installed MCP did not become ready"
+                    )
                 time.sleep(0.1)
 
         gateway_argv = [str(gateway), "--host", loopback, "--port", str(port)]
         for product in selected:
             gateway_argv.extend(("--product", product))
             gateway_argv.extend(
-                ("--backend", f"{product}={_product_backend_url(product, host=loopback)}")
+                (
+                    "--backend",
+                    f"{product}={_product_backend_url(product, host=loopback)}",
+                )
             )
         gateway_environment = {
             key: value
@@ -369,8 +376,6 @@ def _absolute_owned_directory(
         qualifier = "private " if require_private else "non-writable "
         raise TunnelServiceError(f"{description} must be an owned {qualifier}directory")
     return expanded
-
-
 
 
 def gateway_launch_agent_payload(
@@ -456,7 +461,9 @@ def gateway_launch_agent_payload(
 
 
 def _write_launch_agent(target: Path, payload: dict[str, object]) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", dir=target.parent
+    )
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
@@ -468,8 +475,6 @@ def _write_launch_agent(target: Path, payload: dict[str, object]) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
-
-
 
 
 def install_gateway_launch_agent(
@@ -535,7 +540,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--keychain-account", default=DEFAULT_KEYCHAIN_ACCOUNT)
     run_parser.add_argument("--host", default=DEFAULT_HOST)
     run_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    run_parser.add_argument("--product", action="append", choices=PRODUCTS, dest="products")
+    run_parser.add_argument(
+        "--product", action="append", choices=PRODUCTS, dest="products"
+    )
     run_parser.add_argument(
         "--product-root",
         action="append",
@@ -544,7 +551,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     install_parser = subparsers.add_parser("install-gateway-launch-agent")
-    install_parser.add_argument("--runtime-program", type=Path, default=Path(sys.argv[0]))
+    install_parser.add_argument(
+        "--runtime-program", type=Path, default=Path(sys.argv[0])
+    )
     install_parser.add_argument(
         "--gateway-program",
         type=Path,
@@ -566,7 +575,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     install_parser.add_argument("--host", default=DEFAULT_HOST)
     install_parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     install_parser.add_argument("--uv-program", type=Path)
-    install_parser.add_argument("--product", action="append", choices=PRODUCTS, dest="products")
+    install_parser.add_argument(
+        "--product", action="append", choices=PRODUCTS, dest="products"
+    )
     install_parser.add_argument(
         "--product-root",
         action="append",

@@ -16,14 +16,12 @@ _DIRECTORY_FLAGS = (
     | getattr(os, "O_DIRECTORY", 0)
     | getattr(os, "O_NOFOLLOW", 0)
 )
-_SOURCE_FLAGS = (
-    os.O_RDONLY
-    | getattr(os, "O_CLOEXEC", 0)
-    | getattr(os, "O_NOFOLLOW", 0)
-)
+_SOURCE_FLAGS = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
 
 
-def _source_error(message: str, *, relative_path: str, reason: str) -> SourceBoundaryError:
+def _source_error(
+    message: str, *, relative_path: str, reason: str
+) -> SourceBoundaryError:
     return SourceBoundaryError(
         message,
         details={"relative_path": relative_path, "reason": reason},

@@ -15,7 +15,9 @@ class FormatSpec:
 
 FORMAT_SPECS = {
     "md": FormatSpec("md", "text/markdown", "markdown", ("heading", "paragraph")),
-    "markdown": FormatSpec("markdown", "text/markdown", "markdown", ("heading", "paragraph")),
+    "markdown": FormatSpec(
+        "markdown", "text/markdown", "markdown", ("heading", "paragraph")
+    ),
     "txt": FormatSpec("txt", "text/plain", "text", ("paragraph",)),
     "html": FormatSpec("html", "text/html", "html", ("heading", "paragraph", "table")),
     "htm": FormatSpec("htm", "text/html", "html", ("heading", "paragraph", "table")),

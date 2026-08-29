@@ -144,7 +144,7 @@ def _normalize_timestamp_filter(value: str | None, *, field: str) -> str | None:
         return None
     normalized = _require_string(value, field=field, maximum=100)
     try:
-        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise ContextValidationError(
             f"{field} must be an ISO 8601 timestamp with a timezone"
@@ -197,11 +197,13 @@ def _require_session_identifier(
         field=field,
         maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
     )
-    if any(
-        character in {"/", "\\"} or ord(character) < 32 or ord(character) == 127
-        for character in normalized
-    ) or normalized.casefold().startswith("file:") or _WINDOWS_DRIVE_PATH_RE.match(
-        normalized
+    if (
+        any(
+            character in {"/", "\\"} or ord(character) < 32 or ord(character) == 127
+            for character in normalized
+        )
+        or normalized.casefold().startswith("file:")
+        or _WINDOWS_DRIVE_PATH_RE.match(normalized)
     ):
         raise ContextValidationError(
             "session source identifier contains a path separator or control character",
@@ -487,10 +489,7 @@ class ContextService:
         *,
         provider_kind: str,
     ) -> dict[str, Any]:
-        if (
-            not isinstance(value, dict)
-            or set(value) != _SESSION_EXTERNAL_RECORD_KEYS
-        ):
+        if not isinstance(value, dict) or set(value) != _SESSION_EXTERNAL_RECORD_KEYS:
             raise ContextValidationError(
                 "session source record fields are invalid",
                 details={"required": sorted(_SESSION_EXTERNAL_RECORD_KEYS)},
@@ -665,14 +664,16 @@ class ContextService:
             maximum_items=CONTEXT_MAX_LABEL_IDS,
         )
         raw_attachments = value.get("attachments", [])
-        if not isinstance(raw_attachments, list) or len(raw_attachments) > CONTEXT_MAX_ATTACHMENTS:
+        if (
+            not isinstance(raw_attachments, list)
+            or len(raw_attachments) > CONTEXT_MAX_ATTACHMENTS
+        ):
             raise ContextValidationError(
                 "external source attachments are invalid",
                 details={"maximum_items": CONTEXT_MAX_ATTACHMENTS},
             )
         attachments = [
-            self._normalize_attachment(attachment)
-            for attachment in raw_attachments
+            self._normalize_attachment(attachment) for attachment in raw_attachments
         ]
         legacy_record = {
             "external_id": external_id,
@@ -743,7 +744,9 @@ class ContextService:
                 },
             )
         if not isinstance(payload, dict):
-            raise ContextValidationError("linked source update payload must be an object")
+            raise ContextValidationError(
+                "linked source update payload must be an object"
+            )
         try:
             serialized = encode_json(payload)
         except (TypeError, ValueError) as exc:
@@ -872,7 +875,9 @@ class ContextService:
         )
         complete = payload["complete"]
         if not isinstance(complete, bool):
-            raise ContextValidationError("linked source complete flag must be a boolean")
+            raise ContextValidationError(
+                "linked source complete flag must be a boolean"
+            )
         raw_records = payload["records"]
         if (
             not isinstance(raw_records, list)
@@ -1206,9 +1211,7 @@ class ContextService:
         if audience == "external_mcp":
             self._require_external_visibility([corpus_id])
         normalized_binding = (
-            normalize_source_binding_id(binding_id)
-            if binding_id is not None
-            else None
+            normalize_source_binding_id(binding_id) if binding_id is not None else None
         )
         normalized_occurred_after = _normalize_timestamp_filter(
             occurred_after,
@@ -1326,17 +1329,13 @@ class ContextService:
         if selected_complete_times and all(selected_complete_times):
             observed_through = min(
                 selected_complete_times,
-                key=lambda value: datetime.fromisoformat(
-                    value.replace("Z", "+00:00")
-                ),
+                key=datetime.fromisoformat,
             )
         records = [
             {
                 "source_record_id": row["source_record_id"],
                 "binding_id": row["binding_id"],
-                "provider_kind": binding_by_id[row["binding_id"]][
-                    "provider_kind"
-                ],
+                "provider_kind": binding_by_id[row["binding_id"]]["provider_kind"],
                 "external_id": row["external_id"],
                 "parent_external_id": row["parent_external_id"],
                 "occurred_at": row["occurred_at"],
@@ -1344,9 +1343,7 @@ class ContextService:
                 "participants": json.loads(row["participants_json"]),
                 "label_ids": json.loads(row["label_ids_json"]),
                 "attachments": json.loads(row["attachments_json"]),
-                "provider_metadata": _json_dict(
-                    row["provider_metadata_json"]
-                ),
+                "provider_metadata": _json_dict(row["provider_metadata_json"]),
                 "locator": _json_dict(row["locator_json"]),
                 "freshness_identity": row["freshness_identity"],
                 "freshness_state": "not_checked",
@@ -1469,7 +1466,10 @@ class ContextService:
         if not corpus_ids:
             return False
         policies = policies if policies is not None else self._corpus_policies()
-        return all(policies.get(corpus_id) == "external_host_allowed" for corpus_id in corpus_ids)
+        return all(
+            policies.get(corpus_id) == "external_host_allowed"
+            for corpus_id in corpus_ids
+        )
 
     def _require_external_visibility(self, corpus_ids: list[str]) -> None:
         if not self._visible_to_external_mcp(corpus_ids):
@@ -1575,7 +1575,10 @@ class ContextService:
 
         total_matching = len(visible_rows)
         page = visible_rows[offset : offset + limit]
-        contexts = [self._context_summary(row, corpus_ids=corpus_ids) for row, corpus_ids in page]
+        contexts = [
+            self._context_summary(row, corpus_ids=corpus_ids)
+            for row, corpus_ids in page
+        ]
         next_offset = offset + len(contexts)
         response = {
             "state": state,
@@ -1780,14 +1783,21 @@ class ContextService:
                         normalized_id,
                     )
                     self._require_external_visibility(corpus_ids)
-        if type(expected_version) is not int or not 0 <= expected_version <= (1 << 63) - 1:
-            raise ContextValidationError("context expected_version is outside the supported range")
+        if (
+            type(expected_version) is not int
+            or not 0 <= expected_version <= (1 << 63) - 1
+        ):
+            raise ContextValidationError(
+                "context expected_version is outside the supported range"
+            )
         if not isinstance(payload, dict):
             raise ContextValidationError("context update payload must be an object")
         try:
             payload_bytes = encode_json(payload).encode()
         except (TypeError, ValueError) as exc:
-            raise ContextValidationError("context update payload must be JSON-compatible") from exc
+            raise ContextValidationError(
+                "context update payload must be JSON-compatible"
+            ) from exc
         if len(payload_bytes) > CONTEXT_MAX_UPDATE_BYTES:
             raise BudgetExceededError(
                 "context update payload exceeds the serialized budget",
@@ -1864,7 +1874,9 @@ class ContextService:
             or not 1 <= len(raw_corpus_ids) <= CONTEXT_MAX_CORPORA
             or any(not isinstance(value, str) for value in raw_corpus_ids)
         ):
-            raise ContextValidationError("context corpus_ids must be a non-empty bounded list")
+            raise ContextValidationError(
+                "context corpus_ids must be a non-empty bounded list"
+            )
         corpus_ids = sorted({normalize_corpus_id(value) for value in raw_corpus_ids})
         if len(corpus_ids) != len(raw_corpus_ids):
             raise ContextValidationError("context corpus_ids must be unique")
@@ -1872,7 +1884,9 @@ class ContextService:
         if audience == "external_mcp" and any(
             corpus["execution_policy"] != "external_host_allowed" for corpus in corpora
         ):
-            raise PolicyDeniedError("one or more corpora do not permit MCP context persistence")
+            raise PolicyDeniedError(
+                "one or more corpora do not permit MCP context persistence"
+            )
 
         now = utc_now()
         scope_json = encode_json(scope)
@@ -2056,9 +2070,7 @@ class ContextService:
         ]
         raw_external_sources = value.get("external_sources", [])
         if not isinstance(raw_external_sources, list):
-            raise ContextValidationError(
-                "context item external_sources must be a list"
-            )
+            raise ContextValidationError("context item external_sources must be a list")
         external_sources = [
             self._normalize_external_source(
                 source,
@@ -2066,9 +2078,13 @@ class ContextService:
             )
             for source in raw_external_sources
         ]
-        source_keys = {(source["corpus_id"], source["source_unit_id"]) for source in sources}
+        source_keys = {
+            (source["corpus_id"], source["source_unit_id"]) for source in sources
+        }
         if len(source_keys) != len(sources):
-            raise ContextValidationError("context item source units must be unique within an item")
+            raise ContextValidationError(
+                "context item source units must be unique within an item"
+            )
         external_source_keys = {
             (
                 source["corpus_id"],
@@ -2082,8 +2098,7 @@ class ContextService:
                 "context item external sources must be unique within an item"
             )
         if kind in {"finding", "relationship", "difference"} and not any(
-            source["link_role"] == "direct"
-            for source in [*sources, *external_sources]
+            source["link_role"] == "direct" for source in [*sources, *external_sources]
         ):
             raise ContextValidationError(
                 "source-linked context item requires a direct source",
@@ -2097,7 +2112,9 @@ class ContextService:
                 maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
             )
         elif supersedes_item_id is not None:
-            raise ContextValidationError("append item may not include supersedes_item_id")
+            raise ContextValidationError(
+                "append item may not include supersedes_item_id"
+            )
 
         canonical = {
             "client_ref": client_ref,
@@ -2226,7 +2243,9 @@ class ContextService:
             if action == "supersede":
                 target_ids = [item["supersedes_item_id"] for item in items]
                 if len(set(target_ids)) != len(target_ids):
-                    raise ContextValidationError("supersede targets must be unique per update")
+                    raise ContextValidationError(
+                        "supersede targets must be unique per update"
+                    )
                 target_placeholders = ",".join("?" for _ in target_ids)
                 target_rows = connection.execute(
                     f"""
@@ -2236,7 +2255,9 @@ class ContextService:
                         """,
                     (context_id, *target_ids),
                 ).fetchall()
-                targets = {row["item_id"]: row["lifecycle_state"] for row in target_rows}
+                targets = {
+                    row["item_id"]: row["lifecycle_state"] for row in target_rows
+                }
                 if any(targets.get(target_id) != "active" for target_id in target_ids):
                     raise ContextConflictError(
                         "supersede target is missing or no longer active",
@@ -2284,9 +2305,7 @@ class ContextService:
                             },
                         )
                     external_observations.append(observation)
-                observed_sources.append(
-                    (item_observations, external_observations)
-                )
+                observed_sources.append((item_observations, external_observations))
 
             now = utc_now()
             inserted = []
@@ -2676,7 +2695,9 @@ class ContextService:
             source_anchor = json.loads(row["source_anchor_json"])
         except (TypeError, json.JSONDecodeError):
             source_anchor = {}
-        source_span = source_anchor.get("source_span") if isinstance(source_anchor, dict) else {}
+        source_span = (
+            source_anchor.get("source_span") if isinstance(source_anchor, dict) else {}
+        )
         if not isinstance(source_span, dict):
             source_span = {}
         return {

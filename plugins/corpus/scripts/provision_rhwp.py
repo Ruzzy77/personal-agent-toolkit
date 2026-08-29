@@ -47,7 +47,9 @@ def platform_key() -> str:
         return "linux-x86_64"
     if system == "windows" and machine in {"x86_64", "amd64"}:
         return "windows-x86_64"
-    raise SystemExit(f"Unsupported rhwp platform: {platform.system()} {platform.machine()}")
+    raise SystemExit(
+        f"Unsupported rhwp platform: {platform.system()} {platform.machine()}"
+    )
 
 
 def cache_root() -> Path:
@@ -73,7 +75,9 @@ def archive_member(archive: Path, member_name: str, destination: Path) -> None:
             member = package.getmember(member_name)
             source = package.extractfile(member)
             if source is None or not member.isfile():
-                raise SystemExit(f"Expected executable missing from archive: {member_name}")
+                raise SystemExit(
+                    f"Expected executable missing from archive: {member_name}"
+                )
             with source, destination.open("wb") as target:
                 shutil.copyfileobj(source, target)
 
@@ -104,7 +108,10 @@ def main() -> None:
         archive_member(archive, executable_member, staged_executable)
         archive_member(archive, "rhwp/LICENSE", staged_license)
         staged_executable.chmod(
-            staged_executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            staged_executable.stat().st_mode
+            | stat.S_IXUSR
+            | stat.S_IXGRP
+            | stat.S_IXOTH
         )
         destination_dir.mkdir(parents=True, exist_ok=True)
         os.replace(staged_executable, destination)

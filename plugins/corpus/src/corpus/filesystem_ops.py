@@ -41,7 +41,9 @@ _NAMESPACE_BLOCKING_FLAGS = (
 _POSIX_ACL_XATTRS = {"system.posix_acl_access", "system.posix_acl_default"}
 
 
-def _metadata_error(error: int, message: str, *, reason: str) -> FileMetadataPreservationError:
+def _metadata_error(
+    error: int, message: str, *, reason: str
+) -> FileMetadataPreservationError:
     return FileMetadataPreservationError(error, message, reason=reason)
 
 
@@ -211,15 +213,23 @@ def copy_file_metadata(
         if sys.platform == "darwin" and before.acl is not None:
             libc = _darwin_libc()
             fcopyfile = libc.fcopyfile
-            fcopyfile.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            fcopyfile.argtypes = [
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+            ]
             fcopyfile.restype = ctypes.c_int
             ctypes.set_errno(0)
-            if fcopyfile(
-                source_descriptor,
-                destination_descriptor,
-                None,
-                _DARWIN_COPYFILE_ACL,
-            ) != 0:
+            if (
+                fcopyfile(
+                    source_descriptor,
+                    destination_descriptor,
+                    None,
+                    _DARWIN_COPYFILE_ACL,
+                )
+                != 0
+            ):
                 raise _metadata_error(
                     ctypes.get_errno() or errno.EIO,
                     "file ACL could not be copied",
@@ -227,7 +237,9 @@ def copy_file_metadata(
                 )
         target_acl_names = {name for name, _value in before.posix_acl_xattrs}
         if sys.platform.startswith("linux"):
-            inherited_acl_names = set(os.listxattr(destination_descriptor)) & _POSIX_ACL_XATTRS
+            inherited_acl_names = (
+                set(os.listxattr(destination_descriptor)) & _POSIX_ACL_XATTRS
+            )
             for name in inherited_acl_names - target_acl_names:
                 os.removexattr(destination_descriptor, name)
         for name, value in before.posix_acl_xattrs:

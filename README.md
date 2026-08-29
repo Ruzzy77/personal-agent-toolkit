@@ -190,6 +190,15 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 
+## 개발 검사
+
+Python 소스, 스크립트와 테스트는 루트 [`ruff.toml`](./ruff.toml)의 형식을 따릅니다. 변경한 뒤 다음 검사를 실행합니다.
+
+```sh
+uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes gateway
+uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes gateway
+```
+
 ## License
 
 [Apache License 2.0](./LICENSE). Runtime dependency는 각 라이선스를 따릅니다. [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 함께 보십시오.

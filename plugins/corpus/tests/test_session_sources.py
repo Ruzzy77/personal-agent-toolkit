@@ -15,8 +15,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(
-            json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-            + "\n"
+            json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
             for record in records
         ),
         encoding="utf-8",
@@ -130,9 +129,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         base = Path(self.temporary.name)
-        self.completed_at = datetime.now(UTC).replace(
-            microsecond=0
-        ) - timedelta(days=1)
+        self.completed_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
         self.data = base / "private-data"
         self.source = base / "source"
         self.codex_root = base / "codex-sessions"
@@ -145,9 +142,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
             / self.completed_at.strftime("%m")
             / "rollout-codex-session-1.jsonl"
         )
-        self.claude_file = (
-            self.claude_root / "project" / "claude-session-1.jsonl"
-        )
+        self.claude_file = self.claude_root / "project" / "claude-session-1.jsonl"
         _write_jsonl(
             self.codex_file,
             _codex_records(completed_at=self.completed_at),
@@ -271,8 +266,9 @@ class SessionLinkedSourceTest(unittest.TestCase):
                 unsafe["locator"]["session_id"] = canary
             else:
                 unsafe["locator"]["relative_path"] = canary
-            with self.subTest(field=field, canary=canary), self.assertRaises(
-                ContextValidationError
+            with (
+                self.subTest(field=field, canary=canary),
+                self.assertRaises(ContextValidationError),
             ):
                 self.service.corpus_source_update(
                     action="observe",
@@ -283,7 +279,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
                         "records": [unsafe],
                         "complete": True,
                     },
-                        )
+                )
 
         with self.assertRaises(ContextValidationError):
             self.service.corpus_source_update(
@@ -295,7 +291,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
                     "records": [],
                     "complete": False,
                 },
-                )
+            )
 
         database_bytes = (self.data / "contexts.sqlite3").read_bytes()
         self.assertNotIn(b"private-user", database_bytes)
@@ -532,9 +528,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
         )
         refreshed = self.service.context_read(context_id="project-experience")
         self.assertEqual(
-            refreshed["items"][0]["external_sources"][0][
-                "dependency_state"
-            ],
+            refreshed["items"][0]["external_sources"][0]["dependency_state"],
             "source_changed",
         )
 

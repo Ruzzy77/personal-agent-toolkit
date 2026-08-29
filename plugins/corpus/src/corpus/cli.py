@@ -700,12 +700,20 @@ def execute(args: argparse.Namespace) -> dict | list:
             )
         if args.corpus_command == "scope":
             if args.clear and (args.exclude_directory_name or args.exclude_path_prefix):
-                raise ContextValidationError("--clear cannot be combined with exclusion values")
-            if not args.clear and not (args.exclude_directory_name or args.exclude_path_prefix):
-                raise ContextValidationError("source scope requires an exclusion value or --clear")
+                raise ContextValidationError(
+                    "--clear cannot be combined with exclusion values"
+                )
+            if not args.clear and not (
+                args.exclude_directory_name or args.exclude_path_prefix
+            ):
+                raise ContextValidationError(
+                    "source scope requires an exclusion value or --clear"
+                )
             return service.configure_source_scope(
                 corpus_id=args.corpus_id,
-                exclude_directory_names=([] if args.clear else args.exclude_directory_name),
+                exclude_directory_names=(
+                    [] if args.clear else args.exclude_directory_name
+                ),
                 exclude_path_prefixes=([] if args.clear else args.exclude_path_prefix),
             )
         if args.corpus_command == "rebind-root":
@@ -957,7 +965,9 @@ def execute(args: argparse.Namespace) -> dict | list:
                     expected_version=args.expected_version,
                     confirm_context_skill_remove=args.confirm_context_skill_remove,
                 )
-            raise AssertionError(f"unhandled context skill command: {args.context_skill_command}")
+            raise AssertionError(
+                f"unhandled context skill command: {args.context_skill_command}"
+            )
         raise AssertionError(f"unhandled context command: {args.context_command}")
     raise AssertionError(f"unhandled command: {args.command}")
 

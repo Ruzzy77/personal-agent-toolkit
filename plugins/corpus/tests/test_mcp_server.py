@@ -38,7 +38,9 @@ class MCPServerTest(unittest.TestCase):
                 "corpus_file_restore",
             },
         )
-        self.assertTrue(all(tool.output_schema.get("type") == "object" for tool in tools.values()))
+        self.assertTrue(
+            all(tool.output_schema.get("type") == "object" for tool in tools.values())
+        )
         self.assertTrue(response["ok"])
         self.assertEqual(response["result"]["spaces"], [])
         self.assertEqual(json.loads(content[0].text), response)
@@ -72,7 +74,7 @@ class MCPServerTest(unittest.TestCase):
                     "scope": {},
                     "corpus_ids": ["source"],
                 },
-                )
+            )
             service.workspace_connect(
                 workspace_id="thesis",
                 context_id="thesis",

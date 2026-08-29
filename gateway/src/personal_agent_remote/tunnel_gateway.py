@@ -49,7 +49,9 @@ def _validate_backend_url(value: str, *, product: str) -> str:
     try:
         port = parsed.port
     except ValueError as exc:
-        raise TunnelGatewayError(f"{product} backend URL contains an invalid port") from exc
+        raise TunnelGatewayError(
+            f"{product} backend URL contains an invalid port"
+        ) from exc
     if (
         parsed.scheme != "http"
         or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
@@ -128,7 +130,12 @@ def _proxy_headers(request: Request) -> list[tuple[str, str]]:
 
 
 def _proxy_response_headers(response: httpx.Response) -> dict[str, str]:
-    allowed = {"content-type", "mcp-protocol-version", "mcp-session-id", "cache-control"}
+    allowed = {
+        "content-type",
+        "mcp-protocol-version",
+        "mcp-session-id",
+        "cache-control",
+    }
     return {
         name: value
         for name, value in response.headers.items()
@@ -248,7 +255,9 @@ def _parse_backends(values: list[str]) -> tuple[tuple[str, str], ...]:
                 "backends must use unique product=http://loopback:port/mcp"
             )
         parsed[product] = url
-    return tuple((product, parsed[product]) for product in PRODUCTS if product in parsed)
+    return tuple(
+        (product, parsed[product]) for product in PRODUCTS if product in parsed
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -290,7 +290,9 @@ def _extract(request: dict) -> dict:
             ):
                 total_records += 1
                 if total_records > max_total_records:
-                    raise HWPAdapterError("HWP records exceed their aggregate count budget")
+                    raise HWPAdapterError(
+                        "HWP records exceed their aggregate count budget"
+                    )
                 if tag_id == PARA_HEADER:
                     total_paragraph_headers += 1
                 elif tag_id == LIST_HEADER:
@@ -307,12 +309,16 @@ def _extract(request: dict) -> dict:
                         total_empty_paragraphs += 1
                         continue
                     if len(text) > max_unit_content_chars:
-                        raise HWPAdapterError("HWP paragraph exceeds its content budget")
+                        raise HWPAdapterError(
+                            "HWP paragraph exceeds its content budget"
+                        )
                     if len(units) >= max_units:
                         raise HWPAdapterError("HWP unit count exceeds its budget")
                     total_content_chars += len(text)
                     if total_content_chars > max_total_content_chars:
-                        raise HWPAdapterError("HWP content exceeds its aggregate character budget")
+                        raise HWPAdapterError(
+                            "HWP content exceeds its aggregate character budget"
+                        )
                     units.append(
                         {
                             "unit_type": "section_paragraph",

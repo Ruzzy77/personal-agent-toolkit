@@ -6,12 +6,11 @@ import json
 import os
 import stat
 import subprocess
+import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 PRODUCTS = ("sense", "corpus", "hypes")
 MCP_LAUNCHERS = {product: f"launchers/{product}-mcp" for product in PRODUCTS}
@@ -48,9 +47,13 @@ def _load_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise InstalledProductError(f"installed product metadata is unreadable: {path}") from exc
+        raise InstalledProductError(
+            f"installed product metadata is unreadable: {path}"
+        ) from exc
     if not isinstance(value, dict):
-        raise InstalledProductError(f"installed product metadata must be an object: {path}")
+        raise InstalledProductError(
+            f"installed product metadata must be an object: {path}"
+        )
     return value
 
 
@@ -66,7 +69,9 @@ def _trusted_path(path: Path, *, kind: str, executable: bool = False) -> Path:
     if canonical != expanded or stat.S_ISLNK(metadata.st_mode):
         raise InstalledProductError(f"{kind} must not use symbolic links")
     if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
-        raise InstalledProductError(f"{kind} must be owned and not group/other writable")
+        raise InstalledProductError(
+            f"{kind} must be owned and not group/other writable"
+        )
     if kind.endswith("root"):
         if not stat.S_ISDIR(metadata.st_mode):
             raise InstalledProductError(f"{kind} must be a directory")
@@ -92,19 +97,28 @@ def installation_from_root(
     plugin_version = manifest.get("version")
     if not isinstance(plugin_version, str) or not plugin_version:
         raise InstalledProductError(f"{normalized} plugin version is missing")
-    if expected_plugin_version is not None and plugin_version != expected_plugin_version:
-        raise InstalledProductError(f"{normalized} installed version changed during discovery")
+    if (
+        expected_plugin_version is not None
+        and plugin_version != expected_plugin_version
+    ):
+        raise InstalledProductError(
+            f"{normalized} installed version changed during discovery"
+        )
 
     project_path = canonical_root / "pyproject.toml"
     try:
         project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
     except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
-        raise InstalledProductError(f"{normalized} package metadata is unreadable") from exc
+        raise InstalledProductError(
+            f"{normalized} package metadata is unreadable"
+        ) from exc
     base_version = project.get("version")
     if project.get("name") != normalized or not isinstance(base_version, str):
         raise InstalledProductError(f"{normalized} package identity is invalid")
     if plugin_version.split("+", 1)[0] != base_version:
-        raise InstalledProductError(f"{normalized} plugin and package versions do not match")
+        raise InstalledProductError(
+            f"{normalized} plugin and package versions do not match"
+        )
 
     launcher = _trusted_path(
         canonical_root / MCP_LAUNCHERS[normalized],
@@ -175,15 +189,20 @@ def discover_codex_installations(
             or not isinstance(source.get("path"), str)
             or not isinstance(version, str)
         ):
-            raise InstalledProductError(f"{product} installed source is not a local package")
+            raise InstalledProductError(
+                f"{product} installed source is not a local package"
+            )
         if product in candidates:
-            raise InstalledProductError(f"multiple enabled {product} installations were found")
+            raise InstalledProductError(
+                f"multiple enabled {product} installations were found"
+            )
         candidates[product] = (Path(source["path"]), version)
 
     missing = [product for product in selected if product not in candidates]
     if missing:
         raise InstalledProductError(
-            "selected products are not installed and enabled in Codex: " + ", ".join(missing)
+            "selected products are not installed and enabled in Codex: "
+            + ", ".join(missing)
         )
     return {
         product: installation_from_root(

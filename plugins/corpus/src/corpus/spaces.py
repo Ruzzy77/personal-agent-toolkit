@@ -33,7 +33,9 @@ def encode_space_reference(kind: str, payload: dict[str, Any]) -> str:
     if kind not in {"read", "cursor"}:
         raise SpaceValidationError("unsupported Space reference kind")
     canonical = {"version": 1, **payload}
-    encoded = base64.urlsafe_b64encode(encode_json(canonical).encode()).decode().rstrip("=")
+    encoded = (
+        base64.urlsafe_b64encode(encode_json(canonical).encode()).decode().rstrip("=")
+    )
     reference = f"{kind}1.{encoded}"
     if len(reference) > SPACE_REFERENCE_MAX_CHARS:
         raise BudgetExceededError("Space reference exceeds the serialized budget")
@@ -84,7 +86,11 @@ def _validate_audience(audience: str) -> None:
 
 
 def _validate_page(limit: int, offset: int) -> None:
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= SPACE_MAX_LIMIT:
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= SPACE_MAX_LIMIT
+    ):
         raise SpaceValidationError(
             "space limit is outside the supported range",
             details={"limit": limit, "maximum": SPACE_MAX_LIMIT},
@@ -103,7 +109,11 @@ def _validate_page(limit: int, offset: int) -> None:
 def _access_scope(execution_policy: str) -> str:
     # The v1 registries use execution_policy.  The canonical Space contract does
     # not expose that storage vocabulary.
-    return "remote_allowed" if execution_policy == "external_host_allowed" else "local_only"
+    return (
+        "remote_allowed"
+        if execution_policy == "external_host_allowed"
+        else "local_only"
+    )
 
 
 def _canonical_root(value: str) -> Path:
@@ -223,7 +233,9 @@ class SpaceService:
         audience: str,
     ) -> dict[str, Any] | None:
         scopes = set(group["access_scopes"])
-        access_scope = "remote_allowed" if scopes == {"remote_allowed"} else "local_only"
+        access_scope = (
+            "remote_allowed" if scopes == {"remote_allowed"} else "local_only"
+        )
         if audience == "external_mcp" and access_scope != "remote_allowed":
             return None
 
@@ -264,9 +276,13 @@ class SpaceService:
             "current_file": current_file,
             "generation": generation,
             "write_state": (
-                "unknown" if work_folder is not None and connection_state == "connected" else None
+                "unknown"
+                if work_folder is not None and connection_state == "connected"
+                else None
             ),
-            "configuration_state": ("ready" if len(scopes) == 1 else "access_scope_conflict"),
+            "configuration_state": (
+                "ready" if len(scopes) == 1 else "access_scope_conflict"
+            ),
             "_workspace_id": (
                 work_folder["workspace_id"] if work_folder is not None else None
             ),
@@ -294,7 +310,8 @@ class SpaceService:
     @staticmethod
     def _context_access_scope(connections: list[dict[str, Any]]) -> str:
         remote_work = any(
-            "work" in connection["roles"] and connection["access_scope"] == "remote_allowed"
+            "work" in connection["roles"]
+            and connection["access_scope"] == "remote_allowed"
             for connection in connections
         )
         if remote_work:
@@ -303,7 +320,8 @@ class SpaceService:
             connection for connection in connections if "source" in connection["roles"]
         ]
         if source_connections and all(
-            connection["access_scope"] == "remote_allowed" for connection in source_connections
+            connection["access_scope"] == "remote_allowed"
+            for connection in source_connections
         ):
             return "remote_allowed"
         return "local_only"
@@ -322,7 +340,8 @@ class SpaceService:
         all_connections = [
             projected
             for group in groups
-            if (projected := self._project_connection(group, audience="local_cli")) is not None
+            if (projected := self._project_connection(group, audience="local_cli"))
+            is not None
         ]
         context_access_scope = (
             self._context_access_scope(all_connections) if context is not None else None
@@ -330,14 +349,21 @@ class SpaceService:
         visible_connections = [
             projected
             for group in groups
-            if (projected := self._project_connection(group, audience=audience)) is not None
+            if (projected := self._project_connection(group, audience=audience))
+            is not None
         ]
-        remote_visible = bool(visible_connections) or context_access_scope == "remote_allowed"
+        remote_visible = (
+            bool(visible_connections) or context_access_scope == "remote_allowed"
+        )
         if audience == "external_mcp" and not remote_visible:
             return None
 
         primary_work = next(
-            (connection for connection in visible_connections if "work" in connection["roles"]),
+            (
+                connection
+                for connection in visible_connections
+                if "work" in connection["roles"]
+            ),
             None,
         )
         result: dict[str, Any] = {
@@ -377,7 +403,9 @@ class SpaceService:
             "primary_work_connection_id": (
                 primary_work["connection_id"] if primary_work is not None else None
             ),
-            "current_file": (primary_work["current_file"] if primary_work is not None else None),
+            "current_file": (
+                primary_work["current_file"] if primary_work is not None else None
+            ),
         }
         return result
 
@@ -444,7 +472,9 @@ class SpaceService:
 
     @staticmethod
     def _public_connection(connection: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in connection.items() if not key.startswith("_")}
+        return {
+            key: value for key, value in connection.items() if not key.startswith("_")
+        }
 
     @classmethod
     def _public_space(cls, space: dict[str, Any]) -> dict[str, Any]:
@@ -501,7 +531,9 @@ class SpaceService:
                 "a Connection must be selected for this Space operation",
                 details={
                     "space_id": normalized_space_id,
-                    "available_connection_ids": [item["connection_id"] for item in visible],
+                    "available_connection_ids": [
+                        item["connection_id"] for item in visible
+                    ],
                 },
             )
         selected = next(
