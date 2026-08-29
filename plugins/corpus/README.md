@@ -64,6 +64,25 @@ CORPUS_MCP_PORT=8000 \
 
 `scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
+배포용 HWP의 페이지 본문을 복구하려면 고정된 `rhwp` 실행 파일을 Corpus 캐시에 한 번 설치합니다.
+
+```sh
+python3 scripts/provision_rhwp.py
+```
+
+자동 갱신은 파일당 250 MiB 제한을 유지합니다. 그보다 큰 로컬 파일은 inventory에서 확인한 문서 ID를 정확히 지정하고 한 파일씩 색인할 수 있습니다. 이 경로도 파일당·실행당 1 GiB를 넘지 않습니다.
+
+```sh
+./launchers/corpus ingest \
+  --corpus thesis-sources \
+  --document-id 'doc_...' \
+  --max-files 1 \
+  --max-bytes 1GiB \
+  --max-file-bytes 1GiB
+```
+
+이 동작은 등록된 로컬 원본을 임시 사본으로 읽으며 원본, 등록 경로와 Source 범위를 변경하지 않습니다.
+
 더 이상 존재하지 않는 Source 등록은 로컬에서 해제할 수 있습니다.
 
 ```sh

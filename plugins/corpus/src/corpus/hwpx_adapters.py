@@ -16,6 +16,11 @@ from .errors import ExtractionError
 
 OLE_COMPOUND_FILE_SIGNATURE = bytes.fromhex("d0cf11e0a1b11ae1")
 _ROUTER_SOURCE = Path(__file__)
+_LEGACY_HWPX_ROUTER_PROJECTION = (
+    "work-corpus.hwpx.content-router",
+    "1.0.0+source.6e30c615a7b4",
+    "7657fe15069210b062a68711808ed87f5928de3e271bacf333a138d17976fbf7",
+)
 
 
 class HWPXContentRouter:
@@ -51,6 +56,9 @@ class HWPXContentRouter:
                 supports_ocr=False,
                 may_emit_partial=True,
             ),
+        )
+        self.compatible_projection_identities = frozenset(
+            {_LEGACY_HWPX_ROUTER_PROJECTION}
         )
 
     def extract(self, path: Path, *, format_id: str) -> ExtractionEnvelope:

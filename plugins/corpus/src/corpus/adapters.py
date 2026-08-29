@@ -783,7 +783,11 @@ def _parse_jsonl_result(stdout: bytes) -> Mapping[str, object]:
         text = stdout.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise ExtractionError("adapter output is not valid UTF-8") from exc
-    lines = [line for line in text.splitlines() if line.strip()]
+    # JSONL records are separated by the protocol's physical LF byte.  Do not
+    # use str.splitlines(): valid JSON strings can contain U+2028 or U+2029,
+    # and treating those content characters as record boundaries corrupts an
+    # otherwise valid one-line result.
+    lines = [line for line in text.split("\n") if line.strip()]
     if len(lines) != 1:
         raise ExtractionError(
             "adapter must emit exactly one non-empty JSONL result line",

@@ -34,6 +34,8 @@ from corpus.hwp5_adapter_main import (
     _records,
 )
 from corpus.native_adapters import _PDF_VISION_SOURCE, PDFKitVisionAdapter
+from corpus.rhwp_adapters import RhwpPageTextAdapter
+from corpus.service import _validate_ingest_budgets
 
 
 def write_text_pdf(path: Path, text: bytes = b"Source backed PDF page") -> None:
@@ -144,6 +146,56 @@ class BuiltinAdapterTest(unittest.TestCase):
                         {issue.code for issue in result.issues},
                     )
 
+    def test_xlsx_invalid_font_family_is_ignored_in_temporary_copy(self) -> None:
+        from xml.etree import ElementTree
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "invalid-font-family.xlsx"
+            normalized = root / "rewritten.xlsx"
+            workbook = Workbook()
+            workbook.active["A1"] = "색인 대상"
+            workbook.active["A1"].font = Font(name="Arial", family=2)
+            workbook.save(path)
+
+            with (
+                zipfile.ZipFile(path) as source,
+                zipfile.ZipFile(normalized, "w", allowZip64=True) as target,
+            ):
+                for member in source.infolist():
+                    data = source.read(member)
+                    if member.filename == "xl/styles.xml":
+                        styles = ElementTree.fromstring(data)
+                        family = next(
+                            element
+                            for element in styles.iter()
+                            if element.tag.rsplit("}", 1)[-1] == "family"
+                        )
+                        family.set("val", "49")
+                        data = ElementTree.tostring(
+                            styles,
+                            encoding="utf-8",
+                            xml_declaration=True,
+                        )
+                    target.writestr(member, data)
+            normalized.replace(path)
+            before = path.read_bytes()
+
+            result = run_builtin_extraction(path, "xlsx")
+
+            self.assertEqual(path.read_bytes(), before)
+
+        self.assertEqual(result.completeness, "complete")
+        self.assertEqual(result.descriptor.adapter_version, "source-units-v5")
+        self.assertEqual([unit.content for unit in result.units], ["A1=색인 대상"])
+        self.assertIn(
+            "xlsx_invalid_font_family_ignored",
+            {issue.code for issue in result.issues},
+        )
+
 
 class ExternalAdapterTest(unittest.TestCase):
     def test_external_adapter_preserves_virtual_environment_launcher_path(self) -> None:
@@ -200,6 +252,53 @@ print(json.dumps({{
         self.assertEqual(result.units[0].content, "업무 원문")
         self.assertEqual(result.units[0].structure_path["paragraph"], 1)
         self.assertNotIn("path", result.to_dict())
+
+    def test_external_jsonl_preserves_unicode_line_separators_inside_content(self) -> None:
+        content = "첫 줄\u2028둘째 줄\u2029셋째 줄"
+        result = {
+            "schema_version": RESULT_SCHEMA_VERSION,
+            "completeness": "partial",
+            "units": [
+                {
+                    "unit_type": "paragraph",
+                    "structure_path": {"paragraph": 1},
+                    "content": content,
+                }
+            ],
+            "issues": [],
+        }
+        adapter = ExternalJSONLAdapter(
+            external_descriptor(),
+            (sys.executable, "-c", result_script(result)),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.hwp"
+            path.write_text("본문", encoding="utf-8")
+            envelope = adapter.extract(path, format_id="hwp")
+
+        self.assertEqual(envelope.units[0].content, content)
+
+    def test_external_jsonl_still_rejects_two_physical_result_lines(self) -> None:
+        result = {
+            "schema_version": RESULT_SCHEMA_VERSION,
+            "completeness": "partial",
+            "units": [],
+            "issues": [],
+        }
+        encoded = json.dumps(result)
+        script = (
+            "import sys\nsys.stdin.readline()\n"
+            f"sys.stdout.write({(encoded + chr(10) + encoded + chr(10))!r})\n"
+        )
+        adapter = ExternalJSONLAdapter(
+            external_descriptor(),
+            (sys.executable, "-c", script),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.hwp"
+            path.write_text("본문", encoding="utf-8")
+            with self.assertRaisesRegex(ExtractionError, "exactly one"):
+                adapter.extract(path, format_id="hwp")
 
     def test_external_output_cannot_set_core_identity_or_source_path(self) -> None:
         result = {
@@ -395,9 +494,98 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertTrue(pdf.capabilities.supports_ocr)
         self.assertTrue(pdf.capabilities.supports_geometry)
         self.assertIn("table_cell", pdf.capabilities.structural_unit_types)
-        self.assertEqual(hwp.adapter_id, "work-corpus.hwp5.spec-partial")
+        self.assertEqual(hwp.adapter_id, "work-corpus.hwp5.content-router")
         self.assertFalse(hwp.capabilities.supports_ocr)
         self.assertTrue(hwp.capabilities.may_emit_partial)
+
+    def test_hwp_and_hwpx_routers_accept_only_known_legacy_projections(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            registry = build_default_registry(Path(temporary) / "runtime")
+
+        self.assertTrue(
+            registry.accepts_projection(
+                "hwp",
+                "work-corpus.hwp5.spec-partial",
+                "1.0.0+source.ee6920f82733",
+                "636b97fef8e7a824315f7398170b37ff304c71495da1c0f6ad6a5a26b01a8207",
+            )
+        )
+        self.assertTrue(
+            registry.accepts_projection(
+                "hwpx",
+                "work-corpus.hwpx.content-router",
+                "1.0.0+source.6e30c615a7b4",
+                "7657fe15069210b062a68711808ed87f5928de3e271bacf333a138d17976fbf7",
+            )
+        )
+        self.assertFalse(
+            registry.accepts_projection(
+                "hwp",
+                "work-corpus.hwp5.spec-partial",
+                "0.0.0",
+                "0" * 64,
+            )
+        )
+
+    def test_rhwp_adapter_uses_only_inherited_fd_and_discards_source_locator(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "rhwp"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import json, sys\n"
+                "if sys.argv[1] == '--version':\n"
+                "    print('rhwp v0.8.2')\n"
+                "    raise SystemExit(0)\n"
+                "assert sys.argv[1] == 'export-text'\n"
+                "assert sys.argv[2].startswith('/dev/fd/')\n"
+                "with open(sys.argv[2], encoding='utf-8') as source:\n"
+                "    text = source.read()\n"
+                "print(json.dumps({'schemaVersion': '1.0', 'pageCount': 1, "
+                "'pages': [{'page': 0, 'text': text}], "
+                "'source': '/private/source.hwp'}, ensure_ascii=False))\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            path = root / "confidential.hwp"
+            path.write_text("배포용 본문", encoding="utf-8")
+            before = path.read_bytes()
+            adapter = RhwpPageTextAdapter(root / "runtime", executable=executable)
+
+            result = adapter.extract(path, format_id="hwp")
+
+            self.assertEqual(path.read_bytes(), before)
+
+        self.assertEqual([unit.content for unit in result.units], ["배포용 본문"])
+        self.assertEqual(result.units[0].structure_path["page"], 1)
+        self.assertNotIn("source", result.to_dict())
+        self.assertEqual(result.completeness, "partial")
+
+    def test_exact_document_selection_has_a_separate_one_gibibyte_ceiling(self) -> None:
+        mib = 1024 * 1024
+        with self.assertRaises(BudgetExceededError):
+            _validate_ingest_budgets(
+                max_files=1,
+                max_bytes=500 * mib,
+                max_file_bytes=251 * mib,
+                timeout_seconds=120,
+                exact_selection=False,
+            )
+        _validate_ingest_budgets(
+            max_files=1,
+            max_bytes=1024 * mib,
+            max_file_bytes=1024 * mib,
+            timeout_seconds=120,
+            exact_selection=True,
+        )
+        with self.assertRaises(BudgetExceededError):
+            _validate_ingest_budgets(
+                max_files=1,
+                max_bytes=(1024 * mib) + 1,
+                max_file_bytes=1024 * mib,
+                timeout_seconds=120,
+                exact_selection=True,
+            )
 
     @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
     def test_pdf_native_adapter_treats_blank_page_as_observed(self) -> None:

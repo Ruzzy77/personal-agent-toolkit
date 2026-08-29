@@ -440,6 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-file-bytes",
         type=parse_size,
         default=parse_size("25MiB"),
+        help=(
+            "Per-file capture limit. Values above 250 MiB are accepted only for "
+            "local files selected by exact --document-id values (maximum 1 GiB)."
+        ),
     )
     ingest.add_argument(
         "--include-remote",
@@ -455,7 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--document-id",
         action="append",
         dest="document_ids",
-        help="Restrict ingest to an exact document id; repeat for multiple documents.",
+        help=(
+            "Restrict ingest to an exact document id; repeat for multiple documents. "
+            "Exact local selection permits an explicit request total up to 1 GiB."
+        ),
     )
     ingest.add_argument("--timeout-seconds", type=float, default=120)
 

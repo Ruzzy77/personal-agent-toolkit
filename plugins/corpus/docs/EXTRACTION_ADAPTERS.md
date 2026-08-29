@@ -111,8 +111,10 @@ Adapter가 선언한 capability와 일치하는 format, unit type, geometry, con
 배포되는 추출기도 자체 chunk와 heading 추정을 중립 envelope로 변환하며, 수명주기와
 source-unit 식별자는 core가 정합니다.
 
-- binary HWP: HWP5 parser가 section·record·paragraph locator를 반환하고, 현재 복원 범위
-  밖의 구조는 issue로 기록합니다.
+- binary HWP: content router가 일반 문서는 HWP5 specification parser로 읽고, 배포용
+  문서나 specification parser 실패 문서는 고정된 `rhwp` 보조 추출기로 페이지 본문을
+  읽습니다. 암호화 문서는 계속 거부합니다. 두 경로 모두 현재 복원 범위 밖의 구조는
+  issue로 기록합니다.
 - PDF: native text와 on-device OCR observation을 함께 보존합니다. OCR text에는 page,
   geometry, confidence와 backend/runtime/config identity를 남깁니다.
 새 backend는 실제 문서에서 현재 추출기가 부족할 때만 추가합니다. 비교용 framework나
@@ -121,7 +123,7 @@ source-unit 식별자는 core가 정합니다.
 
 ## 현재 사용 중인 추출기
 
-로컬 기준 문서와 처리량을 제한한 색인으로 다음 두 adapter를 확인했습니다.
+로컬 기준 문서와 처리량을 제한한 색인으로 다음 adapter를 확인했습니다.
 
 - `work-corpus.native.pdfkit-vision`: 기존 projection의 current 상태를 보존하기 위해
   유지하는 persisted adapter ID입니다. PDFKit native text와 Apple Vision OCR을 사용합니다.
@@ -138,14 +140,32 @@ source-unit 식별자는 core가 정합니다.
   runtime과 adapter source identity를 config와 version에 고정합니다. 렌더링 결과가 완전히
   흰 페이지는 관찰된 빈 페이지로 처리합니다. Reading order 미확인은 capability와 quality
   flag로 남기고, 페이지 누락·OCR 실패·budget 도달만 issue와 `partial`로 기록합니다.
-- `work-corpus.hwp5.spec-partial`: 기존 projection 호환용 persisted adapter ID입니다.
-  Hancom이 공개한
+- `work-corpus.hwp5.content-router`: binary HWP의 현재 persisted adapter ID입니다. 일반
+  문서는 `work-corpus.hwp5.spec-partial`에 위임하고, 배포용 문서나 이 경로가 실패한
+  문서는 `work-corpus.hwp5.rhwp-page-text`에 위임합니다. 기존 specification parser와
+  이전 HWPX router가 만든 성공한 projection은 호환 가능한 것으로 인정하므로 adapter
+  추가만으로 전체 HWP/HWPX 색인을 다시 만들지 않습니다. 암호화 HWP는 읽지 않습니다.
+- `work-corpus.hwp5.spec-partial`: Hancom이 공개한
   [HWP 5.0 revision 1.3 specification](https://cdn.hancom.com/link/docs/%ED%95%9C%EA%B8%80%EB%AC%B8%EC%84%9C%ED%8C%8C%EC%9D%BC%ED%98%95%EC%8B%9D_5.0_revision1.3.pdf)에
   따라 OLE `BodyText/SectionN`, raw-deflate record와 `HWPTAG_PARA_TEXT` control boundary를
   직접 해석합니다. `olefile`은 Compound File을 여는 low-level dependency로 사용합니다.
   Table cell·heading·list·각주·embedded object 관계는 현재 projection 범위 밖의 구조로
   issue에 기록합니다.
+- `work-corpus.hwp5.rhwp-page-text`: `rhwp` 0.8.2의 `export-text --json` 결과에서 페이지
+  본문만 취합니다. 임시 사본은 읽기 전용 file descriptor로 전달하며 원본 경로와 backend
+  응답의 source locator는 projection에 넣지 않습니다. 실행 파일, 실행 시간, 입력과 출력
+  크기를 제한합니다. 표, 제목, 필드와 embedded object 관계를 재구성하지 않으므로 결과는
+  `partial`입니다. 실행 파일은 `scripts/provision_rhwp.py`가 공식 release archive의 고정된
+  SHA-256을 확인한 뒤 Corpus 사용자 캐시에 설치합니다.
 
-두 adapter는 임시 사본의 file descriptor를 입력으로 받고 로컬에서 실행됩니다. 추출기를
+하위 프로세스 adapter는 임시 사본의 file descriptor를 입력으로 받고 로컬에서 실행됩니다. 추출기를
 바꿀 때에는 변경된 형식의 실제 표본만 확인합니다. 전체 문서 조합을 위한 golden corpus나
 별도 평가 framework는 유지하지 않습니다.
+
+## 대용량 로컬 문서
+
+자동 `sync`와 일반 `ingest`는 파일당 250 MiB, 실행당 500 MiB의 상한을 적용합니다. 문서
+ID를 정확히 지정한 `ingest --document-id` 요청만 파일당·실행당 1 GiB까지 허용합니다.
+대용량 문서는 한 번에 한 파일을 지정합니다. 이 경로도 원본을 직접 수정하지 않고 private
+staging 사본을 사용하며 처리가 끝나면 사본을 삭제합니다. 대용량 projection이 현재 상태가
+되면 이후 자동 갱신은 원본 관측값이나 adapter가 달라질 때까지 다시 복사하지 않습니다.

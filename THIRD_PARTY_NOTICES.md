@@ -19,6 +19,7 @@ Direct runtime dependencies:
 | `pypdf` | Corpus | BSD-3-Clause |
 | `python-docx` | Corpus | MIT |
 | `python-pptx` | Corpus | MIT |
+| `rhwp` 0.8.2 (optionally provisioned command-line backend) | Corpus | MIT |
 | `starlette` | Optional personal gateway | BSD-3-Clause |
 | `uvicorn` | Optional personal gateway | BSD-3-Clause |
 

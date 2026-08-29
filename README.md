@@ -84,23 +84,45 @@ Gateway는 제품을 합치거나 데이터를 옮기지 않습니다. 한 Launc
 
 Cloudflare에 원격 MCP를 배포할 때에는 [`auth`](./auth/README.md)를 이용해 Google 소유자 인증을 연결할 수 있습니다. 인증 Worker와 같은 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 같은 별도 호스팅 서비스는 이 비공개 연결을 직접 쓴다고 가정하지 않습니다. 그런 화면은 그대로 두고, MCP endpoint만 같은 Cloudflare 계정의 Worker로 분리하는 구성이 현재 기본안입니다.
 
-## 갱신
+## 버전 갱신
+
+plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의 절차로 마칩니다. 로컬 checkout으로 등록한 marketplace는 해당 디렉터리의 현재 내용을 사용하며, 원격 배포 검증에는 GitHub marketplace를 사용합니다.
 
 ### Codex
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
+codex plugin add sense@personal-agent-toolkit
+codex plugin add corpus@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
+codex plugin list --json
 ```
+
+변경한 plugin이 활성화되어 있고 새 버전과 공개 MCP 도구가 보이는지 확인한 뒤 새 작업을 시작합니다.
 
 ### Claude Code
 
 ```sh
 claude plugin marketplace update personal-agent-toolkit
+claude plugin update sense@personal-agent-toolkit --scope user
+claude plugin update corpus@personal-agent-toolkit --scope user
 claude plugin update hypes@personal-agent-toolkit --scope user
+claude plugin list
 ```
 
-로컬 checkout으로 등록한 marketplace는 해당 디렉터리의 현재 내용을 사용합니다.
+갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전과 공개 MCP 도구를 확인합니다.
+
+### Claude Desktop
+
+`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus와 Hypes를 모두 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Chat 또는 Cowork 세션에서 세 plugin의 Skill과 MCP 도구가 보이는지 확인합니다.
+
+### ChatGPT 웹
+
+[gateway guide](./gateway/GUIDE.md)의 버전 갱신 절차에 따라 LaunchAgent를 다시 설치해 새 Codex plugin 경로를 반영하고 gateway 상태를 확인합니다. 이어 `플러그인 → 설치됨 → Sense·Corpus·Hypes → 관리`에서 각 plugin을 `새로 고침`합니다. 각 plugin의 액션 목록이 현재 MCP 도구와 일치하고 권한이 `모든 액션 허용`인지 확인합니다. 새로 고침으로 현재 액션이 반영되지 않으면 해당 developer plugin을 다시 연결합니다.
+
+### 완료 기준
+
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude Desktop·ChatGPT 웹에서 새 버전이나 현재 도구 목록을 확인해야 갱신이 완료됩니다. Sense, Corpus와 Hypes의 사용자 데이터는 설치 경로 밖의 각 Application Support 폴더에 유지합니다.
 
 ## Sense 시작
 

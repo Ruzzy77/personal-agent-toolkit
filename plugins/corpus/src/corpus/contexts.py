@@ -28,7 +28,6 @@ from .errors import (
     ContextNotFoundError,
     ContextValidationError,
     CorpusError,
-    ExtractionError,
     PolicyDeniedError,
 )
 from .locking import context_writer_lock
@@ -1448,18 +1447,11 @@ class ContextService:
         adapter_version: str,
         config_hash: str,
     ) -> bool:
-        try:
-            descriptor = self.adapter_registry.resolve(extension).descriptor
-        except ExtractionError:
-            return False
-        return (
+        return self.adapter_registry.accepts_projection(
+            extension,
             adapter_id,
             adapter_version,
             config_hash,
-        ) == (
-            descriptor.adapter_id,
-            descriptor.adapter_version,
-            descriptor.config_hash,
         )
 
     def _corpus_policies(self) -> dict[str, str]:

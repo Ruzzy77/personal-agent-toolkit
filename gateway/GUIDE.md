@@ -41,6 +41,12 @@ Codex marketplace 밖의 package는 제품별 `--product-root product=/absolute/
 
 상태는 `http://127.0.0.1:18180/healthz`에서 볼 수 있습니다.
 
+## 제품 버전 갱신
+
+Sense, Corpus 또는 Hypes의 버전을 올린 뒤에는 Codex에 설치된 세 plugin을 먼저 갱신합니다. 이어 기존 LaunchAgent 설치 명령을 같은 tunnel client와 제품 목록으로 다시 실행합니다. 설치 프로그램이 새 Codex plugin 경로를 확인해 LaunchAgent 구성을 교체하며, 사용자 데이터와 tunnel ID는 바꾸지 않습니다.
+
+LaunchAgent를 다시 시작한 뒤 `http://127.0.0.1:18180/healthz`에서 선택한 제품이 준비됐는지 확인합니다. ChatGPT 웹에서는 `플러그인 → 설치됨 → Sense·Corpus·Hypes → 관리`로 이동해 각 developer plugin을 `새로 고침`합니다. 액션 목록이 현재 MCP 도구와 일치하고 권한이 `모든 액션 허용`인지 확인합니다. 새로 고침으로 액션이 바뀌지 않으면 해당 developer plugin을 다시 연결하고 같은 endpoint를 사용합니다.
+
 ## ChatGPT connection
 
 ChatGPT developer settings에서 제품별 app과 tunnel을 연결합니다.

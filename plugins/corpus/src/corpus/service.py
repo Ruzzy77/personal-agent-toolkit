@@ -114,6 +114,8 @@ CORPUS_READ_MAX_SERIALIZED_BYTES = 2 * 1024 * 1024
 _MAX_INGEST_FILES = 50
 _MAX_INGEST_BYTES = 500 * 1024 * 1024
 _MAX_INGEST_FILE_BYTES = 250 * 1024 * 1024
+_MAX_EXACT_INGEST_BYTES = 1024 * 1024 * 1024
+_MAX_EXACT_INGEST_FILE_BYTES = 1024 * 1024 * 1024
 _MAX_INGEST_DOCUMENT_IDS = 100
 _MAX_INGEST_TIMEOUT_SECONDS = 600
 _INVENTORY_ELIGIBILITY_STATES = {
@@ -143,11 +145,16 @@ def _validate_ingest_budgets(
     max_bytes: int,
     max_file_bytes: int,
     timeout_seconds: float,
+    exact_selection: bool = False,
 ) -> None:
+    max_request_bytes = _MAX_EXACT_INGEST_BYTES if exact_selection else _MAX_INGEST_BYTES
+    max_single_file_bytes = (
+        _MAX_EXACT_INGEST_FILE_BYTES if exact_selection else _MAX_INGEST_FILE_BYTES
+    )
     if (
         not 1 <= max_files <= _MAX_INGEST_FILES
-        or not 1 <= max_bytes <= _MAX_INGEST_BYTES
-        or not 1 <= max_file_bytes <= _MAX_INGEST_FILE_BYTES
+        or not 1 <= max_bytes <= max_request_bytes
+        or not 1 <= max_file_bytes <= max_single_file_bytes
         or not 0 < timeout_seconds <= _MAX_INGEST_TIMEOUT_SECONDS
     ):
         raise BudgetExceededError(
@@ -159,10 +166,11 @@ def _validate_ingest_budgets(
                 "timeout_seconds": timeout_seconds,
                 "allowed": {
                     "max_files": [1, _MAX_INGEST_FILES],
-                    "max_bytes": [1, _MAX_INGEST_BYTES],
-                    "max_file_bytes": [1, _MAX_INGEST_FILE_BYTES],
+                    "max_bytes": [1, max_request_bytes],
+                    "max_file_bytes": [1, max_single_file_bytes],
                     "timeout_seconds": [">0", _MAX_INGEST_TIMEOUT_SECONDS],
                 },
+                "exact_selection": exact_selection,
             },
         )
 
@@ -565,18 +573,11 @@ class CorpusService:
         adapter_version: str,
         config_hash: str,
     ) -> bool:
-        try:
-            descriptor = self.adapter_registry.resolve(extension).descriptor
-        except ExtractionError:
-            return False
-        return (
+        return self.adapter_registry.accepts_projection(
+            extension,
             adapter_id,
             adapter_version,
             config_hash,
-        ) == (
-            descriptor.adapter_id,
-            descriptor.adapter_version,
-            descriptor.config_hash,
         )
 
     def register(
@@ -1901,17 +1902,13 @@ class CorpusService:
         outdated_projections = 0
         partial_projections = 0
         for row in active_projection_rows:
-            descriptor = self.adapter_registry.resolve(row["extension"]).descriptor
             if row["completeness_state"] != "complete":
                 partial_projections += 1
-            if (
+            if not self.adapter_registry.accepts_projection(
+                row["extension"],
                 row["adapter_id"],
                 row["adapter_version"],
                 row["config_hash"],
-            ) != (
-                descriptor.adapter_id,
-                descriptor.adapter_version,
-                descriptor.config_hash,
             ):
                 outdated_projections += 1
         supported_documents = int(totals["supported_documents"] or 0)
@@ -1974,12 +1971,14 @@ class CorpusService:
         if not source_observation_current:
             reasons.append("source_observation_changed")
 
-        descriptor = self.adapter_registry.resolve(document["extension"]).descriptor
         adapter_current = (
             document["active_projection_id"] is not None
-            and document["projection_adapter_id"] == descriptor.adapter_id
-            and document["projection_adapter_version"] == descriptor.adapter_version
-            and document["projection_config_hash"] == descriptor.config_hash
+            and self.adapter_registry.accepts_projection(
+                document["extension"],
+                document["projection_adapter_id"],
+                document["projection_adapter_version"],
+                document["projection_config_hash"],
+            )
         )
         if document["active_projection_id"] is not None and not adapter_current:
             reasons.append("outdated_adapter")
@@ -2609,6 +2608,7 @@ class CorpusService:
             max_bytes=max_bytes,
             max_file_bytes=max_file_bytes,
             timeout_seconds=timeout_seconds,
+            exact_selection=document_ids is not None and not include_remote,
         )
         if document_ids is not None and not document_ids:
             raise InvalidRequestError(
@@ -2701,6 +2701,7 @@ class CorpusService:
             max_bytes=max_bytes,
             max_file_bytes=max_file_bytes,
             timeout_seconds=timeout_seconds,
+            exact_selection=False,
         )
         corpus_id = normalize_corpus_id(corpus_id)
         corpus = get_corpus(self.data_root, corpus_id)

@@ -80,6 +80,35 @@ class AdapterRegistry:
                 details={"format_id": format_id},
             ) from exc
 
+    def accepts_projection(
+        self,
+        format_id: str,
+        adapter_id: str,
+        adapter_version: str,
+        config_hash: str,
+    ) -> bool:
+        """Return whether a persisted projection is current for one route.
+
+        Most routes accept only their current descriptor.  Content routers may
+        explicitly retain a bounded set of earlier identities when the new
+        route preserves the meaning of those successful projections.
+        """
+
+        try:
+            adapter = self.resolve(format_id)
+        except ExtractionError:
+            return False
+        identity = (adapter_id, adapter_version, config_hash)
+        current = (
+            adapter.descriptor.adapter_id,
+            adapter.descriptor.adapter_version,
+            adapter.descriptor.config_hash,
+        )
+        if identity == current:
+            return True
+        compatible = getattr(adapter, "compatible_projection_identities", ())
+        return identity in compatible
+
 
 def build_default_registry(
     runtime_root: Path | None = None,
@@ -98,10 +127,15 @@ def build_default_registry(
         for extension, specification in FORMAT_SPECS.items()
         if specification.adapter in builtin_adapters
     }
-    from .hwp_adapters import HWP5SpecPartialAdapter
+    from .hwp_adapters import HWP5ContentRouter, HWP5SpecPartialAdapter
     from .hwpx_adapters import HWPXContentRouter
+    from .rhwp_adapters import RhwpPageTextAdapter
 
-    hwp_adapter = HWP5SpecPartialAdapter()
+    hwp_spec_adapter = HWP5SpecPartialAdapter()
+    hwp_adapter = HWP5ContentRouter(
+        hwp_spec_adapter,
+        RhwpPageTextAdapter(runtime_root),
+    )
     routes["hwp"] = hwp_adapter
     routes["hwpx"] = HWPXContentRouter(routes["hwpx"], hwp_adapter)
     if (

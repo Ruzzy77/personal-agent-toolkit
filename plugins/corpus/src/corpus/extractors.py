@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import html.parser
 import re
+import shutil
+import tempfile
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -15,7 +17,10 @@ from defusedxml.common import DefusedXmlException
 from .errors import ExtractionError
 
 EXTRACTOR_VERSION = "source-units-v4"
-EXTRACTOR_VERSION_OVERRIDES = {"hwpx": "source-units-v5"}
+EXTRACTOR_VERSION_OVERRIDES = {
+    "hwpx": "source-units-v5",
+    "xlsx": "source-units-v5",
+}
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_XML_MEMBER_BYTES = 64 * 1024 * 1024
@@ -540,6 +545,91 @@ def _cell_value(cell) -> str:
     return str(value)
 
 
+_SPREADSHEETML_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_XLSX_STYLES_MEMBER = "xl/styles.xml"
+
+
+def _xlsx_styles_without_invalid_font_families(styles: bytes) -> tuple[bytes, int]:
+    """Remove only numeric font-family metadata outside OpenPyXL's safe range."""
+
+    try:
+        root = ElementTree.fromstring(styles)
+    except (DefusedXmlException, ElementTree.ParseError) as exc:
+        raise ExtractionError("could not parse XLSX styles XML") from exc
+    fonts = root.find(f"{{{_SPREADSHEETML_NAMESPACE}}}fonts")
+    if fonts is None:
+        return styles, 0
+
+    family_tag = f"{{{_SPREADSHEETML_NAMESPACE}}}family"
+    removed = 0
+    for font in list(fonts):
+        for child in list(font):
+            if child.tag != family_tag:
+                continue
+            raw_value = child.attrib.get("val")
+            try:
+                value = int(raw_value) if raw_value is not None else None
+            except ValueError:
+                continue
+            if value is not None and not 0 <= value <= 14:
+                font.remove(child)
+                removed += 1
+    if not removed:
+        return styles, 0
+    return ElementTree.tostring(
+        root,
+        encoding="utf-8",
+        xml_declaration=True,
+    ), removed
+
+
+def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
+    """Write a temporary package with invalid font-family metadata omitted."""
+
+    removed = 0
+    with (
+        zipfile.ZipFile(source) as package,
+        zipfile.ZipFile(destination, "w", allowZip64=True) as normalized,
+    ):
+        normalized.comment = package.comment
+        for member in package.infolist():
+            if member.filename == _XLSX_STYLES_MEMBER:
+                if member.file_size > MAX_XML_MEMBER_BYTES:
+                    raise ExtractionError(
+                        "XLSX styles XML exceeds the extraction limit",
+                        details={
+                            "member_bytes": member.file_size,
+                            "limit": MAX_XML_MEMBER_BYTES,
+                        },
+                    )
+                data = package.read(member)
+                data, member_removed = _xlsx_styles_without_invalid_font_families(data)
+                removed += member_removed
+                normalized.writestr(member, data)
+                continue
+            with (
+                package.open(member) as source_member,
+                normalized.open(member, "w", force_zip64=True) as destination_member,
+            ):
+                shutil.copyfileobj(source_member, destination_member, length=1024 * 1024)
+    return removed
+
+
+def _open_xlsx_workbook(load_workbook, path: Path):
+    package = path.open("rb")
+    try:
+        workbook = load_workbook(
+            filename=package,
+            read_only=True,
+            data_only=False,
+            keep_links=False,
+        )
+    except Exception:
+        package.close()
+        raise
+    return package, workbook
+
+
 def extract_xlsx(path: Path) -> ExtractionResult:
     _preflight_zip(path)
     try:
@@ -549,14 +639,30 @@ def extract_xlsx(path: Path) -> ExtractionResult:
     units: list[UnitDraft] = []
     issues: list[dict] = []
     cells_seen = 0
+    package = None
+    workbook = None
+    temporary = None
     try:
-        package = path.open("rb")
-        workbook = load_workbook(
-            filename=package,
-            read_only=True,
-            data_only=False,
-            keep_links=False,
-        )
+        try:
+            package, workbook = _open_xlsx_workbook(load_workbook, path)
+        except ValueError:
+            temporary = tempfile.TemporaryDirectory(prefix="corpus-xlsx-")
+            normalized_path = Path(temporary.name) / "normalized.xlsx"
+            removed = _write_xlsx_with_safe_font_families(path, normalized_path)
+            if not removed:
+                raise
+            package, workbook = _open_xlsx_workbook(load_workbook, normalized_path)
+            issues.append(
+                {
+                    "code": "xlsx_invalid_font_family_ignored",
+                    "severity": "info",
+                    "message": (
+                        "Invalid XLSX font-family metadata was ignored in a temporary "
+                        "read-only copy."
+                    ),
+                    "details": {"removed_elements": removed},
+                }
+            )
         try:
             for sheet in workbook.worksheets:
                 for row_index, row in enumerate(sheet.iter_rows(), start=1):
@@ -598,8 +704,17 @@ def extract_xlsx(path: Path) -> ExtractionResult:
         finally:
             workbook.close()
             package.close()
+            workbook = None
+            package = None
     except Exception as exc:
         raise ExtractionError("could not extract XLSX", details={"error": str(exc)}) from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
+        if package is not None:
+            package.close()
+        if temporary is not None:
+            temporary.cleanup()
     return _finish(units, issues)
 
 
