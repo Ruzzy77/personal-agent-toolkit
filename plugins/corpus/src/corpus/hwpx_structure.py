@@ -105,6 +105,8 @@ class _Reader:
         self.characters = 0
         self.nodes = 0
         self.tables: dict[str, dict] = {}
+        self.fields: dict[str, dict] = {}
+        self.active_fields: list[str] = []
 
     def emit(self, kind: str, location: dict, text: str = "") -> None:
         text = normalize_text(text)
@@ -130,6 +132,7 @@ class _Reader:
         tag = _local_name(node.tag)
         context = dict(context)
         if tag == "p":
+            context.pop("format_markers", None)
             self.paragraph += 1
             context.update({"paragraph": self.paragraph, "paragraph_element": address})
             properties = self.shapes.get(node.get("paraPrIDRef"), {})
@@ -150,6 +153,7 @@ class _Reader:
             if head in {"number", "bullet"} and not properties.get("marker_text"):
                 self.issues["hwpx_list_marker_partial"] += 1
             chunks: list[str] = []
+            markers: list[dict] = []
             segment = 0
 
             def flush():
@@ -158,7 +162,17 @@ class _Reader:
                     segment += 1
                     self.emit(
                         kind,
-                        {**context, "element": address, "segment": segment},
+                        {
+                            **context,
+                            "element": address,
+                            "segment": segment,
+                            **({"format_markers": list(markers)} if markers else {}),
+                            **(
+                                {"field_path": list(self.active_fields)}
+                                if self.active_fields
+                                else {}
+                            ),
+                        },
                         "".join(chunks),
                     )
                 chunks.clear()
@@ -171,6 +185,7 @@ class _Reader:
                 name = _local_name(element.tag)
                 if name == "t":
                     chunks.append(element.text or "")
+                    text_offset = len(element.text or "")
                     for index, child in enumerate(element):
                         child_name = _local_name(child.tag)
                         chunks.append(
@@ -182,9 +197,25 @@ class _Reader:
                             if child_name in {"nbSpace", "fwSpace"}
                             else ""
                         )
-                        if child_name not in {"tab", "lineBreak", "nbSpace", "fwSpace"}:
+                        if child_name in {"markpenBegin", "markpenEnd"}:
+                            markers.append(
+                                {
+                                    "element": f"{element_address}.{index}",
+                                    "kind": child_name,
+                                    "attributes": dict(child.attrib),
+                                    "text_element_offset": text_offset,
+                                    "offset_unit": "unicode_code_points",
+                                }
+                            )
+                        elif child_name not in {
+                            "tab",
+                            "lineBreak",
+                            "nbSpace",
+                            "fwSpace",
+                        }:
                             self.issues["hwpx_inline_content_partial"] += 1
                         chunks.append(child.tail or "")
+                        text_offset += len(child.tail or "")
                     return
                 if (
                     name == "p"
@@ -195,8 +226,90 @@ class _Reader:
                     flush()
                     self.walk(element, element_address, context, inline_depth)
                     return
-                if name in {"fieldBegin", "fieldEnd"}:
-                    self.issues["hwpx_field_semantics_partial"] += 1
+                if name == "fieldBegin":
+                    flush()
+                    identifier, field_type = element.get("id"), element.get("type")
+                    metadata = {
+                        **context,
+                        "element": element_address,
+                        "field_id": element.get("fieldid"),
+                        "native_id": identifier,
+                        "field_type": field_type,
+                        "name": element.get("name", ""),
+                        "evaluation": "stored_result_only",
+                        "parameters": [],
+                    }
+                    parameter_characters = 0
+                    for pi, param_group in enumerate(element):
+                        if _local_name(param_group.tag) != "parameters":
+                            continue
+                        for qi, param in enumerate(param_group):
+                            if len(metadata["parameters"]) >= 128:
+                                self.issues["hwpx_field_metadata_truncated"] += 1
+                                break
+                            value = param.text or ""
+                            name_value = param.get("name", "")
+                            available = max(0, 16_384 - parameter_characters)
+                            if len(value) > available or len(name_value) > 256:
+                                self.issues["hwpx_field_metadata_truncated"] += 1
+                            if len(param):
+                                self.issues["hwpx_field_metadata_partial"] += 1
+                            value = value[:available]
+                            parameter_characters += len(value)
+                            metadata["parameters"].append(
+                                {
+                                    "element": f"{element_address}.{pi}.{qi}",
+                                    "name": name_value[:256],
+                                    "kind": _local_name(param.tag),
+                                    "value": value,
+                                }
+                            )
+                    self.emit("field", metadata)
+                    if not identifier or identifier in self.fields:
+                        self.issues["hwpx_field_structure_partial"] += 1
+                    else:
+                        self.fields[identifier] = self.units[-1].structure_path
+                        self.active_fields.append(identifier)
+                    if field_type not in {
+                        "BOOKMARK",
+                        "CLICK_HERE",
+                        "FORMULA",
+                        "MEMO",
+                        "HYPERLINK",
+                        "DATE",
+                        "DOCDATE",
+                        "PATH",
+                        "SUMMARY",
+                        "USERINFO",
+                    }:
+                        self.issues["hwpx_field_semantics_partial"] += 1
+                    for ci, child in enumerate(element):
+                        if _local_name(child.tag) == "subList":
+                            child_context = {
+                                **context,
+                                "owner_paragraph": address,
+                                "field": identifier,
+                            }
+                            if field_type == "MEMO":
+                                child_context.update(
+                                    {"container_kind": "comment", "note": identifier}
+                                )
+                            self.walk(
+                                child,
+                                f"{element_address}.{ci}",
+                                child_context,
+                                inline_depth + 1,
+                            )
+                    return
+                if name == "fieldEnd":
+                    flush()
+                    identifier = element.get("beginIDRef")
+                    if identifier not in self.active_fields:
+                        self.issues["hwpx_field_range_partial"] += 1
+                    else:
+                        self.fields[identifier]["end_element"] = element_address
+                        self.active_fields.remove(identifier)
+                    return
                 for index, child in enumerate(element):
                     inline(child, f"{element_address}.{index}", inline_depth + 1)
 
@@ -300,6 +413,10 @@ class _Reader:
             self.walk(child, f"{address}.{index}", context, depth + 1)
 
     def finish_section(self) -> None:
+        if self.active_fields:
+            self.issues["hwpx_field_range_partial"] += len(self.active_fields)
+        self.active_fields.clear()
+        self.fields.clear()
         for table in self.tables.values():
             active = []
             comparisons = 0
@@ -363,6 +480,7 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                         _number(child.get("level")): {
                             "marker_pattern": child.text or "",
                             "number_format": child.get("numFormat"),
+                            "start_number": child.get("start", node.get("start")),
                         }
                         for child in node
                         if _local_name(child.tag) == "paraHead"

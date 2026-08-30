@@ -25,6 +25,36 @@ class SpaceFileServiceTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_office_structure_context_does_not_cross_slide_parts(self):
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        root = self.base / "slides"
+        root.mkdir()
+        presentation = Presentation()
+        for label in ("First", "Second"):
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            table = slide.shapes.add_table(1, 2, 0, 0, Inches(4), Inches(2)).table
+            table.cell(0, 0).text = label + " name"
+            table.cell(0, 1).text = label + " value"
+        presentation.save(root / "tables.pptx")
+        self.service.register(
+            corpus_id="slides", source_root=root, execution_policy="local_only"
+        )
+        self.service.sync("slides")
+        hit = self.service.search("slides", "First value")["candidates"][0]
+        context = self.service.read_units(
+            "slides", [hit["unit_id"]], include_structure_context=True
+        )
+        self.assertEqual(
+            {
+                u["untrusted_content"]
+                for u in context["units"]
+                if u["untrusted_content"]
+            },
+            {"First name", "First value"},
+        )
+
     def test_table_context_preserves_exact_hits_and_existing_read_default(self) -> None:
         root = self.base / "forms"
         root.mkdir()

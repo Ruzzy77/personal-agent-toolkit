@@ -163,6 +163,7 @@ def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
             "latest_scan_status": latest_scan.get("status"),
             "pending": pending,
             "coverage_gaps": coverage,
+            "partial_extraction": dict((status or {}).get("partial_extraction", {})),
             "warnings": _warning_counts(pending, coverage),
         }
     )

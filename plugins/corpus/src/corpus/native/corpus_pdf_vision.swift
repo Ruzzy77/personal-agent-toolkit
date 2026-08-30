@@ -2,6 +2,7 @@
 import AppKit
 import Darwin
 import Foundation
+import ImageIO
 import PDFKit
 import Vision
 
@@ -163,6 +164,11 @@ func appendWithinBudget(
     maxUnitContentCharacters: Int,
     maxTotalContentCharacters: Int
 ) -> Bool {
+    let candidateCharacters = candidates.compactMap { ($0["content"] as? String)?.count }.reduce(0, +)
+    guard units.count <= maxUnits - candidates.count,
+          totalContentCharacters <= maxTotalContentCharacters - candidateCharacters,
+          candidates.allSatisfy({ ($0["content"] as? String)?.count ?? (maxUnitContentCharacters + 1) <= maxUnitContentCharacters })
+    else { return false }
     for candidate in candidates {
         guard
             let content = candidate["content"] as? String,
@@ -333,7 +339,8 @@ func runAdapter() async throws {
         request["operation"] as? String == "extract",
         let input = request["input"] as? [String: Any],
         input["kind"] as? String == "read_only_file_descriptor",
-        input["format_id"] as? String == "pdf",
+        let formatID = input["format_id"] as? String,
+        ["pdf", "image"].contains(formatID),
         let fileDescriptor = input["file_descriptor"] as? Int,
         fileDescriptor >= 0,
         fileDescriptor <= Int(Int32.max),
@@ -350,6 +357,9 @@ func runAdapter() async throws {
         default: 200,
         minimum: 1,
         maximum: 2_000
+    )
+    let pageStart = try boundedInt(
+        config["page_start"], default: 1, minimum: 1, maximum: 1_000_000
     )
     let maxEdgePixels = try boundedInt(
         config["max_edge_pixels"],
@@ -393,6 +403,50 @@ func runAdapter() async throws {
     )
 
     let inputURL = URL(fileURLWithPath: path)
+    if formatID == "image" {
+        guard let source = CGImageSourceCreateWithURL(inputURL as CFURL, nil) else {
+            try writeResult(["schema_version": "corpus.extraction-result.v1",
+                             "completeness": "partial", "units": [], "issues": [[
+                "code": "image_format_unsupported", "severity": "warning",
+                "message": "ImageIO cannot decode this embedded image format.",
+            ]]])
+            return
+        }
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+              width.doubleValue > 0, height.doubleValue > 0
+        else { throw AdapterFailure.invalidInput }
+        if width.doubleValue * height.doubleValue > 64_000_000 {
+            try writeResult(["schema_version": "corpus.extraction-result.v1",
+                             "completeness": "partial", "units": [], "issues": [[
+                "code": "image_pixel_budget_exceeded", "severity": "warning",
+                "message": "The embedded image exceeds the decoded pixel budget.",
+            ]]])
+            return
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxEdgePixels,
+              ] as CFDictionary)
+        else { throw AdapterFailure.invalidInput }
+        let recognized = try recognizeTextPage(image, page: 1, languages: languages)
+        var units: [[String: Any]] = []
+        var characters = 0
+        let withinBudget = appendWithinBudget(recognized, to: &units, totalContentCharacters: &characters,
+                                 maxUnits: maxUnits, maxUnitContentCharacters: maxUnitContentCharacters,
+                                 maxTotalContentCharacters: maxTotalContentCharacters)
+        let issues: [[String: Any]] = !withinBudget || units.isEmpty ? [[
+            "code": withinBudget ? "image_without_text" : "image_text_budget_exceeded",
+            "severity": "warning",
+            "message": withinBudget ? "Vision found no text in the embedded image." : "Image OCR exceeds the bounded result size.",
+        ]] : []
+        try writeResult(["schema_version": "corpus.extraction-result.v1",
+                         "completeness": units.isEmpty ? "partial" : "complete",
+                         "units": units, "issues": issues])
+        return
+    }
     guard let document = PDFDocument(url: inputURL) else {
         throw AdapterFailure.unreadablePDF
     }
@@ -400,17 +454,18 @@ func runAdapter() async throws {
     var units: [[String: Any]] = []
     var totalContentCharacters = 0
     var issues: [[String: Any]] = []
-    let pageCount = min(document.pageCount, maxPages)
-    if document.pageCount > maxPages {
-        issues.append([
-            "code": "pdf_page_limit_reached",
-            "message": "PDF extraction stopped at the configured page limit.",
-            "severity": "warning",
-            "details": ["processed_pages": maxPages, "document_pages": document.pageCount],
-        ])
-    }
+    guard pageStart <= document.pageCount + 1 else { throw AdapterFailure.invalidConfiguration }
+    let pageEnd = min(document.pageCount, pageStart - 1 + maxPages)
+    var processedEnd = pageStart - 1
+    let timeout = (budgets["timeout_seconds"] as? NSNumber)?.doubleValue ?? 180
+    let deadline = Date().addingTimeInterval(max(0.01, timeout * 0.8))
+    var stopReason = "page_limit"
 
-    for pageIndex in 0..<pageCount {
+    for pageIndex in (pageStart - 1)..<pageEnd {
+        if Date() >= deadline { stopReason = "time_budget"; break }
+        let unitsBeforePage = units.count
+        let charactersBeforePage = totalContentCharacters
+        processedEnd = pageIndex + 1
         guard let page = document.page(at: pageIndex) else {
             issues.append([
                 "code": "pdf_page_unavailable",
@@ -438,6 +493,10 @@ func runAdapter() async throws {
                 maxUnitContentCharacters: maxUnitContentCharacters,
                 maxTotalContentCharacters: maxTotalContentCharacters
             ) {
+                units.removeLast(units.count - unitsBeforePage)
+                totalContentCharacters = charactersBeforePage
+                processedEnd = pageIndex
+                stopReason = "result_budget"
                 issues.append([
                     "code": "adapter_budget_reached",
                     "message": "PDF extraction stopped at the configured result budget.",
@@ -518,6 +577,10 @@ func runAdapter() async throws {
                 maxUnitContentCharacters: maxUnitContentCharacters,
                 maxTotalContentCharacters: maxTotalContentCharacters
             ) {
+                units.removeLast(units.count - unitsBeforePage)
+                totalContentCharacters = charactersBeforePage
+                processedEnd = pageIndex
+                stopReason = "result_budget"
                 issues.append([
                     "code": "adapter_budget_reached",
                     "message": "PDF extraction stopped at the configured result budget.",
@@ -542,6 +605,29 @@ func runAdapter() async throws {
                 "details": ["page": pageIndex + 1],
             ])
         }
+    }
+
+    issues.append([
+        "code": "pdf_page_range_observed",
+        "message": "The adapter observed this contiguous original page range.",
+        "severity": "info",
+        "details": ["page_start": pageStart, "page_end": processedEnd,
+                    "document_pages": document.pageCount],
+    ])
+    if processedEnd < pageStart && stopReason == "result_budget" {
+        issues.append([
+            "code": "pdf_page_unit_budget_exhausted", "severity": "warning",
+            "message": "One original page exceeds the extraction result budget.",
+            "details": ["next_page": pageStart, "document_pages": document.pageCount],
+        ])
+    } else if processedEnd < document.pageCount {
+        issues.append([
+            "code": "pdf_page_range_pending",
+            "message": "Further original pages remain for a bounded continuation.",
+            "severity": "warning",
+            "details": ["next_page": processedEnd + 1, "document_pages": document.pageCount,
+                        "reason": stopReason],
+        ])
     }
 
     let hasIncompleteIssue = issues.contains { issue in

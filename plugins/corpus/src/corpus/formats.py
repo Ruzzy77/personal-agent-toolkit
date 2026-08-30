@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .hwp_structure import STRUCTURAL_UNIT_TYPES
+from .office_structure import DOCX_UNITS, PPTX_UNITS
 
 
 @dataclass(frozen=True)
@@ -28,13 +29,13 @@ FORMAT_SPECS = {
         "docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "docx",
-        ("heading", "paragraph", "table_row"),
+        DOCX_UNITS,
     ),
     "pptx": FormatSpec(
         "pptx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "pptx",
-        ("slide_text", "speaker_notes"),
+        PPTX_UNITS,
     ),
     "xlsx": FormatSpec(
         "xlsx",

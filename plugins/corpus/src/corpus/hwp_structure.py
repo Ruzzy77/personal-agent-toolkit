@@ -23,6 +23,8 @@ STRUCTURAL_UNIT_TYPES = (
     "header",
     "footer",
     "embedded_object",
+    "comment",
+    "field",
 )
 _CONTROL_KINDS = {
     "tbl ": "table",
@@ -52,6 +54,21 @@ _SHAPE_KINDS = {
     0x62: "video",
 }
 
+_FIELD_KINDS = {
+    "%dte": "date",
+    "%ddt": "document_date",
+    "%pat": "path",
+    "%bmk": "bookmark",
+    "%mmg": "mail_merge",
+    "%xrf": "cross_reference",
+    "%fmu": "formula",
+    "%clk": "click_here",
+    "%smr": "summary",
+    "%usr": "user_info",
+    "%hlk": "hyperlink",
+    "%%me": "memo",
+}
+
 
 def paragraph_properties(data: bytes, shapes: list[dict], styles: list[dict]) -> dict:
     if len(data) < 12:
@@ -68,7 +85,7 @@ def paragraph_properties(data: bytes, shapes: list[dict], styles: list[dict]) ->
     return result
 
 
-def doc_info_properties(records) -> tuple[list[dict], list[dict]]:
+def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[dict]]:
     shapes: list[dict] = []
     styles: list[dict] = []
     numberings: list[list[dict]] = []
@@ -94,6 +111,16 @@ def doc_info_properties(records) -> tuple[list[dict], list[dict]]:
                         }
                     )
                     offset = end
+                if len(levels) == 7 and offset + 2 <= len(data):
+                    start = struct.unpack_from("<H", data, offset)[0]
+                    for index, item in enumerate(levels):
+                        item["numbering_start_number"] = start
+                        if version >= 0x05000205 and offset + 2 + 4 * len(
+                            levels
+                        ) <= len(data):
+                            item["level_start_number"] = struct.unpack_from(
+                                "<I", data, offset + 2 + index * 4
+                            )[0]
             except (struct.error, UnicodeError, ValueError):
                 levels = []
             numberings.append(levels)
@@ -168,6 +195,7 @@ class SectionStructure:
         self.issues: Counter[str] = Counter()
         self.tables: list[dict] = []
         self.counts: Counter[str] = Counter()
+        self.pending_memo: tuple[int, int] | None = None
 
     def _unit(self, kind: str, locator: dict, text: str = "") -> dict:
         unit = {
@@ -196,6 +224,7 @@ class SectionStructure:
                 "col_span",
                 "is_header",
                 "note",
+                "memo_list_record",
                 "object",
                 "owner_paragraph_record",
             ):
@@ -207,6 +236,16 @@ class SectionStructure:
     def observe(self, record: int, tag: int, level: int, data: bytes) -> None:
         if level > 64:
             raise ValueError("HWP structure exceeds its nesting budget")
+        memo = self.pending_memo if tag == 0x48 else None
+        self.pending_memo = None
+        if tag == 0x5D:
+            self.counts["memo_header"] += 1
+            # The public format declares a four-byte, level-one memo-list header.
+            # Its value is not documented as an attachment ID; do not invent one.
+            if len(data) == 4:
+                self.pending_memo = (record, level)
+            else:
+                self.issues["hwp_memo_structure_partial"] += 1
         if tag == 0x42:
             self.paragraphs = {k: v for k, v in self.paragraphs.items() if k < level}
             self.controls = {k: v for k, v in self.controls.items() if k < level}
@@ -257,9 +296,33 @@ class SectionStructure:
                 if kind == "embedded_object":
                     self.issues["hwp_object_content_partial"] += 1
             elif name.startswith("%"):
-                # Field commands are neither evaluated nor followed.
                 self.counts["field"] += 1
-                self.issues["hwp_field_semantics_partial"] += 1
+                try:
+                    length = struct.unpack_from("<H", data, 9)[0]
+                    end = 11 + length * 2
+                    if end + 4 > len(data):
+                        raise ValueError("truncated field")
+                    command = data[11:end].decode("utf-16-le")
+                    if len(command) > 16_384:
+                        self.issues["hwp_field_metadata_truncated"] += 1
+                    self._unit(
+                        "field",
+                        {
+                            **context,
+                            "field_type": _FIELD_KINDS.get(name, "unknown"),
+                            "field_id": struct.unpack_from("<I", data, end)[0],
+                            "field_flags": struct.unpack_from("<I", data, 4)[0],
+                            "instruction": command[:16_384],
+                            "evaluation": "stored_result_only",
+                        },
+                    )
+                    # Native commands and IDs are retained, but paragraph-spanning
+                    # field ranges are not inferred from adjacency of records.
+                    self.issues["hwp_field_range_partial"] += 1
+                    if name not in _FIELD_KINDS:
+                        self.issues["hwp_field_semantics_partial"] += 1
+                except (struct.error, UnicodeError, ValueError):
+                    self.issues["hwp_field_structure_partial"] += 1
         elif tag in _SHAPE_KINDS:
             control = next(
                 (
@@ -342,6 +405,17 @@ class SectionStructure:
                 _CONTROL_KINDS.get(control["name"], "unknown") if control else "unknown"
             )
             locator = {"kind": kind, "list_record": record}
+            if control is None and memo is not None and memo[1] == level:
+                kind = "comment"
+                locator.update(
+                    {
+                        "kind": kind,
+                        "memo_list_record": memo[0],
+                        "note": f"memo.r{memo[0]}",
+                    }
+                )
+                self.counts["memo"] += 1
+                self.issues["hwp_memo_attachment_unresolved"] += 1
             if control:
                 locator["object"] = f"r{control['record']}"
                 locator["owner_paragraph_record"] = control["context"].get(
@@ -378,7 +452,9 @@ class SectionStructure:
                 self.issues["hwp_container_structure_partial"] += 1
             self.lists[level] = {"locator": locator}
             self._unit(
-                "table_cell" if locator["kind"] == "table_cell" else "embedded_object",
+                locator["kind"]
+                if locator["kind"] in {"table_cell", "comment"}
+                else "embedded_object",
                 {**self._context(level), "record": record, "structural_only": True},
             )
 
@@ -409,6 +485,10 @@ class SectionStructure:
         )
 
     def finish(self) -> tuple[list[dict], list[dict]]:
+        if self.counts["memo_header"] != self.counts["memo"]:
+            self.issues["hwp_memo_structure_partial"] += abs(
+                self.counts["memo_header"] - self.counts["memo"]
+            )
         if self.counts["table"] != len(self.tables):
             self.issues["hwp_table_structure_partial"] += abs(
                 self.counts["table"] - len(self.tables)

@@ -18,8 +18,9 @@ from .adapters import (
     ExtractedUnit,
     ExtractionEnvelope,
     ExtractionIssue,
+    _honest_completeness,
 )
-from .errors import ExtractionError
+from .errors import BudgetExceededError, ExtractionError
 from .extractors import extract_pdf
 
 _PDF_VISION_SOURCE = (
@@ -54,6 +55,7 @@ class PDFKitVisionAdapter:
         self.source_hash = _source_digest(_PDF_VISION_SOURCE)
         self.config = {
             "max_pages": 200,
+            "page_ranges": "contiguous_current_projection_v1",
             "max_edge_pixels": 3_000,
             "recognition_languages": ["ko-KR", "en-US"],
             "ocr_scope": "hybrid",
@@ -65,7 +67,7 @@ class PDFKitVisionAdapter:
         }
         self.descriptor = AdapterDescriptor.from_config(
             adapter_id="work-corpus.native.pdfkit-vision",
-            adapter_version=f"1.2.0+source.{self.source_hash[:12]}",
+            adapter_version=f"1.3.0+source.{self.source_hash[:12]}",
             config=self.config,
             capabilities=AdapterCapabilities(
                 format_ids=("pdf",),
@@ -83,6 +85,24 @@ class PDFKitVisionAdapter:
                 may_emit_partial=True,
             ),
         )
+        # Page selection and image-only support do not change already observed
+        # PDF content. Retain this exact prior implementation on the same host;
+        # the core separately queues its page-limit issues for a fresh range run.
+        legacy = AdapterDescriptor.from_config(
+            adapter_id=self.descriptor.adapter_id,
+            adapter_version="1.2.0+source.ebd131a63d82",
+            config={k: v for k, v in self.config.items() if k != "page_ranges"},
+            capabilities=self.descriptor.capabilities,
+        )
+        self.compatible_projection_identities = frozenset(
+            {
+                (
+                    legacy.adapter_id,
+                    legacy.adapter_version,
+                    legacy.config_hash,
+                )
+            }
+        )
         self.budgets = AdapterBudgets(
             timeout_seconds=180,
             max_input_bytes=2 * 1024 * 1024 * 1024,
@@ -95,7 +115,7 @@ class PDFKitVisionAdapter:
     def executable(self) -> Path:
         return self.runtime_root / f"pdfkit-vision-{self.source_hash[:16]}"
 
-    def _build(self) -> Path:
+    def _build(self, *, timeout_seconds: float = 120) -> Path:
         executable = self.executable
         if executable.is_file() and os.access(executable, os.X_OK):
             return executable
@@ -123,7 +143,7 @@ class PDFKitVisionAdapter:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
-                timeout=120,
+                timeout=timeout_seconds,
             )
             if result.returncode != 0:
                 raise ExtractionError(
@@ -145,23 +165,142 @@ class PDFKitVisionAdapter:
         return executable
 
     def extract(self, path: Path, *, format_id: str) -> ExtractionEnvelope:
-        executable = self._build()
-        adapter = ExternalJSONLAdapter(
-            self.descriptor,
-            (str(executable),),
-            self.budgets,
-            config=self.config,
-        )
+        return self._extract_range(path, format_id=format_id, page_start=1)
+
+    def _extract_range(self, path: Path, *, format_id: str, page_start: int):
         try:
-            return adapter.extract(path, format_id=format_id)
+            executable = self._build()
+            config = {**self.config, "page_start": page_start}
+            descriptor = AdapterDescriptor.from_config(
+                adapter_id=self.descriptor.adapter_id,
+                adapter_version=self.descriptor.adapter_version,
+                config=config,
+                capabilities=self.descriptor.capabilities,
+            )
+            adapter = ExternalJSONLAdapter(
+                descriptor, (str(executable),), self.budgets, config=config
+            )
+            result = adapter.extract(path, format_id=format_id)
         except ExtractionError:
-            return self._extract_with_pypdf(path, format_id=format_id)
+            result = self._extract_with_pypdf(
+                path, format_id=format_id, page_start=page_start
+            )
+        if page_start == 1 and any(
+            i.code == "pdf_page_unit_budget_exhausted" for i in result.issues
+        ):
+            raise BudgetExceededError(
+                "The first PDF page exceeds the extraction result budget"
+            )
+        # A transport page selection is not a new extraction configuration.
+        return ExtractionEnvelope.create(
+            descriptor=self.descriptor,
+            completeness=result.completeness,
+            units=result.units,
+            issues=result.issues,
+        )
+
+    def resume(self, path: Path, *, format_id: str, previous: ExtractionEnvelope):
+        if previous.descriptor != self.descriptor:
+            raise ExtractionError("PDF continuation requires the same adapter identity")
+        coverage = [
+            i.details for i in previous.issues if i.code == "pdf_page_range_observed"
+        ]
+        pending = [
+            i.details for i in previous.issues if i.code == "pdf_page_range_pending"
+        ]
+        if len(coverage) != 1 or len(pending) != 1:
+            raise ExtractionError("PDF continuation has no unique current page range")
+        start = pending[0].get("next_page")
+        total = coverage[0].get("document_pages")
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or not isinstance(total, int)
+            or not 1 < start <= total
+            or coverage[0].get("page_start") != 1
+            or coverage[0].get("page_end") != start - 1
+            or pending[0].get("document_pages") != total
+        ):
+            raise ExtractionError("PDF continuation range is inconsistent")
+        result = self._extract_range(path, format_id=format_id, page_start=start)
+        if any(i.code == "pdf_page_unit_budget_exhausted" for i in result.issues):
+            return ExtractionEnvelope.create(
+                descriptor=self.descriptor,
+                completeness="partial",
+                units=previous.units,
+                issues=(
+                    *(i for i in previous.issues if i.code != "pdf_page_range_pending"),
+                    *(
+                        i
+                        for i in result.issues
+                        if i.code
+                        not in {"pdf_page_range_observed", "pdf_page_range_pending"}
+                    ),
+                ),
+            )
+        observed = [i for i in result.issues if i.code == "pdf_page_range_observed"]
+        if (
+            len(observed) != 1
+            or observed[0].details.get("page_start") != start
+            or observed[0].details.get("document_pages") != total
+            or not start <= observed[0].details.get("page_end", 0) <= total
+        ):
+            raise ExtractionError("PDF continuation made no contiguous page progress")
+        end = observed[0].details["page_end"]
+        if any(
+            not isinstance(u.structure_path.get("page"), int)
+            or not start <= u.structure_path["page"] <= end
+            for u in result.units
+        ):
+            raise ExtractionError(
+                "PDF continuation emitted a unit outside its page range"
+            )
+        progress_codes = {"pdf_page_range_observed", "pdf_page_range_pending"}
+        old_issues = tuple(i for i in previous.issues if i.code not in progress_codes)
+        units = (*previous.units, *result.units)
+        if (
+            len(units) > self.budgets.max_units
+            or sum(len(u.content) for u in units) > self.budgets.max_total_content_chars
+            or len(old_issues) + len(result.issues) > self.budgets.max_issues
+        ):
+            # Keep searchable coverage without endlessly rescheduling a full result.
+            return ExtractionEnvelope.create(
+                descriptor=self.descriptor,
+                completeness="partial",
+                units=previous.units,
+                issues=(
+                    *old_issues,
+                    ExtractionIssue(
+                        code="pdf_output_limit_reached",
+                        severity="warning",
+                        message="Further pages exceed the cumulative extraction result budget.",
+                        details={"next_page": start, "document_pages": total},
+                    ),
+                ),
+            )
+        issues = (
+            *old_issues,
+            *(i for i in result.issues if i.code != "pdf_page_range_observed"),
+            ExtractionIssue(
+                code="pdf_page_range_observed",
+                severity="info",
+                message="The adapter observed this contiguous original page range.",
+                details={"page_start": 1, "page_end": end, "document_pages": total},
+            ),
+        )
+        return ExtractionEnvelope.create(
+            descriptor=self.descriptor,
+            completeness=_honest_completeness("complete", units, issues),
+            units=units,
+            issues=issues,
+        )
 
     def _extract_with_pypdf(
         self,
         path: Path,
         *,
         format_id: str,
+        page_start: int = 1,
     ) -> ExtractionEnvelope:
         """Recover PDFs that the host PDFKit cannot open or process."""
 
@@ -180,7 +319,9 @@ class PDFKitVisionAdapter:
                 details={"count": input_bytes, "limit": self.budgets.max_input_bytes},
             )
 
-        fallback = extract_pdf(path)
+        fallback = extract_pdf(
+            path, page_start=page_start, max_pages=self.config["max_pages"]
+        )
 
         def convert_issue(raw: dict) -> ExtractionIssue:
             code = raw.get("code", "extraction_warning")
@@ -212,6 +353,14 @@ class PDFKitVisionAdapter:
             for unit in fallback.units
         )
         issues = tuple(convert_issue(issue) for issue in fallback.issues)
+        if (
+            len(units) > self.budgets.max_units
+            or sum(len(u.content) for u in units) > self.budgets.max_total_content_chars
+            or any(len(u.content) > self.budgets.max_unit_content_chars for u in units)
+        ):
+            raise BudgetExceededError(
+                "PDF fallback exceeds the extraction result budget"
+            )
         material_issues = [
             issue
             for issue in (*issues, *(item for unit in units for item in unit.issues))

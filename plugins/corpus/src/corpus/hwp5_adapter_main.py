@@ -274,7 +274,8 @@ def _extract(request: dict) -> dict:
                 else raw_info
             )
             shapes, styles = doc_info_properties(
-                _records(info, max_records=max_records)
+                _records(info, max_records=max_records),
+                version=struct.unpack_from("<I", file_header, 32)[0],
             )
             doc_info_bytes = len(info)
         units: list[dict] = []

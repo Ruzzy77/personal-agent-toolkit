@@ -649,7 +649,8 @@ class PackagedAdapterTest(unittest.TestCase):
             ["native_text"],
         )
         self.assertIn("reading_order_unverified", result.units[0].quality_flags)
-        self.assertEqual(result.issues, ())
+        self.assertEqual({i.code for i in result.issues}, {"pdf_page_range_observed"})
+        self.assertTrue(all(i.severity == "info" for i in result.issues))
 
     @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
     def test_pdf_native_adapter_falls_back_to_pypdf_on_native_failure(self) -> None:
@@ -675,14 +676,15 @@ class PackagedAdapterTest(unittest.TestCase):
         )
         self.assertIn("pypdf_fallback", result.units[0].quality_flags)
         self.assertIn("reading_order_unverified", result.units[0].quality_flags)
-        self.assertEqual(result.issues, ())
+        self.assertEqual({i.code for i in result.issues}, {"pdf_page_range_observed"})
+        self.assertTrue(all(i.severity == "info" for i in result.issues))
 
     def test_hwpx_security_change_does_not_invalidate_other_builtin_formats(
         self,
     ) -> None:
         self.assertEqual(
             builtin_adapter_descriptor("hwpx").adapter_version,
-            "source-units-v6",
+            "source-units-v7",
         )
         self.assertEqual(
             builtin_adapter_descriptor("markdown").adapter_version,
@@ -974,6 +976,60 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertEqual(text, "산업\tAI\n 과제")
         self.assertEqual(dict(controls), {9: 1, 10: 1, 30: 1, 13: 1})
         self.assertEqual(anomalies, [])
+
+    def test_hwp_memo_siblings_and_native_field_metadata(self) -> None:
+        reader = SectionStructure(1, "BodyText/Section0", [{}], [{}])
+        reader.observe(1, 0x42, 0, b"\0" * 12)
+        command = "native field instruction".encode("utf-16-le")
+        data = (
+            b"klc%"
+            + struct.pack("<IBH", 0, 0, len(command) // 2)
+            + command
+            + struct.pack("<I", 77)
+        )
+        reader.observe(2, 0x47, 1, data)
+        reader.observe(3, 0x5D, 1, b"\0" * 4)
+        reader.observe(4, 0x48, 1, b"\0" * 16)
+        reader.observe(5, 0x42, 1, b"\0" * 12)
+        reader.text(6, 2, 1, "Memo text")
+        reader.observe(7, 0x42, 0, b"\0" * 12)
+        reader.text(8, 1, 2, "Body after memo")
+        units, issues = reader.finish()
+        memo = next(u for u in units if u["content"] == "Memo text")
+        self.assertEqual(memo["unit_type"], "comment")
+        self.assertEqual(memo["structure_path"]["memo_list_record"], 3)
+        body = next(u for u in units if u["content"] == "Body after memo")
+        self.assertNotIn("note", body["structure_path"])
+        field = next(u for u in units if u["unit_type"] == "field")
+        self.assertEqual(field["structure_path"]["field_id"], 77)
+        self.assertEqual(field["structure_path"]["field_type"], "click_here")
+        self.assertNotIn("hwp_container_structure_partial", {i["code"] for i in issues})
+        self.assertIn("hwp_memo_attachment_unresolved", {i["code"] for i in issues})
+
+    def test_hwpx_field_ranges_memo_and_highlight_preserve_text(self) -> None:
+        xml = """<sec><p><run><t>Before</t><ctrl>
+          <fieldBegin id="10" type="MEMO" fieldid="3"><parameters><stringParam name="author">Writer</stringParam></parameters>
+          <subList><p><run><t>Memo text</t></run></p></subList></fieldBegin>
+          </ctrl><t>Marked<markpenBegin color="#FFFF00"/> value<markpenEnd/></t>
+          <ctrl><fieldEnd beginIDRef="10" fieldid="3"/></ctrl><t>After</t></run></p></sec>"""
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "fields.hwpx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("Contents/section0.xml", xml)
+            result = extract_hwpx(path)
+        self.assertEqual(
+            [u.content for u in result.units if u.content],
+            ["Before", "Memo text", "Marked value", "After"],
+        )
+        memo = next(u for u in result.units if u.content == "Memo text")
+        self.assertEqual(memo.unit_type, "comment")
+        self.assertEqual(memo.structure_path["note"], "10")
+        field = next(u for u in result.units if u.unit_type == "field")
+        self.assertIn("end_element", field.structure_path)
+        marked = next(u for u in result.units if u.content == "Marked value")
+        self.assertEqual(marked.structure_path["field_path"], ["10"])
+        self.assertEqual(len(marked.structure_path["format_markers"]), 2)
+        self.assertFalse(any(i["severity"] == "warning" for i in result.issues))
 
     def test_hwp5_record_and_raw_deflate_boundaries_are_bounded(self) -> None:
         payload = "본문".encode("utf-16-le")

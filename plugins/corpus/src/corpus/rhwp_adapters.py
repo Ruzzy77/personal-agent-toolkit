@@ -199,6 +199,8 @@ class RhwpPageTextAdapter:
         executable = self._resolve_executable()
         input_fd = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
         try:
+            # /dev/fd inputs may duplicate an already inspected open-file offset.
+            os.lseek(input_fd, 0, os.SEEK_SET)
             payload = self._run(executable, input_fd)
         finally:
             os.close(input_fd)

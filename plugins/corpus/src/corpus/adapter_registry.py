@@ -144,7 +144,10 @@ def build_default_registry(
         and Path("/usr/bin/xcrun").is_file()
     ):
         from .native_adapters import PDFKitVisionAdapter
+        from .office_ocr import OfficeVisionAdapter
 
         routes["pdf"] = PDFKitVisionAdapter(runtime_root)
+        for format_id in ("docx", "pptx"):
+            routes[format_id] = OfficeVisionAdapter(routes[format_id], runtime_root)
     routes.update(overrides or {})
     return AdapterRegistry(routes)

@@ -19,7 +19,9 @@ from .errors import ExtractionError
 
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
-    "hwpx": "source-units-v6",
+    "docx": "source-units-v5",
+    "pptx": "source-units-v5",
+    "hwpx": "source-units-v7",
     "xlsx": "source-units-v5",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
@@ -378,7 +380,9 @@ def extract_hwpx(path: Path) -> ExtractionResult:
         raise ExtractionError("could not parse HWPX structure") from exc
 
 
-def extract_pdf(path: Path) -> ExtractionResult:
+def extract_pdf(
+    path: Path, *, page_start: int = 1, max_pages: int | None = None
+) -> ExtractionResult:
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -392,7 +396,16 @@ def extract_pdf(path: Path) -> ExtractionResult:
                 raise ExtractionError("encrypted PDF cannot be read") from exc
         units = []
         issues = []
-        for page_number, page in enumerate(reader.pages, start=1):
+        total_pages = len(reader.pages)
+        page_end = (
+            min(total_pages, page_start - 1 + max_pages)
+            if max_pages is not None
+            else total_pages
+        )
+        if not 1 <= page_start <= total_pages + 1:
+            raise ExtractionError("PDF page range is invalid")
+        for page_number in range(page_start, page_end + 1):
+            page = reader.pages[page_number - 1]
             text = page.extract_text() or ""
             if not normalize_text(text):
                 issues.append(
@@ -404,6 +417,28 @@ def extract_pdf(path: Path) -> ExtractionResult:
                     }
                 )
             units.append(UnitDraft("page", {"page": page_number}, text))
+        if max_pages is not None:
+            issues.append(
+                {
+                    "code": "pdf_page_range_observed",
+                    "severity": "info",
+                    "message": "The adapter observed this contiguous original page range.",
+                    "page_start": page_start,
+                    "page_end": page_end,
+                    "document_pages": total_pages,
+                }
+            )
+            if page_end < total_pages:
+                issues.append(
+                    {
+                        "code": "pdf_page_range_pending",
+                        "severity": "warning",
+                        "message": "Further original pages remain for a bounded continuation.",
+                        "next_page": page_end + 1,
+                        "document_pages": total_pages,
+                        "reason": "page_limit",
+                    }
+                )
     except ExtractionError:
         raise
     except Exception as exc:
@@ -414,95 +449,15 @@ def extract_pdf(path: Path) -> ExtractionResult:
 
 
 def extract_docx(path: Path) -> ExtractionResult:
-    _preflight_zip(path)
-    try:
-        from docx import Document
-    except ImportError as exc:
-        raise ExtractionError("python-docx is not installed") from exc
-    try:
-        document = Document(str(path))
-        units: list[UnitDraft] = []
-        heading_stack: list[str] = []
-        for paragraph_index, paragraph in enumerate(document.paragraphs, start=1):
-            text = normalize_text(paragraph.text)
-            if not text:
-                continue
-            style = paragraph.style.name if paragraph.style else ""
-            heading_match = re.match(r"Heading\s+(\d+)", style, re.IGNORECASE)
-            if heading_match:
-                level = int(heading_match.group(1))
-                heading_stack[:] = heading_stack[: level - 1]
-                heading_stack.append(text)
-                unit_type = "heading"
-            else:
-                unit_type = "paragraph"
-            units.append(
-                UnitDraft(
-                    unit_type,
-                    {
-                        "paragraph": paragraph_index,
-                        "style": style,
-                        "heading_path": list(heading_stack),
-                    },
-                    text,
-                )
-            )
-        for table_index, table in enumerate(document.tables, start=1):
-            for row_index, row in enumerate(table.rows, start=1):
-                values = [normalize_text(cell.text) for cell in row.cells]
-                units.append(
-                    UnitDraft(
-                        "table_row",
-                        {"table": table_index, "row": row_index},
-                        "\t".join(values),
-                    )
-                )
-    except Exception as exc:
-        raise ExtractionError(
-            "could not extract DOCX", details={"error": str(exc)}
-        ) from exc
-    return _finish(units)
+    from .office_structure import extract_structured_docx
+
+    return extract_structured_docx(path)
 
 
 def extract_pptx(path: Path) -> ExtractionResult:
-    _preflight_zip(path)
-    try:
-        from pptx import Presentation
-    except ImportError as exc:
-        raise ExtractionError("python-pptx is not installed") from exc
-    try:
-        presentation = Presentation(str(path))
-        units: list[UnitDraft] = []
-        for slide_index, slide in enumerate(presentation.slides, start=1):
-            for shape_index, shape in enumerate(slide.shapes, start=1):
-                if not hasattr(shape, "text"):
-                    continue
-                text = normalize_text(shape.text)
-                if text:
-                    units.append(
-                        UnitDraft(
-                            "slide_text",
-                            {
-                                "slide": slide_index,
-                                "shape": shape_index,
-                                "shape_name": getattr(shape, "name", ""),
-                            },
-                            text,
-                        )
-                    )
-            try:
-                notes_text = normalize_text(slide.notes_slide.notes_text_frame.text)
-            except (AttributeError, ValueError):
-                notes_text = ""
-            if notes_text:
-                units.append(
-                    UnitDraft("speaker_notes", {"slide": slide_index}, notes_text)
-                )
-    except Exception as exc:
-        raise ExtractionError(
-            "could not extract PPTX", details={"error": str(exc)}
-        ) from exc
-    return _finish(units)
+    from .office_structure import extract_structured_pptx
+
+    return extract_structured_pptx(path)
 
 
 def _cell_value(cell) -> str:

@@ -65,9 +65,16 @@ CORPUS_MCP_PORT=8000 \
 `scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
 HWP/HWPX는 원문에 기록된 표·셀·병합 관계, 제목·목록 속성과 주석·개체의 위치를 함께 읽습니다.
+DOCX는 본문·표·중첩 셀을 XML 순서대로 읽고, PPTX는 그룹 도형 안의 글자, 표, 저장된 차트·SmartArt 본문을 읽습니다.
 검색으로 찾은 셀의 행과 제목 셀, 캡션이 필요하면 `corpus_file_read`에
 `include_structure_context=true`를 지정합니다. 기본 조회는 해당 unit의 본문만 반환합니다.
-그림 OCR이나 문서의 시각 배치까지 복원한 결과는 아니며, 지원하지 않는 내용은 부분 추출로 표시합니다.
+macOS에서는 본문이 거의 없는 Word 문서와 PowerPoint 슬라이드의 그림을 제한된 로컬 OCR로 보완합니다.
+OCR 결과에는 그림의 원본 위치와 인식 신뢰도를 남기며, 잘린 그림은 처리하지 않습니다.
+시각 배치나 지원하지 않는 개체 내용은 부분 추출로 표시합니다.
+
+PDF는 한 번에 최대 200쪽을 읽고, 남은 쪽은 다음 갱신에서 이어 처리합니다.
+이어 처리에 실패하면 기존 색인을 보존합니다. `status`와 갱신 스크립트의 최종 JSON에는
+부분 추출 문서의 형식별·문제별 집계가 포함됩니다. 문제별 수치는 같은 문서를 중복 집계할 수 있습니다.
 
 배포용 HWP의 페이지 본문을 복구하려면 고정된 `rhwp` 실행 파일을 Corpus 캐시에 한 번 설치합니다.
 
