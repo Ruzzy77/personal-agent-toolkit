@@ -1,4 +1,4 @@
-"""Bounded local Vision assistance for otherwise textless Office content."""
+"""Bounded local image OCR, preserving native text and resumable source order."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import hashlib
 import tempfile
 import time
 import zipfile
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,7 +19,7 @@ from .adapters import (
     ExtractionEnvelope,
     ExtractionIssue,
 )
-from .errors import BudgetExceededError, CorpusError
+from .errors import BudgetExceededError, CorpusError, ExtractionError
 from .extractors import MAX_UNIT_CHARS
 from .native_adapters import PDFKitVisionAdapter
 
@@ -29,11 +29,29 @@ _MESSAGES = {
     "office_image_ocr_budget_reached": "Further image recognition exceeds the count or time budget.",
     "office_image_ocr_failed": "Vision could not process an embedded image; native content was retained.",
     "office_image_format_unsupported": "The local image decoder does not support an embedded image format.",
+    "office_image_decode_failed": "An embedded image could not be decoded; native content was retained.",
     "office_image_without_text": "Vision found no text in an embedded image.",
     "office_image_ocr_output_limit": "Image recognition exceeds the configured result size.",
     "office_image_ocr_observed": "Local OCR recovered text at the original embedded image location.",
     "office_image_visual_content_partial": "OCR text does not reconstruct the image's non-text visual content.",
 }
+
+
+def _source_crop(location):
+    crops = location.get("source_crops", [])
+    if not crops:
+        return None
+    if len(crops) != 1 or set(crops[0]) - {"l", "t", "r", "b"}:
+        raise ValueError("ambiguous source crop")
+    values = [int(crops[0].get(key, "0")) for key in ("l", "t", "r", "b")]
+    left, top, right, bottom = values
+    if (
+        any(not 0 <= value < 100_000 for value in values)
+        or left + right >= 100_000
+        or top + bottom >= 100_000
+    ):
+        raise ValueError("source crop needs unsupported padding or has no visible area")
+    return (left / 100_000, top / 100_000, 1 - right / 100_000, 1 - bottom / 100_000)
 
 
 class OfficeVisionAdapter:
@@ -47,7 +65,8 @@ class OfficeVisionAdapter:
             "native": native.descriptor.to_dict(),
             "vision_source": self.vision.source_hash,
             "runtime": self.vision.config["runtime"],
-            "scope": "textless_slides_or_document",
+            "scope": "embedded_images_sparse_first",
+            "continuation": "current_projection_image_order_v1",
             "native_text_min_alphanumeric_characters": 32,
             "max_images": 16,
             "max_image_bytes": 16 * 1024 * 1024,
@@ -55,7 +74,7 @@ class OfficeVisionAdapter:
             "timeout_seconds": 60,
             "max_edge_pixels": 3000,
             "recognition_languages": ["ko-KR", "en-US"],
-            "cropped_images": "leave_unread",
+            "cropped_images": "verified_positive_source_rect_v1",
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
@@ -71,12 +90,14 @@ class OfficeVisionAdapter:
             ),
         )
 
-    def _image_text(self, image_path, seconds):
+    def _image_text(self, image_path, seconds, *, crop=None):
         started = time.monotonic()
         config = {
             "max_edge_pixels": self.config["max_edge_pixels"],
             "recognition_languages": self.config["recognition_languages"],
         }
+        if crop is not None:
+            config["source_crop_bbox"] = list(crop)
         descriptor = AdapterDescriptor.from_config(
             adapter_id="work-corpus.native.vision-image",
             adapter_version=self.vision.descriptor.adapter_version,
@@ -110,7 +131,19 @@ class OfficeVisionAdapter:
         return adapter.extract(image_path, format_id="image")
 
     def extract(self, path, *, format_id):
+        return self._extract_range(path, format_id=format_id)
+
+    def resume(self, path, *, format_id, previous):
+        if previous.descriptor != self.descriptor:
+            raise ExtractionError(
+                "Office continuation requires the same adapter identity"
+            )
+        return self._extract_range(path, format_id=format_id, previous=previous)
+
+    def _extract_range(self, path, *, format_id, previous=None):
         native = self.native.extract(path, format_id=format_id)
+        with Path(path).open("rb") as source:
+            source_digest = hashlib.file_digest(source, "sha256").hexdigest()
         native_characters = Counter()
         for unit in native.units:
             if unit.unit_type not in {"embedded_object", "speaker_notes", "field"}:
@@ -118,73 +151,194 @@ class OfficeVisionAdapter:
                     c.isalnum() for c in unit.content
                 )
         insertions, observations = {}, Counter()
-        added_characters, added_count = 0, 0
+        diagnostic_examples = defaultdict(list)
+        failures = {}
+        positions = {}
+        for position, unit in enumerate(native.units):
+            if (
+                unit.unit_type == "embedded_object"
+                and unit.structure_path.get("object_type") == "image"
+            ):
+                positions.setdefault(
+                    (
+                        unit.structure_path.get("part"),
+                        unit.structure_path.get("element"),
+                    ),
+                    position,
+                )
+        image_order = sorted(
+            positions.values(),
+            key=lambda position: (
+                native_characters[native.units[position].structure_path.get("slide")]
+                >= self.config["native_text_min_alphanumeric_characters"]
+            ),
+        )
+        start = 0
+        if previous is not None:
+            coverage = [
+                i.details
+                for i in previous.issues
+                if i.code == "office_image_range_observed"
+            ]
+            pending = [
+                i.details
+                for i in previous.issues
+                if i.code == "office_image_range_pending"
+            ]
+            if len(coverage) != 1 or len(pending) != 1:
+                raise ExtractionError("Office continuation has no unique image range")
+            start = pending[0].get("next_image")
+            if (
+                type(start) is not int
+                or not 0 <= start < len(image_order)
+                or coverage[0].get("next_image") != start
+                or coverage[0].get("image_count") != len(image_order)
+                or coverage[0].get("source_sha256") != source_digest
+            ):
+                raise ExtractionError(
+                    "Office continuation source or image range changed"
+                )
+            for unit in previous.units:
+                if unit.unit_type != "image_text" or unit.derivation_method != "ocr":
+                    continue
+                key = (
+                    unit.structure_path.get("part"),
+                    unit.structure_path.get("element"),
+                )
+                if key not in positions:
+                    raise ExtractionError(
+                        "Office OCR has no matching native image position"
+                    )
+                insertions.setdefault(positions[key], []).append(unit)
+            for issue in previous.issues:
+                if (
+                    issue.code in _MESSAGES
+                    and issue.code != "office_image_ocr_budget_reached"
+                ):
+                    observations[issue.code] += issue.details.get("occurrences", 0)
+                    diagnostic_examples[issue.code].extend(
+                        dict(example)
+                        for example in issue.details.get("examples", ())[:16]
+                    )
+
+        def observe_image(code, location, part, details):
+            observations[code] += 1
+            if len(diagnostic_examples[code]) < 16:
+                diagnostic_examples[code].append(
+                    {
+                        **{
+                            k: location[k]
+                            for k in ("part", "element", "slide")
+                            if k in location
+                        },
+                        "image_part": part,
+                        **details,
+                    }
+                )
+
+        added_characters = sum(
+            len(u.content) for group in insertions.values() for u in group
+        )
+        added_count = sum(len(group) for group in insertions.values())
         native_total = sum(len(u.content) for u in native.units)
-        by_part, by_digest, placements = {}, {}, set()
+        by_part, by_digest, source_data = {}, {}, {}
         bytes_read = 0
+        next_image = start
+        output_limited = False
         deadline = time.monotonic() + self.config["timeout_seconds"]
         with (
             zipfile.ZipFile(path) as archive,
             tempfile.TemporaryDirectory(prefix="corpus-image-") as temporary,
         ):
-            for position, unit in enumerate(native.units):
+            for image_index in range(start, len(image_order)):
+                position = image_order[image_index]
+                unit = native.units[position]
                 location = unit.to_dict()["structure_path"]
-                if (
-                    unit.unit_type != "embedded_object"
-                    or location.get("object_type") != "image"
-                ):
-                    continue
-                if (
-                    native_characters[location.get("slide")]
-                    >= self.config["native_text_min_alphanumeric_characters"]
-                ):
-                    continue
-                placement = (location.get("part"), location.get("element"))
-                if placement in placements:
-                    continue
-                placements.add(placement)
+                next_image = image_index + 1
                 parts = location.get("image_parts", [])
-                if location.get("source_crops") or len(parts) != 1:
+                if len(parts) != 1:
                     observations["office_image_placement_unresolved"] += 1
                     continue
                 part = parts[0]
-                if part not in by_part:
+                try:
+                    crop = _source_crop(location)
+                except (TypeError, ValueError):
+                    observe_image(
+                        "office_image_placement_unresolved",
+                        location,
+                        part,
+                        {"stage": "source_crop", "retryable": False},
+                    )
+                    continue
+                image_key = (part, crop)
+                if image_key not in by_part:
                     info = archive.getinfo(part)
-                    if (
-                        info.file_size > self.config["max_image_bytes"]
-                        or bytes_read + info.file_size
-                        > self.config["max_total_image_bytes"]
-                    ):
+                    if info.file_size > self.config["max_image_bytes"]:
                         observations["office_image_size_limit"] += 1
                         continue
                     if (
                         len(by_part) >= self.config["max_images"]
+                        or bytes_read + (0 if part in source_data else info.file_size)
+                        > self.config["max_total_image_bytes"]
                         or time.monotonic() >= deadline
                     ):
                         observations["office_image_ocr_budget_reached"] += 1
-                        continue
-                    raw = archive.read(part)
-                    bytes_read += len(raw)
+                        next_image = image_index
+                        break
+                    if part not in source_data:
+                        source_data[part] = archive.read(part)
+                        bytes_read += len(source_data[part])
+                    raw = source_data[part]
                     digest = hashlib.sha256(raw).hexdigest()
-                    if digest not in by_digest:
+                    recognition_key = (digest, crop)
+                    if recognition_key not in by_digest:
                         image_path = Path(temporary) / "image.bin"
                         image_path.write_bytes(raw)
                         try:
-                            by_digest[digest] = self._image_text(
-                                image_path, deadline - time.monotonic()
+                            by_digest[recognition_key] = self._image_text(
+                                image_path, deadline - time.monotonic(), crop=crop
                             )
-                        except (CorpusError, OSError):
-                            by_digest[digest] = None
+                        except (CorpusError, OSError) as exc:
+                            by_digest[recognition_key] = None
+                            failures[recognition_key] = {
+                                "stage": "image_subprocess",
+                                "error_type": type(exc).__name__,
+                                "error_code": getattr(exc, "code", "os_error"),
+                                "retryable": isinstance(exc, BudgetExceededError),
+                            }
                         finally:
                             image_path.unlink(missing_ok=True)
-                    by_part[part] = digest, by_digest[digest]
-                digest, recognized = by_part[part]
+                    by_part[image_key] = digest, by_digest[recognition_key]
+                digest, recognized = by_part[image_key]
                 if recognized is None:
-                    observations["office_image_ocr_failed"] += 1
+                    details = failures[(digest, crop)]
+                    code = (
+                        "office_image_ocr_budget_reached"
+                        if details["error_code"] == "budget_exceeded"
+                        else "office_image_ocr_failed"
+                    )
+                    observe_image(code, location, part, details)
+                    if code == "office_image_ocr_budget_reached":
+                        next_image = image_index
+                        break
                     continue
                 codes = {i.code for i in recognized.issues}
-                if "image_format_unsupported" in codes:
-                    observations["office_image_format_unsupported"] += 1
+                failures_by_code = {
+                    "image_format_unsupported": "office_image_format_unsupported",
+                    "image_decode_failed": "office_image_decode_failed",
+                    "image_ocr_failed": "office_image_ocr_failed",
+                    "image_crop_placement_unresolved": "office_image_placement_unresolved",
+                }
+                failure = next(
+                    (i for i in recognized.issues if i.code in failures_by_code), None
+                )
+                if failure is not None:
+                    observe_image(
+                        failures_by_code[failure.code],
+                        location,
+                        part,
+                        dict(failure.details),
+                    )
                     continue
                 if "image_pixel_budget_exceeded" in codes:
                     observations["office_image_size_limit"] += 1
@@ -197,15 +351,19 @@ class OfficeVisionAdapter:
                 if not recognized.units:
                     observations["office_image_without_text"] += 1
                     continue
+                if (
+                    len(native.units) + added_count + len(recognized.units) > 200_000
+                    or native_total
+                    + added_characters
+                    + sum(len(region.content) for region in recognized.units)
+                    > 50_000_000
+                ):
+                    observations["office_image_ocr_output_limit"] += 1
+                    output_limited = True
+                    next_image = image_index
+                    break
                 regions = []
                 for index, region in enumerate(recognized.units):
-                    if (
-                        len(native.units) + added_count >= 200_000
-                        or native_total + added_characters + len(region.content)
-                        > 50_000_000
-                    ):
-                        observations["office_image_ocr_output_limit"] += 1
-                        break
                     regions.append(
                         ExtractedUnit(
                             unit_type="image_text",
@@ -214,7 +372,19 @@ class OfficeVisionAdapter:
                                 "image_part": part,
                                 "image_sha256": digest,
                                 "image_region": index,
-                                "geometry_scope": "embedded_image_pixels",
+                                "geometry_scope": "oriented_embedded_image_pixels",
+                                "source_image_orientation": region.structure_path.get(
+                                    "source_image_orientation", 1
+                                ),
+                                **(
+                                    {
+                                        "recognized_source_crop": region.to_dict()[
+                                            "structure_path"
+                                        ]["source_crop_bbox"]
+                                    }
+                                    if "source_crop_bbox" in region.structure_path
+                                    else {}
+                                ),
                                 "text_representation": "vision_ocr",
                             },
                             content=region.content,
@@ -230,8 +400,6 @@ class OfficeVisionAdapter:
                 if regions:
                     insertions[position] = regions
                     observations["office_image_ocr_observed"] += 1
-                if observations["office_image_ocr_output_limit"]:
-                    break
         issues = []
         for issue in native.issues:
             if added_count and issue.code == "no_extractable_text":
@@ -266,7 +434,41 @@ class OfficeVisionAdapter:
                         if code == "office_image_ocr_observed"
                         else "warning",
                         message=_MESSAGES[code],
-                        details={"occurrences": count, "scope": self.config["scope"]},
+                        details={
+                            "occurrences": count,
+                            "scope": self.config["scope"],
+                            **(
+                                {
+                                    "examples": diagnostic_examples[code],
+                                    "examples_truncated": count
+                                    > len(diagnostic_examples[code]),
+                                }
+                                if diagnostic_examples[code]
+                                else {}
+                            ),
+                        },
+                    )
+                )
+        if image_order:
+            issues.append(
+                ExtractionIssue(
+                    "office_image_range_observed",
+                    "The current result retains the processed native image order.",
+                    "info",
+                    {
+                        "next_image": next_image,
+                        "image_count": len(image_order),
+                        "source_sha256": source_digest,
+                    },
+                )
+            )
+            if next_image < len(image_order) and not output_limited:
+                issues.append(
+                    ExtractionIssue(
+                        "office_image_range_pending",
+                        "Further images remain for a bounded continuation pass.",
+                        "warning",
+                        {"next_image": next_image, "image_count": len(image_order)},
                     )
                 )
         units = tuple(

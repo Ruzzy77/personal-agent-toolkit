@@ -278,9 +278,18 @@ class _Reader:
                         "HYPERLINK",
                         "DATE",
                         "DOCDATE",
+                        "DOC_DATE",
                         "PATH",
                         "SUMMARY",
+                        "SUMMERY",
                         "USERINFO",
+                        "USER_INFO",
+                        "CROSSREF",
+                        "MAILMERGE",
+                        "TABLEOFCONTENTS",
+                        "CITATION",
+                        "BIBLIOGRAPHY",
+                        "METADATA",
                     }:
                         self.issues["hwpx_field_semantics_partial"] += 1
                     for ci, child in enumerate(element):

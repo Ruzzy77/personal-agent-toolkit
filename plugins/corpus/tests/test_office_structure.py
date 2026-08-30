@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from corpus.adapters import run_builtin_extraction
+from corpus.adapters import ExtractedUnit, ExtractionEnvelope, run_builtin_extraction
 
 
 class OfficeStructureTest(unittest.TestCase):
@@ -54,7 +54,7 @@ class OfficeStructureTest(unittest.TestCase):
         self.assertTrue(recognized)
         self.assertIn("Corpus local OCR", " ".join(u.content for u in recognized))
         self.assertEqual(
-            {u.structure_path["slide"] for u in recognized}, {1, *range(3, 20)}
+            {u.structure_path["slide"] for u in recognized}, set(range(1, 20))
         )
         first_ocr = next(
             i for i, u in enumerate(result.units) if u.derivation_method == "ocr"
@@ -79,6 +79,89 @@ class OfficeStructureTest(unittest.TestCase):
             sum(u.content.startswith("Existing native content") for u in result.units),
             1,
         )
+
+    @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
+    def test_image_continuation_preserves_prior_units_and_source_order(self):
+        from corpus.adapter_registry import build_default_registry
+        from corpus.database import corpus_read_connection
+        from corpus.service import CorpusService
+        from PIL import Image
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"
+            source.mkdir()
+            presentation = Presentation()
+            for index, color in enumerate(("red", "green", "blue")):
+                picture = base / f"{index}.png"
+                Image.new("RGB", (20, 20), color).save(picture)
+                slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+                slide.shapes.add_textbox(
+                    0, 0, Inches(4), Inches(1)
+                ).text = f"Native {index}"
+                slide.shapes.add_picture(str(picture), 0, 0, width=Inches(1))
+            path = source / "images.pptx"
+            presentation.save(path)
+            original = path.read_bytes()
+            registry = build_default_registry(base / "runtime")
+            adapter = registry.resolve("pptx")
+            adapter.config["max_images"] = 1
+            service = CorpusService(base / "private", adapter_registry=registry)
+            service.register(
+                corpus_id="images", source_root=source, execution_policy="local_only"
+            )
+            calls = []
+
+            def recognize(image_path, seconds, *, crop=None):
+                self.assertIsNone(crop)
+                calls.append(image_path.read_bytes())
+                return ExtractionEnvelope.create(
+                    descriptor=adapter.descriptor,
+                    completeness="complete",
+                    units=[
+                        ExtractedUnit(
+                            "page_region",
+                            {"page": 1},
+                            f"Recognized {len(calls)}",
+                            derivation_method="ocr",
+                        )
+                    ],
+                )
+
+            with mock.patch.object(adapter, "_image_text", side_effect=recognize):
+                for count in (1, 2, 3):
+                    service.sync("images")
+                    document = service.inventory("images")["documents"][0]
+                    with corpus_read_connection(
+                        service.data_root, "images"
+                    ) as connection:
+                        rows = connection.execute(
+                            "SELECT normalized_content FROM source_units ORDER BY ordinal"
+                        ).fetchall()
+                        self.assertEqual(
+                            connection.execute(
+                                "SELECT COUNT(*) FROM extraction_projections"
+                            ).fetchone()[0],
+                            1,
+                        )
+                    contents = [r[0] for r in rows if r[0]]
+                    self.assertEqual(
+                        [t for t in contents if t.startswith("Native")],
+                        ["Native 0", "Native 1", "Native 2"],
+                    )
+                    self.assertEqual(
+                        [t for t in contents if t.startswith("Recognized")],
+                        [f"Recognized {n}" for n in range(1, count + 1)],
+                    )
+                    self.assertEqual(
+                        "extraction_continuation" in document["refresh_reasons"],
+                        count < 3,
+                    )
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(len(set(calls)), 3)
+            self.assertEqual(path.read_bytes(), original)
 
     def test_word_body_order_nested_tables_and_merged_cells(self):
         from docx import Document

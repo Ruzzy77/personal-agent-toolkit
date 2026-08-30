@@ -1,4 +1,4 @@
-// Packaged source for the source-hashed local PDF extraction subprocess.
+// Packaged source for the source-hashed, consistently identified local subprocess.
 import AppKit
 import Darwin
 import Foundation
@@ -73,27 +73,30 @@ func render(_ page: PDFPage, maxEdgePixels: Int) throws -> CGImage {
 }
 
 func isVisuallyBlank(_ image: CGImage) -> Bool {
-    let sampleWidth = min(image.width, 128)
-    let sampleHeight = min(image.height, 128)
-    guard sampleWidth > 0, sampleHeight > 0 else {
+    let sampleWidth = image.width
+    let sampleHeight = image.height
+    guard sampleWidth > 0, sampleHeight > 0,
+          sampleWidth * sampleHeight <= 64_000_000 else {
         return false
     }
-    var pixels = [UInt8](repeating: 255, count: sampleWidth * sampleHeight)
+    // Inspect the rendered pixels without reducing faint or small text to white.
+    // Only an exactly uniform RGB image is treated as visually blank.
+    var pixels = [UInt8](repeating: 255, count: sampleWidth * sampleHeight * 4)
     let rendered = pixels.withUnsafeMutableBytes { buffer in
         guard let context = CGContext(
             data: buffer.baseAddress,
             width: sampleWidth,
             height: sampleHeight,
             bitsPerComponent: 8,
-            bytesPerRow: sampleWidth,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
+            bytesPerRow: sampleWidth * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             return false
         }
-        context.setFillColor(gray: 1, alpha: 1)
+        context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
         context.fill(CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
-        context.interpolationQuality = .low
+        context.interpolationQuality = .none
         context.draw(
             image,
             in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight)
@@ -103,7 +106,19 @@ func isVisuallyBlank(_ image: CGImage) -> Bool {
     guard rendered else {
         return false
     }
-    return !pixels.contains { value in value < 250 }
+    for offset in stride(from: 4, to: pixels.count, by: 4) {
+        if pixels[offset] != pixels[0] || pixels[offset + 1] != pixels[1]
+            || pixels[offset + 2] != pixels[2] { return false }
+    }
+    return true
+}
+
+func imageIssue(_ code: String, _ message: String, _ details: [String: Any]) throws {
+    try writeResult(["schema_version": "corpus.extraction-result.v1",
+                     "completeness": "partial", "units": [], "issues": [[
+                        "code": code, "message": message, "severity": "warning",
+                        "details": details,
+                     ]]])
 }
 
 func topLeftBoundingBox(_ box: CGRect) -> [Double] {
@@ -352,6 +367,13 @@ func runAdapter() async throws {
     }
 
     let config = request["config"] as? [String: Any] ?? [:]
+    let selectedPages = config["selected_pages"] as? [Int]
+    if let selectedPages {
+        guard !selectedPages.isEmpty, selectedPages.count <= 2_000,
+              selectedPages.allSatisfy({ $0 >= 1 && $0 <= 1_000_000 }) else {
+            throw AdapterFailure.invalidConfiguration
+        }
+    }
     let maxPages = try boundedInt(
         config["max_pages"],
         default: 200,
@@ -404,6 +426,28 @@ func runAdapter() async throws {
 
     let inputURL = URL(fileURLWithPath: path)
     if formatID == "image" {
+        // /dev/fd descriptors share an offset. Inspect magic without moving the
+        // decoder's input position or closing another handle to the same file.
+        var header = [UInt8](repeating: 0, count: 44)
+        let prefixCount = header.withUnsafeMutableBytes {
+            pread(Int32(fileDescriptor), $0.baseAddress, 44, 0)
+        }
+        guard prefixCount >= 0 else { throw AdapterFailure.invalidInput }
+        header = Array(header.prefix(prefixCount))
+        let emf = header.count >= 44 && Array(header[40..<44]) == [32, 69, 77, 70]
+        let wmf = header.count >= 18 && (
+            Array(header[0..<4]) == [215, 205, 198, 154] ||
+            ((header[0] == 1 || header[0] == 2) && header[1] == 0 &&
+             header[2] == 9 && header[3] == 0 && header[4] == 0 &&
+             (header[5] == 1 || header[5] == 3))
+        )
+        if emf || wmf {
+            try imageIssue("image_format_unsupported",
+                           "This image decoder has no verified EMF/WMF rasterization path.",
+                           ["stage": "format_detection", "format": emf ? "emf" : "wmf",
+                            "retryable": false])
+            return
+        }
         guard let source = CGImageSourceCreateWithURL(inputURL as CFURL, nil) else {
             try writeResult(["schema_version": "corpus.extraction-result.v1",
                              "completeness": "partial", "units": [], "issues": [[
@@ -416,7 +460,11 @@ func runAdapter() async throws {
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
               let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
               width.doubleValue > 0, height.doubleValue > 0
-        else { throw AdapterFailure.invalidInput }
+        else {
+            try imageIssue("image_decode_failed", "Image dimensions could not be decoded.",
+                           ["stage": "image_properties", "retryable": false])
+            return
+        }
         if width.doubleValue * height.doubleValue > 64_000_000 {
             try writeResult(["schema_version": "corpus.extraction-result.v1",
                              "completeness": "partial", "units": [], "issues": [[
@@ -430,8 +478,72 @@ func runAdapter() async throws {
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: maxEdgePixels,
               ] as CFDictionary)
-        else { throw AdapterFailure.invalidInput }
-        let recognized = try recognizeTextPage(image, page: 1, languages: languages)
+        else {
+            try imageIssue("image_decode_failed", "Image pixels could not be decoded.",
+                           ["stage": "image_thumbnail", "retryable": false])
+            return
+        }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        var recognitionImage = image
+        var sourceCrop: [Double]? = nil
+        if let configuredCrop = config["source_crop_bbox"] {
+            guard let crop = configuredCrop as? [Double], crop.count == 4,
+                  crop.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
+                  crop[0] < crop[2], crop[1] < crop[3] else {
+                throw AdapterFailure.invalidConfiguration
+            }
+            // Do not guess how a source crop interacts with EXIF transforms.
+            guard orientation == 1 else {
+                try imageIssue("image_crop_placement_unresolved",
+                               "The source crop has an unverified image orientation.",
+                               ["stage": "source_crop", "orientation": orientation,
+                                "retryable": false])
+                return
+            }
+            let left = ceil(crop[0] * Double(image.width))
+            let top = ceil(crop[1] * Double(image.height))
+            let right = floor(crop[2] * Double(image.width))
+            let bottom = floor(crop[3] * Double(image.height))
+            guard right > left, bottom > top,
+                  let cropped = image.cropping(to: CGRect(
+                    x: left, y: top, width: right - left, height: bottom - top
+                  )) else {
+                try imageIssue("image_crop_placement_unresolved",
+                               "The visible crop has no pixels at the bounded recognition resolution.",
+                               ["stage": "source_crop", "retryable": false])
+                return
+            }
+            recognitionImage = cropped
+            sourceCrop = [left / Double(image.width), top / Double(image.height),
+                          right / Double(image.width), bottom / Double(image.height)]
+        }
+        var recognized: [[String: Any]]
+        do {
+            recognized = try recognizeTextPage(recognitionImage, page: 1, languages: languages)
+        } catch {
+            let failure = error as NSError
+            try imageIssue("image_ocr_failed", "Vision could not recognize this image.",
+                           ["stage": "text_recognition", "error_domain": failure.domain,
+                            "error_code": failure.code, "retryable": false])
+            return
+        }
+        for index in recognized.indices {
+            var location = recognized[index]["structure_path"] as? [String: Any] ?? [:]
+            location["source_image_orientation"] = orientation
+            if let crop = sourceCrop,
+               var geometry = recognized[index]["geometry"] as? [String: Any],
+               let box = geometry["bbox"] as? [Double], box.count == 4 {
+                geometry["bbox"] = [
+                    crop[0] + box[0] * (crop[2] - crop[0]),
+                    crop[1] + box[1] * (crop[3] - crop[1]),
+                    crop[0] + box[2] * (crop[2] - crop[0]),
+                    crop[1] + box[3] * (crop[3] - crop[1]),
+                ]
+                recognized[index]["geometry"] = geometry
+                location["source_crop_bbox"] = crop
+            }
+            recognized[index]["structure_path"] = location
+        }
         var units: [[String: Any]] = []
         var characters = 0
         let withinBudget = appendWithinBudget(recognized, to: &units, totalContentCharacters: &characters,
@@ -466,6 +578,7 @@ func runAdapter() async throws {
         let unitsBeforePage = units.count
         let charactersBeforePage = totalContentCharacters
         processedEnd = pageIndex + 1
+        if let selectedPages, !selectedPages.contains(pageIndex + 1) { continue }
         guard let page = document.page(at: pageIndex) else {
             issues.append([
                 "code": "pdf_page_unavailable",
@@ -522,12 +635,16 @@ func runAdapter() async throws {
         if !shouldRunOCR {
             continue
         }
-
         do {
             let image = try autoreleasepool {
                 try render(page, maxEdgePixels: maxEdgePixels)
             }
             if nativeText.isEmpty && isVisuallyBlank(image) {
+                issues.append([
+                    "code": "pdf_page_visually_blank", "severity": "info",
+                    "message": "The rendered page has uniform color; native fallback may verify it.",
+                    "details": ["page": pageIndex + 1],
+                ])
                 continue
             }
             var recognized: [[String: Any]] = []
@@ -539,6 +656,18 @@ func runAdapter() async throws {
                             page: pageIndex + 1,
                             languages: languages
                         )
+                        if recognized.isEmpty {
+                            recognized = try recognizeTextPage(
+                                image, page: pageIndex + 1, languages: languages
+                            )
+                            if !recognized.isEmpty {
+                                issues.append([
+                                    "code": "pdf_empty_structured_ocr_fallback", "severity": "info",
+                                    "message": "Text-region OCR recovered an empty structured recognition result.",
+                                    "details": ["page": pageIndex + 1],
+                                ])
+                            }
+                        }
                     } catch {
                         issues.append([
                             "code": "pdf_structured_ocr_fallback",

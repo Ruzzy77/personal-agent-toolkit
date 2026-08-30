@@ -34,7 +34,7 @@ from corpus.hwp5_adapter_main import (
     _inflate_raw_deflate,
     _records,
 )
-from corpus.hwp_structure import SectionStructure
+from corpus.hwp_structure import SectionStructure, link_document_memos
 from corpus.native_adapters import _PDF_VISION_SOURCE, PDFKitVisionAdapter
 from corpus.rhwp_adapters import RhwpPageTextAdapter
 from corpus.service import _validate_ingest_budgets
@@ -1005,6 +1005,80 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertEqual(field["structure_path"]["field_type"], "click_here")
         self.assertNotIn("hwp_container_structure_partial", {i["code"] for i in issues})
         self.assertIn("hwp_memo_attachment_unresolved", {i["code"] for i in issues})
+
+    def test_hwp_field_range_and_unique_memo_token_preserve_text(self) -> None:
+        def marker(code, token=0):
+            return (
+                struct.pack("<H", code)
+                + b"em%%"
+                + b"\0" * 4
+                + struct.pack("<IH", token, code)
+            )
+
+        payload = (
+            "  가😀".encode("utf-16-le")
+            + marker(3)
+            + "본문".encode("utf-16-le")
+            + marker(4, 41)
+            + "끝  ".encode("utf-16-le")
+        )
+        markers = []
+        text, _, anomalies = _decode_paragraph(payload, field_markers=markers)
+        self.assertEqual(text, "가😀본문끝")
+        self.assertFalse(anomalies)
+        command = "MEMO/".encode("utf-16-le")
+        header = (
+            b"knu%"
+            + struct.pack("<IBH", 0, 0, len(command) // 2)
+            + command
+            + struct.pack("<II", 77, 900)
+        )
+        for duplicate in (False, True):
+            with self.subTest(duplicate_header=duplicate):
+                reader = SectionStructure(1, "BodyText/Section0", [{}], [{}])
+                reader.observe(1, 0x42, 0, b"\0" * 12)
+                reader.fields(2, 1, markers)
+                reader.text(2, 1, 1, text)
+                reader.observe(3, 0x47, 1, header)
+                if duplicate:
+                    reader.observe(4, 0x47, 1, header)
+                reader.observe(5, 0x5D, 1, struct.pack("<I", 41))
+                reader.observe(6, 0x48, 1, b"\0" * 16)
+                reader.observe(7, 0x42, 1, b"\0" * 12)
+                reader.text(8, 2, 2, "Memo text")
+                units, issues = reader.finish()
+                issues = link_document_memos(units, issues)
+                memo = next(u for u in units if u["content"] == "Memo text")
+                fields = [
+                    u["structure_path"] for u in units if u["unit_type"] == "field"
+                ]
+                self.assertEqual(
+                    [u["content"] for u in units if u["content"]], [text, "Memo text"]
+                )
+                if duplicate:
+                    self.assertTrue(all("field_range" not in f for f in fields))
+                    self.assertNotIn("memo_attachment", memo["structure_path"])
+                    self.assertIn(
+                        "hwp_field_range_partial", {i["code"] for i in issues}
+                    )
+                else:
+                    span = fields[0]["field_range"]
+                    self.assertEqual(span["start"]["offset_utf16"], 13)
+                    self.assertEqual(
+                        text[
+                            span["start"]["content_offset"] : span["end"][
+                                "content_offset"
+                            ]
+                        ],
+                        "본문",
+                    )
+                    self.assertEqual(fields[0]["field_header_tail_value"], 900)
+                    self.assertEqual(
+                        memo["structure_path"]["memo_attachment"]["field_id"], 77
+                    )
+                    self.assertNotIn(
+                        "hwp_memo_attachment_unresolved", {i["code"] for i in issues}
+                    )
 
     def test_hwpx_field_ranges_memo_and_highlight_preserve_text(self) -> None:
         xml = """<sec><p><run><t>Before</t><ctrl>

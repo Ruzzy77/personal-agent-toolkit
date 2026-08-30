@@ -16,13 +16,138 @@ from corpus.adapters import (
 )
 from corpus.database import corpus_read_connection
 from corpus.errors import BudgetExceededError, ExtractionError
-from corpus.native_adapters import PDFKitVisionAdapter
+from corpus.native_adapters import LEGACY_PDF_VERSIONS, PDFKitVisionAdapter
 from corpus.service import CorpusService
 from test_adapters import write_text_pdf
 
 
 @unittest.skipUnless(sys.platform == "darwin", "PDFKit requires macOS")
 class PDFContinuationTest(unittest.TestCase):
+    def test_legacy_empty_page_repair_keeps_prior_observations_and_failed_projection(
+        self,
+    ):
+        from pypdf import PdfReader, PdfWriter
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"
+            source.mkdir()
+            first, second = base / "first.pdf", base / "second.pdf"
+            write_text_pdf(first, b"Existing native source content on the first page")
+            write_text_pdf(
+                second, b"Recovered native target on the original second page"
+            )
+            writer = PdfWriter()
+            for part in (first, second):
+                writer.add_page(PdfReader(part).pages[0])
+            path = source / "source.pdf"
+            writer.write(path)
+            original = path.read_bytes()
+            adapter = PDFKitVisionAdapter(base / "runtime")
+            aid, version, config_hash = next(
+                identity
+                for identity in adapter.compatible_projection_identities
+                if identity[1] == LEGACY_PDF_VERSIONS[0]
+            )
+            retained = (
+                ExtractedUnit(
+                    "page",
+                    {"page": 1},
+                    "Existing native source content on the first page",
+                ),
+                ExtractedUnit(
+                    "page_region",
+                    {"page": 1, "vision_index": 0},
+                    "Legacy OCR observation",
+                    derivation_method="ocr",
+                ),
+            )
+
+            class Legacy:
+                descriptor = AdapterDescriptor(
+                    aid, version, config_hash, adapter.descriptor.capabilities
+                )
+
+                def extract(self, path, *, format_id):
+                    return ExtractionEnvelope.create(
+                        descriptor=self.descriptor,
+                        completeness="partial",
+                        units=retained,
+                        issues=[
+                            ExtractionIssue(
+                                "pdf_page_without_text",
+                                "Empty page",
+                                "warning",
+                                {"page": 2},
+                            )
+                        ],
+                    )
+
+            service = CorpusService(
+                base / "private",
+                adapter_registry=build_default_registry(
+                    base / "runtime", overrides={"pdf": Legacy()}
+                ),
+            )
+            service.register(
+                corpus_id="repair", source_root=source, execution_policy="local_only"
+            )
+            service.sync("repair")
+            before = service.inventory("repair")["documents"][0]
+            service = CorpusService(
+                base / "private",
+                adapter_registry=build_default_registry(
+                    base / "runtime", overrides={"pdf": adapter}
+                ),
+            )
+            with mock.patch.object(
+                adapter, "repair", side_effect=ExtractionError("temporary failure")
+            ):
+                service.sync("repair")
+            self.assertEqual(
+                service.inventory("repair")["documents"][0]["active_projection_id"],
+                before["active_projection_id"],
+            )
+            with (
+                mock.patch.object(
+                    adapter,
+                    "extract",
+                    side_effect=AssertionError("must retain prior pages"),
+                ),
+                mock.patch.object(
+                    adapter, "_extract_range", wraps=adapter._extract_range
+                ) as extract_range,
+            ):
+                service.ingest("repair", document_ids=[before["document_id"]])
+                self.assertEqual(extract_range.call_count, 1)
+                self.assertEqual(extract_range.call_args.kwargs["selected_pages"], (2,))
+            after = service.inventory("repair")["documents"][0]
+            self.assertEqual(after["index_state"], "current")
+            with corpus_read_connection(service.data_root, "repair") as connection:
+                result = service._continuation_envelope(
+                    connection,
+                    after["active_projection_id"],
+                    adapter.descriptor,
+                    required_codes={"pdf_existing_pages_retained"},
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM extraction_projections"
+                    ).fetchone()[0],
+                    1,
+                )
+            self.assertEqual(result.units[:2], retained)
+            self.assertEqual(len(result.units), 3)
+            self.assertEqual(result.units[-1].structure_path["page"], 2)
+            coverage = next(
+                i.details for i in result.issues if i.code == "pdf_page_range_observed"
+            )
+            self.assertEqual(
+                dict(coverage), {"page_start": 1, "page_end": 2, "document_pages": 2}
+            )
+            self.assertNotIn("pdf_page_without_text", {i.code for i in result.issues})
+            self.assertEqual(path.read_bytes(), original)
+
     def test_exact_legacy_pdf_identity_keeps_observed_files_but_queues_page_limits(
         self,
     ):

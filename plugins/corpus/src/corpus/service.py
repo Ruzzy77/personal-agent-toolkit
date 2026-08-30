@@ -64,6 +64,7 @@ from .locking import (
     workspace_writer_lock,
     writer_lock,
 )
+from .native_adapters import LEGACY_PDF_VERSIONS
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -142,6 +143,43 @@ _INVENTORY_INDEX_STATES = {
     "unindexed",
     "not_applicable",
 }
+
+
+# Queue only verified legacy omissions; new unresolved pages are terminal warnings.
+_CONTINUATION_ISSUE_SQL = (
+    "(progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached', "
+    "'office_image_range_pending') OR ("
+    "p.adapter_id = 'work-corpus.native.pdfkit-vision' AND p.adapter_version IN ("
+    + ",".join("'" + version + "'" for version in LEGACY_PDF_VERSIONS)
+    + ") AND progress.code IN ('pdf_page_without_text', 'pdf_ocr_page_failed')))"
+)
+
+
+def _extraction_issue_category(code: str) -> str:
+    if code == "reading_order_unverified":
+        return "verification"
+    if code == "office_image_visual_content_partial":
+        return "visual_content_uninterpreted"
+    if (
+        "budget" in code
+        or "limit" in code
+        or "truncated" in code
+        or code.endswith("range_pending")
+    ):
+        return "processing_limit"
+    if code.endswith("format_unsupported"):
+        return "unsupported_format"
+    if code.endswith(("failed", "unavailable")):
+        return "extraction_failure"
+    if (
+        "without_text" in code
+        or "content_unread" in code
+        or "object_content_partial" in code
+    ):
+        return "unread_content"
+    if code.endswith(("partial", "unresolved")):
+        return "structure_unresolved"
+    return "other"
 
 
 def _validate_ingest_budgets(
@@ -376,7 +414,7 @@ class CorpusService:
                     "SELECT status FROM scan_runs ORDER BY rowid DESC LIMIT 1"
                 ).fetchone()
                 summary = connection.execute(
-                    """
+                    f"""
                     SELECT COUNT(*) AS supported_documents,
                            COALESCE(SUM(CASE
                                WHEN d.current_revision_id IS NULL OR p.projection_id IS NULL
@@ -397,7 +435,7 @@ class CorpusService:
                                SELECT 1 FROM extraction_issues progress
                                WHERE progress.projection_id = p.projection_id
                                  AND progress.lifecycle_state = 'active'
-                                 AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')
+                                 AND {_CONTINUATION_ISSUE_SQL}
                            )), 0) AS continuation_projections
                     FROM documents d
                     LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
@@ -1665,7 +1703,7 @@ class CorpusService:
                 ).fetchone()
                 for relative_path in sorted(guard["changes"])[:256]:
                     row = connection.execute(
-                        """
+                        f"""
                         SELECT d.*, r.source_size AS revision_source_size,
                                r.source_modified_ns AS revision_source_modified_ns,
                                r.source_changed_ns AS revision_source_changed_ns,
@@ -1678,7 +1716,7 @@ class CorpusService:
                        EXISTS(SELECT 1 FROM extraction_issues progress
                            WHERE progress.projection_id = p.projection_id
                              AND progress.lifecycle_state = 'active'
-                             AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')) AS projection_can_continue
+                             AND {_CONTINUATION_ISSUE_SQL}) AS projection_can_continue
                         FROM documents d
                         LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                         LEFT JOIN extraction_projections p
@@ -2003,6 +2041,27 @@ class CorpusService:
                      AND i.severity IN ('warning', 'error') GROUP BY i.code"""
                 ).fetchall()
             )
+            categorized_documents = {}
+            for document_id, issue_code in connection.execute(
+                """SELECT DISTINCT d.document_id, i.code FROM documents d
+                   JOIN extraction_projections p ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                   LEFT JOIN extraction_issues i ON i.projection_id = p.projection_id
+                       AND i.lifecycle_state = 'active' AND i.severity IN ('warning', 'error')
+                   WHERE d.deleted_at IS NULL AND p.completeness_state = 'partial'"""
+            ):
+                categories = categorized_documents.setdefault(document_id, set())
+                if issue_code:
+                    categories.add(_extraction_issue_category(issue_code))
+            partial_by_category = {}
+            for categories in categorized_documents.values():
+                for category in categories or {"other"}:
+                    partial_by_category[category] = (
+                        partial_by_category.get(category, 0) + 1
+                    )
+            verification_only = sum(
+                categories == {"verification"}
+                for categories in categorized_documents.values()
+            )
         outdated_projections = 0
         partial_projections = 0
         for row in active_projection_rows:
@@ -2041,6 +2100,8 @@ class CorpusService:
             "partial_extraction": {
                 "by_format": partial_by_format,
                 "by_issue": partial_by_issue,
+                "by_category": dict(sorted(partial_by_category.items())),
+                "verification_only_documents": verification_only,
                 "issue_document_counts_overlap": True,
             },
             "issues": issues,
@@ -2179,7 +2240,7 @@ class CorpusService:
                 """
             ).fetchone()
             rows = connection.execute(
-                """
+                f"""
                 SELECT d.document_id, d.relative_path, d.relative_path_nfc,
                        d.extension, d.media_type, d.logical_size, d.modified_ns,
                        d.residency_state, d.eligibility_state,
@@ -2196,7 +2257,7 @@ class CorpusService:
                        EXISTS(SELECT 1 FROM extraction_issues progress
                            WHERE progress.projection_id = p.projection_id
                              AND progress.lifecycle_state = 'active'
-                             AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')) AS projection_can_continue,
+                             AND {_CONTINUATION_ISSUE_SQL}) AS projection_can_continue,
                        p.completeness_state AS projection_completeness
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
@@ -2342,7 +2403,7 @@ class CorpusService:
     ) -> tuple[list[dict], dict]:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT d.*, r.source_size AS revision_source_size,
                        r.source_modified_ns AS revision_source_modified_ns,
                        r.source_changed_ns AS revision_source_changed_ns,
@@ -2355,7 +2416,7 @@ class CorpusService:
                        EXISTS(SELECT 1 FROM extraction_issues progress
                            WHERE progress.projection_id = p.projection_id
                              AND progress.lifecycle_state = 'active'
-                             AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')) AS projection_can_continue,
+                             AND {_CONTINUATION_ISSUE_SQL}) AS projection_can_continue,
                        failed.adapter_id AS failed_adapter_id,
                        failed.adapter_version AS failed_adapter_version,
                        failed.config_hash AS failed_config_hash
@@ -2454,7 +2515,7 @@ class CorpusService:
                        EXISTS(SELECT 1 FROM extraction_issues progress
                            WHERE progress.projection_id = p.projection_id
                              AND progress.lifecycle_state = 'active'
-                             AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')) AS projection_can_continue
+                             AND {_CONTINUATION_ISSUE_SQL}) AS projection_can_continue
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
@@ -2538,7 +2599,7 @@ class CorpusService:
     ) -> dict:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT d.*, r.source_size AS revision_source_size,
                        r.source_modified_ns AS revision_source_modified_ns,
                        r.source_changed_ns AS revision_source_changed_ns,
@@ -2551,7 +2612,7 @@ class CorpusService:
                        EXISTS(SELECT 1 FROM extraction_issues progress
                            WHERE progress.projection_id = p.projection_id
                              AND progress.lifecycle_state = 'active'
-                             AND progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached')) AS projection_can_continue,
+                             AND {_CONTINUATION_ISSUE_SQL}) AS projection_can_continue,
                        failed.adapter_id AS failed_adapter_id,
                        failed.adapter_version AS failed_adapter_version,
                        failed.config_hash AS failed_config_hash
@@ -3051,6 +3112,7 @@ class CorpusService:
             adapter = self.adapter_registry.resolve(document["extension"])
             descriptor = adapter.descriptor
             previous = None
+            repair_previous = False
 
             with corpus_connection(self.data_root, corpus["corpus_id"]) as connection:
                 existing = connection.execute(
@@ -3094,10 +3156,34 @@ class CorpusService:
                             "source_copy_cleanup": {"state": "deleted"},
                         }
                         return result
+                elif (
+                    existing
+                    and existing["projection_id"] is not None
+                    and callable(getattr(adapter, "repair", None))
+                    and self.adapter_registry.accepts_projection(
+                        document["extension"],
+                        existing["adapter_id"],
+                        existing["adapter_version"],
+                        existing["config_hash"],
+                    )
+                ):
+                    prior_descriptor = AdapterDescriptor(
+                        adapter_id=existing["adapter_id"],
+                        adapter_version=existing["adapter_version"],
+                        config_hash=existing["config_hash"],
+                        capabilities=descriptor.capabilities,
+                    )
+                    previous = self._continuation_envelope(
+                        connection,
+                        existing["projection_id"],
+                        prior_descriptor,
+                        required_codes={"pdf_page_without_text", "pdf_ocr_page_failed"},
+                    )
+                    repair_previous = previous is not None
 
             try:
                 extraction = (
-                    adapter.resume(
+                    (adapter.repair if repair_previous else adapter.resume)(
                         captured.capture_path,
                         format_id=document["extension"],
                         previous=previous,
@@ -3166,7 +3252,9 @@ class CorpusService:
                     raise
 
     @staticmethod
-    def _continuation_envelope(connection, projection_id, descriptor):
+    def _continuation_envelope(
+        connection, projection_id, descriptor, *, required_codes=None
+    ):
         """Give a resumable adapter neutral current data, never core IDs or paths."""
         raw_issues = [
             json.loads(row["details_json"])
@@ -3178,7 +3266,14 @@ class CorpusService:
                 (projection_id,),
             )
         ]
-        if not any(i.get("code") == "pdf_page_range_pending" for i in raw_issues):
+        if not any(
+            i.get("code")
+            in (
+                required_codes
+                or {"pdf_page_range_pending", "office_image_range_pending"}
+            )
+            for i in raw_issues
+        ):
             return None
         issues = tuple(
             ExtractionIssue(

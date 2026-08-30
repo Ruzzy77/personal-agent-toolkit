@@ -29,6 +29,11 @@ capability와 `reading_order_unverified` quality flag를 남깁니다. 실제 �
 문서 도구로 화면 배치와 읽기 순서를 확인합니다. DOCX·PPTX의 built-in adapter는 기존과
 같이 읽기 순서 미확인을 warning과 `partial`로 기록합니다.
 
+상태 응답의 `partial_extraction.by_category`는 읽기 순서 미확인, 읽지 못한 내용,
+미복원 구조, 해석하지 않은 시각 정보, 처리 한도, 지원하지 않는 형식과 추출 실패를
+구분합니다. 범주별 문서 수는 서로 중복될 수 있습니다. `verification_only_documents`는
+읽기 순서 미확인만 남은 문서 수이며, 이 분류 때문에 기존 warning이나 `partial`을 지우지는 않습니다.
+
 ## Request
 
 Adapter는 stdin에서 한 줄의 JSON request를 읽습니다.
@@ -134,28 +139,61 @@ source-unit 식별자는 core가 정합니다.
   request 실패 시 `VNRecognizeTextRequest`로 fallback합니다. 기본 `hybrid` 경로는 PDFKit
   native text를 먼저 보존하고, 본문이 32자 미만인 sparse page만 OCR합니다. 따라서
   searchable PDF를 모든 페이지에서 다시 OCR해 중복 unit을 만드는 비용을 피하면서
-  image-only와 mixed PDF는 on-device OCR로 보완합니다. PDFKit이 열지 못하지만 유효한
+  image-only와 mixed PDF는 on-device OCR로 보완합니다. PDFKit과 기존 OCR 처리 뒤에도
+  내용이 비어 있는 쪽만 `pypdf` 보조 프로세스로 읽습니다. 보조 추출 결과 때문에 기존
+  OCR을 생략하거나, 이미 읽은 그림 속 본문을 교체하지 않습니다.
+  보조 프로세스는 선택한 쪽만 읽으며 남은 실행 시간 중 최대 30초, 쪽별 해제된 내용
+  스트림 32 MiB를 적용합니다. 메모리를 주기적으로 확인해 1 GiB를 넘으면 프로세스를
+  종료합니다. 이는 운영체제가 강제하는 순간 메모리 상한이 아닙니다. 보조 추출 실패 시
+  먼저 얻은 본문은 유지합니다. Structured OCR이 오류 없이 빈 결과를 반환해도 기존
+  text-region OCR로 다시 확인합니다. PDFKit이 열지 못하지만 유효한
   PDF는 `pypdf` page text fallback으로 복구합니다. `max_edge_pixels`, page count, OCR scope,
   native-text alphanumeric threshold, blank-page detection, fallback backend, language, OS
-  runtime과 adapter source identity를 config와 version에 고정합니다. 렌더링 결과가 완전히
-  흰 페이지는 관찰된 빈 페이지로 처리합니다. Reading order 미확인은 capability와 quality
+  runtime과 adapter source identity를 config와 version에 고정합니다. 렌더링한 모든 RGB
+  픽셀이 같은 색인 페이지는 관찰된 빈 페이지로 처리하며, 흰색 근처의 밝기만으로
+  글자를 제거하지 않습니다. Reading order 미확인은 capability와 quality
   flag로 남기고, 페이지 누락·OCR 실패·budget 도달만 issue와 `partial`로 기록합니다.
   한 번에 최대 200쪽을 처리하며 `pdf_page_range_observed`에 원본의 연속 페이지 범위를,
   `pdf_page_range_pending`에 다음 쪽을 기록합니다. Core는 같은 revision과 adapter의 현재
   unit만 넘겨 이어 처리하며, 합친 결과를 원자적으로 교체합니다. 구간 실행 한도와 누적
   unit·문자 수 한도를 모두 적용합니다. 한 페이지가 결과 한도를 넘으면 그 페이지의 중간
   결과를 완료 범위에 넣지 않습니다. `pypdf` 복구 경로도 같은 페이지 구간을 적용합니다.
-  기존 1.2.0의 정확한 source hash와 같은 host 설정은 이미 관찰한 내용의 호환성을 유지합니다.
-  해당 버전의 `pdf_page_limit_reached` 문서는 새 구간 추출로 전환합니다.
+  등록된 기존 1.2.0·1.3.0의 정확한 source hash와 같은 host 설정은 성공한 내용의 호환성을
+  유지합니다. 이전 버전의 페이지 누락·OCR 실패가 있는 문서는 같은 source revision의
+  현재 unit을 그대로 보존하고, unit이 없던 원본 쪽만 다시 읽습니다. 기존에 읽은 쪽의
+  OCR을 재실행하지 않습니다. 이전 1.2.0에 처리 범위 기록이 없으면 새로 확인한 전체
+  쪽수가 당시의 200쪽 한도 안에 있고 기존 unit의 위치와 일치하는 경우에만 복구합니다.
+  `pdf_existing_pages_retained`에 복구한 쪽, 보존한 unit 수와 이전 추출기 정보를 남깁니다.
+  확인된 전체 처리 범위도 `pdf_page_range_observed`로 기록합니다.
+  확인에 실패하면 기존 색인을 유지합니다. 현재 버전에도 남은 페이지 경고를 자동으로
+  무한 재시도하지 않습니다.
+  `pdf_page_limit_reached` 문서는 새 구간 추출로 전환합니다.
+  로컬 실행파일은 같은 Swift 소스에 같은 ad-hoc 식별자를 사용합니다. 별도 인증서나
+  추가 권한은 부여하지 않습니다. 새 소스의 첫 인식에는 운영체제의 모델 초기화 시간이
+  필요할 수 있으므로, 배포 때 실제 인식과 기본 시간 한도를 함께 확인합니다.
 - `work-corpus.native.office-vision.docx`와 `.pptx`: 원본 OOXML 추출 뒤 선택적으로
-  on-device Vision을 사용합니다. 본문에 영숫자가 32자 미만인 Word 문서 또는 PowerPoint
-  슬라이드만 대상으로 하며, 발표자 노트와 대체 텍스트는 본문량에 포함하지 않습니다.
-  문서당 그림 16개, 그림당 16 MiB, 전체 그림 32 MiB와 60초의 OCR 한도를 적용합니다.
+  on-device Vision을 사용합니다. 본문이 있는 문서의 그림도 대상으로 하되, 본문에 영숫자가
+  32자 미만인 Word 문서 또는 PowerPoint 슬라이드를 먼저 처리합니다. 발표자 노트와
+  대체 텍스트는 이 우선순위를 정하는 본문량에 포함하지 않습니다.
+  한 번에 그림 16개, 그림당 16 MiB, 읽은 그림 합계 32 MiB와 60초의 OCR 한도를 적용합니다.
+  같은 원본 그림과 같은 자르기 영역은 한 구간 안에서 인식 결과를 재사용합니다. 같은 그림의
+  다른 자르기 영역은 별개로 인식하며, 원본 바이트는 중복해서 한도에 합산하지 않습니다.
   읽기 전용 패키지에서 꺼낸 임시 그림은 처리 후 삭제합니다. 그림의 가로·세로 곱은
-  6,400만 픽셀, 인식용 긴 변은 3,000픽셀로 제한합니다. 잘린 그림이나 원본 대응이
-  불분명한 복수 그림은 건너뛰고 경고합니다. OCR은 기존 native unit을 대체하지 않으며,
+  6,400만 픽셀, 인식용 긴 변은 3,000픽셀로 제한합니다. 원본 대응이 명확하고 자르기 값이
+  모두 0 이상인 그림은 보이는 픽셀만 인식한 뒤 좌표를 원본 그림의 좌표로 되돌립니다. 음수 자르기의
+  여백 처리, EXIF 방향과 자르기의 조합, 원본 대응이 불분명한 복수 그림은 경고로 남깁니다.
+  EMF·WMF 미지원, 디코딩 실패와 인식 실패를 구분하고 문제의 part·object 위치를 남깁니다.
+  `office_image_range_observed`와 `office_image_range_pending`은 현재 처리한 그림 순서와
+  다음 위치를 기록합니다. 이어 처리할 때 같은 소스 digest와 adapter인지 확인하고,
+  현재 projection의 인식 결과를 보존한 채 합친 결과를 원자적으로 교체합니다. 누적 결과
+  한도 때문에 더 담을 수 없으면 미완료 경고를 남기고 반복 재시도하지 않습니다.
+  OCR은 기존 native unit을 대체하지 않으며,
   `image_text`에 원본 part·object·그림 digest, 그림 내부 좌표와 confidence를 남깁니다.
   그림의 시각적 의미와 배치 전체를 복원했다는 뜻으로 사용하지 않습니다.
+  PowerPoint 표는 명시된 병합 범위와 `hMerge`·`vMerge`가 유일한 시작 셀을 가리킬 때만
+  이어지는 셀의 텍스트를 `merged_into`로 연결합니다. 원래 텍스트는 각각 보존하고,
+  확인한 연결은 `pptx_table_merge_content_observed`, 불명확한 병합은
+  `pptx_table_merge_structure_partial`로 구분합니다.
 - `work-corpus.hwp5.content-router`: 일반 HWP5는 원문 레코드 기반 구조 추출기로 읽습니다.
   배포용 문서와 기본 추출 실패 문서는 고정된 `rhwp` 페이지 본문 추출기로 복구합니다.
   암호화 문서는 계속 거부합니다. 구조 추출 도입 이전의 문단 전용 projection은 새 결과와
@@ -170,10 +208,15 @@ source-unit 식별자는 core가 정합니다.
   문자 글머리표와 번호 정의를 보존하지만 실제 자동 번호 계산은 하지 않습니다.
   수식은 실행하지 않은 원문 수식 문자열로 보존합니다. 지원하지 않는 구조와 필드 의미,
   개체 내부 내용, 미계산 번호는 기능별 issue로 남깁니다.
-  `HWPTAG_MEMO_LIST`에 바로 이어진 문단 리스트는 메모 본문으로 구분합니다. 공개 규격에서
-  확인되지 않은 메모 부착 위치는 추측하지 않고 `hwp_memo_attachment_unresolved`로 남깁니다.
-  필드의 native ID·종류·command는 보존하지만 실행하지 않으며, 문단을 넘는 필드 범위의
-  미복원은 `hwp_field_range_partial`로 구분합니다. 번호의 공통·수준별 시작값도 보존합니다.
+  `HWPTAG_MEMO_LIST`에 바로 이어진 문단 리스트는 메모 본문으로 구분합니다. 필드의 native
+  ID·종류·command는 실행하지 않고 보존하며, `%unk` 중 저장된 명령이 `MEMO`인 필드는
+  그 근거를 표시해 메모로 구분합니다. 문단 안의 필드 헤더가 유일하고 시작·끝 제어문자가
+  같은 본문 흐름에서 대응할 때만 범위를 연결합니다. 원본 UTF-16 위치와 정규화한 문단의
+  Unicode codepoint 위치를 함께 남깁니다. 같은 종류의 헤더가 여러 개이거나 제어문자가
+  대응하지 않으면 순서로 추정하지 않고 `hwp_field_range_partial`로 남깁니다.
+  메모는 양수인 끝 제어문자 토큰과 메모 헤더 값이 문서 안에서 각각 유일하게 일치할 때만
+  연결하며, 이 관찰에 따른 연결 근거도 기록합니다. 나머지는
+  `hwp_memo_attachment_unresolved`로 남깁니다. 번호의 공통·수준별 시작값도 보존합니다.
 - `work-corpus.hwpx.content-router`: ZIP HWPX의 XML 포함 관계를 직접 읽습니다. 표 안의
   문단을 바깥 문단에 다시 합치지 않으며, 같은 문단의 표 앞뒤 텍스트는 구간별로 보존합니다.
   패키지에 명시된 구역 순서를 우선하고, 순서 정보가 없으면 구역 번호로 정렬합니다.

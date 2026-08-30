@@ -208,8 +208,12 @@ class _Reader:
         issues = [
             {
                 "code": code,
-                "severity": "warning",
-                "message": "A source-declared Office feature needs additional extraction.",
+                "severity": "info"
+                if code == "pptx_table_merge_content_observed"
+                else "warning",
+                "message": "Stored continuation-cell text was linked to its explicit merge origin."
+                if code == "pptx_table_merge_content_observed"
+                else "A source-declared Office feature needs additional extraction.",
                 "details": {"occurrences": count},
             }
             for code, count in sorted(self.issues.items())
@@ -589,7 +593,13 @@ class _SlideReader(_Reader):
                 "cols": len(grid) if grid is not None else 0,
             },
         )
+        origins = []
         for row_index, (ri, row) in enumerate(rows):
+            origins = [
+                origin
+                for origin in origins
+                if origin["row"] + origin["row_span"] > row_index
+            ]
             col = 0
             for ci, cell in enumerate(row):
                 if _local_name(cell.tag) != "tc":
@@ -608,9 +618,37 @@ class _SlideReader(_Reader):
                 )
                 if not spanned:
                     self.emit("table_cell", {**loc, "structural_only": True})
-                elif any((n.text or "").strip() for n in _desc(cell, "t")):
+                    if (
+                        grid is not None
+                        and 1 <= loc["row_span"] <= len(rows) - row_index
+                        and 1 <= loc["col_span"] <= len(grid) - col
+                    ):
+                        origins.append(loc)
+                    else:
+                        self.issues["pptx_table_merge_structure_partial"] += 1
+                else:
+                    owners = []
+                    for origin in origins:
+                        self.guard(0)
+                        if (
+                            origin["col"] <= col < origin["col"] + origin["col_span"]
+                            and (cell.get("hMerge") in {"1", "true"})
+                            == (col > origin["col"])
+                            and (cell.get("vMerge") in {"1", "true"})
+                            == (row_index > origin["row"])
+                            and loc["row_span"]
+                            == (origin["row_span"] if row_index == origin["row"] else 1)
+                            and loc["col_span"]
+                            == (origin["col_span"] if col == origin["col"] else 1)
+                        ):
+                            owners.append(origin)
                     loc["merge_continuation"] = True
-                    self.issues["pptx_table_merge_content_present"] += 1
+                    if len(owners) == 1:
+                        loc["merged_into"] = owners[0]["cell"]
+                        if any((n.text or "").strip() for n in _desc(cell, "t")):
+                            self.issues["pptx_table_merge_content_observed"] += 1
+                    else:
+                        self.issues["pptx_table_merge_structure_partial"] += 1
                 for ti, body in enumerate(cell):
                     if _local_name(body.tag) == "txBody":
                         self.paragraphs(

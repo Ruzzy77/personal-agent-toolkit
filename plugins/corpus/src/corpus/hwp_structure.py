@@ -9,7 +9,7 @@ LIST_HEADER and its paragraphs are siblings in HWP5, not an XML-like subtree.
 from __future__ import annotations
 
 import struct
-from collections import Counter
+from collections import Counter, defaultdict
 
 STRUCTURAL_UNIT_TYPES = (
     "section_paragraph",
@@ -195,7 +195,9 @@ class SectionStructure:
         self.issues: Counter[str] = Counter()
         self.tables: list[dict] = []
         self.counts: Counter[str] = Counter()
-        self.pending_memo: tuple[int, int] | None = None
+        self.pending_memo: tuple[int, int, int] | None = None
+        self.field_events: list[dict] = []
+        self.field_units: list[dict] = []
 
     def _unit(self, kind: str, locator: dict, text: str = "") -> dict:
         unit = {
@@ -225,6 +227,7 @@ class SectionStructure:
                 "is_header",
                 "note",
                 "memo_list_record",
+                "memo_header_value",
                 "object",
                 "owner_paragraph_record",
             ):
@@ -240,10 +243,10 @@ class SectionStructure:
         self.pending_memo = None
         if tag == 0x5D:
             self.counts["memo_header"] += 1
-            # The public format declares a four-byte, level-one memo-list header.
-            # Its value is not documented as an attachment ID; do not invent one.
+            # Preserve the stored value. Attachment is resolved only by a unique
+            # matching MEMO end token, never by list order or record proximity.
             if len(data) == 4:
-                self.pending_memo = (record, level)
+                self.pending_memo = (record, level, struct.unpack_from("<I", data)[0])
             else:
                 self.issues["hwp_memo_structure_partial"] += 1
         if tag == 0x42:
@@ -303,23 +306,31 @@ class SectionStructure:
                     if end + 4 > len(data):
                         raise ValueError("truncated field")
                     command = data[11:end].decode("utf-16-le")
+                    field_type = _FIELD_KINDS.get(name, "unknown")
+                    type_origin = "control_id"
+                    if name == "%unk" and command.partition("/")[0] == "MEMO":
+                        field_type = "memo"
+                        type_origin = "stored_command"
                     if len(command) > 16_384:
                         self.issues["hwp_field_metadata_truncated"] += 1
-                    self._unit(
+                    field = self._unit(
                         "field",
                         {
                             **context,
-                            "field_type": _FIELD_KINDS.get(name, "unknown"),
+                            "field_type": field_type,
+                            "field_type_origin": type_origin,
                             "field_id": struct.unpack_from("<I", data, end)[0],
                             "field_flags": struct.unpack_from("<I", data, 4)[0],
                             "instruction": command[:16_384],
                             "evaluation": "stored_result_only",
                         },
                     )
-                    # Native commands and IDs are retained, but paragraph-spanning
-                    # field ranges are not inferred from adjacency of records.
-                    self.issues["hwp_field_range_partial"] += 1
-                    if name not in _FIELD_KINDS:
+                    if end + 8 <= len(data):
+                        field["structure_path"]["field_header_tail_value"] = (
+                            struct.unpack_from("<I", data, end + 4)[0]
+                        )
+                    self.field_units.append(field)
+                    if field_type == "unknown":
                         self.issues["hwp_field_semantics_partial"] += 1
                 except (struct.error, UnicodeError, ValueError):
                     self.issues["hwp_field_structure_partial"] += 1
@@ -411,6 +422,7 @@ class SectionStructure:
                     {
                         "kind": kind,
                         "memo_list_record": memo[0],
+                        "memo_header_value": memo[2],
                         "note": f"memo.r{memo[0]}",
                     }
                 )
@@ -458,6 +470,87 @@ class SectionStructure:
                 {**self._context(level), "record": record, "structural_only": True},
             )
 
+    def fields(self, record: int, level: int, markers: list[dict]) -> None:
+        properties = self.paragraphs.get(level - 1, {})
+        flow = tuple(
+            item["list_record"] for item in properties.get("container_path", [])
+        )
+        for marker in markers:
+            self.field_events.append(
+                {
+                    **marker,
+                    "record": record,
+                    "paragraph_record": properties.get("paragraph_record"),
+                    "flow": flow,
+                }
+            )
+
+    def _resolve_field_ranges(self) -> None:
+        headers = defaultdict(list)
+        for unit in self.field_units:
+            location = unit["structure_path"]
+            kind = location["control_type"]
+            if location["field_type"] == "memo":
+                kind = "%%me"
+            headers[(location["owner_paragraph_record"], kind)].append(unit)
+        starts = Counter(
+            (event["paragraph_record"], event["control_type"])
+            for event in self.field_events
+            if event["code"] == 3
+        )
+        stacks = defaultdict(list)
+        unresolved_markers = 0
+
+        def position(event, *, after_control=False):
+            return {
+                "record": event["record"],
+                "paragraph_record": event["paragraph_record"],
+                "offset_utf16": event["offset_utf16"] + (8 if after_control else 0),
+                "content_offset": event["content_offset"],
+            }
+
+        for event in self.field_events:
+            stack = stacks[event["flow"]]
+            if event["code"] == 3:
+                key = (event["paragraph_record"], event["control_type"])
+                candidates = headers[key]
+                # Repeated same-type headers have no inline instance ID. Leave
+                # them unresolved rather than assigning IDs by adjacency/order.
+                unit = (
+                    candidates[0]
+                    if key[0] is not None and starts[key] == len(candidates) == 1
+                    else None
+                )
+                stack.append((event, unit))
+            elif (
+                not stack
+                or stack[-1][0]["control_type"][-3:] != event["control_type"][-3:]
+            ):
+                unresolved_markers += 1
+                stack.clear()
+            else:
+                start, unit = stack.pop()
+                if unit is None:
+                    unresolved_markers += 1
+                    continue
+                location = unit["structure_path"]
+                location["field_range"] = {
+                    "start": position(start, after_control=True),
+                    "end": position(event),
+                    "start_control": position(start),
+                    "basis": "unique_paragraph_control_and_balanced_native_markers",
+                    "content_offset_unit": "unicode_codepoint_in_normalized_paragraph",
+                }
+                if location["field_type"] == "memo" and event["end_token"] > 0:
+                    location["memo_end_token"] = event["end_token"]
+                self.counts["field_range"] += 1
+        unresolved = sum(
+            "field_range" not in unit["structure_path"] for unit in self.field_units
+        )
+        unresolved += unresolved_markers + sum(len(stack) for stack in stacks.values())
+        if unresolved:
+            self.issues["hwp_field_range_partial"] += unresolved
+
     def text(self, record: int, level: int, paragraph: int, text: str) -> None:
         properties = dict(self.paragraphs.get(level - 1, {}))
         if not properties:
@@ -485,6 +578,7 @@ class SectionStructure:
         )
 
     def finish(self) -> tuple[list[dict], list[dict]]:
+        self._resolve_field_ranges()
         if self.counts["memo_header"] != self.counts["memo"]:
             self.issues["hwp_memo_structure_partial"] += abs(
                 self.counts["memo_header"] - self.counts["memo"]
@@ -538,3 +632,53 @@ class SectionStructure:
             }
         )
         return self.units, issues
+
+
+def link_document_memos(units: list[dict], issues: list[dict]) -> list[dict]:
+    """Join only unique positive stored tokens, including across section streams."""
+    fields = defaultdict(list)
+    memos = defaultdict(dict)
+    for unit in units:
+        location = unit["structure_path"]
+        if unit["unit_type"] == "field" and location.get("memo_end_token", 0) > 0:
+            fields[location["memo_end_token"]].append(location)
+        if location.get("memo_header_value", 0) > 0:
+            key = (location["section"], location["memo_list_record"])
+            memos[location["memo_header_value"]].setdefault(key, []).append(location)
+    resolved = Counter()
+    for token, targets in memos.items():
+        if len(targets) != 1 or len(fields[token]) != 1:
+            continue
+        (section, record), locations = next(iter(targets.items()))
+        field = fields[token][0]
+        attachment = {
+            "section": field["section"],
+            "section_stream": field["section_stream"],
+            "field_record": field["record"],
+            "field_id": field["field_id"],
+            "field_range": field["field_range"],
+            "basis": "unique_memo_end_token_matches_memo_header_value",
+        }
+        for location in locations:
+            location["memo_attachment"] = attachment
+        field["memo_body"] = {"section": section, "memo_list_record": record}
+        resolved[section] += 1
+    result = []
+    for issue in issues:
+        if issue["code"] == "hwp_memo_attachment_unresolved":
+            details = issue["details"]
+            remaining = details["occurrences"] - resolved[details["section"]]
+            if remaining <= 0:
+                continue
+            issue = {**issue, "details": {**details, "occurrences": remaining}}
+        result.append(issue)
+    if resolved:
+        result.append(
+            {
+                "code": "hwp_memo_attachment_observed",
+                "severity": "info",
+                "message": "Unique native MEMO tokens link the field range to its stored memo body.",
+                "details": {"occurrences": sum(resolved.values())},
+            }
+        )
+    return result

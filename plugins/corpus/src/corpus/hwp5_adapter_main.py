@@ -13,9 +13,13 @@ from collections import Counter
 import olefile
 
 if __package__:
-    from .hwp_structure import SectionStructure, doc_info_properties
+    from .hwp_structure import (
+        SectionStructure,
+        doc_info_properties,
+        link_document_memos,
+    )
 else:
-    from hwp_structure import SectionStructure, doc_info_properties
+    from hwp_structure import SectionStructure, doc_info_properties, link_document_memos
 
 REQUEST_SCHEMA_VERSION = "corpus.extraction-request.v1"
 RESULT_SCHEMA_VERSION = "corpus.extraction-result.v1"
@@ -87,13 +91,16 @@ def _records(data: bytes, *, max_records: int):
         offset = end
 
 
-def _decode_paragraph(data: bytes) -> tuple[str, Counter[int], list[str]]:
+def _decode_paragraph(
+    data: bytes, *, field_markers: list[dict] | None = None
+) -> tuple[str, Counter[int], list[str]]:
     if len(data) % 2:
         raise HWPAdapterError("HWP paragraph text has an odd byte length")
     output: list[str] = []
     controls: Counter[int] = Counter()
     anomalies: list[str] = []
     offset = 0
+    text_offset = 0
     while offset < len(data):
         code = struct.unpack_from("<H", data, offset)[0]
         if code >= 32:
@@ -104,6 +111,7 @@ def _decode_paragraph(data: bytes) -> tuple[str, Counter[int], list[str]]:
                 if 0xDC00 <= follower <= 0xDFFF:
                     offset += 2
             output.append(data[start:offset].decode("utf-16-le", errors="strict"))
+            text_offset += len(output[-1])
             continue
 
         controls[code] += 1
@@ -116,8 +124,21 @@ def _decode_paragraph(data: bytes) -> tuple[str, Counter[int], list[str]]:
             if closing != code:
                 anomalies.append("mismatched_control")
                 break
+            if field_markers is not None and code in {3, 4}:
+                field_markers.append(
+                    {
+                        "code": code,
+                        "control_type": data[offset + 2 : offset + 6][::-1].decode(
+                            "ascii", errors="replace"
+                        ),
+                        "offset_utf16": offset // 2,
+                        "content_offset": text_offset,
+                        "end_token": struct.unpack_from("<I", data, offset + 10)[0],
+                    }
+                )
             if code == 9:
                 output.append("\t")
+                text_offset += 1
             offset = end
             continue
         if code in SINGLE_CONTROLS:
@@ -127,11 +148,23 @@ def _decode_paragraph(data: bytes) -> tuple[str, Counter[int], list[str]]:
                 output.append("-")
             elif code in {30, 31}:
                 output.append(" ")
+            if code in {10, 24, 30, 31}:
+                text_offset += 1
             offset += 2
             continue
         anomalies.append("unknown_control")
         offset += 2
-    return "".join(output).strip(), controls, anomalies
+    raw_text = "".join(output)
+    text = raw_text.strip()
+    if field_markers is not None:
+        leading = len(raw_text) - len(raw_text.lstrip())
+        for marker in field_markers:
+            marker["content_offset"] = min(
+                len(text), max(0, marker["content_offset"] - leading)
+            )
+        if anomalies:
+            field_markers.clear()
+    return text, controls, anomalies
 
 
 def _section_number(name: str) -> tuple[int, str]:
@@ -290,6 +323,7 @@ def _extract(request: dict) -> dict:
         total_content_chars = 0
         all_controls: Counter[int] = Counter()
         all_anomalies: Counter[str] = Counter()
+        total_field_markers = 0
         for section_ordinal, section_name in enumerate(section_names, start=1):
             raw = compound.openstream(["BodyText", section_name]).read()
             data = (
@@ -326,7 +360,16 @@ def _extract(request: dict) -> dict:
                 elif tag_id == PARA_TEXT:
                     total_paragraph_text += 1
                     paragraph_ordinal += 1
-                    text, controls, anomalies = _decode_paragraph(payload)
+                    field_markers = []
+                    text, controls, anomalies = _decode_paragraph(
+                        payload, field_markers=field_markers
+                    )
+                    total_field_markers += len(field_markers)
+                    if total_field_markers > max_units:
+                        raise HWPAdapterError(
+                            "HWP field positions exceed the unit budget"
+                        )
+                    structure.fields(record_index, level, field_markers)
                     all_controls.update(controls)
                     all_anomalies.update(anomalies)
                     if not text:
@@ -358,7 +401,7 @@ def _extract(request: dict) -> dict:
                 )
             structure_issues.extend(section_issues)
 
-    issues = structure_issues
+    issues = link_document_memos(units, structure_issues)
     if not any(unit["content"] for unit in units):
         issues.append(
             {
