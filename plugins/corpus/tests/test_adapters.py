@@ -509,8 +509,8 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertTrue(pdf.capabilities.supports_ocr)
         self.assertTrue(pdf.capabilities.supports_geometry)
         self.assertIn("table_cell", pdf.capabilities.structural_unit_types)
-        self.assertEqual(hwp.adapter_id, "work-corpus.hwp5.content-router")
-        self.assertFalse(hwp.capabilities.supports_ocr)
+        self.assertEqual(hwp.adapter_id, "work-corpus.native.office-vision.hwp")
+        self.assertTrue(hwp.capabilities.supports_ocr)
         self.assertTrue(hwp.capabilities.may_emit_partial)
 
     def test_hwp_and_hwpx_structure_upgrade_requires_reindex(self) -> None:
@@ -684,7 +684,7 @@ class PackagedAdapterTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(
             builtin_adapter_descriptor("hwpx").adapter_version,
-            "source-units-v7",
+            "source-units-v8",
         )
         self.assertEqual(
             builtin_adapter_descriptor("markdown").adapter_version,
@@ -703,7 +703,7 @@ class PackagedAdapterTest(unittest.TestCase):
             with zipfile.ZipFile(path, "w") as archive:
                 archive.writestr("Contents/section0.xml", xml)
 
-            binary_hwp = registry.resolve("hwp")
+            binary_hwp = registry.resolve("hwp").native
             with mock.patch.object(
                 binary_hwp,
                 "extract",
@@ -715,7 +715,7 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertEqual([unit.content for unit in result.units], ["정상 HWPX"])
         self.assertEqual(
             result.descriptor.adapter_id,
-            "work-corpus.hwpx.content-router",
+            "work-corpus.native.office-vision.hwpx",
         )
 
     def test_hwpx_router_sends_ole_bytes_to_binary_hwp_adapter_read_only(self) -> None:
@@ -725,7 +725,7 @@ class PackagedAdapterTest(unittest.TestCase):
             original = bytes.fromhex("d0cf11e0a1b11ae1") + b"binary-hwp-fixture"
             path.write_bytes(original)
 
-            binary_hwp = registry.resolve("hwp")
+            binary_hwp = registry.resolve("hwp").native
             binary_result = ExtractionEnvelope.create(
                 descriptor=binary_hwp.descriptor,
                 completeness="partial",
@@ -756,7 +756,7 @@ class PackagedAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             result.descriptor.adapter_id,
-            "work-corpus.hwpx.content-router",
+            "work-corpus.native.office-vision.hwpx",
         )
 
     def test_refresh_classifies_only_exactly_explained_outdated_projections_as_warnings(

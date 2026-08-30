@@ -13,12 +13,14 @@ from collections import Counter
 import olefile
 
 if __package__:
+    from .hancom_images import hwp_binary_items
     from .hwp_structure import (
         SectionStructure,
         doc_info_properties,
         link_document_memos,
     )
 else:
+    from hancom_images import hwp_binary_items
     from hwp_structure import SectionStructure, doc_info_properties, link_document_memos
 
 REQUEST_SCHEMA_VERSION = "corpus.extraction-request.v1"
@@ -293,7 +295,8 @@ def _extract(request: dict) -> dict:
         if len(section_names) > max_sections:
             raise HWPAdapterError("HWP section count exceeds its configured budget")
 
-        shapes, styles = [], []
+        shapes, styles, images = [], [], []
+        version = struct.unpack_from("<I", file_header, 32)[0]
         doc_info_bytes = 0
         if compound.exists("DocInfo"):
             raw_info = compound.openstream("DocInfo").read(
@@ -308,7 +311,12 @@ def _extract(request: dict) -> dict:
             )
             shapes, styles = doc_info_properties(
                 _records(info, max_records=max_records),
-                version=struct.unpack_from("<I", file_header, 32)[0],
+                version=version,
+            )
+            images = hwp_binary_items(
+                _records(info, max_records=max_records),
+                ["/".join(p) for p in compound.listdir(streams=True, storages=False)],
+                compressed=compressed,
             )
             doc_info_bytes = len(info)
         units: list[dict] = []
@@ -337,7 +345,14 @@ def _extract(request: dict) -> dict:
             if total_inflated_bytes > max_total_inflated_bytes:
                 raise HWPAdapterError("HWP sections exceed their aggregate byte budget")
             paragraph_ordinal = 0
-            structure = SectionStructure(section_ordinal, section_name, shapes, styles)
+            structure = SectionStructure(
+                section_ordinal,
+                section_name,
+                shapes,
+                styles,
+                images=images,
+                version=version,
+            )
             for record_index, tag_id, level, payload in _records(
                 data,
                 max_records=max_records,

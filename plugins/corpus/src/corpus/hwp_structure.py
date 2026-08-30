@@ -11,6 +11,11 @@ from __future__ import annotations
 import struct
 from collections import Counter, defaultdict
 
+if __package__:
+    from .hancom_images import hwp_picture
+else:
+    from hancom_images import hwp_picture
+
 STRUCTURAL_UNIT_TYPES = (
     "section_paragraph",
     "heading",
@@ -183,11 +188,20 @@ class SectionStructure:
     """Track record ownership while preserving the native text observations."""
 
     def __init__(
-        self, section: int, stream: str, shapes: list[dict], styles: list[dict]
+        self,
+        section: int,
+        stream: str,
+        shapes: list[dict],
+        styles: list[dict],
+        *,
+        images: list[dict] | None = None,
+        version: int = 0,
     ):
         self.base = {"section": section, "section_stream": stream}
         self.shapes = shapes
         self.styles = styles
+        self.images = images or []
+        self.version = version
         self.paragraphs: dict[int, dict] = {}
         self.controls: dict[int, dict] = {}
         self.lists: dict[int, dict] = {}
@@ -284,14 +298,43 @@ class SectionStructure:
                 "table": None,
             }
             self.controls[level] = control
-            if kind:
+            if name in {"atno", "nwno"}:
+                if len(data) < 10:
+                    self.issues["hwp_number_control_partial"] += 1
+                else:
+                    flags, number = struct.unpack_from("<IH", data, 4)
+                    number_kind = flags & 15
+                    location = {
+                        **context,
+                        "field_type": "auto_number" if name == "atno" else "new_number",
+                        "stored_number": number,
+                        "number_type_code": number_kind,
+                        "number_origin": "stored_control_value",
+                    }
+                    kinds = (
+                        "page",
+                        "footnote",
+                        "endnote",
+                        "picture",
+                        "table",
+                        "equation",
+                    )
+                    if number_kind < len(kinds):
+                        location["number_type"] = kinds[number_kind]
+                    if name == "atno":
+                        location["number_format_code"] = (flags >> 4) & 255
+                        if len(data) >= 16:
+                            location["number_decoration_codepoints"] = list(
+                                struct.unpack_from("<3H", data, 10)
+                            )
+                    self._unit("field", location)
+                    self.counts["stored_number"] += 1
+            elif kind:
                 context["object"] = f"r{record}"
                 if kind == "table":
                     context["table"] = f"r{record}"
                 elif kind in {"footnote", "endnote"}:
                     context["note"] = f"r{record}"
-                    if len(data) >= 8:
-                        context["number"] = struct.unpack_from("<I", data, 4)[0]
                 control["unit"] = self._unit(
                     kind if kind != "comment" else "embedded_object", context
                 )
@@ -351,6 +394,16 @@ class SectionStructure:
                     observations.append({"record": record, "kind": _SHAPE_KINDS[tag]})
                 else:
                     self.issues["hwp_object_structure_partial"] += 1
+            if tag == 0x55:
+                self._unit(
+                    "embedded_object",
+                    {
+                        **(control["context"] if control else self._context(level)),
+                        "record": record,
+                        "image_record": record,
+                        **hwp_picture(data, self.images, version=self.version),
+                    },
+                )
         elif tag == 0x58:
             control = next(
                 (
@@ -415,6 +468,11 @@ class SectionStructure:
             kind = (
                 _CONTROL_KINDS.get(control["name"], "unknown") if control else "unknown"
             )
+            if control and control["name"] == "secd":
+                # HWP5 table 129: section-owned paragraph lists are master pages.
+                # Keep ownership only; the list does not establish rendered pages.
+                kind = "master_page"
+                self.counts["master_page"] += 1
             locator = {"kind": kind, "list_record": record}
             if control is None and memo is not None and memo[1] == level:
                 kind = "comment"

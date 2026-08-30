@@ -36,6 +36,8 @@ class HWP5SpecPartialAdapter:
                 + _WRAPPER_SOURCE.read_bytes()
                 + b"\0"
                 + Path(__file__).with_name("hwp_structure.py").read_bytes()
+                + b"\0"
+                + Path(__file__).with_name("hancom_images.py").read_bytes()
             ).hexdigest()
         except OSError as exc:
             raise ExtractionError("packaged HWP adapter source is unavailable") from exc
@@ -88,7 +90,7 @@ def _hwp_security_flags(path: Path) -> tuple[bool, bool]:
             if not compound.exists("FileHeader"):
                 return False, False
             header = compound.openstream("FileHeader").read(40)
-    except (OSError, olefile.OleFileError):
+    except OSError:
         return False, False
     if len(header) < 40 or not header.startswith(b"HWP Document File"):
         return False, False

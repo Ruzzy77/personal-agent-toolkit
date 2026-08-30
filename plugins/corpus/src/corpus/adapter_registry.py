@@ -147,7 +147,9 @@ def build_default_registry(
         from .office_ocr import OfficeVisionAdapter
 
         routes["pdf"] = PDFKitVisionAdapter(runtime_root)
-        for format_id in ("docx", "pptx"):
-            routes[format_id] = OfficeVisionAdapter(routes[format_id], runtime_root)
+        for format_id in ("docx", "pptx", "hwp", "hwpx"):
+            routes[format_id] = OfficeVisionAdapter(
+                routes[format_id], runtime_root, format_id=format_id
+            )
     routes.update(overrides or {})
     return AdapterRegistry(routes)

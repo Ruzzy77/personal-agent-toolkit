@@ -6,6 +6,7 @@ XML order is not a claim about floating-object or slide visual reading order.
 
 from __future__ import annotations
 
+import json
 import posixpath
 import zipfile
 from collections import Counter
@@ -170,6 +171,12 @@ class _Reader:
         self.nodes += 1
         if depth > 64 or self.nodes > 2_000_000:
             raise ExtractionError("OOXML extraction exceeds its traversal budget")
+
+    def addressed(self, node, address, depth):
+        self.guard(depth)
+        yield node, address, depth
+        for index, child in enumerate(node):
+            yield from self.addressed(child, f"{address}.{index}", depth + 1)
 
     def image(self, node, location):
         parts = []
@@ -504,9 +511,30 @@ class _WordReader(_Reader):
             self.issues["docx_tracked_changes_present"] += 1
             return
         if name in {"oMath", "oMathPara"}:
+            structure = []
+            structure_bytes = 0
+            for element, address, _ in self.addressed(node, location["element"], depth):
+                item = {
+                    "element": address,
+                    "qualified_name": element.tag,
+                    "attributes": dict(element.attrib),
+                    **({"text": element.text} if element.text else {}),
+                }
+                structure_bytes += len(
+                    json.dumps(item, ensure_ascii=False).encode("utf-8")
+                )
+                if len(structure) >= 512 or structure_bytes > 65_536:
+                    self.issues["docx_math_structure_limit"] += 1
+                    structure = []
+                    break
+                structure.append(item)
             self.emit(
                 "embedded_object",
-                {**location, "text_representation": "native_math_tokens"},
+                {
+                    **location,
+                    "text_representation": "native_math_tokens",
+                    **({"math_structure": structure} if structure else {}),
+                },
                 " ".join(n.text or "" for n in _desc(node, "t")),
             )
             self.issues["docx_math_layout_partial"] += 1
@@ -658,6 +686,61 @@ class _SlideReader(_Reader):
                         )
                 col += 1
 
+    def diagram_structure(self, root, location):
+        structure = {"points": [], "connections": []}
+        size = 0
+        namespace = root.tag.rsplit("}", 1)[0] + "}" if "}" in root.tag else ""
+        for index, container in enumerate(root):
+            if container.tag not in {f"{namespace}ptLst", f"{namespace}cxnLst"}:
+                continue
+            is_points = _local_name(container.tag) == "ptLst"
+            target = structure["points" if is_points else "connections"]
+            for child_index, element in enumerate(container):
+                self.guard(2)
+                if element.tag != f"{namespace}{'pt' if is_points else 'cxn'}":
+                    continue
+                item = {
+                    "element": f"0.{index}.{child_index}",
+                    "attributes": dict(element.attrib),
+                }
+                size += len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
+                if (
+                    sum(len(items) for items in structure.values()) >= 512
+                    or size > 65536
+                ):
+                    self.issues["pptx_diagram_structure_limit"] += 1
+                    return
+                target.append(item)
+        if not any(structure.values()):
+            return
+        points = {}
+        for point in structure["points"]:
+            identifier = point["attributes"].get("modelId")
+            if identifier:
+                points.setdefault(identifier, []).append(point["element"])
+        for connection in structure["connections"]:
+            for key, relation in (
+                ("srcId", "source_point"),
+                ("destId", "destination_point"),
+            ):
+                matches = points.get(connection["attributes"].get(key), [])
+                if len(matches) == 1:
+                    connection[relation] = matches[0]
+                else:
+                    self.issues["pptx_diagram_connection_unresolved"] += 1
+        if len(json.dumps(structure, ensure_ascii=False).encode("utf-8")) > 65_536:
+            self.issues["pptx_diagram_structure_limit"] += 1
+            return
+        self.emit(
+            "embedded_object",
+            {
+                **location,
+                "object_type": "diagram",
+                "structural_only": True,
+                "diagram_structure": structure,
+            },
+        )
+
     def related_text(self, node, location, kind):
         identifier = _attr(node, "id") if kind == "chart" else _attr(node, "dm")
         part = self.package.related(location["part"], identifier)
@@ -673,6 +756,9 @@ class _SlideReader(_Reader):
             "element": "0",
             "text_representation": "native_cached_data",
         }
+        if kind == "diagram":
+            base["diagram"] = "0"
+            self.diagram_structure(root, base)
         emitted_before = len(self.units)
 
         def walk(element, loc, depth=0):
@@ -711,6 +797,49 @@ class _SlideReader(_Reader):
         walk(root, base)
         if len(self.units) == emitted_before:
             self.issues[f"pptx_{kind}_content_unread"] += 1
+
+    def ole_fallback_preview(self, node, location, depth, notes):
+        choice, fallback = _child(node, "Choice"), _child(node, "Fallback")
+        if choice is None or fallback is None:
+            return
+        chosen = list(_desc(choice, "oleObj"))
+        alternatives = list(_desc(fallback, "oleObj"))
+        if len(chosen) != 1 or len(alternatives) != 1:
+            return
+        identifier = _attr(chosen[0], "id")
+        if (
+            not identifier
+            or identifier != _attr(alternatives[0], "id")
+            or any(True for _ in _desc(choice, "pic"))
+            or _child(chosen[0], "embed") is None
+            or _child(alternatives[0], "embed") is None
+            or not self.package.related(location["part"], identifier)
+        ):
+            return
+        pictures = [c for c in alternatives[0] if _local_name(c.tag) == "pic"]
+        if len(pictures) != 1:
+            return
+        chosen_address = preview = None
+        for element, address, level in self.addressed(node, location["element"], depth):
+            if element is chosen[0]:
+                chosen_address = address
+            elif element is pictures[0]:
+                preview = (element, address, level)
+        if chosen_address is None or preview is None:
+            return
+        picture, address, level = preview
+        self.walk(
+            picture,
+            {
+                **location,
+                "element": address,
+                "preview_for": chosen_address,
+                "preview_relationship": identifier,
+                "source_view": "stored_ole_fallback_preview",
+            },
+            level,
+            notes,
+        )
 
     def walk(self, node, location, depth=0, notes=False):
         self.guard(depth)
@@ -775,6 +904,20 @@ class _SlideReader(_Reader):
         if name in {"oleObj", "videoFile", "audioFile"}:
             self.emit("embedded_object", {**location, "object_type": name})
             self.issues["office_embedded_object_content_partial"] += 1
+            if name == "oleObj":
+                for index, child in enumerate(node):
+                    if _local_name(child.tag) == "pic":
+                        self.walk(
+                            child,
+                            {
+                                **location,
+                                "element": f"{location['element']}.{index}",
+                                "preview_for": location["element"],
+                                "source_view": "stored_ole_preview",
+                            },
+                            depth + 1,
+                            notes,
+                        )
             return
         for index, child in _children(node):
             self.walk(
@@ -783,6 +926,8 @@ class _SlideReader(_Reader):
                 depth + 1,
                 notes,
             )
+        if name == "AlternateContent":
+            self.ole_fallback_preview(node, location, depth, notes)
 
 
 def extract_structured_docx(path):

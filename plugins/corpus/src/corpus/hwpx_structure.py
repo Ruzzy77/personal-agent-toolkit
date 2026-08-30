@@ -17,6 +17,7 @@ from .extractors import (
     _safe_archive_xml_root,
     normalize_text,
 )
+from .hancom_images import hwpx_binary_items, hwpx_picture
 
 _CONTAINERS = {
     "footNote": "footnote",
@@ -95,9 +96,10 @@ def _sections(archive: zipfile.ZipFile) -> tuple[list[str], list[dict]]:
 
 
 class _Reader:
-    def __init__(self, shapes: dict, styles: dict):
+    def __init__(self, shapes: dict, styles: dict, images: dict | None = None):
         self.shapes = shapes
         self.styles = styles
+        self.images = images or {}
         self.units: list[UnitDraft] = []
         self.issues: Counter[str] = Counter()
         self.base: dict = {}
@@ -310,6 +312,33 @@ class _Reader:
                                 inline_depth + 1,
                             )
                     return
+                if name in {"autoNum", "newNum"}:
+                    try:
+                        number = _number(element.get("num"), default=-1)
+                        if number < 0:
+                            raise ExtractionError("HWPX stored number is missing")
+                    except ExtractionError:
+                        self.issues["hwpx_number_control_partial"] += 1
+                        return
+                    self.emit(
+                        "field",
+                        {
+                            **context,
+                            "element": element_address,
+                            "field_type": "auto_number"
+                            if name == "autoNum"
+                            else "new_number",
+                            "stored_number": number,
+                            "number_type": element.get("numType"),
+                            "number_origin": "stored_control_value",
+                            "number_format": [
+                                dict(child.attrib)
+                                for child in element
+                                if _local_name(child.tag) == "autoNumFormat"
+                            ],
+                        },
+                    )
+                    return
                 if name == "fieldEnd":
                     flush()
                     identifier = element.get("beginIDRef")
@@ -403,6 +432,7 @@ class _Reader:
                     "element": address,
                     "object_type": tag,
                     "owner_paragraph": context.get("paragraph_element"),
+                    **(hwpx_picture(node, self.images) if tag == "pic" else {}),
                 },
             )
             self.issues["hwpx_object_content_partial"] += 1
@@ -490,6 +520,8 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                             "marker_pattern": child.text or "",
                             "number_format": child.get("numFormat"),
                             "start_number": child.get("start", node.get("start")),
+                            "numbering_start_number": node.get("start"),
+                            "level_start_number": child.get("start"),
                         }
                         for child in node
                         if _local_name(child.tag) == "paraHead"
@@ -500,7 +532,15 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                     shape["marker_text"] = bullets[ref]
                 elif shape.get("head_type") in {"number", "outline"}:
                     shape.update(numberings.get(ref, {}).get(shape["level"], {}))
-        reader = _Reader(shapes, styles)
+        images = (
+            hwpx_binary_items(
+                _safe_archive_xml_root(archive, "Contents/content.hpf"),
+                archive.namelist(),
+            )
+            if "Contents/content.hpf" in archive.namelist()
+            else {}
+        )
+        reader = _Reader(shapes, styles, images)
         for index, name in enumerate(sections, 1):
             reader.base = {"section": index, "section_file": name}
             reader.paragraph = 0

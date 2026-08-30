@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 import time
 import zipfile
@@ -21,6 +22,8 @@ from .adapters import (
 )
 from .errors import BudgetExceededError, CorpusError, ExtractionError
 from .extractors import MAX_UNIT_CHARS
+from .hancom_images import EmbeddedImageArchive
+from .metafile_images import single_bitmap_emf
 from .native_adapters import PDFKitVisionAdapter
 
 _MESSAGES = {
@@ -38,6 +41,17 @@ _MESSAGES = {
 
 
 def _source_crop(location):
+    if location.get("image_crop_unresolved"):
+        raise ValueError("Hancom image crop or appearance is unresolved")
+    if "source_crop_bbox" in location:
+        values = location["source_crop_bbox"]
+        if (
+            len(values) != 4
+            or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+            or not (0 <= values[0] < values[2] <= 1 and 0 <= values[1] < values[3] <= 1)
+        ):
+            raise ValueError("invalid normalized source crop")
+        return None if list(values) == [0, 0, 1, 1] else tuple(values)
     crops = location.get("source_crops", [])
     if not crops:
         return None
@@ -54,13 +68,28 @@ def _source_crop(location):
     return (left / 100_000, top / 100_000, 1 - right / 100_000, 1 - bottom / 100_000)
 
 
+def _image_position(location):
+    return (
+        location.get(
+            "part", location.get("section_file", location.get("section_stream"))
+        ),
+        location.get("element", location.get("image_record")),
+    )
+
+
 class OfficeVisionAdapter:
     """Native XML always wins; OCR never replaces existing native units."""
 
-    def __init__(self, native, runtime_root):
+    def __init__(self, native, runtime_root, *, format_id=None):
         self.native = native
         self.vision = PDFKitVisionAdapter(runtime_root)
-        source_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        source_hash = hashlib.sha256(
+            Path(__file__).read_bytes()
+            + b"\0"
+            + Path(__file__).with_name("hancom_images.py").read_bytes()
+            + b"\0"
+            + Path(__file__).with_name("metafile_images.py").read_bytes()
+        ).hexdigest()
         self.config = {
             "native": native.descriptor.to_dict(),
             "vision_source": self.vision.source_hash,
@@ -78,7 +107,7 @@ class OfficeVisionAdapter:
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id=f"work-corpus.native.office-vision.{native.adapter_name}",
+            adapter_id=f"work-corpus.native.office-vision.{format_id or native.adapter_name}",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=self.config,
             capabilities=replace(
@@ -128,7 +157,31 @@ class OfficeVisionAdapter:
             ),
             config=config,
         )
-        return adapter.extract(image_path, format_id="image")
+        recovered = single_bitmap_emf(image_path.read_bytes())
+        if recovered is None:
+            return adapter.extract(image_path, format_id="image")
+        bitmap, origin = recovered
+        bitmap_path = image_path.with_suffix(".bitmap.bmp")
+        try:
+            bitmap_path.write_bytes(bitmap)
+            result = adapter.extract(bitmap_path, format_id="image")
+        finally:
+            bitmap_path.unlink(missing_ok=True)
+        return ExtractionEnvelope.create(
+            descriptor=result.descriptor,
+            completeness=result.completeness,
+            units=tuple(
+                replace(
+                    u,
+                    structure_path={
+                        **u.to_dict()["structure_path"],
+                        "source_bitmap": origin,
+                    },
+                )
+                for u in result.units
+            ),
+            issues=result.issues,
+        )
 
     def extract(self, path, *, format_id):
         return self._extract_range(path, format_id=format_id)
@@ -155,17 +208,22 @@ class OfficeVisionAdapter:
         failures = {}
         positions = {}
         for position, unit in enumerate(native.units):
-            if (
-                unit.unit_type == "embedded_object"
-                and unit.structure_path.get("object_type") == "image"
-            ):
+            if unit.unit_type == "embedded_object" and unit.structure_path.get(
+                "object_type"
+            ) in {"image", "pic"}:
                 positions.setdefault(
-                    (
-                        unit.structure_path.get("part"),
-                        unit.structure_path.get("element"),
-                    ),
+                    _image_position(unit.structure_path),
                     position,
                 )
+        if not positions:
+            if previous is not None:
+                raise ExtractionError("Image continuation lost its native positions")
+            return ExtractionEnvelope.create(
+                descriptor=self.descriptor,
+                completeness=native.completeness,
+                units=native.units,
+                issues=native.issues,
+            )
         image_order = sorted(
             positions.values(),
             key=lambda position: (
@@ -201,10 +259,7 @@ class OfficeVisionAdapter:
             for unit in previous.units:
                 if unit.unit_type != "image_text" or unit.derivation_method != "ocr":
                     continue
-                key = (
-                    unit.structure_path.get("part"),
-                    unit.structure_path.get("element"),
-                )
+                key = _image_position(unit.structure_path)
                 if key not in positions:
                     raise ExtractionError(
                         "Office OCR has no matching native image position"
@@ -228,7 +283,14 @@ class OfficeVisionAdapter:
                     {
                         **{
                             k: location[k]
-                            for k in ("part", "element", "slide")
+                            for k in (
+                                "part",
+                                "element",
+                                "slide",
+                                "section_file",
+                                "section_stream",
+                                "image_record",
+                            )
                             if k in location
                         },
                         "image_part": part,
@@ -247,7 +309,7 @@ class OfficeVisionAdapter:
         output_limited = False
         deadline = time.monotonic() + self.config["timeout_seconds"]
         with (
-            zipfile.ZipFile(path) as archive,
+            EmbeddedImageArchive(path) as archive,
             tempfile.TemporaryDirectory(prefix="corpus-image-") as temporary,
         ):
             for image_index in range(start, len(image_order)):
@@ -257,7 +319,12 @@ class OfficeVisionAdapter:
                 next_image = image_index + 1
                 parts = location.get("image_parts", [])
                 if len(parts) != 1:
-                    observations["office_image_placement_unresolved"] += 1
+                    observe_image(
+                        "office_image_placement_unresolved",
+                        location,
+                        None,
+                        {"stage": "source_reference", "retryable": False},
+                    )
                     continue
                 part = parts[0]
                 try:
@@ -272,13 +339,22 @@ class OfficeVisionAdapter:
                     continue
                 image_key = (part, crop)
                 if image_key not in by_part:
-                    info = archive.getinfo(part)
-                    if info.file_size > self.config["max_image_bytes"]:
+                    try:
+                        size = archive.size(part)
+                    except (KeyError, ValueError, OSError):
+                        observe_image(
+                            "office_image_placement_unresolved",
+                            location,
+                            part,
+                            {"stage": "source_member", "retryable": False},
+                        )
+                        continue
+                    if size > self.config["max_image_bytes"]:
                         observations["office_image_size_limit"] += 1
                         continue
                     if (
                         len(by_part) >= self.config["max_images"]
-                        or bytes_read + (0 if part in source_data else info.file_size)
+                        or bytes_read + (0 if part in source_data else size)
                         > self.config["max_total_image_bytes"]
                         or time.monotonic() >= deadline
                     ):
@@ -286,7 +362,29 @@ class OfficeVisionAdapter:
                         next_image = image_index
                         break
                     if part not in source_data:
-                        source_data[part] = archive.read(part)
+                        remaining_bytes = (
+                            self.config["max_total_image_bytes"] - bytes_read
+                        )
+                        read_limit = min(
+                            self.config["max_image_bytes"], remaining_bytes
+                        )
+                        try:
+                            source_data[part] = archive.read(part, location, read_limit)
+                        except OverflowError:
+                            if read_limit < self.config["max_image_bytes"]:
+                                observations["office_image_ocr_budget_reached"] += 1
+                                next_image = image_index
+                                break
+                            observations["office_image_size_limit"] += 1
+                            continue
+                        except (OSError, ValueError, zipfile.BadZipFile):
+                            observe_image(
+                                "office_image_decode_failed",
+                                location,
+                                part,
+                                {"stage": "source_decompression", "retryable": False},
+                            )
+                            continue
                         bytes_read += len(source_data[part])
                     raw = source_data[part]
                     digest = hashlib.sha256(raw).hexdigest()
@@ -386,6 +484,15 @@ class OfficeVisionAdapter:
                                     else {}
                                 ),
                                 "text_representation": "vision_ocr",
+                                **(
+                                    {
+                                        "source_bitmap": region.to_dict()[
+                                            "structure_path"
+                                        ]["source_bitmap"]
+                                    }
+                                    if "source_bitmap" in region.structure_path
+                                    else {}
+                                ),
                             },
                             content=region.content,
                             derivation_method="ocr",
