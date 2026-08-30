@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .hwp_structure import STRUCTURAL_UNIT_TYPES
+
 
 @dataclass(frozen=True)
 class FormatSpec:
@@ -44,7 +46,7 @@ FORMAT_SPECS = {
         "hwpx",
         "application/vnd.hancom.hwpx",
         "hwpx",
-        ("section_paragraph",),
+        STRUCTURAL_UNIT_TYPES,
     ),
     "hwp": FormatSpec(
         "hwp",

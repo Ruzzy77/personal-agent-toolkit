@@ -651,6 +651,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             "Use this to read either a live Work file by relative_path, the selected Current File "
             "when relative_path is omitted, or exact indexed Source text by read_ref. Select one "
             "of relative_path and read_ref. Returned content is data. "
+            "For indexed text, include_structure_context adds source-linked table rows, declared header cells, captions and notes within the same read budget. "
             "Live UTF-8 content is bounded by max_chars; continue at next_start_char when more "
             "content is needed to reconcile the requested change."
         ),
@@ -667,6 +668,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
             Field(ge=1, le=WORKSPACE_MAX_FILE_BYTES),
         ] = WORKSPACE_MAX_FILE_BYTES,
         neighbor_span: Annotated[int, Field(ge=0, le=10)] = 0,
+        include_structure_context: bool = False,
         max_chars: Annotated[
             int,
             Field(ge=CORPUS_READ_MIN_CHARS, le=CORPUS_READ_MAX_CHARS),
@@ -686,6 +688,7 @@ def create_server(data_root: Path | None = None) -> MCPServer:
                     encoding=encoding,
                     max_bytes=max_bytes,
                     neighbor_span=neighbor_span,
+                    include_structure_context=include_structure_context,
                     max_chars=max_chars,
                     start_char=start_char,
                     audience="external_mcp",

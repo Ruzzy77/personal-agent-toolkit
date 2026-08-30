@@ -183,9 +183,17 @@ def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
             report["errors"].append("latest source scan is not complete")
         outdated = int(coverage.get("outdated_active_projections", 0))
         if outdated:
-            report["errors"].append(
-                f"{outdated} active projection(s) use an outdated extractor"
+            reasons = pending.get("outdated", {})
+            explained = sum(
+                int(reasons.get(key, 0))
+                for key in ("too_large", "pending_remote", "failed")
             )
+            if int(reasons.get("total", -1)) != outdated or explained != outdated:
+                report["errors"].append(
+                    f"{outdated} outdated active projection(s) are not fully explained by blocked documents"
+                )
+            else:
+                report["warnings"]["outdated_blocked_projections"] = outdated
 
     report["ok"] = not report["errors"]
     return report

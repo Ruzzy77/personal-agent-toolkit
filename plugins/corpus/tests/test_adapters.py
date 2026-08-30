@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import struct
 import sys
@@ -25,7 +26,7 @@ from corpus.adapters import (
     run_builtin_extraction,
 )
 from corpus.errors import BudgetExceededError, ExtractionError
-from corpus.extractors import ExtractionResult, UnitDraft
+from corpus.extractors import ExtractionResult, UnitDraft, extract_hwpx
 from corpus.hwp5_adapter_main import (
     HWPAdapterError,
     _decode_paragraph,
@@ -33,6 +34,7 @@ from corpus.hwp5_adapter_main import (
     _inflate_raw_deflate,
     _records,
 )
+from corpus.hwp_structure import SectionStructure
 from corpus.native_adapters import _PDF_VISION_SOURCE, PDFKitVisionAdapter
 from corpus.rhwp_adapters import RhwpPageTextAdapter
 from corpus.service import _validate_ingest_budgets
@@ -226,6 +228,7 @@ class ExternalAdapterTest(unittest.TestCase):
     def test_external_jsonl_reads_only_fd_and_returns_valid_envelope(self) -> None:
         script = f"""
 import json
+import importlib.util
 import sys
 
 request = json.loads(sys.stdin.readline())
@@ -510,11 +513,11 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertFalse(hwp.capabilities.supports_ocr)
         self.assertTrue(hwp.capabilities.may_emit_partial)
 
-    def test_hwp_and_hwpx_routers_accept_only_known_legacy_projections(self) -> None:
+    def test_hwp_and_hwpx_structure_upgrade_requires_reindex(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             registry = build_default_registry(Path(temporary) / "runtime")
 
-        self.assertTrue(
+        self.assertFalse(
             registry.accepts_projection(
                 "hwp",
                 "work-corpus.hwp5.spec-partial",
@@ -522,7 +525,7 @@ class PackagedAdapterTest(unittest.TestCase):
                 "636b97fef8e7a824315f7398170b37ff304c71495da1c0f6ad6a5a26b01a8207",
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             registry.accepts_projection(
                 "hwpx",
                 "work-corpus.hwpx.content-router",
@@ -679,7 +682,7 @@ class PackagedAdapterTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(
             builtin_adapter_descriptor("hwpx").adapter_version,
-            "source-units-v5",
+            "source-units-v6",
         )
         self.assertEqual(
             builtin_adapter_descriptor("markdown").adapter_version,
@@ -752,6 +755,204 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertEqual(
             result.descriptor.adapter_id,
             "work-corpus.hwpx.content-router",
+        )
+
+    def test_refresh_classifies_only_exactly_explained_outdated_projections_as_warnings(
+        self,
+    ) -> None:
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "skills"
+            / "refresh-corpus-sources"
+            / "scripts"
+            / "refresh_sources.py"
+        )
+        spec = importlib.util.spec_from_file_location("refresh_source_test", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            source = {"corpus_id": "example", "source_root": temporary}
+            status = {
+                "latest_scan": {"status": "complete"},
+                "coverage_gaps": {"outdated_active_projections": 2},
+            }
+            sync = {
+                "inventory": {"inventory_complete": True},
+                "pending": {"too_large": 2, "outdated": {"total": 2, "too_large": 2}},
+                "summary": {},
+            }
+            with mock.patch.object(module, "_run_json", side_effect=[sync, status]):
+                result = module._refresh_one(Path("launcher"), source)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["warnings"]["outdated_blocked_projections"], 2)
+            sync["pending"]["outdated"] = {"total": 2, "too_large": 1, "refreshable": 1}
+            with mock.patch.object(module, "_run_json", side_effect=[sync, status]):
+                result = module._refresh_one(Path("launcher"), source)
+            self.assertFalse(result["ok"])
+
+    def test_rhwp_output_is_stopped_at_the_shared_runtime_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "rhwp"
+            executable.write_text(
+                f"#!{sys.executable}\nimport sys\nif sys.argv[1] == '--version':\n print('rhwp v0.8.2')\nelse:\n sys.stdout.write('X' * 100000)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            source = root / "source.hwp"
+            source.write_bytes(b"fixture")
+            adapter = RhwpPageTextAdapter(root / "runtime", executable=executable)
+            adapter.budgets = AdapterBudgets(max_stdout_bytes=128)
+            with self.assertRaises(BudgetExceededError):
+                adapter.extract(source, format_id="hwp")
+            self.assertEqual(source.read_bytes(), b"fixture")
+
+    def test_hwp_structure_preserves_cells_notes_and_distinct_source_occurrences(
+        self,
+    ) -> None:
+        normal = {"head_type": "none", "level": 1}
+        reader = SectionStructure(
+            1,
+            "Section0",
+            [
+                normal,
+                {"head_type": "outline", "level": 2},
+                {"head_type": "number", "level": 1},
+            ],
+            [{"name": "Normal"}],
+        )
+
+        def paragraph(record, level, shape=0):
+            data = bytearray(24)
+            struct.pack_into("<H", data, 8, shape)
+            reader.observe(record, 0x42, level, bytes(data))
+
+        def cell(record, level, row, col, row_span=1, col_span=1, header=False):
+            data = bytearray(34)
+            struct.pack_into("<H", data, 6, 4 if header else 0)
+            struct.pack_into("<HHHH", data, 8, col, row, col_span, row_span)
+            reader.observe(record, 0x48, level, bytes(data))
+
+        paragraph(1, 0)
+        reader.text(2, 1, 1, "본문")
+        reader.observe(3, 0x47, 1, b"tbl "[::-1])
+        reader.observe(4, 0x4D, 2, struct.pack("<IHH", 0, 2, 2))
+        cell(5, 2, 0, 0, col_span=2, header=True)
+        paragraph(6, 2)
+        reader.text(7, 3, 2, "반복")
+        cell(8, 2, 1, 0)
+        paragraph(9, 2)
+        reader.text(10, 3, 3, "반복")
+        reader.observe(11, 0x47, 3, b"tbl "[::-1])
+        reader.observe(12, 0x4D, 4, struct.pack("<IHH", 0, 1, 1))
+        cell(13, 4, 0, 0)
+        paragraph(14, 4)
+        cell(15, 2, 1, 1)
+        paragraph(16, 2)
+        reader.text(17, 3, 4, "100")
+        paragraph(18, 0, 1)
+        reader.text(19, 1, 5, "제목")
+        paragraph(20, 0, 2)
+        reader.text(21, 1, 6, "목록")
+        reader.observe(22, 0x47, 1, b"fn  "[::-1] + struct.pack("<I", 4))
+        reader.observe(23, 0x48, 2, bytes(16))
+        paragraph(24, 2)
+        reader.text(25, 3, 7, "주석")
+        units, issues = reader.finish()
+        text = [u for u in units if u["content"]]
+        self.assertEqual(
+            [u["content"] for u in text],
+            ["본문", "반복", "반복", "100", "제목", "목록", "주석"],
+        )
+        repeated = [u["structure_path"] for u in text if u["content"] == "반복"]
+        self.assertEqual([u["cell"] for u in repeated], ["r5", "r8"])
+        self.assertEqual(repeated[0]["col_span"], 2)
+        self.assertEqual(sum(u["unit_type"] == "table" for u in units), 2)
+        self.assertEqual(text[-3]["unit_type"], "heading")
+        self.assertEqual(text[-2]["unit_type"], "list_item")
+        self.assertEqual(text[-1]["unit_type"], "footnote")
+        self.assertEqual(text[-1]["structure_path"]["owner_paragraph_record"], 20)
+        self.assertFalse(any(i["code"].startswith("hwp_table_") for i in issues))
+
+    def test_hwp_endnote_and_equation_keep_source_owned_locations(self) -> None:
+        reader = SectionStructure(
+            1, "Section0", [{"head_type": "none"}], [{"name": "Normal"}]
+        )
+        reader.observe(1, 0x42, 0, bytes(24))
+        reader.text(2, 1, 1, "참조")
+        reader.observe(3, 0x47, 1, b"en  "[::-1] + struct.pack("<I", 7))
+        reader.observe(4, 0x48, 2, bytes(16))
+        reader.observe(5, 0x42, 2, bytes(24))
+        reader.text(6, 3, 2, "미주")
+        reader.observe(7, 0x42, 0, bytes(24))
+        reader.observe(8, 0x47, 1, b"eqed"[::-1])
+        script = "x + y"
+        reader.observe(
+            9, 0x58, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le")
+        )
+        units, _issues = reader.finish()
+        note = next(u for u in units if u["content"] == "미주")
+        self.assertEqual(note["unit_type"], "endnote")
+        self.assertEqual(note["structure_path"]["owner_paragraph_record"], 1)
+        equation = next(u for u in units if u["content"] == script)
+        self.assertEqual(equation["structure_path"]["record"], 9)
+        self.assertEqual(equation["structure_path"]["owner_paragraph_record"], 7)
+        self.assertEqual(
+            equation["structure_path"]["text_representation"], "hancom_equation_script"
+        )
+
+    def test_hwpx_nested_text_order_cells_and_notes_are_not_duplicated(self) -> None:
+        xml = """<sec><p><run><t>앞</t><tbl rowCnt="1" colCnt="2"><tr>
+          <tc header="1"><cellAddr colAddr="0" rowAddr="0"/><cellSpan colSpan="1" rowSpan="1"/>
+            <subList><p><run><t>항목</t></run></p></subList></tc>
+          <tc><cellAddr colAddr="1" rowAddr="0"/><cellSpan colSpan="1" rowSpan="1"/>
+            <subList><p><run><t>100<tab/>원</t></run></p></subList></tc>
+        </tr></tbl><t>뒤</t><footNote number="1"><subList><p><run><t>주석</t></run></p></subList></footNote></run></p></sec>"""
+        source = BytesIO()
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("Contents/section0.xml", xml)
+            archive.writestr(
+                "Contents/section10.xml", "<sec><p><run><t>열</t></run></p></sec>"
+            )
+            archive.writestr(
+                "Contents/section2.xml", "<sec><p><run><t>둘</t></run></p></sec>"
+            )
+        result = extract_hwpx(source)
+        text = [u for u in result.units if u.content]
+        self.assertEqual(
+            [u.content for u in text],
+            ["앞", "항목", "100\t원", "뒤", "주석", "둘", "열"],
+        )
+        self.assertEqual(text[2].structure_path["col"], 1)
+        self.assertEqual(text[4].unit_type, "footnote")
+        self.assertEqual(
+            text[4].structure_path["owner_paragraph"],
+            text[0].structure_path["paragraph_element"],
+        )
+        self.assertFalse(result.issues)
+
+        package_order = BytesIO()
+        with zipfile.ZipFile(package_order, "w") as archive:
+            archive.writestr("Contents/section0.xml", "<sec><p><t>끝</t></p></sec>")
+            archive.writestr(
+                "Contents/section2.xml", xml.replace('colAddr="1"', 'colAddr="bad"')
+            )
+            archive.writestr(
+                "Contents/content.hpf",
+                '<package><manifest><item id="a" href="section0.xml"/>'
+                '<item id="b" href="section2.xml"/></manifest>'
+                '<spine><itemref idref="b"/><itemref idref="a"/></spine></package>',
+            )
+        partial = extract_hwpx(package_order)
+        self.assertEqual(
+            [u.content for u in partial.units if u.content],
+            ["앞", "항목", "100\t원", "뒤", "주석", "끝"],
+        )
+        unmapped = next(u for u in partial.units if u.content == "100\t원")
+        self.assertNotIn("col", unmapped.structure_path)
+        self.assertIn("cell", unmapped.structure_path)
+        self.assertIn(
+            "hwpx_table_geometry_partial", {issue["code"] for issue in partial.issues}
         )
 
     def test_hwp5_paragraph_control_decoder_preserves_text_boundaries(self) -> None:

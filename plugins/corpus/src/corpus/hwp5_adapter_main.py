@@ -1,9 +1,4 @@
-"""Minimal HWP 5 text adapter based on Hancom's published binary specification.
-
-This subprocess deliberately stops at exact section/record/paragraph
-observations.  It does not infer headings or flatten table structure into an
-apparently complete document model.
-"""
+"""Bounded HWP5 native text and record-ownership extraction."""
 
 from __future__ import annotations
 
@@ -16,6 +11,11 @@ import zlib
 from collections import Counter
 
 import olefile
+
+if __package__:
+    from .hwp_structure import SectionStructure, doc_info_properties
+else:
+    from hwp_structure import SectionStructure, doc_info_properties
 
 REQUEST_SCHEMA_VERSION = "corpus.extraction-request.v1"
 RESULT_SCHEMA_VERSION = "corpus.extraction-result.v1"
@@ -260,14 +260,32 @@ def _extract(request: dict) -> dict:
         if len(section_names) > max_sections:
             raise HWPAdapterError("HWP section count exceeds its configured budget")
 
+        shapes, styles = [], []
+        doc_info_bytes = 0
+        if compound.exists("DocInfo"):
+            raw_info = compound.openstream("DocInfo").read(
+                max_inflated_section_bytes + 1
+            )
+            if len(raw_info) > max_inflated_section_bytes:
+                raise HWPAdapterError("HWP DocInfo exceeds its byte budget")
+            info = (
+                _inflate_raw_deflate(raw_info, limit=max_inflated_section_bytes)
+                if compressed
+                else raw_info
+            )
+            shapes, styles = doc_info_properties(
+                _records(info, max_records=max_records)
+            )
+            doc_info_bytes = len(info)
         units: list[dict] = []
+        structure_issues: list[dict] = []
         total_records = 0
         total_paragraph_headers = 0
         total_paragraph_text = 0
         total_empty_paragraphs = 0
         total_list_headers = 0
         total_tables = 0
-        total_inflated_bytes = 0
+        total_inflated_bytes = doc_info_bytes
         total_content_chars = 0
         all_controls: Counter[int] = Counter()
         all_anomalies: Counter[str] = Counter()
@@ -284,6 +302,7 @@ def _extract(request: dict) -> dict:
             if total_inflated_bytes > max_total_inflated_bytes:
                 raise HWPAdapterError("HWP sections exceed their aggregate byte budget")
             paragraph_ordinal = 0
+            structure = SectionStructure(section_ordinal, section_name, shapes, styles)
             for record_index, tag_id, level, payload in _records(
                 data,
                 max_records=max_records,
@@ -293,6 +312,10 @@ def _extract(request: dict) -> dict:
                     raise HWPAdapterError(
                         "HWP records exceed their aggregate count budget"
                     )
+                try:
+                    structure.observe(record_index, tag_id, level, payload)
+                except ValueError as exc:
+                    raise HWPAdapterError(str(exc)) from exc
                 if tag_id == PARA_HEADER:
                     total_paragraph_headers += 1
                 elif tag_id == LIST_HEADER:
@@ -319,41 +342,30 @@ def _extract(request: dict) -> dict:
                         raise HWPAdapterError(
                             "HWP content exceeds its aggregate character budget"
                         )
-                    units.append(
-                        {
-                            "unit_type": "section_paragraph",
-                            "structure_path": {
-                                "section": section_ordinal,
-                                "section_stream": section_name,
-                                "paragraph": paragraph_ordinal,
-                                "record": record_index,
-                                "record_level": level,
-                            },
-                            "content": text,
-                            "derivation_method": "native_text",
-                            "quality_flags": ["binary_hwp", "structure_partial"],
-                            "issues": [],
-                        }
-                    )
+                    structure.text(record_index, level, paragraph_ordinal, text)
+            section_units, section_issues = structure.finish()
+            if len(units) + len(section_units) > max_units:
+                raise HWPAdapterError("HWP unit count exceeds its budget")
+            units.extend(section_units)
+            if any(
+                len(unit["content"]) > max_unit_content_chars for unit in section_units
+            ):
+                raise HWPAdapterError("HWP unit exceeds its content budget")
+            if sum(len(unit["content"]) for unit in units) > max_total_content_chars:
+                raise HWPAdapterError(
+                    "HWP content exceeds its aggregate character budget"
+                )
+            structure_issues.extend(section_issues)
 
-    issues = [
-        {
-            "code": "hwp_structure_partial",
-            "message": (
-                "Paragraph record order is preserved, but table cells, headings, lists, "
-                "footnotes, and embedded objects are not yet reconstructed."
-            ),
-            "severity": "warning",
-            "details": {
-                "records": total_records,
-                "paragraph_headers": total_paragraph_headers,
-                "paragraph_text_records": total_paragraph_text,
-                "empty_paragraph_text_records": total_empty_paragraphs,
-                "list_headers": total_list_headers,
-                "table_records": total_tables,
-            },
-        }
-    ]
+    issues = structure_issues
+    if not any(unit["content"] for unit in units):
+        issues.append(
+            {
+                "code": "no_extractable_text",
+                "severity": "warning",
+                "message": "The document contains no extractable native text.",
+            }
+        )
     if all_anomalies:
         issues.append(
             {
@@ -377,7 +389,9 @@ def _extract(request: dict) -> dict:
         )
     return {
         "schema_version": RESULT_SCHEMA_VERSION,
-        "completeness": "partial",
+        "completeness": "partial"
+        if any(issue["severity"] != "info" for issue in issues)
+        else "complete",
         "units": units,
         "issues": issues,
     }

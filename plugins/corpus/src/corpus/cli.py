@@ -271,6 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=WORKSPACE_MAX_FILE_BYTES,
     )
     space_read.add_argument("--neighbor-span", type=int, default=0)
+    space_read.add_argument("--include-structure-context", action="store_true")
     space_read.add_argument("--max-chars", type=int, default=CORPUS_READ_DEFAULT_CHARS)
     space_read.add_argument("--start-char", type=int, default=0)
     space_write = space_commands.add_parser(
@@ -774,6 +775,7 @@ def execute(args: argparse.Namespace) -> dict | list:
                 encoding=args.encoding,
                 max_bytes=args.max_bytes,
                 neighbor_span=args.neighbor_span,
+                include_structure_context=args.include_structure_context,
                 max_chars=args.max_chars,
                 start_char=args.start_char,
                 audience="local_cli",

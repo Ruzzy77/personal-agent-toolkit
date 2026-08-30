@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from corpus.adapter_registry import build_default_registry
+from corpus.adapters import AdapterDescriptor
 from corpus.database import corpus_connection, workspace_connection
-from corpus.errors import SpaceConflictError, SpaceValidationError
+from corpus.errors import ExtractionError, SpaceConflictError, SpaceValidationError
 from corpus.scanner import scan_corpus
 from corpus.service import CorpusService
 from corpus.spaces import decode_space_reference
@@ -21,6 +24,90 @@ class SpaceFileServiceTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_table_context_preserves_exact_hits_and_existing_read_default(self) -> None:
+        root = self.base / "forms"
+        root.mkdir()
+        cells = []
+        for row, values in enumerate((("항목", "금액"), ("장비", "100"))):
+            for col, text in enumerate(values):
+                cells.append(
+                    f'<tc header="{int(row == 0)}"><cellAddr colAddr="{col}" rowAddr="{row}"/><cellSpan colSpan="1" rowSpan="1"/><subList><p><run><t>{text}</t></run></p></subList></tc>'
+                )
+        xml = (
+            '<sec><p><run><tbl rowCnt="2" colCnt="2"><tr>'
+            + "".join(cells)
+            + "</tr></tbl></run></p><p><run><t>설명</t>"
+            '<footNote number="1"><subList><p><run><t>각주본문</t></run></p>'
+            "</subList></footNote></run></p></sec>"
+        )
+        with zipfile.ZipFile(root / "form.hwpx", "w") as archive:
+            archive.writestr("Contents/section0.xml", xml)
+        self.service.register(
+            corpus_id="forms", source_root=root, execution_policy="local_only"
+        )
+        self.service.sync("forms")
+        hits = self.service.search("forms", "100")
+        self.assertEqual(hits["count"], 1)
+        self.assertEqual(self.service.search("forms", "0")["count"], 0)
+        unit_id = hits["candidates"][0]["unit_id"]
+        exact = self.service.read_units("forms", [unit_id])
+        self.assertEqual([u["untrusted_content"] for u in exact["units"]], ["100"])
+        expanded = self.service.read_units(
+            "forms", [unit_id], include_structure_context=True
+        )
+        self.assertEqual(
+            {
+                u["untrusted_content"]
+                for u in expanded["units"]
+                if u["untrusted_content"]
+            },
+            {"항목", "금액", "장비", "100"},
+        )
+        self.assertEqual(sum(u["requested"] for u in expanded["units"]), 1)
+        self.assertTrue(
+            all(u["dependency_state"] == "valid" for u in expanded["units"])
+        )
+        note = self.service.search("forms", "각주본문")["candidates"][0]
+        note_context = self.service.read_units(
+            "forms", [note["unit_id"]], include_structure_context=True
+        )
+        self.assertEqual(
+            {
+                u["untrusted_content"]
+                for u in note_context["units"]
+                if u["untrusted_content"]
+            },
+            {"설명", "각주본문"},
+        )
+
+        original_registry = self.service.adapter_registry
+        original_adapter = original_registry.resolve("hwpx")
+
+        class FailingAdapter:
+            descriptor = AdapterDescriptor.from_config(
+                adapter_id="test.structure-failure",
+                adapter_version="1",
+                config={},
+                capabilities=original_adapter.descriptor.capabilities,
+            )
+
+            def extract(self, _path, *, format_id):
+                raise ExtractionError("intentional structure extraction failure")
+
+        self.service.adapter_registry = build_default_registry(
+            overrides={"hwpx": FailingAdapter()}
+        )
+        self.service.ingest(
+            "forms", document_ids=[hits["candidates"][0]["document_id"]]
+        )
+        with corpus_connection(self.data, "forms") as connection:
+            active = connection.execute(
+                "SELECT projection_id FROM extraction_projections WHERE is_active=1"
+            ).fetchone()[0]
+        self.assertEqual(active, hits["candidates"][0]["projection_id"])
+        self.service.adapter_registry = original_registry
+        self.assertEqual(self.service.search("forms", "100")["count"], 1)
 
     def _create_context(self, context_id: str, corpus_ids: list[str]) -> None:
         self.service.context_update(

@@ -1,0 +1,399 @@
+"""HWPX XML ownership and source-declared structure, with no conversion."""
+
+from __future__ import annotations
+
+import posixpath
+import re
+import zipfile
+from collections import Counter
+
+from .errors import ExtractionError
+from .extractors import (
+    ExtractionResult,
+    UnitDraft,
+    _bounded_unit,
+    _local_name,
+    _preflight_zip,
+    _safe_archive_xml_root,
+    normalize_text,
+)
+
+_CONTAINERS = {
+    "footNote": "footnote",
+    "endNote": "endnote",
+    "header": "header",
+    "footer": "footer",
+    "caption": "caption",
+    "drawText": "textbox",
+}
+_OBJECTS = {
+    "pic",
+    "ole",
+    "equation",
+    "chart",
+    "video",
+    "textart",
+    "container",
+    "rect",
+    "ellipse",
+    "line",
+    "polygon",
+    "curve",
+    "arc",
+    "connectLine",
+}
+
+
+def _number(value: str | None, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        number = int(value)
+    except (ValueError, TypeError) as exc:
+        raise ExtractionError("HWPX structural number is invalid") from exc
+    if not 0 <= number <= 1_000_000:
+        raise ExtractionError("HWPX structural number exceeds its bound")
+    return number
+
+
+def _sections(archive: zipfile.ZipFile) -> tuple[list[str], list[dict]]:
+    names = [
+        name
+        for name in archive.namelist()
+        if re.fullmatch(r"Contents/section\d+\.xml", name, re.IGNORECASE)
+    ]
+    if len(names) != len(set(names)):
+        raise ExtractionError("HWPX contains duplicate section members")
+    fallback = sorted(
+        names, key=lambda name: int(re.search(r"(\d+)\.xml$", name, re.IGNORECASE)[1])
+    )
+    if "Contents/content.hpf" not in archive.namelist():
+        return fallback, []
+    package = _safe_archive_xml_root(archive, "Contents/content.hpf")
+    manifest = {}
+    order = []
+    for node in package.iter():
+        if _local_name(node.tag) == "item":
+            href = node.get("href", "")
+            if href.startswith("/") or ":" in href or ".." in href.split("/"):
+                continue
+            resolved = href if href in names else posixpath.join("Contents", href)
+            if resolved in names:
+                manifest[node.get("id")] = resolved
+        elif _local_name(node.tag) == "itemref":
+            order.append(node.get("idref"))
+    selected = [manifest[key] for key in order if key in manifest]
+    if len(selected) == len(names) and set(selected) == set(names):
+        return selected, []
+    return fallback, [
+        {
+            "code": "hwpx_section_order_partial",
+            "severity": "warning",
+            "message": "Package section order is incomplete; numeric member order was retained.",
+        }
+    ]
+
+
+class _Reader:
+    def __init__(self, shapes: dict, styles: dict):
+        self.shapes = shapes
+        self.styles = styles
+        self.units: list[UnitDraft] = []
+        self.issues: Counter[str] = Counter()
+        self.base: dict = {}
+        self.paragraph = 0
+        self.characters = 0
+        self.nodes = 0
+        self.tables: dict[str, dict] = {}
+
+    def emit(self, kind: str, location: dict, text: str = "") -> None:
+        text = normalize_text(text)
+        self.characters += len(text)
+        if self.characters > 50_000_000 or len(self.units) >= 200_000:
+            raise ExtractionError("HWPX structure exceeds its output budget")
+        draft = UnitDraft(kind, {**self.base, **location}, text)
+        self.units.extend(_bounded_unit(draft) if text else [draft])
+
+    def geometry(self, value: str | None) -> int | None:
+        try:
+            if value is not None:
+                return _number(value)
+        except ExtractionError:
+            pass
+        self.issues["hwpx_table_geometry_partial"] += 1
+        return None
+
+    def walk(self, node, address: str, context: dict, depth: int = 0) -> None:
+        self.nodes += 1
+        if depth > 64 or self.nodes > 2_000_000:
+            raise ExtractionError("HWPX structure exceeds its traversal budget")
+        tag = _local_name(node.tag)
+        context = dict(context)
+        if tag == "p":
+            self.paragraph += 1
+            context.update({"paragraph": self.paragraph, "paragraph_element": address})
+            properties = self.shapes.get(node.get("paraPrIDRef"), {})
+            context.update(properties)
+            if "styleIDRef" in node.attrib:
+                context["style"] = node.get("styleIDRef")
+                context["style_name"] = self.styles.get(node.get("styleIDRef"), "")
+            head = properties.get("head_type", "none")
+            kind = (
+                "heading"
+                if head == "outline"
+                else "list_item"
+                if head in {"number", "bullet"}
+                else context.get("container_kind", "section_paragraph")
+            )
+            if kind == "textbox":
+                kind = "section_paragraph"
+            if head in {"number", "bullet"} and not properties.get("marker_text"):
+                self.issues["hwpx_list_marker_partial"] += 1
+            chunks: list[str] = []
+            segment = 0
+
+            def flush():
+                nonlocal segment
+                if normalize_text("".join(chunks)):
+                    segment += 1
+                    self.emit(
+                        kind,
+                        {**context, "element": address, "segment": segment},
+                        "".join(chunks),
+                    )
+                chunks.clear()
+
+            def inline(element, element_address, inline_depth):
+                if inline_depth > 64:
+                    raise ExtractionError(
+                        "HWPX inline structure exceeds its depth budget"
+                    )
+                name = _local_name(element.tag)
+                if name == "t":
+                    chunks.append(element.text or "")
+                    for index, child in enumerate(element):
+                        child_name = _local_name(child.tag)
+                        chunks.append(
+                            "\t"
+                            if child_name == "tab"
+                            else "\n"
+                            if child_name == "lineBreak"
+                            else " "
+                            if child_name in {"nbSpace", "fwSpace"}
+                            else ""
+                        )
+                        if child_name not in {"tab", "lineBreak", "nbSpace", "fwSpace"}:
+                            self.issues["hwpx_inline_content_partial"] += 1
+                        chunks.append(child.tail or "")
+                    return
+                if (
+                    name == "p"
+                    or name == "tbl"
+                    or name in _CONTAINERS
+                    or name in _OBJECTS
+                ):
+                    flush()
+                    self.walk(element, element_address, context, inline_depth)
+                    return
+                if name in {"fieldBegin", "fieldEnd"}:
+                    self.issues["hwpx_field_semantics_partial"] += 1
+                for index, child in enumerate(element):
+                    inline(child, f"{element_address}.{index}", inline_depth + 1)
+
+            for index, child in enumerate(node):
+                inline(child, f"{address}.{index}", depth + 1)
+            flush()
+            return
+        if tag == "tbl":
+            parent = {
+                key: context[key]
+                for key in ("table", "cell", "note", "object")
+                if key in context
+            }
+            for key in ("cell", "row", "col", "row_span", "col_span", "is_header"):
+                context.pop(key, None)
+            context.update(
+                {"table": address, "object": address, "container_kind": "table"}
+            )
+            if parent:
+                context["container_path"] = [*context.get("container_path", []), parent]
+            table = {
+                "rows": self.geometry(node.get("rowCnt")),
+                "cols": self.geometry(node.get("colCnt")),
+                "cells": [],
+            }
+            self.tables[address] = table
+            self.emit(
+                "table",
+                {
+                    **context,
+                    "element": address,
+                    **{k: table[k] for k in ("rows", "cols") if table[k] is not None},
+                },
+            )
+        elif tag == "tc":
+            values = {_local_name(child.tag): child for child in node}
+            cell_address, span = values.get("cellAddr"), values.get("cellSpan")
+            for key in ("row", "col", "row_span", "col_span", "is_header"):
+                context.pop(key, None)
+            cell = {
+                "cell": address,
+                "is_header": node.get("header", "0") in {"1", "true"},
+            }
+            if (
+                cell_address is None
+                or span is None
+                or context.get("table") not in self.tables
+            ):
+                self.issues["hwpx_table_structure_partial"] += 1
+            else:
+                geometry = {
+                    "row": self.geometry(cell_address.get("rowAddr")),
+                    "col": self.geometry(cell_address.get("colAddr")),
+                    "row_span": self.geometry(span.get("rowSpan")),
+                    "col_span": self.geometry(span.get("colSpan")),
+                }
+                cell.update({k: v for k, v in geometry.items() if v is not None})
+                if all(value is not None for value in geometry.values()):
+                    self.tables[context["table"]]["cells"].append(cell)
+            context.update({**cell, "container_kind": "table_cell"})
+            self.emit(
+                "table_cell",
+                {**context, "element": address, "structural_only": True},
+            )
+        elif tag in _CONTAINERS:
+            kind = _CONTAINERS[tag]
+            context["container_kind"] = kind
+            context["owner_paragraph"] = context.get("paragraph_element")
+            if kind in {"footnote", "endnote"}:
+                context["note"] = address
+                context["note_number"] = node.get("number")
+            self.emit(
+                kind if kind != "textbox" else "embedded_object",
+                {**context, "element": address, "structural_only": True},
+            )
+        elif tag in _OBJECTS:
+            context["object"] = address
+            self.emit(
+                "embedded_object",
+                {
+                    **context,
+                    "element": address,
+                    "object_type": tag,
+                    "owner_paragraph": context.get("paragraph_element"),
+                },
+            )
+            self.issues["hwpx_object_content_partial"] += 1
+            if tag == "equation":
+                for index, child in enumerate(node):
+                    if _local_name(child.tag) == "script" and child.text:
+                        self.emit(
+                            "embedded_object",
+                            {
+                                **context,
+                                "element": f"{address}.{index}",
+                                "text_representation": "hancom_equation_script",
+                            },
+                            child.text,
+                        )
+        for index, child in enumerate(node):
+            self.walk(child, f"{address}.{index}", context, depth + 1)
+
+    def finish_section(self) -> None:
+        for table in self.tables.values():
+            active = []
+            comparisons = 0
+            if not table["rows"] or not table["cols"] or not table["cells"]:
+                self.issues["hwpx_table_structure_partial"] += 1
+            for cell in sorted(table["cells"], key=lambda c: (c["row"], c["col"])):
+                row, col, height, width = (
+                    cell[k] for k in ("row", "col", "row_span", "col_span")
+                )
+                if (
+                    height < 1
+                    or width < 1
+                    or (table["rows"] is not None and row + height > table["rows"])
+                    or (table["cols"] is not None and col + width > table["cols"])
+                ):
+                    self.issues["hwpx_table_geometry_partial"] += 1
+                active = [c for c in active if c["row"] + c["row_span"] > row]
+                comparisons += len(active)
+                if comparisons > 1_000_000:
+                    self.issues["hwpx_table_geometry_partial"] += 1
+                    break
+                if any(
+                    col < c["col"] + c["col_span"] and col + width > c["col"]
+                    for c in active
+                ):
+                    self.issues["hwpx_table_geometry_partial"] += 1
+                active.append(cell)
+        self.tables.clear()
+
+
+def extract_structured_hwpx(path) -> ExtractionResult:
+    _preflight_zip(path)
+    with zipfile.ZipFile(path) as archive:
+        sections, issues = _sections(archive)
+        shapes, styles, bullets, numberings = {}, {}, {}, {}
+        if "Contents/header.xml" in archive.namelist():
+            header = _safe_archive_xml_root(archive, "Contents/header.xml")
+            for node in header.iter():
+                tag = _local_name(node.tag)
+                if tag == "paraPr":
+                    heading = next(
+                        (
+                            child
+                            for child in node
+                            if _local_name(child.tag) == "heading"
+                        ),
+                        None,
+                    )
+                    if heading is not None:
+                        shapes[node.get("id")] = {
+                            "head_type": heading.get("type", "NONE").lower(),
+                            "level": _number(heading.get("level")) + 1,
+                            "numbering_ref": heading.get("idRef"),
+                        }
+                elif tag == "style":
+                    styles[node.get("id")] = node.get("name", "")
+                elif tag == "bullet" and node.get("useImage", "0") in {"0", "false"}:
+                    bullets[node.get("id")] = node.get("char", "")
+                elif tag == "numbering":
+                    numberings[node.get("id")] = {
+                        _number(child.get("level")): {
+                            "marker_pattern": child.text or "",
+                            "number_format": child.get("numFormat"),
+                        }
+                        for child in node
+                        if _local_name(child.tag) == "paraHead"
+                    }
+            for shape in shapes.values():
+                ref = shape.get("numbering_ref")
+                if shape.get("head_type") == "bullet" and ref in bullets:
+                    shape["marker_text"] = bullets[ref]
+                elif shape.get("head_type") in {"number", "outline"}:
+                    shape.update(numberings.get(ref, {}).get(shape["level"], {}))
+        reader = _Reader(shapes, styles)
+        for index, name in enumerate(sections, 1):
+            reader.base = {"section": index, "section_file": name}
+            reader.paragraph = 0
+            reader.walk(_safe_archive_xml_root(archive, name), "0", {})
+            reader.finish_section()
+        issues.extend(
+            {
+                "code": code,
+                "severity": "warning",
+                "message": "Some HWPX structure could not be fully reconstructed.",
+                "details": {"occurrences": count},
+            }
+            for code, count in sorted(reader.issues.items())
+        )
+        if not any(unit.content for unit in reader.units):
+            issues.append(
+                {
+                    "code": "no_extractable_text",
+                    "severity": "warning",
+                    "message": "No native text was found.",
+                }
+            )
+        return ExtractionResult(reader.units, issues)

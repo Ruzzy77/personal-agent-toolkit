@@ -19,14 +19,10 @@ from .adapters import (
     ExtractionIssue,
 )
 from .errors import BudgetExceededError, ExtractionError
+from .hwp_structure import STRUCTURAL_UNIT_TYPES
 
 _ADAPTER_SOURCE = Path(__file__).with_name("hwp5_adapter_main.py")
 _WRAPPER_SOURCE = Path(__file__)
-_LEGACY_SPEC_PROJECTION = (
-    "work-corpus.hwp5.spec-partial",
-    "1.0.0+source.ee6920f82733",
-    "636b97fef8e7a824315f7398170b37ff304c71495da1c0f6ad6a5a26b01a8207",
-)
 
 
 class HWP5SpecPartialAdapter:
@@ -35,7 +31,11 @@ class HWP5SpecPartialAdapter:
     def __init__(self) -> None:
         try:
             source_hash = hashlib.sha256(
-                _ADAPTER_SOURCE.read_bytes() + b"\0" + _WRAPPER_SOURCE.read_bytes()
+                _ADAPTER_SOURCE.read_bytes()
+                + b"\0"
+                + _WRAPPER_SOURCE.read_bytes()
+                + b"\0"
+                + Path(__file__).with_name("hwp_structure.py").read_bytes()
             ).hexdigest()
         except OSError as exc:
             raise ExtractionError("packaged HWP adapter source is unavailable") from exc
@@ -53,7 +53,7 @@ class HWP5SpecPartialAdapter:
             config=self.config,
             capabilities=AdapterCapabilities(
                 format_ids=("hwp",),
-                structural_unit_types=("section_paragraph",),
+                structural_unit_types=STRUCTURAL_UNIT_TYPES,
                 execution_mode="jsonl_subprocess",
                 preserves_reading_order=False,
                 supports_geometry=False,
@@ -123,7 +123,7 @@ class HWP5ContentRouter:
             config=config,
             capabilities=AdapterCapabilities(
                 format_ids=("hwp",),
-                structural_unit_types=("section_paragraph", "page_text"),
+                structural_unit_types=(*STRUCTURAL_UNIT_TYPES, "page_text"),
                 execution_mode="in_process",
                 preserves_reading_order=False,
                 supports_geometry=False,
@@ -132,14 +132,9 @@ class HWP5ContentRouter:
                 may_emit_partial=True,
             ),
         )
-        primary_identity = (
-            specification_adapter.descriptor.adapter_id,
-            specification_adapter.descriptor.adapter_version,
-            specification_adapter.descriptor.config_hash,
-        )
-        self.compatible_projection_identities = frozenset(
-            {_LEGACY_SPEC_PROJECTION, primary_identity}
-        )
+        # Structure-bearing results replace the older paragraph-only projection.
+        # Accepting it as current would prevent the required controlled reindex.
+        self.compatible_projection_identities = frozenset()
 
     def _wrap(
         self,

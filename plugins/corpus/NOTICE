@@ -10,3 +10,5 @@ Project homepage: https://github.com/edwardkim/rhwp
 rhwp is not vendored into this plugin. The provisioning script downloads an
 official release archive, verifies its pinned SHA-256, and installs the binary
 and its accompanying license into the Corpus user cache.
+
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.

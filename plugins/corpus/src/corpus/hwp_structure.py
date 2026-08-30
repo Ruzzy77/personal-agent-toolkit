@@ -1,0 +1,460 @@
+"""Source-addressed HWP5 structure, without layout or semantic inference.
+
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+Record numbers
+are one-based within the original section stream; cell coordinates are zero-based.
+LIST_HEADER and its paragraphs are siblings in HWP5, not an XML-like subtree.
+"""
+
+from __future__ import annotations
+
+import struct
+from collections import Counter
+
+STRUCTURAL_UNIT_TYPES = (
+    "section_paragraph",
+    "heading",
+    "list_item",
+    "table",
+    "table_cell",
+    "caption",
+    "footnote",
+    "endnote",
+    "header",
+    "footer",
+    "embedded_object",
+)
+_CONTROL_KINDS = {
+    "tbl ": "table",
+    "gso ": "embedded_object",
+    "eqed": "embedded_object",
+    "form": "embedded_object",
+    "head": "header",
+    "foot": "footer",
+    "fn  ": "footnote",
+    "en  ": "endnote",
+    "tcmt": "comment",
+}
+
+_SHAPE_KINDS = {
+    0x4E: "line",
+    0x4F: "rectangle",
+    0x50: "ellipse",
+    0x51: "arc",
+    0x52: "polygon",
+    0x53: "curve",
+    0x54: "ole",
+    0x55: "picture",
+    0x56: "group",
+    0x5A: "textart",
+    0x5B: "form",
+    0x5F: "chart",
+    0x62: "video",
+}
+
+
+def paragraph_properties(data: bytes, shapes: list[dict], styles: list[dict]) -> dict:
+    if len(data) < 12:
+        return {"properties_unavailable": True}
+    shape_id = struct.unpack_from("<H", data, 8)[0]
+    style_id = data[10]
+    result = {"para_shape": shape_id, "style": style_id}
+    if shape_id < len(shapes):
+        result.update(shapes[shape_id])
+    else:
+        result["properties_unavailable"] = True
+    if style_id < len(styles):
+        result["style_name"] = styles[style_id].get("name", "")
+    return result
+
+
+def doc_info_properties(records) -> tuple[list[dict], list[dict]]:
+    shapes: list[dict] = []
+    styles: list[dict] = []
+    numberings: list[list[dict]] = []
+    bullets: list[dict] = []
+    for record, tag, _level, data in records:
+        if tag == 0x17:
+            levels = []
+            offset = 0
+            try:
+                for _index in range(7):
+                    flags = struct.unpack_from("<I", data, offset)[0]
+                    length = struct.unpack_from("<H", data, offset + 12)[0]
+                    end = offset + 14 + length * 2
+                    if end > len(data):
+                        raise ValueError("truncated numbering")
+                    levels.append(
+                        {
+                            "marker_pattern": data[offset + 14 : end].decode(
+                                "utf-16-le"
+                            ),
+                            "number_format": (flags >> 5) & 15,
+                            "numbering_record": record,
+                        }
+                    )
+                    offset = end
+            except (struct.error, UnicodeError, ValueError):
+                levels = []
+            numberings.append(levels)
+        elif tag == 0x18:
+            marker = {}
+            if len(data) >= 18 and struct.unpack_from("<I", data, 14)[0] == 0:
+                try:
+                    marker = {
+                        "marker_text": data[12:14].decode("utf-16-le"),
+                        "numbering_record": record,
+                    }
+                except UnicodeError:
+                    pass
+            bullets.append(marker)
+        elif tag == 0x19:
+            if len(data) < 32:
+                shapes.append({"properties_unavailable": True})
+                continue
+            flags = struct.unpack_from("<I", data)[0]
+            kind = (flags >> 23) & 3
+            level = (flags >> 25) & 7
+            # Newer HWP5 writers also store outline levels 8--10 in the tail.
+            if len(data) >= 58:
+                tail = struct.unpack_from("<I", data, 54)[0]
+                if 7 <= tail <= 9 and level == 6:
+                    level = tail
+            shapes.append(
+                {
+                    "head_type": ("none", "outline", "number", "bullet")[kind],
+                    "level": level + 1,
+                    "numbering_ref": struct.unpack_from("<H", data, 30)[0],
+                    "properties_record": record,
+                }
+            )
+        elif tag == 0x1A:
+            try:
+                length = struct.unpack_from("<H", data)[0]
+                end = 2 + length * 2
+                if end > len(data):
+                    raise ValueError("truncated style")
+                name = data[2:end].decode("utf-16-le")
+                styles.append({"name": name})
+            except (struct.error, UnicodeError, ValueError):
+                styles.append({})
+    for shape in shapes:
+        ref = shape.get("numbering_ref", 0) - 1
+        level = shape.get("level", 1) - 1
+        if shape.get("head_type") == "bullet" and 0 <= ref < len(bullets):
+            shape.update(bullets[ref])
+        elif (
+            shape.get("head_type") in {"outline", "number"}
+            and 0 <= ref < len(numberings)
+            and level < len(numberings[ref])
+        ):
+            shape.update(numberings[ref][level])
+    return shapes, styles
+
+
+class SectionStructure:
+    """Track record ownership while preserving the native text observations."""
+
+    def __init__(
+        self, section: int, stream: str, shapes: list[dict], styles: list[dict]
+    ):
+        self.base = {"section": section, "section_stream": stream}
+        self.shapes = shapes
+        self.styles = styles
+        self.paragraphs: dict[int, dict] = {}
+        self.controls: dict[int, dict] = {}
+        self.lists: dict[int, dict] = {}
+        self.units: list[dict] = []
+        self.issues: Counter[str] = Counter()
+        self.tables: list[dict] = []
+        self.counts: Counter[str] = Counter()
+
+    def _unit(self, kind: str, locator: dict, text: str = "") -> dict:
+        unit = {
+            "unit_type": kind,
+            "structure_path": {**self.base, **locator},
+            "content": text,
+            "derivation_method": "native_text",
+            "quality_flags": ["binary_hwp", "reading_order_unverified"],
+            "issues": [],
+        }
+        self.units.append(unit)
+        return unit
+
+    def _context(self, level: int) -> dict:
+        containers = [
+            item["locator"] for key, item in sorted(self.lists.items()) if key <= level
+        ]
+        result: dict = {"container_path": containers} if containers else {}
+        for container in containers:
+            for key in (
+                "table",
+                "cell",
+                "row",
+                "col",
+                "row_span",
+                "col_span",
+                "is_header",
+                "note",
+                "object",
+                "owner_paragraph_record",
+            ):
+                if key in container:
+                    result[key] = container[key]
+            result["container_kind"] = container["kind"]
+        return result
+
+    def observe(self, record: int, tag: int, level: int, data: bytes) -> None:
+        if level > 64:
+            raise ValueError("HWP structure exceeds its nesting budget")
+        if tag == 0x42:
+            self.paragraphs = {k: v for k, v in self.paragraphs.items() if k < level}
+            self.controls = {k: v for k, v in self.controls.items() if k < level}
+            self.lists = {k: v for k, v in self.lists.items() if k <= level}
+            context = self._context(level)
+            self.paragraphs[level] = {
+                "paragraph_record": record,
+                **context,
+                **paragraph_properties(data, self.shapes, self.styles),
+            }
+            if self.paragraphs[level].get("properties_unavailable"):
+                self.issues["hwp_paragraph_properties_partial"] += 1
+        elif tag == 0x47:
+            self.controls = {k: v for k, v in self.controls.items() if k < level}
+            self.lists = {k: v for k, v in self.lists.items() if k <= level}
+            if len(data) < 4:
+                self.issues["hwp_control_structure_partial"] += 1
+                return
+            name = data[:4][::-1].decode("ascii", errors="replace")
+            owner = self.paragraphs.get(level - 1, {})
+            kind = _CONTROL_KINDS.get(name)
+            context = {
+                **self._context(level),
+                "record": record,
+                "control_type": name,
+                "owner_paragraph_record": owner.get("paragraph_record"),
+            }
+            control = {
+                "name": name,
+                "record": record,
+                "level": level,
+                "context": context,
+                "table": None,
+            }
+            self.controls[level] = control
+            if kind:
+                context["object"] = f"r{record}"
+                if kind == "table":
+                    context["table"] = f"r{record}"
+                elif kind in {"footnote", "endnote"}:
+                    context["note"] = f"r{record}"
+                    if len(data) >= 8:
+                        context["number"] = struct.unpack_from("<I", data, 4)[0]
+                control["unit"] = self._unit(
+                    kind if kind != "comment" else "embedded_object", context
+                )
+                self.counts[kind] += 1
+                if kind == "embedded_object":
+                    self.issues["hwp_object_content_partial"] += 1
+            elif name.startswith("%"):
+                # Field commands are neither evaluated nor followed.
+                self.counts["field"] += 1
+                self.issues["hwp_field_semantics_partial"] += 1
+        elif tag in _SHAPE_KINDS:
+            control = next(
+                (
+                    v
+                    for k, v in sorted(self.controls.items(), reverse=True)
+                    if k < level
+                ),
+                None,
+            )
+            if control and "unit" in control:
+                observations = control["unit"]["structure_path"].setdefault(
+                    "object_records", []
+                )
+                if len(observations) < 256:
+                    observations.append({"record": record, "kind": _SHAPE_KINDS[tag]})
+                else:
+                    self.issues["hwp_object_structure_partial"] += 1
+        elif tag == 0x58:
+            control = next(
+                (
+                    v
+                    for k, v in sorted(self.controls.items(), reverse=True)
+                    if k < level
+                ),
+                None,
+            )
+            if control and control["name"] == "eqed" and len(data) >= 6:
+                length = struct.unpack_from("<H", data, 4)[0]
+                if 6 + length * 2 <= len(data):
+                    try:
+                        script = data[6 : 6 + length * 2].decode("utf-16-le")
+                        self._unit(
+                            "embedded_object",
+                            {
+                                **control["context"],
+                                "record": record,
+                                "object": f"r{control['record']}",
+                                "text_representation": "hancom_equation_script",
+                            },
+                            script,
+                        )
+                    except UnicodeError:
+                        self.issues["hwp_equation_text_partial"] += 1
+                else:
+                    self.issues["hwp_equation_text_partial"] += 1
+        elif tag == 0x4D:
+            control = next(
+                (
+                    v
+                    for k, v in sorted(self.controls.items(), reverse=True)
+                    if k < level and v["name"] == "tbl "
+                ),
+                None,
+            )
+            if control is None or len(data) < 8:
+                self.issues["hwp_table_structure_partial"] += 1
+                return
+            rows, cols = struct.unpack_from("<HH", data, 4)
+            table = {"rows": rows, "cols": cols, "cells": [], "record": record}
+            control["table"] = table
+            self.tables.append(table)
+            control["unit"]["structure_path"].update(
+                {"rows": rows, "cols": cols, "table_record": record}
+            )
+            if not rows or not cols:
+                self.issues["hwp_table_structure_partial"] += 1
+        elif tag == 0x48:
+            self.paragraphs = {k: v for k, v in self.paragraphs.items() if k < level}
+            self.controls = {k: v for k, v in self.controls.items() if k < level}
+            self.lists = {k: v for k, v in self.lists.items() if k < level}
+            control = next(
+                (
+                    v
+                    for k, v in sorted(self.controls.items(), reverse=True)
+                    if k < level
+                ),
+                None,
+            )
+            kind = (
+                _CONTROL_KINDS.get(control["name"], "unknown") if control else "unknown"
+            )
+            locator = {"kind": kind, "list_record": record}
+            if control:
+                locator["object"] = f"r{control['record']}"
+                locator["owner_paragraph_record"] = control["context"].get(
+                    "owner_paragraph_record"
+                )
+            if kind == "table":
+                locator["table"] = f"r{control['record']}"
+                table = control["table"]
+                if table is None:
+                    locator["kind"] = "caption"
+                elif len(data) >= 34:
+                    col, row, col_span, row_span = struct.unpack_from("<HHHH", data, 8)
+                    locator.update(
+                        {
+                            "kind": "table_cell",
+                            "cell": f"r{record}",
+                            "row": row,
+                            "col": col,
+                            "row_span": row_span,
+                            "col_span": col_span,
+                            "is_header": bool(struct.unpack_from("<H", data, 6)[0] & 4),
+                        }
+                    )
+                    table["cells"].append(locator)
+                    self.counts["cell"] += 1
+                else:
+                    locator["kind"] = "unknown"
+                    self.issues["hwp_table_structure_partial"] += 1
+            elif kind in {"footnote", "endnote"}:
+                locator["note"] = f"r{control['record']}"
+            elif kind == "embedded_object":
+                locator["kind"] = "caption" if len(data) == 22 else "textbox"
+            elif kind == "unknown":
+                self.issues["hwp_container_structure_partial"] += 1
+            self.lists[level] = {"locator": locator}
+            self._unit(
+                "table_cell" if locator["kind"] == "table_cell" else "embedded_object",
+                {**self._context(level), "record": record, "structural_only": True},
+            )
+
+    def text(self, record: int, level: int, paragraph: int, text: str) -> None:
+        properties = dict(self.paragraphs.get(level - 1, {}))
+        if not properties:
+            self.issues["hwp_paragraph_structure_partial"] += 1
+        kind = properties.get("container_kind", "section_paragraph")
+        if kind not in STRUCTURAL_UNIT_TYPES:
+            kind = "section_paragraph"
+        head_type = properties.get("head_type")
+        if head_type == "outline":
+            kind = "heading"
+        elif head_type in {"number", "bullet"}:
+            kind = "list_item"
+            # Numbering definitions are referenced, never guessed into source text.
+            if not properties.get("marker_text"):
+                self.issues["hwp_list_marker_partial"] += 1
+        self._unit(
+            kind,
+            {
+                **properties,
+                "record": record,
+                "record_level": level,
+                "paragraph": paragraph,
+            },
+            text,
+        )
+
+    def finish(self) -> tuple[list[dict], list[dict]]:
+        if self.counts["table"] != len(self.tables):
+            self.issues["hwp_table_structure_partial"] += abs(
+                self.counts["table"] - len(self.tables)
+            )
+        for table in self.tables:
+            comparisons = 0
+            active: list[dict] = []
+            for cell in sorted(table["cells"], key=lambda c: (c["row"], c["col"])):
+                row, col, height, width = (
+                    cell[k] for k in ("row", "col", "row_span", "col_span")
+                )
+                if (
+                    height < 1
+                    or width < 1
+                    or row + height > table["rows"]
+                    or col + width > table["cols"]
+                ):
+                    self.issues["hwp_table_geometry_partial"] += 1
+                active = [c for c in active if c["row"] + c["row_span"] > row]
+                comparisons += len(active)
+                if comparisons > 1_000_000:
+                    self.issues["hwp_table_geometry_partial"] += 1
+                    break
+                if any(
+                    col < c["col"] + c["col_span"] and col + width > c["col"]
+                    for c in active
+                ):
+                    self.issues["hwp_table_geometry_partial"] += 1
+                active.append(cell)
+            if not table["cells"]:
+                self.issues["hwp_table_structure_partial"] += 1
+        issues = [
+            {
+                "code": code,
+                "severity": "warning",
+                "message": "Some HWP structure could not be fully reconstructed.",
+                "details": {**self.base, "occurrences": count},
+            }
+            for code, count in sorted(self.issues.items())
+        ]
+        issues.append(
+            {
+                "code": "hwp_structure_observed",
+                "severity": "info",
+                "message": "Native HWP record ownership was observed without inferring page layout.",
+                "details": {**self.base, **dict(self.counts)},
+            }
+        )
+        return self.units, issues

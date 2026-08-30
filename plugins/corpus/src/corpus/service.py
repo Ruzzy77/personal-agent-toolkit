@@ -312,6 +312,21 @@ def _source_span(structure: dict) -> dict | None:
         return {
             "section": structure["section"],
             "paragraph": structure.get("paragraph"),
+            **{
+                key: structure[key]
+                for key in (
+                    "record",
+                    "paragraph_record",
+                    "element",
+                    "table",
+                    "cell",
+                    "row",
+                    "col",
+                    "note",
+                    "object",
+                )
+                if key in structure
+            },
         }
     return None
 
@@ -1219,6 +1234,7 @@ class CorpusService:
         encoding: str = "utf8",
         max_bytes: int = WORKSPACE_MAX_FILE_BYTES,
         neighbor_span: int = 0,
+        include_structure_context: bool = False,
         max_chars: int = CORPUS_READ_DEFAULT_CHARS,
         start_char: int = 0,
         audience: str = "local_cli",
@@ -1227,6 +1243,12 @@ class CorpusService:
         canonical_connection_id = (
             normalize_space_id(connection_id) if connection_id is not None else None
         )
+        if type(include_structure_context) is not bool:
+            raise SpaceValidationError("include_structure_context must be a boolean")
+        if include_structure_context and read_ref is None:
+            raise SpaceValidationError(
+                "structure context is only available for indexed Source reads"
+            )
         if read_ref is not None and relative_path is not None:
             raise SpaceValidationError("choose either read_ref or relative_path")
         if type(max_chars) is not int or not (
@@ -1267,6 +1289,7 @@ class CorpusService:
                     source_id,
                     [payload["unit_id"]],
                     neighbor_span=neighbor_span,
+                    include_structure_context=include_structure_context,
                     max_chars=max_chars,
                 )
                 if candidate["units"]:
@@ -2491,6 +2514,13 @@ class CorpusService:
             "failed": 0,
             "coverage_gaps": 0,
         }
+        outdated = {
+            "total": 0,
+            "refreshable": 0,
+            "too_large": 0,
+            "pending_remote": 0,
+            "failed": 0,
+        }
         for row in rows:
             document = dict(row)
             document_index_state, reasons = self._document_index_state(document)
@@ -2503,6 +2533,21 @@ class CorpusService:
                 and document.get("failed_adapter_version") == descriptor.adapter_version
                 and document.get("failed_config_hash") == descriptor.config_hash
             )
+            if (
+                "outdated_adapter" in reasons
+                and "source_observation_changed" not in reasons
+            ):
+                category = (
+                    "too_large"
+                    if document["logical_size"] > max_file_bytes
+                    else "pending_remote"
+                    if document["is_dataless"] and not include_remote
+                    else "failed"
+                    if failed
+                    else "refreshable"
+                )
+                outdated["total"] += 1
+                outdated[category] += 1
             if document["logical_size"] > max_file_bytes:
                 result["too_large"] += 1
                 result["coverage_gaps"] += 1
@@ -2517,6 +2562,7 @@ class CorpusService:
                 continue
             result["refreshable"] += 1
             result["remaining"] += 1
+        result["outdated"] = outdated
         return result
 
     def _ingest_locked(
@@ -2879,6 +2925,7 @@ class CorpusService:
                 "too_large": too_large,
                 "failed": failed,
                 "coverage_gaps": coverage_gaps,
+                "outdated": pending_state["outdated"],
             },
             "summary": summary,
             "source_state": self._space_source_state(corpus_id),
@@ -3407,21 +3454,22 @@ class CorpusService:
                             encode_json(unit_payload["quality_flags"]),
                         ),
                     )
-                    connection.execute(
-                        """
-                        INSERT INTO source_units_fts(
-                            unit_id, document_id, relative_path,
-                            structure_path, normalized_content
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (
-                            unit_id,
-                            document["document_id"],
-                            document["relative_path"],
-                            json.dumps(structure, ensure_ascii=False),
-                            unit.content,
-                        ),
-                    )
+                    if unit.content.strip():
+                        connection.execute(
+                            """
+                            INSERT INTO source_units_fts(
+                                unit_id, document_id, relative_path,
+                                structure_path, normalized_content
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                unit_id,
+                                document["document_id"],
+                                document["relative_path"],
+                                json.dumps(structure, ensure_ascii=False),
+                                unit.content,
+                            ),
+                        )
 
             connection.execute(
                 """
@@ -3537,7 +3585,11 @@ class CorpusService:
                 "candidates": [],
                 "count": 0,
             }
-        fts_query = '"' + normalized.replace('"', '""') + '"'
+        fts_query = (
+            '{normalized_content relative_path} : "'
+            + normalized.replace('"', '""')
+            + '"'
+        )
         query_mode = "exact_phrase_fts"
         guard = self.workspaces.promoted_source_guard(corpus_id)
         workspace_context = nullcontext(None)
@@ -3673,7 +3725,11 @@ class CorpusService:
             if not rows and len(terms) > 1:
                 query_mode = "all_terms_fts"
                 excerpt_anchor = terms[0]
-                fallback_query = " AND ".join(f'"{term}"' for term in terms)
+                fallback_query = (
+                    "{normalized_content relative_path} : ("
+                    + " AND ".join(f'"{term}"' for term in terms)
+                    + ")"
+                )
                 rows = connection.execute(
                     search_sql,
                     (excerpt_anchor, fallback_query, limit),
@@ -3771,8 +3827,11 @@ class CorpusService:
         unit_ids: list[str],
         *,
         neighbor_span: int = 0,
+        include_structure_context: bool = False,
         max_chars: int = CORPUS_READ_DEFAULT_CHARS,
     ) -> dict:
+        if type(include_structure_context) is not bool:
+            raise ConfigurationError("include_structure_context must be a boolean")
         if len(unit_ids) > _MAX_READ_UNITS:
             raise BudgetExceededError(
                 "source unit selection must contain at most 200 ids",
@@ -3811,7 +3870,7 @@ class CorpusService:
             placeholders = ",".join("?" for _ in requested_ids)
             seed_rows = connection.execute(
                 f"""
-                SELECT u.unit_id, u.projection_id, u.ordinal
+                SELECT u.unit_id, u.projection_id, u.ordinal, u.structure_path_json
                 FROM source_units u
                 JOIN revisions r ON r.revision_id = u.revision_id
                 JOIN documents d ON d.document_id = r.document_id
@@ -3842,6 +3901,46 @@ class CorpusService:
                         seed["ordinal"] + neighbor_span,
                     ),
                 ).fetchall()
+                if include_structure_context:
+                    structure = json.loads(seed["structure_path_json"])
+                    table = structure.get("table")
+                    inventory.extend(
+                        connection.execute(
+                            """
+                        SELECT unit_id FROM source_units
+                        WHERE projection_id = ?
+                          AND json_extract(structure_path_json, '$.section') = ?
+                          AND (
+                            (json_extract(structure_path_json, '$.table') = ? AND (
+                                ? IS NULL OR json_extract(structure_path_json, '$.row') = ?
+                                OR json_extract(structure_path_json, '$.is_header') = 1
+                                OR unit_type = 'table'
+                                OR json_extract(structure_path_json, '$.container_kind') = 'caption'))
+                            OR json_extract(structure_path_json, '$.note') = ?
+                            OR json_extract(structure_path_json, '$.object') = ?
+                            OR json_extract(structure_path_json, '$.owner_paragraph_record') = ?
+                            OR json_extract(structure_path_json, '$.owner_paragraph') = ?
+                            OR json_extract(structure_path_json, '$.paragraph_record') = ?
+                            OR json_extract(structure_path_json, '$.paragraph_element') = ?
+                          )
+                        ORDER BY ordinal LIMIT ?
+                        """,
+                            (
+                                seed["projection_id"],
+                                structure.get("section"),
+                                table,
+                                structure.get("row"),
+                                structure.get("row"),
+                                structure.get("note"),
+                                None if table is not None else structure.get("object"),
+                                structure.get("paragraph_record"),
+                                structure.get("paragraph_element"),
+                                structure.get("owner_paragraph_record"),
+                                structure.get("owner_paragraph"),
+                                CORPUS_READ_MAX_SELECTED_UNITS + 1,
+                            ),
+                        ).fetchall()
+                    )
                 for row in inventory:
                     if row["unit_id"] in selected:
                         continue

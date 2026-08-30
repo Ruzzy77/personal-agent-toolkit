@@ -2,7 +2,7 @@
 
 __all__ = ["CorpusService"]
 
-__version__ = "0.12.4"
+__version__ = "0.13.0"
 __build_id__ = __version__
 
 

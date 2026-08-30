@@ -19,7 +19,7 @@ from .errors import ExtractionError
 
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
-    "hwpx": "source-units-v5",
+    "hwpx": "source-units-v6",
     "xlsx": "source-units-v5",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
@@ -370,58 +370,12 @@ def _local_name(tag: str) -> str:
 
 
 def extract_hwpx(path: Path) -> ExtractionResult:
-    _preflight_zip(path)
-    units: list[UnitDraft] = []
-    issues: list[dict] = []
+    from .hwpx_structure import extract_structured_hwpx
+
     try:
-        with zipfile.ZipFile(path) as archive:
-            section_names = sorted(
-                name
-                for name in archive.namelist()
-                if name.lower().startswith("contents/section")
-                and name.lower().endswith(".xml")
-            )
-            if not section_names:
-                issues.append(
-                    {
-                        "code": "hwpx_sections_missing",
-                        "severity": "error",
-                        "message": "No HWPX section XML files were found.",
-                    }
-                )
-            for section_index, name in enumerate(section_names, start=1):
-                root = _safe_archive_xml_root(archive, name)
-                paragraph_index = 0
-                for element in root.iter():
-                    if _local_name(element.tag) != "p":
-                        continue
-                    text_parts = [
-                        child.text or ""
-                        for child in element.iter()
-                        if _local_name(child.tag) == "t"
-                    ]
-                    text = normalize_text("".join(text_parts))
-                    if not text:
-                        continue
-                    paragraph_index += 1
-                    units.append(
-                        UnitDraft(
-                            "section_paragraph",
-                            {
-                                "section": section_index,
-                                "section_file": name,
-                                "paragraph": paragraph_index,
-                            },
-                            text,
-                        )
-                    )
-    except ExtractionError:
-        raise
+        return extract_structured_hwpx(path)
     except (zipfile.BadZipFile, ElementTree.ParseError, KeyError) as exc:
-        raise ExtractionError(
-            "could not parse HWPX structure", details={"error": str(exc)}
-        ) from exc
-    return _finish(units, issues)
+        raise ExtractionError("could not parse HWPX structure") from exc
 
 
 def extract_pdf(path: Path) -> ExtractionResult:

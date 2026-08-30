@@ -59,6 +59,11 @@ Connection의 공개 속성은 다음과 같습니다.
 
 Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준으로 삼습니다. 불완전한 scan에서도 확인한 파일은 갱신하고 `partial`로 표시합니다. 처리할 수 없는 파일은 coverage gap으로 남기지만, 다른 파일의 갱신을 막지 않습니다. snapshot, event history와 모델이 만든 claim의 semantic cache는 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
 
+HWP/HWPX의 표와 주석 관계는 기존 unit의 `structure_path`에 원문 위치로 기록합니다.
+빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과
+같은 projection 안에서만 확장하며 기존 응답 제한을 적용합니다. 추출된 원문, 원문에 선언된
+문단 속성과 에이전트의 의미 해석을 구분하고, 제목·머리글·번호를 추측해 원문에 덧붙이지 않습니다.
+
 ## Context
 
 Context에는 제목, 목적, 범위, 연결 Source와 item이 들어갑니다. Item은 질문, 관계, 판단 또는 gap을 표현하며 Source unit이나 연결 provider record를 가리킬 수 있습니다.

@@ -17,6 +17,7 @@ from .adapters import (
     ExtractedUnit,
     ExtractionEnvelope,
     ExtractionIssue,
+    _bounded_subprocess,
 )
 from .errors import BudgetExceededError, ExtractionError
 
@@ -61,17 +62,6 @@ def _candidate_executables(
         relative = Path("rhwp") / f"v{RHWP_VERSION}" / key / "bin" / _rhwp_name()
         candidates.extend((runtime_root / relative, _global_cache_root() / relative))
     return tuple(candidates)
-
-
-def _bounded_file_bytes(stream, *, limit: int, label: str) -> bytes:
-    size = stream.tell()
-    if size > limit:
-        raise BudgetExceededError(
-            f"rhwp {label} exceeded its byte budget",
-            details={"count": size, "limit": limit},
-        )
-    stream.seek(0)
-    return stream.read()
 
 
 class RhwpPageTextAdapter:
@@ -165,50 +155,22 @@ class RhwpPageTextAdapter:
     def _run(self, executable: Path, input_fd: int) -> dict:
         if os.name != "posix":
             raise ExtractionError("rhwp file-descriptor extraction requires POSIX")
-        with (
-            tempfile.TemporaryDirectory(prefix="corpus-rhwp-") as temporary,
-            tempfile.TemporaryFile() as stdout_stream,
-            tempfile.TemporaryFile() as stderr_stream,
-        ):
-            try:
-                completed = subprocess.run(
-                    [str(executable), "export-text", f"/dev/fd/{input_fd}", "--json"],
-                    stdin=subprocess.DEVNULL,
-                    stdout=stdout_stream,
-                    stderr=stderr_stream,
-                    check=False,
-                    timeout=self.budgets.timeout_seconds,
-                    cwd=temporary,
-                    close_fds=True,
-                    pass_fds=(input_fd,),
-                    env={
-                        "PATH": "/usr/bin:/bin",
-                        "LANG": "C.UTF-8",
-                        "LC_ALL": "C.UTF-8",
-                    },
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise BudgetExceededError(
-                    "rhwp extraction exceeded its timeout",
-                    details={"timeout_seconds": self.budgets.timeout_seconds},
-                ) from exc
-            stdout = _bounded_file_bytes(
-                stdout_stream,
-                limit=self.budgets.max_stdout_bytes,
-                label="stdout",
-            )
-            stderr = _bounded_file_bytes(
-                stderr_stream,
-                limit=self.budgets.max_stderr_bytes,
-                label="stderr",
-            )
-        if completed.returncode != 0:
-            raise ExtractionError(
-                "rhwp extraction exited unsuccessfully",
-                details={
-                    "return_code": completed.returncode,
-                    "stderr_bytes": len(stderr),
-                    "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+        with tempfile.TemporaryDirectory(prefix="corpus-rhwp-") as temporary:
+            stdout, _stderr = _bounded_subprocess(
+                command=(
+                    str(executable),
+                    "export-text",
+                    f"/dev/fd/{input_fd}",
+                    "--json",
+                ),
+                request=b"",
+                budgets=self.budgets,
+                input_fd=input_fd,
+                cwd=Path(temporary),
+                environment={
+                    "PATH": "/usr/bin:/bin",
+                    "LANG": "C.UTF-8",
+                    "LC_ALL": "C.UTF-8",
                 },
             )
         try:

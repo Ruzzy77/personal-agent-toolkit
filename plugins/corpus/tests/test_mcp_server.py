@@ -41,6 +41,12 @@ class MCPServerTest(unittest.TestCase):
         self.assertTrue(
             all(tool.output_schema.get("type") == "object" for tool in tools.values())
         )
+        self.assertEqual(
+            tools["corpus_file_read"].input_schema["properties"][
+                "include_structure_context"
+            ]["default"],
+            False,
+        )
         self.assertTrue(response["ok"])
         self.assertEqual(response["result"]["spaces"], [])
         self.assertEqual(json.loads(content[0].text), response)

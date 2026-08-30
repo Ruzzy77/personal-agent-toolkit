@@ -21,6 +21,6 @@ The script scans every selected registration, refreshes locally available pendin
 
 Do not modify source files, source scope, registration roots, or registrations. If a registered root is unavailable, report it; do not rebind, unregister, delete, or substitute another path.
 
-Use the script's final JSON and exit status as the result. A source is successfully refreshed when its scan completes, no locally refreshable work remains, and no active projection uses an outdated extractor. `partial` projections and non-actionable gaps such as unavailable remote files, oversized files, or current extraction failures may remain; report them as warnings rather than repeatedly retrying them.
+Use the script's final JSON and exit status as the result. A source is successfully refreshed when its scan completes and no locally refreshable work or unexplained outdated projection remains. An outdated projection is a warning only when the script can attribute every such projection to an oversized file, an unavailable remote file, or a current extraction failure. `partial` projections and these non-actionable gaps may remain; report them as warnings rather than repeatedly retrying them.
 
 Report how many sources were checked, which documents changed or were indexed, and any unresolved errors or warnings. Distinguish a completed refresh from a fully covered source.
