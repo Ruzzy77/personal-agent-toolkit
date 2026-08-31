@@ -19,6 +19,7 @@ _LEGACY_CONFIGS = {
 }
 _VISION_SOURCE = "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a"
 IMAGE_DIAGNOSTICS_PREDECESSOR = "1.0.0+source.231bd6d45cb6"
+NUMBERING_PREFIX_PREDECESSOR = "1.0.0+source.16637e105e69"
 
 
 def can_reuse_ocr(config, adapter_id, adapter_version, config_hash):

@@ -27,6 +27,7 @@ from .metafile_images import single_bitmap_emf
 from .native_adapters import PDFKitVisionAdapter
 from .office_reuse import (
     IMAGE_DIAGNOSTICS_PREDECESSOR,
+    NUMBERING_PREFIX_PREDECESSOR,
     can_reuse_ocr,
     reusable_images,
 )
@@ -186,16 +187,31 @@ class OfficeVisionAdapter:
                 }
             ),
         }
-        # No native structure or successful OCR changed in this maintenance
-        # upgrade. Core queues only its failed/limited-image diagnostics once;
-        # unrelated documents keep their current projections and source refs.
+        # These exact builds differ only in the queued image diagnostics and
+        # unresolved PPTX list prefixes. Other native content and OCR are equal.
+        # Core revisits those diagnostics once, preserving unrelated references.
+        previous_config = dict(self.config)
+        if (
+            self.descriptor.adapter_id.endswith(".pptx")
+            and native.descriptor.adapter_version == "source-units-v8"
+        ):
+            previous_config["native"] = {
+                **previous_config["native"],
+                "adapter_version": "source-units-v7",
+            }
         predecessor = AdapterDescriptor.from_config(
             adapter_id=self.descriptor.adapter_id,
             adapter_version=IMAGE_DIAGNOSTICS_PREDECESSOR,
             config={
-                **self.config,
+                **previous_config,
                 "vision_source": "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a",
             },
+            capabilities=self.descriptor.capabilities,
+        )
+        numbering_predecessor = AdapterDescriptor.from_config(
+            adapter_id=self.descriptor.adapter_id,
+            adapter_version=NUMBERING_PREFIX_PREDECESSOR,
+            config=previous_config,
             capabilities=self.descriptor.capabilities,
         )
         self.compatible_projection_identities = frozenset(
@@ -204,7 +220,12 @@ class OfficeVisionAdapter:
                     predecessor.adapter_id,
                     predecessor.adapter_version,
                     predecessor.config_hash,
-                )
+                ),
+                (
+                    numbering_predecessor.adapter_id,
+                    numbering_predecessor.adapter_version,
+                    numbering_predecessor.config_hash,
+                ),
             }
         )
 

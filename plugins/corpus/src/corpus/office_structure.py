@@ -1036,7 +1036,7 @@ class _SlideReader(_Reader):
         }
 
     def autonumber_labels(self, node):
-        """Number an explicit auto-number run inside one stored text body only."""
+        """Number the source-determined prefix of one stored text body."""
         entries = []
         for index, child in enumerate(node):
             if _local_name(child.tag) != "p":
@@ -1053,8 +1053,9 @@ class _SlideReader(_Reader):
             automatic = _child(prop, "buAutoNum") if prop is not None else None
             entries.append((index, prop, automatic))
             if not declared:
-                # An inherited bullet could number a paragraph we cannot see.
-                return {}
+                # An inherited bullet makes this and later counters uncertain,
+                # but cannot change a preceding, explicitly declared sequence.
+                break
         if not any(automatic is not None for _, _, automatic in entries):
             return {}
         style = _child(node, "lstStyle")

@@ -296,6 +296,13 @@ DOCX의 유일한 목록 정의를 벗어나 순서나 재시작을 추측하지
 시작값은 [OOXML 규격](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.startnumberingvalue)에
 따라 0으로 처리합니다. 복원하지 못한 번호는 기존 부분 추출 경고로 남깁니다.
 
+PPTX는 같은 텍스트 상자 안에서 번호 속성이 명확한 앞부분을 복원합니다. 상속된
+글머리표 때문에 번호를 확정할 수 없는 문단을 만나면 그 문단부터 계산을 멈추고,
+앞에서 확인한 번호는 유지합니다. 뒤쪽의 시작값만으로 불명확한 구간을 재연결하지는
+않습니다. 번호는 [DrawingML의 자동 번호와 문단 수준](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.autonumberedbullet)에
+따라 계산합니다. 이 변경은 이전의 정확한 구현·설정에서 `pptx_list_marker_partial`이
+남은 문서만 한 번 다시 처리하며, 다른 문서의 출처 연결과 OCR 관측은 유지합니다.
+
 - HWP의 `section`과 `record`는 1부터 시작하며 원래 section stream 안의 위치입니다.
   `paragraph_record`는 문단 헤더, `owner_paragraph_record`는 개체를 포함한 문단을 가리킵니다.
   구역 정의 `secd`에 속한 문단 리스트는 바탕쪽의 원본 소속을 기록합니다. 바탕쪽이 실제로

@@ -20,7 +20,7 @@ from .errors import ExtractionError
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
-    "pptx": "source-units-v7",
+    "pptx": "source-units-v8",
     "hwpx": "source-units-v9",
     "xlsx": "source-units-v5",
 }
