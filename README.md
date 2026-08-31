@@ -114,7 +114,7 @@ claude plugin list
 
 ### Claude Desktop
 
-`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus와 Hypes를 모두 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Chat 또는 Cowork 세션에서 세 plugin의 Skill과 MCP 도구가 보이는지 확인합니다.
+`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus와 Hypes를 모두 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Cowork 세션에서 세 plugin의 Skill과 로컬 MCP 도구가 보이는지 확인합니다. 일반 Chat에 Skill만 나타나는 상태를 로컬 MCP 연결 확인으로 간주하지 않습니다.
 
 ### ChatGPT 웹
 

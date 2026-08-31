@@ -11,6 +11,11 @@ from typing import Any, ClassVar
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, TypeAdapter, model_validator
+from pydantic.json_schema import (
+    CoreSchemaOrFieldType,
+    GenerateJsonSchema,
+    JsonSchemaValue,
+)
 
 from . import __version__
 from .errors import HypesError
@@ -95,6 +100,13 @@ class _RewriteRuntimeArguments(_RuntimeArguments):
     operations: Any = None
 
 
+class _InlineInputSchema(GenerateJsonSchema):
+    """Expose finite input models without client-side reference resolution."""
+
+    def generate_inner(self, schema: CoreSchemaOrFieldType) -> JsonSchemaValue:
+        return self.resolve_ref_schema(super().generate_inner(schema))
+
+
 def _read_input_schema() -> dict[str, Any]:
     """Return the bounded schema advertised to MCP clients."""
 
@@ -152,8 +164,11 @@ def _read_input_schema() -> dict[str, Any]:
 def _rewrite_input_schema() -> dict[str, Any]:
     """Return an operation-specific patch schema while runtime input stays opaque."""
 
-    operations = TypeAdapter(list[RewriteOperation]).json_schema()
-    definitions = operations.pop("$defs", {})
+    operations = TypeAdapter(list[RewriteOperation]).json_schema(
+        schema_generator=_InlineInputSchema,
+    )
+    # The inline oneOf branches retain each op const; runtime dispatch is unchanged.
+    operations["items"].pop("discriminator")
     operations.update(
         {
             "minItems": 1,
@@ -164,7 +179,6 @@ def _rewrite_input_schema() -> dict[str, Any]:
         }
     )
     return {
-        "$defs": definitions,
         "type": "object",
         "additionalProperties": False,
         "properties": {"operations": operations},

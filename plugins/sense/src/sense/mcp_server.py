@@ -12,6 +12,11 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.json_schema import (
+    CoreSchemaOrFieldType,
+    GenerateJsonSchema,
+    JsonSchemaValue,
+)
 
 from . import __version__
 from .errors import SenseError
@@ -59,6 +64,13 @@ class SectionSkillReplacement(BaseModel):
     )
     description: str = Field(min_length=1, max_length=1_000)
     instructions: str = Field(min_length=1, max_length=24_000)
+
+
+class _InlineInputSchema(GenerateJsonSchema):
+    """Expose finite input models without client-side reference resolution."""
+
+    def generate_inner(self, schema: CoreSchemaOrFieldType) -> JsonSchemaValue:
+        return self.resolve_ref_schema(super().generate_inner(schema))
 
 
 GUIDANCE_UI_URI = "ui://sense/guidance-v1.html"
@@ -241,6 +253,11 @@ def create_server(
             )
         )
 
+    for tool in server._tool_manager.list_tools():
+        tool.parameters = tool.fn_metadata.arg_model.model_json_schema(
+            by_alias=True,
+            schema_generator=_InlineInputSchema,
+        )
     return server
 
 

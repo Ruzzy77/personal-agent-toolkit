@@ -33,6 +33,10 @@ predicate·qualifier로 현재 해석을 표현하고, 상호작용에서 이해
 
 ## 쓰기
 
+공개 입력 스키마에는 연산과 그 값의 중첩 필드를 직접 포함한다. 각 `oneOf` 분기는 `op`의
+고정값과 기존 입력 제약을 유지하며 `$defs` 해석을 요구하지 않는다. 실행 시 연산 구분과 값
+검증은 기존 모델이 맡는다.
+
 `hypes_rewrite`는 `put_node`, `put_predicate`, `put_edge`, `delete`만 받는다. 새 객체는
 `$concept` 같은 patch 내부 참조를 사용할 수 있고, 기존 영속 참조에 put하면 ID를 유지한 채 값
 전체를 교체한다.

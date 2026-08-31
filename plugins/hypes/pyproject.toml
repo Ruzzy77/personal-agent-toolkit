@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypes"
-version = "0.9.2"
+version = "0.9.3"
 description = "A persistent, revisable relationship model of the user"
 authors = [
   {name = "Ruzzy77"},
