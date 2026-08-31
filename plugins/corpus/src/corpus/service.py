@@ -65,6 +65,7 @@ from .locking import (
     writer_lock,
 )
 from .native_adapters import LEGACY_PDF_VERSIONS
+from .office_reuse import IMAGE_DIAGNOSTICS_PREDECESSOR
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -150,6 +151,11 @@ _INVENTORY_INDEX_STATES = {
 _CONTINUATION_ISSUE_SQL = (
     "(progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached', "
     "'office_image_range_pending') OR ("
+    "p.adapter_id IN ('work-corpus.native.office-vision.docx', "
+    "'work-corpus.native.office-vision.pptx', 'work-corpus.native.office-vision.hwp', "
+    "'work-corpus.native.office-vision.hwpx') "
+    f"AND p.adapter_version = '{IMAGE_DIAGNOSTICS_PREDECESSOR}' "
+    "AND progress.code IN ('office_image_ocr_failed', 'office_image_size_limit')) OR ("
     "p.adapter_id = 'work-corpus.native.pdfkit-vision' AND p.adapter_version IN ("
     + ",".join("'" + version + "'" for version in LEGACY_PDF_VERSIONS)
     + ") AND progress.code IN ('pdf_page_without_text', 'pdf_ocr_page_failed')) OR ("

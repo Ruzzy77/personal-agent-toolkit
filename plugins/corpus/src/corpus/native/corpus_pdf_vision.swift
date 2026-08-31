@@ -345,6 +345,66 @@ func recognizeTextPage(
     return units
 }
 
+enum ThinImageFailure: String, Error {
+    case dimensions
+    case canvas_creation
+    case geometry_mapping
+}
+
+func recognizeThinImage(
+    _ image: CGImage,
+    languages: [String]
+) throws -> [[String: Any]] {
+    // Retry only a decoded image rejected by Vision. Padding does not establish
+    // that a thin picture is decorative, blank, or free of text.
+    guard min(image.width, image.height) < 32 else { throw ThinImageFailure.dimensions }
+    let width = max(32, image.width)
+    let height = max(32, image.height)
+    let left = (width - image.width) / 2
+    let bottom = (height - image.height) / 2
+    let top = height - bottom - image.height
+    guard let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { throw ThinImageFailure.canvas_creation }
+    context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.interpolationQuality = .none
+    context.draw(image, in: CGRect(x: left, y: bottom,
+                                  width: image.width, height: image.height))
+    guard let padded = context.makeImage() else { throw ThinImageFailure.canvas_creation }
+    var units = try recognizeTextPage(padded, page: 1, languages: languages)
+    for index in units.indices {
+        guard var geometry = units[index]["geometry"] as? [String: Any],
+              let box = geometry["bbox"] as? [Double], box.count == 4 else {
+            throw ThinImageFailure.geometry_mapping
+        }
+        let mapped = [
+            (box[0] * Double(width) - Double(left)) / Double(image.width),
+            (box[1] * Double(height) - Double(top)) / Double(image.height),
+            (box[2] * Double(width) - Double(left)) / Double(image.width),
+            (box[3] * Double(height) - Double(top)) / Double(image.height),
+        ]
+        // Do not clip a candidate extending into the added margin and silently
+        // claim that its whole text belongs to the stored source pixels.
+        guard mapped.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
+              mapped[0] < mapped[2], mapped[1] < mapped[3] else {
+            throw ThinImageFailure.geometry_mapping
+        }
+        geometry["bbox"] = mapped
+        units[index]["geometry"] = geometry
+        var location = units[index]["structure_path"] as? [String: Any] ?? [:]
+        location["recognition_padding"] = [
+            "canvas_pixels": [width, height],
+            "source_pixels": [image.width, image.height],
+            "source_offset_top_left": [left, top],
+        ]
+        units[index]["structure_path"] = location
+    }
+    return units
+}
+
 func runAdapter() async throws {
     guard
         let requestLine = readLine(),
@@ -466,11 +526,13 @@ func runAdapter() async throws {
             return
         }
         if width.doubleValue * height.doubleValue > 64_000_000 {
-            try writeResult(["schema_version": "corpus.extraction-result.v1",
-                             "completeness": "partial", "units": [], "issues": [[
-                "code": "image_pixel_budget_exceeded", "severity": "warning",
-                "message": "The embedded image exceeds the decoded pixel budget.",
-            ]]])
+            try imageIssue("image_pixel_budget_exceeded",
+                           "The embedded image exceeds the decoded pixel budget.",
+                           ["stage": "image_properties", "budget": "max_source_pixels",
+                            "limit": 64_000_000, "unit": "pixels",
+                            "observed": width.doubleValue * height.doubleValue,
+                            "source_width": width, "source_height": height,
+                            "retryable": false])
             return
         }
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -518,14 +580,40 @@ func runAdapter() async throws {
                           right / Double(image.width), bottom / Double(image.height)]
         }
         var recognized: [[String: Any]]
+        var paddingUsed = false
         do {
             recognized = try recognizeTextPage(recognitionImage, page: 1, languages: languages)
         } catch {
             let failure = error as NSError
-            try imageIssue("image_ocr_failed", "Vision could not recognize this image.",
-                           ["stage": "text_recognition", "error_domain": failure.domain,
-                            "error_code": failure.code, "retryable": false])
-            return
+            let paddingEligible = failure.domain == VNErrorDomain &&
+                failure.code == VNErrorCode.invalidImage.rawValue &&
+                min(recognitionImage.width, recognitionImage.height) < 32
+            do {
+                guard paddingEligible else { throw failure }
+                recognized = try recognizeThinImage(recognitionImage, languages: languages)
+                paddingUsed = true
+            } catch {
+                var details: [String: Any] = [
+                    "stage": "text_recognition", "error_domain": failure.domain,
+                    "error_code": failure.code, "retryable": false,
+                    "source_width": width, "source_height": height,
+                    "recognition_width": recognitionImage.width,
+                    "recognition_height": recognitionImage.height,
+                    "thin_image_padding_attempted": paddingEligible,
+                ]
+                if paddingEligible {
+                    details["padding_failure_stage"] =
+                        (error as? ThinImageFailure)?.rawValue ?? "text_recognition"
+                    if !(error is ThinImageFailure) {
+                        let paddingError = error as NSError
+                        details["padding_error_domain"] = paddingError.domain
+                        details["padding_error_code"] = paddingError.code
+                    }
+                }
+                try imageIssue("image_ocr_failed", "Vision could not recognize this image.",
+                               details)
+                return
+            }
         }
         for index in recognized.indices {
             var location = recognized[index]["structure_path"] as? [String: Any] ?? [:]
@@ -549,11 +637,21 @@ func runAdapter() async throws {
         let withinBudget = appendWithinBudget(recognized, to: &units, totalContentCharacters: &characters,
                                  maxUnits: maxUnits, maxUnitContentCharacters: maxUnitContentCharacters,
                                  maxTotalContentCharacters: maxTotalContentCharacters)
-        let issues: [[String: Any]] = !withinBudget || units.isEmpty ? [[
+        var issues: [[String: Any]] = !withinBudget || units.isEmpty ? [[
             "code": withinBudget ? "image_without_text" : "image_text_budget_exceeded",
             "severity": "warning",
             "message": withinBudget ? "Vision found no text in the embedded image." : "Image OCR exceeds the bounded result size.",
         ]] : []
+        if paddingUsed {
+            issues.append([
+                "code": "image_ocr_padding_observed", "severity": "info",
+                "message": "Vision processed the decoded image with a bounded margin after rejecting its dimensions.",
+                "details": ["stage": "text_recognition_padding", "padding_min_edge": 32,
+                            "recognition_width": recognitionImage.width,
+                            "recognition_height": recognitionImage.height,
+                            "source_width": width, "source_height": height],
+            ])
+        }
         try writeResult(["schema_version": "corpus.extraction-result.v1",
                          "completeness": units.isEmpty ? "partial" : "complete",
                          "units": units, "issues": issues])

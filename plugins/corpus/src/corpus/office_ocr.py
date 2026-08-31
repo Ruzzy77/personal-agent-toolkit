@@ -25,7 +25,11 @@ from .extractors import MAX_UNIT_CHARS
 from .hancom_images import EmbeddedImageArchive
 from .metafile_images import single_bitmap_emf
 from .native_adapters import PDFKitVisionAdapter
-from .office_reuse import can_reuse_ocr, reusable_images
+from .office_reuse import (
+    IMAGE_DIAGNOSTICS_PREDECESSOR,
+    can_reuse_ocr,
+    reusable_images,
+)
 
 _MESSAGES = {
     "office_image_placement_unresolved": "A cropped or ambiguous image placement was left unread.",
@@ -38,6 +42,7 @@ _MESSAGES = {
     "office_image_ocr_output_limit": "Image recognition exceeds the configured result size.",
     "office_image_ocr_observed": "Local OCR recovered text at the original embedded image location.",
     "office_image_ocr_reused_observed": "Verified OCR was reused for identical source pixels and recognition settings.",
+    "office_image_ocr_padding_observed": "A bounded margin let Vision process an otherwise rejected thin image.",
     "office_image_visual_content_partial": "OCR text does not reconstruct the image's non-text visual content.",
 }
 
@@ -142,28 +147,66 @@ class OfficeVisionAdapter:
                 supports_confidence=True,
             ),
         )
-        self.recognition_profile = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.native.office-image-recognition",
-            adapter_version="1",
+        recognition_config = {
+            **{
+                key: self.config[key]
+                for key in (
+                    "vision_source",
+                    "runtime",
+                    "max_edge_pixels",
+                    "recognition_languages",
+                )
+            },
+            "metafile_source": hashlib.sha256(
+                Path(__file__).with_name("metafile_images.py").read_bytes()
+            ).hexdigest(),
+            "image_archive_source": hashlib.sha256(
+                Path(__file__).with_name("hancom_images.py").read_bytes()
+            ).hexdigest(),
+        }
+
+        def profile(config):
+            return AdapterDescriptor.from_config(
+                adapter_id="work-corpus.native.office-image-recognition",
+                adapter_version="1",
+                config=config,
+                capabilities=self.descriptor.capabilities,
+            ).config_hash
+
+        self.recognition_profile = profile(recognition_config)
+        # The new image-only fallback runs after VNErrorInvalidImage. Successful
+        # observations from this exact source are unchanged; failed inputs are
+        # never reusable_images entries. Runtime, crop and budgets still match.
+        self.compatible_recognition_profiles = {
+            self.recognition_profile,
+            profile(
+                {
+                    **recognition_config,
+                    "vision_source": "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a",
+                }
+            ),
+        }
+        # No native structure or successful OCR changed in this maintenance
+        # upgrade. Core queues only its failed/limited-image diagnostics once;
+        # unrelated documents keep their current projections and source refs.
+        predecessor = AdapterDescriptor.from_config(
+            adapter_id=self.descriptor.adapter_id,
+            adapter_version=IMAGE_DIAGNOSTICS_PREDECESSOR,
             config={
-                **{
-                    key: self.config[key]
-                    for key in (
-                        "vision_source",
-                        "runtime",
-                        "max_edge_pixels",
-                        "recognition_languages",
-                    )
-                },
-                "metafile_source": hashlib.sha256(
-                    Path(__file__).with_name("metafile_images.py").read_bytes()
-                ).hexdigest(),
-                "image_archive_source": hashlib.sha256(
-                    Path(__file__).with_name("hancom_images.py").read_bytes()
-                ).hexdigest(),
+                **self.config,
+                "vision_source": "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a",
             },
             capabilities=self.descriptor.capabilities,
-        ).config_hash
+        )
+        self.compatible_projection_identities = frozenset(
+            {
+                (
+                    predecessor.adapter_id,
+                    predecessor.adapter_version,
+                    predecessor.config_hash,
+                )
+            }
+        )
 
     def _image_text(self, image_path, seconds, *, crop=None):
         started = time.monotonic()
@@ -258,7 +301,8 @@ class OfficeVisionAdapter:
             )
             or (
                 len(coverage) == 1
-                and coverage[0].get("recognition_profile") == self.recognition_profile
+                and coverage[0].get("recognition_profile")
+                in self.compatible_recognition_profiles
             )
         )
         return self._extract_range(
@@ -415,6 +459,7 @@ class OfficeVisionAdapter:
                                 "recognized_source_crop",
                                 "text_representation",
                                 "source_bitmap",
+                                "recognition_padding",
                             }
                         },
                         **crop_notes,
@@ -491,7 +536,19 @@ class OfficeVisionAdapter:
                         )
                         continue
                     if size > self.config["max_image_bytes"]:
-                        observations["office_image_size_limit"] += 1
+                        observe_image(
+                            "office_image_size_limit",
+                            location,
+                            part,
+                            {
+                                "stage": "source_member",
+                                "budget": "max_image_bytes",
+                                "limit": self.config["max_image_bytes"],
+                                "unit": "bytes",
+                                "observed": size,
+                                "retryable": False,
+                            },
+                        )
                         continue
                     if (
                         len(by_part) >= self.config["max_images"]
@@ -516,7 +573,20 @@ class OfficeVisionAdapter:
                                 observations["office_image_ocr_budget_reached"] += 1
                                 next_image = image_index
                                 break
-                            observations["office_image_size_limit"] += 1
+                            observe_image(
+                                "office_image_size_limit",
+                                location,
+                                part,
+                                {
+                                    "stage": "source_decompression",
+                                    "budget": "max_image_bytes",
+                                    "limit": read_limit,
+                                    "unit": "bytes",
+                                    "observed_lower_bound": read_limit + 1,
+                                    "stored_member_bytes": size,
+                                    "retryable": False,
+                                },
+                            )
                             continue
                         except (OSError, ValueError, zipfile.BadZipFile):
                             observe_image(
@@ -580,8 +650,32 @@ class OfficeVisionAdapter:
                     )
                     continue
                 if "image_pixel_budget_exceeded" in codes:
-                    observations["office_image_size_limit"] += 1
+                    pixel_issue = next(
+                        i
+                        for i in recognized.issues
+                        if i.code == "image_pixel_budget_exceeded"
+                    )
+                    observe_image(
+                        "office_image_size_limit",
+                        location,
+                        part,
+                        {
+                            "image_bytes": len(source_data[part]),
+                            **dict(pixel_issue.details),
+                        },
+                    )
                     continue
+                for issue in recognized.issues:
+                    if issue.code == "image_ocr_padding_observed":
+                        observe_image(
+                            "office_image_ocr_padding_observed",
+                            location,
+                            part,
+                            {
+                                "image_bytes": len(source_data[part]),
+                                **dict(issue.details),
+                            },
+                        )
                 if any(
                     i.code == "image_text_budget_exceeded" for i in recognized.issues
                 ):
@@ -626,6 +720,15 @@ class OfficeVisionAdapter:
                                     else {}
                                 ),
                                 "text_representation": "vision_ocr",
+                                **(
+                                    {
+                                        "recognition_padding": region.to_dict()[
+                                            "structure_path"
+                                        ]["recognition_padding"]
+                                    }
+                                    if "recognition_padding" in region.structure_path
+                                    else {}
+                                ),
                                 **(
                                     {
                                         "source_bitmap": region.to_dict()[
@@ -684,6 +787,7 @@ class OfficeVisionAdapter:
                         in {
                             "office_image_ocr_observed",
                             "office_image_ocr_reused_observed",
+                            "office_image_ocr_padding_observed",
                         }
                         else "warning",
                         message=_MESSAGES[code],

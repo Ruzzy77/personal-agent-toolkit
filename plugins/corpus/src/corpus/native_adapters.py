@@ -132,6 +132,20 @@ class PDFKitVisionAdapter:
             )
             for version in LEGACY_PDF_VERSIONS
         ]
+        # Only the image branch changed from this exact shared Swift build.
+        # Preserve PDF projections without treating a different runtime or PDF
+        # configuration as equivalent. This is not a missing-page repair build.
+        legacy.append(
+            AdapterDescriptor.from_config(
+                adapter_id=self.descriptor.adapter_id,
+                adapter_version="1.4.0+source.507ccaa03634",
+                config={
+                    **self.config,
+                    "adapter_wrapper_source": "7351f8b5b95d44aacd073d396d2201703f719576293a8c6426aa8fa4dd2c9263",
+                },
+                capabilities=self.descriptor.capabilities,
+            )
+        )
         self.compatible_projection_identities = frozenset(
             {
                 (

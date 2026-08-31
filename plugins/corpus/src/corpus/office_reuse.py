@@ -18,6 +18,7 @@ _LEGACY_CONFIGS = {
     "hwpx": "e673d7091f75ebfb9b94cfdbfe9d6f3fba3c5a56e483361c08de25f82cbbcaad",
 }
 _VISION_SOURCE = "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a"
+IMAGE_DIAGNOSTICS_PREDECESSOR = "1.0.0+source.231bd6d45cb6"
 
 
 def can_reuse_ocr(config, adapter_id, adapter_version, config_hash):
@@ -93,6 +94,7 @@ def reusable_images(previous, source_sha256, source_crop):
             not in {
                 "office_image_ocr_observed",
                 "office_image_ocr_reused_observed",
+                "office_image_ocr_padding_observed",
                 "office_image_not_displayed_observed",
                 "office_image_without_text",
                 "office_image_content_unread",
