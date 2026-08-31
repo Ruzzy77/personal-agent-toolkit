@@ -3113,6 +3113,7 @@ class CorpusService:
             descriptor = adapter.descriptor
             previous = None
             repair_previous = False
+            reextract_previous = False
 
             with corpus_connection(self.data_root, corpus["corpus_id"]) as connection:
                 existing = connection.execute(
@@ -3159,6 +3160,29 @@ class CorpusService:
                 elif (
                     existing
                     and existing["projection_id"] is not None
+                    and callable(getattr(adapter, "reextract", None))
+                    and adapter.can_reuse_projection(
+                        existing["adapter_id"],
+                        existing["adapter_version"],
+                        existing["config_hash"],
+                    )
+                ):
+                    prior_descriptor = AdapterDescriptor(
+                        adapter_id=existing["adapter_id"],
+                        adapter_version=existing["adapter_version"],
+                        config_hash=existing["config_hash"],
+                        capabilities=descriptor.capabilities,
+                    )
+                    previous = self._continuation_envelope(
+                        connection,
+                        existing["projection_id"],
+                        prior_descriptor,
+                        required_codes={"office_image_range_observed"},
+                    )
+                    reextract_previous = previous is not None
+                elif (
+                    existing
+                    and existing["projection_id"] is not None
                     and callable(getattr(adapter, "repair", None))
                     and self.adapter_registry.accepts_projection(
                         document["extension"],
@@ -3183,7 +3207,13 @@ class CorpusService:
 
             try:
                 extraction = (
-                    (adapter.repair if repair_previous else adapter.resume)(
+                    (
+                        adapter.reextract
+                        if reextract_previous
+                        else adapter.repair
+                        if repair_previous
+                        else adapter.resume
+                    )(
                         captured.capture_path,
                         format_id=document["extension"],
                         previous=previous,

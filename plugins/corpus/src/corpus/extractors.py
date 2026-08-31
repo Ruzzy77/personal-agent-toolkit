@@ -19,9 +19,9 @@ from .errors import ExtractionError
 
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
-    "docx": "source-units-v6",
-    "pptx": "source-units-v6",
-    "hwpx": "source-units-v8",
+    "docx": "source-units-v7",
+    "pptx": "source-units-v7",
+    "hwpx": "source-units-v9",
     "xlsx": "source-units-v5",
 }
 MAX_ARCHIVE_MEMBERS = 20_000

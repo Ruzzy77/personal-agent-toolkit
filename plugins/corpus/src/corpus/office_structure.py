@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import posixpath
 import zipfile
-from collections import Counter
+from collections import Counter, defaultdict
 
 from .errors import ExtractionError
 from .extractors import (
@@ -20,6 +20,12 @@ from .extractors import (
     _preflight_zip,
     _safe_archive_xml_root,
     normalize_text,
+)
+from .list_numbering import (
+    OOXML_MARKER,
+    OOXML_NUMBER_FORMATS,
+    ListCounters,
+    scheme_label,
 )
 
 DOCX_UNITS = (
@@ -45,6 +51,13 @@ PPTX_UNITS = (
     "diagram_text",
     "embedded_object",
 )
+_IMAGE_REFERENCES = {"blip", "imagedata"}
+_GROUP_ELEMENTS = {"wgp", "grpSp", "group"}
+_MAX_GROUP_IMAGES = 256
+_ISSUE_MESSAGES = {
+    "pptx_table_merge_content_observed": "Stored continuation-cell text was linked to its explicit merge origin.",
+    "office_image_not_displayed_observed": "A picture instance declares its own zero display area in the source.",
+}
 
 
 def _attr(node, name, default=None):
@@ -74,6 +87,110 @@ def _integer(value, default=0):
 def _value(node, child, default=None):
     element = _child(node, child) if node is not None else None
     return _attr(element, "val", default) if element is not None else default
+
+
+def _addressed_path(node, address, names):
+    """Follow one unambiguous child path, returning the element and its address."""
+    for name in names:
+        found = None
+        for index, child in enumerate(node):
+            if _local_name(child.tag) != name:
+                continue
+            if found is not None:
+                return None, None
+            found = child, f"{address}.{index}"
+        if found is None:
+            return None, None
+        node, address = found
+    return node, address
+
+
+def _extent(node):
+    """Return the stored display extent, or None when it is not a plain integer."""
+    if node is None:
+        return None
+    values = {}
+    for name in ("cx", "cy"):
+        try:
+            values[name] = int(_attr(node, name))
+        except (TypeError, ValueError):
+            return None
+    return values
+
+
+def _transform_value(node, address):
+    return {
+        "element": address,
+        "attributes": dict(node.attrib),
+        **{_local_name(child.tag): dict(child.attrib) for child in node},
+        "coordinate_space": "parent_group_emu",
+    }
+
+
+def _own_transform(node, address):
+    """Return only the transform this element declares for itself."""
+    for index, child in enumerate(node):
+        name = _local_name(child.tag)
+        if name == "xfrm":
+            return _transform_value(child, f"{address}.{index}")
+        if name in {"spPr", "grpSpPr"}:
+            for inner, grandchild in enumerate(child):
+                if _local_name(grandchild.tag) == "xfrm":
+                    return _transform_value(grandchild, f"{address}.{index}.{inner}")
+    return None
+
+
+def _own_descriptions(node):
+    """Title and description from this element's own non-visual properties."""
+    values = []
+    properties = []
+    for child in node:
+        name = _local_name(child.tag)
+        if name in {"docPr", "cNvPr"}:
+            properties.append(child)
+        elif name.startswith("nv"):
+            properties.extend(
+                c for c in child if _local_name(c.tag) in {"docPr", "cNvPr"}
+            )
+    for prop in properties:
+        for key in ("title", "descr"):
+            value = prop.get(key)
+            if value and value not in values:
+                values.append(value)
+    return properties, values
+
+
+def _crop_values(crop):
+    """Keep only a crop the source actually declares as non-zero."""
+    if crop is None:
+        return []
+    attributes = crop["attributes"]
+    declared = any(value not in {"0", "0.0"} for value in attributes.values())
+    return [attributes] if declared else []
+
+
+def _level_definition(node):
+    """Keep one numbering level exactly as the package declares it."""
+    return {
+        "marker_pattern": _value(node, "lvlText", ""),
+        "number_format": _value(node, "numFmt", ""),
+        "start": _value(node, "start"),
+        "restart": _value(node, "lvlRestart"),
+        "legal": _child(node, "isLgl") is not None,
+    }
+
+
+def _numbering_ambiguity(node):
+    """Revision marks on the paragraph mark leave its list position uncertain."""
+    direct = _child(node, "pPr")
+    if direct is None:
+        return False
+    if _child(direct, "pPrChange") is not None:
+        return True
+    marks = _child(direct, "rPr")
+    return marks is not None and any(
+        _local_name(child.tag) in {"del", "numberingChange"} for child in marks
+    )
 
 
 def _children(node):
@@ -178,49 +295,169 @@ class _Reader:
         for index, child in enumerate(node):
             yield from self.addressed(child, f"{address}.{index}", depth + 1)
 
-    def image(self, node, location):
-        parts = []
-        for reference in node.iter():
-            if _local_name(reference.tag) not in {"blip", "imagedata"}:
-                continue
-            identifier = _attr(reference, "embed") or _attr(reference, "id")
-            part = self.package.related(location["part"], identifier)
-            if part and part not in parts:
-                parts.append(part)
-        descriptions = []
-        for prop in node.iter():
-            if _local_name(prop.tag) in {"docPr", "cNvPr"}:
-                for key in ("title", "descr"):
-                    value = prop.get(key)
-                    if value and value not in descriptions:
-                        descriptions.append(value)
+    def drawing_images(self, node, location, depth):
+        """Collect each stored image reference with only its own shape context.
+
+        Explicit `AlternateContent` selection is preserved, so the primary and
+        the fallback representation of one drawing are never both extracted.
+        """
+        found, records = [], []
+
+        def record(element, address, *, root=False):
+            properties, descriptions = _own_descriptions(element)
+            if not properties and not root:
+                return None
+            item = {
+                "element": address,
+                "descriptions": descriptions,
+                "transform": _own_transform(element, address),
+                "count": 0,
+            }
+            records.append(item)
+            return item
+
+        def scan(element, address, level, chain, groups, crop):
+            self.guard(level)
+            name = _local_name(element.tag)
+            if name in _IMAGE_REFERENCES:
+                identifier = _attr(element, "embed") or _attr(element, "id")
+                found.append(
+                    {
+                        "element": address,
+                        "relationship": identifier,
+                        "part": self.package.related(location["part"], identifier),
+                        "chain": chain,
+                        "groups": list(groups),
+                        "crop": crop,
+                    }
+                )
+                for item in chain:
+                    item["count"] += 1
+                return
+            if name == "blipFill":
+                crop = next(
+                    (
+                        {
+                            "element": f"{address}.{index}",
+                            "attributes": dict(child.attrib),
+                        }
+                        for index, child in enumerate(element)
+                        if _local_name(child.tag) == "srcRect"
+                    ),
+                    None,
+                )
+            elif element is not node:
+                item = record(element, address)
+                if item is not None:
+                    chain = (*chain, item)
+            if name in _GROUP_ELEMENTS:
+                groups = (*groups, address)
+            for index, child in _children(element):
+                scan(child, f"{address}.{index}", level + 1, chain, groups, crop)
+
+        address = location["element"]
+        scan(node, address, depth, (record(node, address, root=True),), (), None)
+        return found, records
+
+    def image(self, node, location, depth=0):
+        found, records = self.drawing_images(node, location, depth)
+        if len(found) > _MAX_GROUP_IMAGES:
+            self.issues["office_image_group_structure_partial"] += 1
+            found = found[:_MAX_GROUP_IMAGES]
+        if len(found) > 1:
+            self.group_image(location, found, records)
+            return
+        reference = found[0] if found else None
+        chain = reference["chain"] if reference is not None else records
+        self.emit_image(
+            {
+                **location,
+                "image_parts": [reference["part"]]
+                if reference is not None and reference["part"]
+                else [],
+                "source_crops": _crop_values(
+                    reference["crop"] if reference is not None else None
+                ),
+                **(
+                    {"image_reference_element": reference["element"]}
+                    if reference is not None
+                    else {}
+                ),
+            },
+            [text for item in chain for text in item["descriptions"]],
+        )
+
+    def group_image(self, location, found, records):
+        """Expose each child image separately while keeping the group object."""
+        self.emit(
+            "embedded_object",
+            {
+                **location,
+                "object_type": "image_group",
+                "image_count": len(found),
+                "text_representation": "source_alternative_text",
+            },
+            "\n".join(
+                dict.fromkeys(
+                    text
+                    for item in records
+                    if item["count"] > 1
+                    for text in item["descriptions"]
+                )
+            ),
+        )
+        for reference in found:
+            shape = reference["chain"][-1]
+            self.emit_image(
+                {
+                    **location,
+                    "element": reference["element"],
+                    "image_parts": [reference["part"]] if reference["part"] else [],
+                    "source_crops": _crop_values(reference["crop"]),
+                    "image_reference_element": reference["element"],
+                    "image_shape": shape["element"],
+                    "image_group": location["element"],
+                    **(
+                        {"image_group_path": reference["groups"]}
+                        if reference["groups"]
+                        else {}
+                    ),
+                    **(
+                        {"source_transform": shape["transform"]}
+                        if shape["transform"]
+                        else {}
+                    ),
+                },
+                [
+                    text
+                    for item in reference["chain"]
+                    if item["count"] == 1
+                    for text in item["descriptions"]
+                ],
+            )
+
+    def emit_image(self, location, descriptions):
         self.emit(
             "embedded_object",
             {
                 **location,
                 "object_type": "image",
-                "image_parts": parts,
-                "source_crops": [
-                    dict(n.attrib)
-                    for n in _desc(node, "srcRect")
-                    if any(v not in {"0", "0.0"} for v in n.attrib.values())
-                ],
                 "text_representation": "source_alternative_text",
             },
-            "\n".join(descriptions),
+            "\n".join(dict.fromkeys(descriptions)),
         )
-        self.issues["office_image_content_unread"] += 1
+        if location.get("display_state") == "not_displayed":
+            self.issues["office_image_not_displayed_observed"] += 1
+        else:
+            self.issues["office_image_content_unread"] += 1
 
     def finish(self):
+        default = "A source-declared Office feature needs additional extraction."
         issues = [
             {
                 "code": code,
-                "severity": "info"
-                if code == "pptx_table_merge_content_observed"
-                else "warning",
-                "message": "Stored continuation-cell text was linked to its explicit merge origin."
-                if code == "pptx_table_merge_content_observed"
-                else "A source-declared Office feature needs additional extraction.",
+                "severity": "info" if code.endswith("_observed") else "warning",
+                "message": _ISSUE_MESSAGES.get(code, default),
                 "details": {"occurrences": count},
             }
             for code, count in sorted(self.issues.items())
@@ -239,9 +476,11 @@ class _Reader:
 class _WordReader(_Reader):
     def __init__(self, package, main):
         super().__init__(package)
+        self.main = main
         self.styles = {}
         self.numberings = {}
         self.references = {}
+        self.numbering_events = []
         for relation in package.rels(main).values():
             if relation["type"] == "styles" and relation["part"]:
                 for style in _desc(package.xml(relation["part"]), "style"):
@@ -254,18 +493,42 @@ class _WordReader(_Reader):
         for node in root:
             if _local_name(node.tag) == "abstractNum":
                 abstract[_attr(node, "abstractNumId")] = {
-                    _attr(level, "ilvl"): {
-                        "marker_pattern": _value(level, "lvlText", ""),
-                        "number_format": _value(level, "numFmt", ""),
-                    }
-                    for level in node
-                    if _local_name(level.tag) == "lvl"
+                    "levels": {
+                        _integer(_attr(level, "ilvl")) + 1: _level_definition(level)
+                        for level in node
+                        if _local_name(level.tag) == "lvl"
+                    },
+                    "linked": _child(node, "numStyleLink") is not None
+                    or _child(node, "styleLink") is not None,
                 }
         for node in root:
-            if _local_name(node.tag) == "num":
-                self.numberings[_attr(node, "numId")] = abstract.get(
-                    _value(node, "abstractNumId"), {}
+            if _local_name(node.tag) != "num":
+                continue
+            reference = _value(node, "abstractNumId")
+            definition = abstract.get(reference)
+            levels = dict(definition["levels"]) if definition is not None else {}
+            overrides = False
+            for child in node:
+                if _local_name(child.tag) != "lvlOverride":
+                    continue
+                overrides = True
+                index = _integer(_attr(child, "ilvl")) + 1
+                replacement = _child(child, "lvl")
+                start = _value(child, "startOverride")
+                level = (
+                    _level_definition(replacement)
+                    if replacement is not None
+                    else dict(levels.get(index, {}))
                 )
+                if start is not None:
+                    level.update({"start": start, "start_origin": "start_override"})
+                levels[index] = level
+            self.numberings[_attr(node, "numId")] = {
+                "abstract": reference,
+                "levels": levels,
+                "linked": definition is None or definition["linked"],
+                "overrides": overrides,
+            }
 
     def paragraph_properties(self, node):
         direct = _child(node, "pPr")
@@ -300,11 +563,17 @@ class _WordReader(_Reader):
         )
         if num_id not in {None, "0"}:
             result.update({"numbering_ref": num_id, "list_level": _integer(level)})
-            result.update(self.numberings.get(num_id, {}).get(level, {}))
+            definition = self.numberings.get(num_id, {}).get("levels", {})
+            declared = definition.get(_integer(level) + 1, {})
+            result.update(
+                {
+                    key: declared[key]
+                    for key in ("marker_pattern", "number_format")
+                    if key in declared
+                }
+            )
             if result.get("number_format") == "bullet":
                 result["marker_text"] = result.get("marker_pattern", "")
-            else:
-                self.issues["docx_list_marker_partial"] += 1
         return result
 
     def paragraph(self, node, location, depth):
@@ -322,12 +591,28 @@ class _WordReader(_Reader):
         if kind not in DOCX_UNITS:
             kind = "paragraph"
         chunks, segment = [], 0
+        event = None
+        if "numbering_ref" in props:
+            event = {
+                "numbering_ref": props["numbering_ref"],
+                "level": props.get("list_level", 0) + 1,
+                "bullet": props.get("number_format") == "bullet",
+                # Only the main story is walked in its own displayed order here.
+                "resolvable": location["part"] == self.main
+                and "object" not in location
+                and not _numbering_ambiguity(node),
+                "units": [],
+            }
+            self.numbering_events.append(event)
 
         def flush():
             nonlocal segment
             if normalize_text("".join(chunks)):
                 segment += 1
+                emitted = len(self.units)
                 self.emit(kind, {**location, "segment": segment}, "".join(chunks))
+                if event is not None:
+                    event["units"].extend(self.units[emitted:])
             chunks.clear()
 
         def inline(element, address, level):
@@ -425,6 +710,75 @@ class _WordReader(_Reader):
                             depth + 1,
                         )
         flush()
+
+    def _counters(self, events):
+        """Counters exist only when one explicit definition governs every event."""
+        references = {event["numbering_ref"] for event in events}
+        definitions = [self.numberings.get(reference) for reference in references]
+        shared = len(definitions) > 1
+        if (
+            not all(event["resolvable"] for event in events)
+            or any(item is None or item["linked"] for item in definitions)
+            or any(item["levels"] != definitions[0]["levels"] for item in definitions)
+            # Sharing an appearance definition does not prove that independent
+            # list instances continue one counter. Leave that relation unresolved.
+            or shared
+        ):
+            return None
+        levels = {}
+        for index, declared in definitions[0]["levels"].items():
+            restart = declared.get("restart")
+            supported = (
+                not declared.get("legal")
+                and restart in {None, "0"}
+                and declared.get("number_format") in OOXML_NUMBER_FORMATS
+            )
+            try:
+                # OOXML defines zero, not one, when w:start is omitted.
+                start = 0 if declared.get("start") is None else int(declared["start"])
+            except (TypeError, ValueError):
+                start = None
+            levels[index] = {
+                "style": OOXML_NUMBER_FORMATS.get(declared.get("number_format"))
+                if supported
+                else None,
+                "start": start,
+                "restarts": restart != "0",
+                "pattern": declared.get("marker_pattern"),
+            }
+        return ListCounters(levels, OOXML_MARKER)
+
+    def _resolve_numbering(self):
+        """Label a paragraph only when its whole sequence is source-determined."""
+        groups = defaultdict(list)
+        for event in self.numbering_events:
+            definition = self.numberings.get(event["numbering_ref"])
+            abstract = definition["abstract"] if definition else None
+            groups[abstract or ("num", event["numbering_ref"])].append(event)
+        unresolved = 0
+        for events in groups.values():
+            counters = self._counters(events)
+            for event in events:
+                value = None if counters is None else counters.advance(event["level"])
+                if event["bullet"]:
+                    continue
+                text = None if counters is None else counters.label(event["level"])
+                if text is None:
+                    unresolved += 1
+                    continue
+                for unit in event["units"]:
+                    unit.structure_path["computed_list_marker"] = {
+                        "text": text,
+                        "value": value,
+                        "level": event["level"],
+                        "basis": "source_numbering_definition_and_body_order",
+                    }
+        if unresolved:
+            self.issues["docx_list_marker_partial"] += unresolved
+
+    def finish(self):
+        self._resolve_numbering()
+        return super().finish()
 
     def table(self, node, location, depth):
         parent = {k: location[k] for k in ("table", "cell") if k in location}
@@ -541,8 +895,8 @@ class _WordReader(_Reader):
             return
         if name in {"drawing", "pict", "object"}:
             location = {**location, "object": location["element"]}
-            if any(_local_name(n.tag) in {"blip", "imagedata"} for n in node.iter()):
-                self.image(node, location)
+            if any(_local_name(n.tag) in _IMAGE_REFERENCES for n in node.iter()):
+                self.image(node, location, depth)
             if name == "object":
                 self.issues["office_embedded_object_content_partial"] += 1
             self._textboxes(node, location, depth)
@@ -587,7 +941,160 @@ class _WordReader(_Reader):
 
 
 class _SlideReader(_Reader):
+    def __init__(self, package):
+        super().__init__(package)
+        self.animated = set()
+        self.animation_unresolved = False
+
+    def observe_part(self, root):
+        """Shapes an animation targets keep an uncertain displayed geometry."""
+        self.animated = set()
+        self.animation_unresolved = False
+        for node in root.iter():
+            if _local_name(node.tag) not in {"spTgt", "inkTgt"}:
+                continue
+            identifier = _attr(node, "spid")
+            if identifier is None:
+                self.animation_unresolved = True
+            else:
+                self.animated.add(identifier)
+        if next(_desc(root, "timing"), None) is not None and not self.animated:
+            self.animation_unresolved = True
+
+    def group_geometry(self, node, location):
+        """Observe a finite, explicit group mapping, never an inherited one."""
+        transform, address = _addressed_path(
+            node, location["element"], ("grpSpPr", "xfrm")
+        )
+        if transform is None or location.get("shape_id") is None:
+            return None
+        values = {}
+        for name, coordinates in (
+            ("off", ("x", "y")),
+            ("chOff", ("x", "y")),
+            ("ext", ("cx", "cy")),
+            ("chExt", ("cx", "cy")),
+        ):
+            child, child_address = _addressed_path(transform, address, (name,))
+            if child is None:
+                return None
+            try:
+                pair = {key: int(_attr(child, key)) for key in coordinates}
+            except (TypeError, ValueError):
+                return None
+            if any(abs(value) >= 2**63 for value in pair.values()):
+                return None
+            if name in {"ext", "chExt"} and any(v <= 0 for v in pair.values()):
+                return None
+            values[name] = {**pair, "element": child_address}
+        try:
+            int(transform.get("rot", "0"))
+        except ValueError:
+            return None
+        if any(
+            transform.get(key, "0") not in {"0", "1", "true", "false"}
+            for key in ("flipH", "flipV")
+        ):
+            return None
+        return {"shape_id": location["shape_id"], "element": address, **values}
+
+    def display_observation(self, node, location):
+        """Only an instance's own explicit zero extent proves it is not shown.
+
+        A missing transform inherits its size and is never treated as zero.
+        """
+        if (
+            self.animation_unresolved
+            or location.get("shape_id") is None
+            or location["shape_id"] in self.animated
+            or next(_desc(node, "ph"), None) is not None
+        ):
+            return {}
+        extent, address = _addressed_path(
+            node, location["element"], ("spPr", "xfrm", "ext")
+        )
+        values = _extent(extent)
+        if (
+            values is None
+            or any(value < 0 for value in values.values())
+            or all(value > 0 for value in values.values())
+        ):
+            return {}
+        groups = location.get("group_geometry", [])
+        if location.get("group_path") and (
+            len(groups) != len(location["group_path"])
+            or any(
+                group is None or group["shape_id"] in self.animated for group in groups
+            )
+            or any(values.values())
+        ):
+            return {}
+        return {
+            "display_state": "not_displayed",
+            "display_basis": "own_explicit_zero_extent",
+            "display_extent": {**values, "element": address, "unit": "emu"},
+        }
+
+    def autonumber_labels(self, node):
+        """Number an explicit auto-number run inside one stored text body only."""
+        entries = []
+        for index, child in enumerate(node):
+            if _local_name(child.tag) != "p":
+                continue
+            prop = _child(child, "pPr")
+            declared = (
+                any(
+                    _local_name(c.tag) in {"buNone", "buChar", "buAutoNum"}
+                    for c in prop
+                )
+                if prop is not None
+                else False
+            )
+            automatic = _child(prop, "buAutoNum") if prop is not None else None
+            entries.append((index, prop, automatic))
+            if not declared:
+                # An inherited bullet could number a paragraph we cannot see.
+                return {}
+        if not any(automatic is not None for _, _, automatic in entries):
+            return {}
+        style = _child(node, "lstStyle")
+        if style is not None and any(
+            _local_name(inner.tag) == "buAutoNum" for inner in style.iter()
+        ):
+            return {}
+        levels = {}
+        for _, prop, automatic in entries:
+            if automatic is None:
+                continue
+            level = _integer(prop.get("lvl", "0")) + 1
+            scheme = automatic.get("type")
+            if levels.setdefault(level, scheme) != scheme:
+                levels[level] = None
+        definitions = {level: {"style": None, "start": 1} for level in levels}
+        counters = ListCounters(definitions)
+        labels = {}
+        for index, prop, automatic in entries:
+            if automatic is None:
+                continue
+            level = _integer(prop.get("lvl", "0")) + 1
+            start = automatic.get("startAt")
+            try:
+                explicit = None if start is None else int(start)
+            except ValueError:
+                explicit = None
+            value = counters.advance(level, start=explicit)
+            text = None if levels[level] is None else scheme_label(levels[level], value)
+            if text is not None:
+                labels[index] = {
+                    "text": text,
+                    "value": value,
+                    "level": level,
+                    "basis": "source_autonumber_scheme_and_text_body_order",
+                }
+        return labels
+
     def paragraphs(self, node, location, kind="slide_text"):
+        labels = self.autonumber_labels(node)
         for index, child in enumerate(node):
             if _local_name(child.tag) != "p":
                 continue
@@ -600,7 +1107,10 @@ class _SlideReader(_Reader):
                     location_p["marker_text"] = bullet.get("char", "")
                 if automatic is not None:
                     location_p["numbering"] = dict(automatic.attrib)
-                    self.issues["pptx_list_marker_partial"] += 1
+                    if index in labels:
+                        location_p["computed_list_marker"] = labels[index]
+                    else:
+                        self.issues["pptx_list_marker_partial"] += 1
             text = "".join(
                 n.text or "" if _local_name(n.tag) == "t" else "\n"
                 for n in child.iter()
@@ -845,6 +1355,11 @@ class _SlideReader(_Reader):
         self.guard(depth)
         name = _local_name(node.tag)
         if name in {"sp", "pic", "graphicFrame", "grpSp", "cxnSp"}:
+            location = {
+                k: v
+                for k, v in location.items()
+                if k not in {"shape_id", "shape_name", "source_transform"}
+            }
             nonvisual = next(
                 (c for c in node if _local_name(c.tag).startswith("nv")), None
             )
@@ -874,6 +1389,10 @@ class _SlideReader(_Reader):
             if name == "grpSp":
                 location = {
                     **location,
+                    "group_geometry": [
+                        *location.get("group_geometry", []),
+                        self.group_geometry(node, location),
+                    ],
                     "group_path": [
                         *location.get("group_path", []),
                         location["element"],
@@ -890,7 +1409,8 @@ class _SlideReader(_Reader):
                 }:
                     return
             if name == "pic":
-                self.image(node, location)
+                display = self.display_observation(node, location)
+                self.image(node, {**location, **display}, depth)
                 return
         if name == "txBody":
             self.paragraphs(node, location, "speaker_notes" if notes else "slide_text")
@@ -977,8 +1497,10 @@ def extract_structured_pptx(path):
             if not part:
                 reader.issues["pptx_slide_unavailable"] += 1
                 continue
+            root = package.xml(part)
+            reader.observe_part(root)
             reader.walk(
-                package.xml(part),
+                root,
                 {
                     "slide": slide_index,
                     "slide_id": slide.get("id"),
@@ -988,8 +1510,10 @@ def extract_structured_pptx(path):
             )
             for relation in package.rels(part).values():
                 if relation["type"] == "notesSlide" and relation["part"]:
+                    notes_root = package.xml(relation["part"])
+                    reader.observe_part(notes_root)
                     reader.walk(
-                        package.xml(relation["part"]),
+                        notes_root,
                         {
                             "slide": slide_index,
                             "part": relation["part"],

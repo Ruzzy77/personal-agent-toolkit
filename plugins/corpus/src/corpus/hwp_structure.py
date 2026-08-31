@@ -111,7 +111,9 @@ def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[
                             "marker_pattern": data[offset + 14 : end].decode(
                                 "utf-16-le"
                             ),
-                            "number_format": (flags >> 5) & 15,
+                            # Only bits 0--4 of these flags have a verified interpretation.
+                            # Preserve the rest without inventing a numbering style.
+                            "numbering_flags": flags,
                             "numbering_record": record,
                         }
                     )

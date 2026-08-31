@@ -25,6 +25,7 @@ from .extractors import MAX_UNIT_CHARS
 from .hancom_images import EmbeddedImageArchive
 from .metafile_images import single_bitmap_emf
 from .native_adapters import PDFKitVisionAdapter
+from .office_reuse import can_reuse_ocr, reusable_images
 
 _MESSAGES = {
     "office_image_placement_unresolved": "A cropped or ambiguous image placement was left unread.",
@@ -36,11 +37,17 @@ _MESSAGES = {
     "office_image_without_text": "Vision found no text in an embedded image.",
     "office_image_ocr_output_limit": "Image recognition exceeds the configured result size.",
     "office_image_ocr_observed": "Local OCR recovered text at the original embedded image location.",
+    "office_image_ocr_reused_observed": "Verified OCR was reused for identical source pixels and recognition settings.",
     "office_image_visual_content_partial": "OCR text does not reconstruct the image's non-text visual content.",
 }
 
 
-def _source_crop(location):
+def _source_crop(location, observations=None):
+    """Return the visible source rectangle, recording how the source bounded it.
+
+    A negative OOXML rectangle is a valid outset: it adds padding that has no
+    source pixels, so only the intersection with the stored image is recognized.
+    """
     if location.get("image_crop_unresolved"):
         raise ValueError("Hancom image crop or appearance is unresolved")
     if "source_crop_bbox" in location:
@@ -60,12 +67,26 @@ def _source_crop(location):
     values = [int(crops[0].get(key, "0")) for key in ("l", "t", "r", "b")]
     left, top, right, bottom = values
     if (
-        any(not 0 <= value < 100_000 for value in values)
+        any(not -100_000 < value < 100_000 for value in values)
         or left + right >= 100_000
         or top + bottom >= 100_000
     ):
-        raise ValueError("source crop needs unsupported padding or has no visible area")
-    return (left / 100_000, top / 100_000, 1 - right / 100_000, 1 - bottom / 100_000)
+        raise ValueError("source crop exceeds its bound or has no visible area")
+    declared = (
+        left / 100_000,
+        top / 100_000,
+        1 - right / 100_000,
+        1 - bottom / 100_000,
+    )
+    visible = tuple(min(max(value, 0.0), 1.0) for value in declared)
+    if visible[0] >= visible[2] or visible[1] >= visible[3]:
+        raise ValueError("source crop keeps no visible source pixels")
+    if observations is not None and visible != declared:
+        observations.update(
+            source_crop_outset=True,
+            recognized_scope="visible_source_pixels_only",
+        )
+    return None if visible == (0.0, 0.0, 1.0, 1.0) else visible
 
 
 def _image_position(location):
@@ -89,6 +110,8 @@ class OfficeVisionAdapter:
             + Path(__file__).with_name("hancom_images.py").read_bytes()
             + b"\0"
             + Path(__file__).with_name("metafile_images.py").read_bytes()
+            + b"\0"
+            + Path(__file__).with_name("office_reuse.py").read_bytes()
         ).hexdigest()
         self.config = {
             "native": native.descriptor.to_dict(),
@@ -103,7 +126,8 @@ class OfficeVisionAdapter:
             "timeout_seconds": 60,
             "max_edge_pixels": 3000,
             "recognition_languages": ["ko-KR", "en-US"],
-            "cropped_images": "verified_positive_source_rect_v1",
+            "cropped_images": "verified_visible_source_rect_v2",
+            "non_displayed_images": "skip_proven_zero_display_area_v1",
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
@@ -118,6 +142,28 @@ class OfficeVisionAdapter:
                 supports_confidence=True,
             ),
         )
+        self.recognition_profile = AdapterDescriptor.from_config(
+            adapter_id="work-corpus.native.office-image-recognition",
+            adapter_version="1",
+            config={
+                **{
+                    key: self.config[key]
+                    for key in (
+                        "vision_source",
+                        "runtime",
+                        "max_edge_pixels",
+                        "recognition_languages",
+                    )
+                },
+                "metafile_source": hashlib.sha256(
+                    Path(__file__).with_name("metafile_images.py").read_bytes()
+                ).hexdigest(),
+                "image_archive_source": hashlib.sha256(
+                    Path(__file__).with_name("hancom_images.py").read_bytes()
+                ).hexdigest(),
+            },
+            capabilities=self.descriptor.capabilities,
+        ).config_hash
 
     def _image_text(self, image_path, seconds, *, crop=None):
         started = time.monotonic()
@@ -193,10 +239,37 @@ class OfficeVisionAdapter:
             )
         return self._extract_range(path, format_id=format_id, previous=previous)
 
-    def _extract_range(self, path, *, format_id, previous=None):
+    def can_reuse_projection(self, adapter_id, adapter_version, config_hash):
+        # This only permits inspection. It never accepts an old native projection.
+        return adapter_id == self.descriptor.adapter_id
+
+    def reextract(self, path, *, format_id, previous):
+        prior = previous.descriptor
+        coverage = [
+            i.details
+            for i in previous.issues
+            if i.code == "office_image_range_observed"
+        ]
+        compatible = self.can_reuse_projection(
+            prior.adapter_id, prior.adapter_version, prior.config_hash
+        ) and (
+            can_reuse_ocr(
+                self.config, prior.adapter_id, prior.adapter_version, prior.config_hash
+            )
+            or (
+                len(coverage) == 1
+                and coverage[0].get("recognition_profile") == self.recognition_profile
+            )
+        )
+        return self._extract_range(
+            path, format_id=format_id, reuse_previous=previous if compatible else None
+        )
+
+    def _extract_range(self, path, *, format_id, previous=None, reuse_previous=None):
         native = self.native.extract(path, format_id=format_id)
         with Path(path).open("rb") as source:
             source_digest = hashlib.file_digest(source, "sha256").hexdigest()
+        reused = reusable_images(reuse_previous, source_digest, _source_crop)
         native_characters = Counter()
         for unit in native.units:
             if unit.unit_type not in {"embedded_object", "speaker_notes", "field"}:
@@ -303,6 +376,56 @@ class OfficeVisionAdapter:
         )
         added_count = sum(len(group) for group in insertions.values())
         native_total = sum(len(u.content) for u in native.units)
+        # Retain every proven prior OCR occurrence, including those after the
+        # next bounded cursor. Continuation skips these already retained positions.
+        for position in image_order:
+            location = native.units[position].to_dict()["structure_path"]
+            parts = location.get("image_parts", [])
+            if location.get("display_state") == "not_displayed" or len(parts) != 1:
+                continue
+            crop_notes = {}
+            try:
+                key = (parts[0], _source_crop(location, crop_notes))
+            except (TypeError, ValueError):
+                continue
+            cached = reused.get(key)
+            if not cached:
+                continue
+            characters = sum(len(u.content) for u in cached)
+            if (
+                len(native.units) + added_count + len(cached) > 200_000
+                or native_total + added_characters + characters > 50_000_000
+            ):
+                continue
+            insertions[position] = [
+                replace(
+                    old,
+                    structure_path={
+                        **location,
+                        **{
+                            key: value
+                            for key, value in old.to_dict()["structure_path"].items()
+                            if key
+                            in {
+                                "image_part",
+                                "image_sha256",
+                                "image_region",
+                                "geometry_scope",
+                                "source_image_orientation",
+                                "recognized_source_crop",
+                                "text_representation",
+                                "source_bitmap",
+                            }
+                        },
+                        **crop_notes,
+                    },
+                )
+                for old in cached
+            ]
+            added_characters += characters
+            added_count += len(cached)
+            observations["office_image_ocr_observed"] += 1
+            observations["office_image_ocr_reused_observed"] += 1
         by_part, by_digest, source_data = {}, {}, {}
         bytes_read = 0
         next_image = start
@@ -317,6 +440,12 @@ class OfficeVisionAdapter:
                 unit = native.units[position]
                 location = unit.to_dict()["structure_path"]
                 next_image = image_index + 1
+                if position in insertions:
+                    continue
+                if location.get("display_state") == "not_displayed":
+                    # The native reader already recorded this proven observation;
+                    # another instance of the same member is still recognized.
+                    continue
                 parts = location.get("image_parts", [])
                 if len(parts) != 1:
                     observe_image(
@@ -327,8 +456,9 @@ class OfficeVisionAdapter:
                     )
                     continue
                 part = parts[0]
+                crop_notes = {}
                 try:
-                    crop = _source_crop(location)
+                    crop = _source_crop(location, crop_notes)
                 except (TypeError, ValueError):
                     observe_image(
                         "office_image_placement_unresolved",
@@ -338,6 +468,17 @@ class OfficeVisionAdapter:
                     )
                     continue
                 image_key = (part, crop)
+                if image_key in reused:
+                    cached = reused[image_key]
+                    if cached is None:
+                        observations["office_image_without_text"] += 1
+                        continue
+                    # A cache entry not retained above exceeded the combined
+                    # result limit. Do not recognize or truncate it silently.
+                    observations["office_image_ocr_output_limit"] += 1
+                    output_limited = True
+                    next_image = image_index
+                    break
                 if image_key not in by_part:
                     try:
                         size = archive.size(part)
@@ -471,6 +612,7 @@ class OfficeVisionAdapter:
                                 "image_sha256": digest,
                                 "image_region": index,
                                 "geometry_scope": "oriented_embedded_image_pixels",
+                                **crop_notes,
                                 "source_image_orientation": region.structure_path.get(
                                     "source_image_orientation", 1
                                 ),
@@ -538,7 +680,11 @@ class OfficeVisionAdapter:
                     ExtractionIssue(
                         code=code,
                         severity="info"
-                        if code == "office_image_ocr_observed"
+                        if code
+                        in {
+                            "office_image_ocr_observed",
+                            "office_image_ocr_reused_observed",
+                        }
                         else "warning",
                         message=_MESSAGES[code],
                         details={
@@ -566,6 +712,7 @@ class OfficeVisionAdapter:
                         "next_image": next_image,
                         "image_count": len(image_order),
                         "source_sha256": source_digest,
+                        "recognition_profile": self.recognition_profile,
                     },
                 )
             )

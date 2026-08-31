@@ -18,6 +18,7 @@ from .extractors import (
     normalize_text,
 )
 from .hancom_images import hwpx_binary_items, hwpx_picture
+from .list_numbering import HANCOM_MARKER, HANCOM_NUMBER_FORMATS, ListCounters
 
 _CONTAINERS = {
     "footNote": "footnote",
@@ -95,11 +96,41 @@ def _sections(archive: zipfile.ZipFile) -> tuple[list[str], list[dict]]:
     ]
 
 
+def _numbering_counters(levels: dict) -> ListCounters:
+    """Build counters from the numbering definition the package declares."""
+    definitions = {}
+    for level, declared in levels.items():
+        start = declared.get("level_start_number")
+        overall = declared.get("numbering_start_number")
+        if start is None and (overall == "1" or (level == 1 and overall is not None)):
+            start = overall
+        try:
+            value = None if start is None else _number(start)
+        except ExtractionError:
+            value = None
+        definitions[level] = {
+            "style": HANCOM_NUMBER_FORMATS.get(declared.get("number_format")),
+            "start": value,
+            "restarts": True,
+            "pattern": declared.get("marker_pattern"),
+        }
+    return ListCounters(definitions, HANCOM_MARKER)
+
+
 class _Reader:
-    def __init__(self, shapes: dict, styles: dict, images: dict | None = None):
+    def __init__(
+        self,
+        shapes: dict,
+        styles: dict,
+        images: dict | None = None,
+        numberings: dict | None = None,
+    ):
         self.shapes = shapes
         self.styles = styles
         self.images = images or {}
+        self.numberings = numberings or {}
+        self.counters: dict[str, ListCounters] = {}
+        self.contaminated: set[str] = set()
         self.units: list[UnitDraft] = []
         self.issues: Counter[str] = Counter()
         self.base: dict = {}
@@ -110,7 +141,41 @@ class _Reader:
         self.fields: dict[str, dict] = {}
         self.active_fields: list[str] = []
 
+    def list_marker(self, properties: dict, main_flow: bool) -> dict | None:
+        """Advance the declared list and return its label when it is provable.
+
+        Numbering continues in package section order. A paragraph outside the
+        body flow leaves every later paragraph of that list unresolved instead
+        of guessing where its number belongs.
+        """
+        reference = properties.get("numbering_ref")
+        level = properties.get("level")
+        if reference not in self.numberings or not isinstance(level, int):
+            return None
+        if not main_flow:
+            self.contaminated.add(reference)
+            return None
+        if reference in self.contaminated:
+            return None
+        counters = self.counters.get(reference)
+        if counters is None:
+            counters = _numbering_counters(self.numberings[reference])
+            self.counters[reference] = counters
+        value = counters.advance(level)
+        text = counters.label(level)
+        if text is None:
+            return None
+        return {
+            "text": text,
+            "value": value,
+            "level": level,
+            "basis": "source_numbering_definition_and_section_order",
+        }
+
     def emit(self, kind: str, location: dict, text: str = "") -> None:
+        location = dict(location)
+        if kind != "list_item":
+            location.pop("computed_list_marker", None)
         text = normalize_text(text)
         self.characters += len(text)
         if self.characters > 50_000_000 or len(self.units) >= 200_000:
@@ -135,6 +200,7 @@ class _Reader:
         context = dict(context)
         if tag == "p":
             context.pop("format_markers", None)
+            context.pop("computed_list_marker", None)
             self.paragraph += 1
             context.update({"paragraph": self.paragraph, "paragraph_element": address})
             properties = self.shapes.get(node.get("paraPrIDRef"), {})
@@ -153,7 +219,15 @@ class _Reader:
             if kind == "textbox":
                 kind = "section_paragraph"
             if head in {"number", "bullet"} and not properties.get("marker_text"):
-                self.issues["hwpx_list_marker_partial"] += 1
+                marker = (
+                    self.list_marker(properties, "container_kind" not in context)
+                    if head == "number"
+                    else None
+                )
+                if marker is None:
+                    self.issues["hwpx_list_marker_partial"] += 1
+                else:
+                    context["computed_list_marker"] = marker
             chunks: list[str] = []
             markers: list[dict] = []
             segment = 0
@@ -241,6 +315,8 @@ class _Reader:
                         "evaluation": "stored_result_only",
                         "parameters": [],
                     }
+                    if field_type:
+                        metadata["field_type_origin"] = "declared_type"
                     parameter_characters = 0
                     for pi, param_group in enumerate(element):
                         if _local_name(param_group.tag) != "parameters":
@@ -265,6 +341,28 @@ class _Reader:
                                     "kind": _local_name(param.tag),
                                     "value": value,
                                 }
+                            )
+                    if not field_type:
+                        command = (
+                            element.get("command")
+                            or element.get("Command")
+                            or next(
+                                (
+                                    item["value"]
+                                    for item in metadata["parameters"]
+                                    if item["name"].casefold() == "command"
+                                ),
+                                "",
+                            )
+                        )
+                        # A stored MEMO command names the field without being
+                        # executed. No other command is interpreted here.
+                        if command.partition("/")[0] == "MEMO":
+                            field_type = "MEMO"
+                            metadata.update(
+                                field_type=field_type,
+                                field_type_origin="stored_command",
+                                stored_command=command[:16_384],
                             )
                     self.emit("field", metadata)
                     if not identifier or identifier in self.fields:
@@ -313,6 +411,10 @@ class _Reader:
                             )
                     return
                 if name in {"autoNum", "newNum"}:
+                    if name == "newNum":
+                        # A restart whose relation to paragraph numbering has
+                        # not been established prevents computed list labels.
+                        self.contaminated.update(self.numberings)
                     try:
                         number = _number(element.get("num"), default=-1)
                         if number < 0:
@@ -540,12 +642,27 @@ def extract_structured_hwpx(path) -> ExtractionResult:
             if "Contents/content.hpf" in archive.namelist()
             else {}
         )
-        reader = _Reader(shapes, styles, images)
+        reader = _Reader(shapes, styles, images, numberings)
+        if issues:
+            reader.contaminated.update(numberings)
         for index, name in enumerate(sections, 1):
             reader.base = {"section": index, "section_file": name}
             reader.paragraph = 0
             reader.walk(_safe_archive_xml_root(archive, name), "0", {})
             reader.finish_section()
+        invalidated = set()
+        for unit in reader.units:
+            location = unit.structure_path
+            if (
+                location.get("numbering_ref") in reader.contaminated
+                and "computed_list_marker" in location
+            ):
+                del location["computed_list_marker"]
+                invalidated.add(
+                    (location.get("section_file"), location.get("paragraph"))
+                )
+        if invalidated:
+            reader.issues["hwpx_list_marker_partial"] += len(invalidated)
         issues.extend(
             {
                 "code": code,

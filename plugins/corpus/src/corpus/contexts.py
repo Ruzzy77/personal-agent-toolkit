@@ -2641,6 +2641,20 @@ class ContextService:
                         source["document_id"],
                     ),
                 ).fetchone()
+                document = None
+                if row is None and not strict:
+                    document = connection.execute(
+                        """
+                        SELECT d.relative_path, d.current_revision_id, d.deleted_at,
+                               active.projection_id AS active_projection_id
+                        FROM documents d
+                        LEFT JOIN extraction_projections active
+                          ON active.revision_id = d.current_revision_id
+                         AND active.is_active = 1
+                        WHERE d.document_id = ?
+                        """,
+                        (source["document_id"],),
+                    ).fetchone()
         except CorpusError:
             if strict:
                 raise ContextValidationError(
@@ -2661,9 +2675,23 @@ class ContextService:
                         "source_unit_id": source["source_unit_id"],
                     },
                 )
+            dependency_state = "source_unavailable"
+            if document is not None:
+                if document["deleted_at"] is not None:
+                    dependency_state = "document_missing"
+                elif (
+                    document["current_revision_id"] is not None
+                    and document["current_revision_id"] != source["revision_id"]
+                ):
+                    dependency_state = "stale_source_revision"
+                elif (
+                    document["active_projection_id"] is not None
+                    and document["active_projection_id"] != source["projection_id"]
+                ):
+                    dependency_state = "stale_extraction_projection"
             return {
-                "dependency_state": "source_unavailable",
-                "relative_path": None,
+                "dependency_state": dependency_state,
+                "relative_path": document["relative_path"] if document else None,
                 "source_span": {},
             }
 

@@ -684,7 +684,7 @@ class PackagedAdapterTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(
             builtin_adapter_descriptor("hwpx").adapter_version,
-            "source-units-v8",
+            "source-units-v9",
         )
         self.assertEqual(
             builtin_adapter_descriptor("markdown").adapter_version,

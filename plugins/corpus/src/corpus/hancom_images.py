@@ -70,17 +70,23 @@ def hwp_picture(data, items, *, version):
     if 0 < reference <= len(items):
         result.update(items[reference - 1])
     result["image_clip"] = list(struct.unpack_from("<4i", data, 44))
-    # The zero-effect 5.0.3.4+ tail has a fixed dimension pair. Variable effect
+    # The fixed 5.0.3.4+ tail has a fixed dimension pair. Variable effect
     # payloads are not interpreted using this offset (nor using display size).
+    # Brightness, contrast and transparency must stay neutral; a grayscale
+    # effect keeps the stored pixel geometry, so only its rendering is skipped.
     if (
         version >= 0x05000304
         and len(data) in {90, 91}
         and struct.unpack_from("<I", data, 78)[0] == 0
-        and data[68:71] == b"\0\0\0"
+        and data[68:70] == b"\0\0"
+        and data[70] in {0, 1}
         and (len(data) == 90 or data[90] == 0)
     ):
         dimensions = list(struct.unpack_from("<II", data, 82))
         result["image_dimensions"] = dimensions
+        result["image_effect"] = "REAL_PIC" if data[70] == 0 else "GRAY_SCALE"
+        if data[70]:
+            result["image_effect_applied"] = False
         try:
             result["source_crop_bbox"] = normalized_clip(
                 result["image_clip"], dimensions
@@ -134,10 +140,16 @@ def hwpx_picture(node, items):
     image, clip, dimensions = (children[key][0] for key in ("img", "imgClip", "imgDim"))
     reference = image.get("binaryItemIDRef")
     result.update(binary_item_ref=reference, image_parts=items.get(reference, []))
-    if image.get("effect", "REAL_PIC") != "REAL_PIC" or any(
+    effect = image.get("effect", "REAL_PIC")
+    # A grayscale effect only changes rendering, so the stored pixel geometry and
+    # the source correspondence stay provable. Other effects remain unresolved.
+    if effect not in {"REAL_PIC", "GRAY_SCALE"} or any(
         image.get(k, "0") != "0" for k in ("bright", "contrast", "alpha")
     ):
         return result
+    result["image_effect"] = effect
+    if effect != "REAL_PIC":
+        result["image_effect_applied"] = False
     try:
         result["image_clip"] = [
             int(clip.get(k)) for k in ("left", "top", "right", "bottom")
