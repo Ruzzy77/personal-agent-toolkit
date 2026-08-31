@@ -21,12 +21,14 @@ from .adapters import (
     ExtractionIssue,
 )
 from .errors import BudgetExceededError, CorpusError, ExtractionError
-from .extractors import MAX_UNIT_CHARS
+from .extractors import MAX_UNIT_CHARS, normalize_text
 from .hancom_images import EmbeddedImageArchive
 from .metafile_images import single_bitmap_emf
+from .metafile_text import stored_emf_strings
 from .native_adapters import PDFKitVisionAdapter
 from .office_reuse import (
     IMAGE_DIAGNOSTICS_PREDECESSOR,
+    METAFILE_TEXT_PREDECESSOR,
     NUMBERING_PREFIX_PREDECESSOR,
     can_reuse_ocr,
     reusable_images,
@@ -45,6 +47,7 @@ _MESSAGES = {
     "office_image_ocr_reused_observed": "Verified OCR was reused for identical source pixels and recognition settings.",
     "office_image_ocr_padding_observed": "A bounded margin let Vision process an otherwise rejected thin image.",
     "office_image_visual_content_partial": "OCR text does not reconstruct the image's non-text visual content.",
+    "office_metafile_text_observed": "Stored Unicode text records were read without replaying metafile graphics.",
 }
 
 
@@ -117,6 +120,8 @@ class OfficeVisionAdapter:
             + b"\0"
             + Path(__file__).with_name("metafile_images.py").read_bytes()
             + b"\0"
+            + Path(__file__).with_name("metafile_text.py").read_bytes()
+            + b"\0"
             + Path(__file__).with_name("office_reuse.py").read_bytes()
         ).hexdigest()
         self.config = {
@@ -134,6 +139,7 @@ class OfficeVisionAdapter:
             "recognition_languages": ["ko-KR", "en-US"],
             "cropped_images": "verified_visible_source_rect_v2",
             "non_displayed_images": "skip_proven_zero_display_area_v1",
+            "metafile_stored_text": "emr_exttextoutw_unicode_records_v1",
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
@@ -142,7 +148,11 @@ class OfficeVisionAdapter:
             config=self.config,
             capabilities=replace(
                 caps,
-                structural_unit_types=(*caps.structural_unit_types, "image_text"),
+                structural_unit_types=(
+                    *caps.structural_unit_types,
+                    "image_text",
+                    "image_native_text",
+                ),
                 supports_ocr=True,
                 supports_geometry=True,
                 supports_confidence=True,
@@ -191,6 +201,13 @@ class OfficeVisionAdapter:
         # unresolved PPTX list prefixes. Other native content and OCR are equal.
         # Core revisits those diagnostics once, preserving unrelated references.
         previous_config = dict(self.config)
+        previous_config.pop("metafile_stored_text")
+        metafile_predecessor = AdapterDescriptor.from_config(
+            adapter_id=self.descriptor.adapter_id,
+            adapter_version=METAFILE_TEXT_PREDECESSOR,
+            config=previous_config,
+            capabilities=self.descriptor.capabilities,
+        )
         if (
             self.descriptor.adapter_id.endswith(".pptx")
             and native.descriptor.adapter_version == "source-units-v8"
@@ -225,6 +242,11 @@ class OfficeVisionAdapter:
                     numbering_predecessor.adapter_id,
                     numbering_predecessor.adapter_version,
                     numbering_predecessor.config_hash,
+                ),
+                (
+                    metafile_predecessor.adapter_id,
+                    metafile_predecessor.adapter_version,
+                    metafile_predecessor.config_hash,
                 ),
             }
         )
@@ -395,7 +417,15 @@ class OfficeVisionAdapter:
                     "Office continuation source or image range changed"
                 )
             for unit in previous.units:
-                if unit.unit_type != "image_text" or unit.derivation_method != "ocr":
+                if not (
+                    (unit.unit_type == "image_text" and unit.derivation_method == "ocr")
+                    or (
+                        unit.unit_type == "image_native_text"
+                        and unit.derivation_method == "native_text"
+                        and unit.structure_path.get("text_representation")
+                        == "emf_stored_string"
+                    )
+                ):
                     continue
                 key = _image_position(unit.structure_path)
                 if key not in positions:
@@ -492,7 +522,7 @@ class OfficeVisionAdapter:
             added_count += len(cached)
             observations["office_image_ocr_observed"] += 1
             observations["office_image_ocr_reused_observed"] += 1
-        by_part, by_digest, source_data = {}, {}, {}
+        by_part, by_digest, source_data, metafile_strings = {}, {}, {}, {}
         bytes_read = 0
         next_image = start
         output_limited = False
@@ -669,6 +699,50 @@ class OfficeVisionAdapter:
                         part,
                         dict(failure.details),
                     )
+                    if failure.code == "image_format_unsupported" and crop is None:
+                        # Read only bytes already admitted by this image pass.
+                        # Stored strings are not OCR or a visible rendering; a
+                        # source crop would require graphics playback to locate.
+                        if digest not in metafile_strings:
+                            metafile_strings[digest] = stored_emf_strings(
+                                source_data[part]
+                            )
+                        strings = metafile_strings[digest] or ()
+                        stored = [
+                            ExtractedUnit(
+                                unit_type="image_native_text",
+                                structure_path={
+                                    **location,
+                                    "image_part": part,
+                                    "image_sha256": digest,
+                                    "text_representation": "emf_stored_string",
+                                    "source_metafile": origin,
+                                },
+                                content=normalize_text(text),
+                                derivation_method="native_text",
+                                quality_flags=(
+                                    "metafile_stored_text",
+                                    "reading_order_unverified",
+                                    "visibility_unverified",
+                                ),
+                            )
+                            for text, origin in strings
+                            if normalize_text(text)
+                        ]
+                        characters = sum(len(u.content) for u in stored)
+                        if (
+                            len(native.units) + added_count + len(stored) > 200_000
+                            or native_total + added_characters + characters > 50_000_000
+                        ):
+                            observations["office_image_ocr_output_limit"] += 1
+                            output_limited = True
+                            next_image = image_index
+                            break
+                        if stored:
+                            insertions[position] = stored
+                            added_count += len(stored)
+                            added_characters += characters
+                            observations["office_metafile_text_observed"] += 1
                     continue
                 if "image_pixel_budget_exceeded" in codes:
                     pixel_issue = next(
@@ -809,6 +883,7 @@ class OfficeVisionAdapter:
                             "office_image_ocr_observed",
                             "office_image_ocr_reused_observed",
                             "office_image_ocr_padding_observed",
+                            "office_metafile_text_observed",
                         }
                         else "warning",
                         message=_MESSAGES[code],

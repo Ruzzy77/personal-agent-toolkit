@@ -65,7 +65,11 @@ from .locking import (
     writer_lock,
 )
 from .native_adapters import LEGACY_PDF_VERSIONS
-from .office_reuse import IMAGE_DIAGNOSTICS_PREDECESSOR, NUMBERING_PREFIX_PREDECESSOR
+from .office_reuse import (
+    IMAGE_DIAGNOSTICS_PREDECESSOR,
+    METAFILE_TEXT_PREDECESSOR,
+    NUMBERING_PREFIX_PREDECESSOR,
+)
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -160,6 +164,12 @@ _CONTINUATION_ISSUE_SQL = (
     f"AND p.adapter_version IN ('{IMAGE_DIAGNOSTICS_PREDECESSOR}', "
     f"'{NUMBERING_PREFIX_PREDECESSOR}') "
     "AND progress.code = 'pptx_list_marker_partial') OR ("
+    "p.adapter_id IN ('work-corpus.native.office-vision.docx', "
+    "'work-corpus.native.office-vision.pptx', 'work-corpus.native.office-vision.hwp', "
+    "'work-corpus.native.office-vision.hwpx') "
+    f"AND p.adapter_version IN ('{IMAGE_DIAGNOSTICS_PREDECESSOR}', "
+    f"'{NUMBERING_PREFIX_PREDECESSOR}', '{METAFILE_TEXT_PREDECESSOR}') "
+    "AND progress.code = 'office_image_format_unsupported') OR ("
     "p.adapter_id = 'work-corpus.native.pdfkit-vision' AND p.adapter_version IN ("
     + ",".join("'" + version + "'" for version in LEGACY_PDF_VERSIONS)
     + ") AND progress.code IN ('pdf_page_without_text', 'pdf_ocr_page_failed')) OR ("
@@ -3160,7 +3170,8 @@ class CorpusService:
                             """SELECT 1 FROM source_units WHERE projection_id = ?
                                AND derivation_method = 'native_text'
                                AND unit_type NOT IN
-                                   ('page_text', 'image_text', 'embedded_object', 'field')
+                                   ('page_text', 'image_text', 'image_native_text',
+                                    'embedded_object', 'field')
                                LIMIT 1""",
                             (existing["projection_id"],),
                         ).fetchone()
