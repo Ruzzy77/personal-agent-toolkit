@@ -57,7 +57,7 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
       "media_type": "application/pdf",
       "descriptor": {
         "adapter_id": "document-files.process.pdf",
-        "adapter_version": "1.0.0+route.<digest>",
+        "adapter_version": "1.0.0+process.<digest>.route.<digest>",
         "config_hash": "<sha256>",
         "capabilities": {
           "format_ids": ["pdf"],
@@ -73,6 +73,7 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
       },
       "config": {
         "processor_schema_version": "document-files.extraction-result.v1",
+        "processor_implementation_sha256": "<sha256>",
         "route": {}
       }
     }
@@ -92,7 +93,7 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
   "operation": "extract",
   "adapter": {
     "adapter_id": "document-files.process.pdf",
-    "adapter_version": "1.0.0+route.<digest>",
+    "adapter_version": "1.0.0+process.<digest>.route.<digest>",
     "config_hash": "<sha256>"
   },
   "input": {
@@ -106,7 +107,7 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
 }
 ```
 
-`path`는 하위 프로세스가 상속한 파일 디스크립터만 가리킵니다. 원본 경로나 등록 경로는 전달하지 않습니다. stdout에는 결과 한 줄만 쓰고 진단은 stderr에 기록합니다.
+`path`는 하위 프로세스가 상속한 파일 디스크립터만 가리킵니다. 원본 경로나 등록 경로는 전달하지 않습니다. Document Files는 여러 형식 라이브러리가 서로의 파일 위치를 공유하지 않도록 이 descriptor를 프로세스 전용 임시 파일로 한 번 복사하고, 추출이 끝나면 즉시 삭제합니다. stdout에는 결과 한 줄만 쓰고 진단은 stderr에 기록합니다.
 
 ## Result
 
