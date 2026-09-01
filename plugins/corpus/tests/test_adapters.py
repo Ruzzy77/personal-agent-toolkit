@@ -13,6 +13,7 @@ from corpus.adapters import (
     AdapterCapabilities,
     AdapterDescriptor,
     ExternalJSONLAdapter,
+    _sanitized_environment,
 )
 from corpus.errors import BudgetExceededError, ExtractionError
 from corpus.service import _validate_ingest_budgets
@@ -41,6 +42,12 @@ def result_script(result: dict) -> str:
 
 
 class ExternalAdapterBoundaryTest(unittest.TestCase):
+    def test_sanitized_environment_keeps_runtime_home(self) -> None:
+        environment = _sanitized_environment(None)
+        self.assertEqual(environment["HOME"], str(Path.home()))
+        self.assertIn("PATH", environment)
+        self.assertNotIn("SSH_AUTH_SOCK", environment)
+
     def test_external_jsonl_uses_inherited_fd_and_returns_valid_envelope(self) -> None:
         result = {
             "schema_version": RESULT_SCHEMA_VERSION,

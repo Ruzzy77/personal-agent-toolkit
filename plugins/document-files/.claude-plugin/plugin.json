@@ -1,7 +1,7 @@
 {
-  "name": "corpus",
-  "version": "0.18.0",
-  "description": "Connect saved questions and relationships to their exact current sources.",
+  "name": "document-files",
+  "version": "1.0.0",
+  "description": "Read, extract, convert, render, create, edit, and verify local document files.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

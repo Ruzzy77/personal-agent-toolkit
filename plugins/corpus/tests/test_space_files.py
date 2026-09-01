@@ -26,18 +26,40 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_office_structure_context_does_not_cross_slide_parts(self):
-        from pptx import Presentation
-        from pptx.util import Inches
-
         root = self.base / "slides"
         root.mkdir()
-        presentation = Presentation()
-        for label in ("First", "Second"):
-            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-            table = slide.shapes.add_table(1, 2, 0, 0, Inches(4), Inches(2)).table
-            table.cell(0, 0).text = label + " name"
-            table.cell(0, 1).text = label + " value"
-        presentation.save(root / "tables.pptx")
+        presentation = """<?xml version="1.0" encoding="UTF-8"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <p:sldIdLst>
+  <p:sldId id="256" r:id="rId1"/>
+  <p:sldId id="257" r:id="rId2"/>
+ </p:sldIdLst>
+</p:presentation>"""
+        relationships = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+ <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>
+</Relationships>"""
+
+        def slide_xml(label: str) -> str:
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+ <p:cSld><p:spTree><p:graphicFrame><a:graphic><a:graphicData><a:tbl>
+  <a:tblGrid><a:gridCol w="1"/><a:gridCol w="1"/></a:tblGrid>
+  <a:tr h="1">
+   <a:tc><a:txBody><a:p><a:r><a:t>{label} name</a:t></a:r></a:p></a:txBody></a:tc>
+   <a:tc><a:txBody><a:p><a:r><a:t>{label} value</a:t></a:r></a:p></a:txBody></a:tc>
+  </a:tr>
+ </a:tbl></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld>
+</p:sld>"""
+
+        with zipfile.ZipFile(root / "tables.pptx", "w") as archive:
+            archive.writestr("ppt/presentation.xml", presentation)
+            archive.writestr("ppt/_rels/presentation.xml.rels", relationships)
+            archive.writestr("ppt/slides/slide1.xml", slide_xml("First"))
+            archive.writestr("ppt/slides/slide2.xml", slide_xml("Second"))
         self.service.register(
             corpus_id="slides", source_root=root, execution_policy="local_only"
         )

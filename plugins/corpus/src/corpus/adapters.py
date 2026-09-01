@@ -979,6 +979,10 @@ def _bounded_subprocess(
 
 def _sanitized_environment(extra: Mapping[str, str] | None) -> dict[str, str]:
     environment = {
+        # User-level plugin launchers and their private dependency caches need
+        # a stable home directory even though the rest of the inherited
+        # environment is intentionally discarded.
+        "HOME": str(Path.home()),
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
