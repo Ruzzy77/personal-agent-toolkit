@@ -100,7 +100,7 @@ def _descriptor_capabilities(raw: object, *, format_id: str) -> AdapterCapabilit
             supports_ocr=raw.get("supports_ocr", False),
             may_emit_partial=raw.get("may_emit_partial", True),
             protocol_version=raw.get(
-                "protocol_version", "document-files.extraction-result.v1"
+                "protocol_version", "document-files.extraction-result.v2"
             ),
         )
     except (KeyError, TypeError, ValueError) as exc:

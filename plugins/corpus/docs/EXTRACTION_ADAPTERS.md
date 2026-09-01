@@ -68,11 +68,11 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
           "supports_confidence": true,
           "supports_ocr": true,
           "may_emit_partial": true,
-          "protocol_version": "document-files.extraction-result.v1"
+          "protocol_version": "document-files.extraction-result.v2"
         }
       },
       "config": {
-        "processor_schema_version": "document-files.extraction-result.v1",
+        "processor_schema_version": "document-files.extraction-result.v2",
         "processor_implementation_sha256": "<sha256>",
         "route": {}
       }
@@ -89,7 +89,7 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
 
 ```json
 {
-  "schema_version": "document-files.extraction-request.v1",
+  "schema_version": "document-files.extraction-request.v2",
   "operation": "extract",
   "adapter": {
     "adapter_id": "document-files.process.pdf",
@@ -113,8 +113,14 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
 
 ```json
 {
-  "schema_version": "document-files.extraction-result.v1",
+  "schema_version": "document-files.extraction-result.v2",
   "completeness": "partial",
+  "coverage": {
+    "text_content": "complete",
+    "structure": "partial",
+    "visual_content": "unverified",
+    "reading_order": "unverified"
+  },
   "units": [
     {
       "unit_type": "page_region",
@@ -135,6 +141,8 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
       "code": "table_structure_uncertain",
       "message": "표의 셀 병합 상태가 불확실합니다.",
       "severity": "warning",
+      "impact": "structure_gap",
+      "coverage_dimensions": ["structure"],
       "details": {"page": 1}
     }
   ]
@@ -150,7 +158,7 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
 - source anchor
 - trust나 authority
 
-Corpus는 중복 JSON 키, 알 수 없는 필드, 비정상 수치, 선언하지 않은 unit type과 capability 위반을 거부합니다. 정보성 `unit_split`을 제외한 warning이나 error가 있거나 unit이 비어 있으면, 프로세스가 `complete`라고 적어도 Corpus가 `partial`로 낮춥니다.
+`coverage`는 `text_content`, `structure`, `visual_content`, `reading_order`를 각각 `complete`, `partial`, `unverified`, `not_applicable` 중 하나로 기록합니다. 각 이슈는 영향 종류와 관련 coverage 차원을 명시합니다. Corpus는 중복 JSON 키, 알 수 없는 필드, 비정상 수치, 선언하지 않은 unit type과 capability 위반, 그리고 unit·이슈와 맞지 않는 coverage를 거부합니다.
 
 ## 큰 문서와 continuation
 
@@ -174,6 +182,6 @@ Document Files는 PDF 페이지와 Office 계열 문서의 포함 이미지처�
 
 ## 완료와 경고
 
-`complete`는 선언된 처리 범위에서 unit이 하나 이상 있고, 정보성 이슈를 제외한 warning과 error가 없는 상태입니다. 시각적 배치, 지원하지 않는 개체, OCR 실패나 읽기 순서 미확인은 해당 이슈와 함께 `partial`로 남습니다. 경고를 숨기기 위해 completeness를 올리지 않습니다.
+`completeness`는 coverage의 요약값입니다. 하나 이상의 차원이 `partial`이면 `partial`이고, `unverified`만 있는 경우에는 `complete`일 수 있습니다. 따라서 읽기 순서 미확인은 `reading_order: unverified`로 남기되 추출된 본문까지 부분 추출로 오인하지 않습니다. 이미지에 텍스트가 없다는 관찰도 정보성 이슈로 기록하며, 실제 미해석 시각 내용이나 구조·본문 누락만 해당 차원을 `partial`로 낮춥니다.
 
-Corpus의 자동 보고는 동일한 경고 지문을 반복 알림하지 않습니다. 문서 집합, 이슈 코드·형식별 수치, 처리 가능 상태나 실패 상태가 바뀐 경우에만 새 경고로 보고합니다.
+Corpus의 자동 보고는 문서·revision·adapter·이슈 영향으로 구성한 경고 지문을 저장합니다. 새 경고, 발생 수 증가, 해결 뒤 재발만 알림 대상으로 삼고 동일 상태는 반복 알림하지 않습니다. 상태 파일은 전체 갱신이 성공한 경우에만 원자적으로 교체합니다.

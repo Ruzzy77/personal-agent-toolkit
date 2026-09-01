@@ -377,6 +377,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = commands.add_parser("status", help="Report corpus index state.")
     status.add_argument("--corpus", required=True)
+    status.add_argument(
+        "--max-file-bytes",
+        type=parse_size,
+        default=parse_size("250MiB"),
+        help="Classify pending documents above this local refresh limit.",
+    )
+    status.add_argument("--include-remote", action="store_true")
+    status.add_argument(
+        "--include-warning-items",
+        action="store_true",
+        help="Include document-level warning identities for machine comparison.",
+    )
 
     inventory = commands.add_parser(
         "inventory",
@@ -466,6 +478,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ingest.add_argument("--timeout-seconds", type=float, default=120)
+
+    large_document = commands.add_parser(
+        "large-document",
+        help="Approve and refresh selected resident documents above the standard limit.",
+    )
+    large_document_commands = large_document.add_subparsers(
+        dest="large_document_command",
+        required=True,
+    )
+    large_approve = large_document_commands.add_parser(
+        "approve",
+        help="Approve the currently observed source identity for one document.",
+    )
+    large_approve.add_argument("--corpus", required=True)
+    large_approve.add_argument("--document-id", required=True)
+    large_approve.add_argument("--max-bytes", type=parse_size)
+    large_list = large_document_commands.add_parser(
+        "list",
+        help="List large-document approvals and whether they still match the source.",
+    )
+    large_list.add_argument("--corpus", required=True)
+    large_revoke = large_document_commands.add_parser(
+        "revoke",
+        help="Revoke one large-document approval.",
+    )
+    large_revoke.add_argument("--corpus", required=True)
+    large_revoke.add_argument("--document-id", required=True)
+    large_sync = large_document_commands.add_parser(
+        "sync",
+        help="Refresh matching approved large documents one at a time.",
+    )
+    large_sync.add_argument("--corpus", required=True)
+    large_sync.add_argument("--max-files", type=int, default=10)
+    large_sync.add_argument("--max-bytes", type=parse_size, default=parse_size("1GiB"))
+    large_sync.add_argument("--timeout-seconds", type=float, default=600)
 
     cleanup_source_copies = commands.add_parser(
         "cleanup-source-copies",
@@ -842,7 +889,12 @@ def execute(args: argparse.Namespace) -> dict | list:
             timeout_seconds=args.timeout_seconds,
         )
     if args.command == "status":
-        return service.status(args.corpus)
+        return service.status(
+            args.corpus,
+            max_file_bytes=args.max_file_bytes,
+            include_remote=args.include_remote,
+            include_warning_items=args.include_warning_items,
+        )
     if args.command == "inventory":
         return service.inventory(
             args.corpus,
@@ -865,6 +917,30 @@ def execute(args: argparse.Namespace) -> dict | list:
             remote_only=args.remote_only,
             document_ids=args.document_ids,
             timeout_seconds=args.timeout_seconds,
+        )
+    if args.command == "large-document":
+        if args.large_document_command == "approve":
+            return service.approve_large_document(
+                args.corpus,
+                document_id=args.document_id,
+                max_bytes=args.max_bytes,
+            )
+        if args.large_document_command == "list":
+            return service.list_large_document_approvals(args.corpus)
+        if args.large_document_command == "revoke":
+            return service.revoke_large_document_approval(
+                args.corpus,
+                document_id=args.document_id,
+            )
+        if args.large_document_command == "sync":
+            return service.sync_approved_large_documents(
+                args.corpus,
+                max_files=args.max_files,
+                max_bytes=args.max_bytes,
+                timeout_seconds=args.timeout_seconds,
+            )
+        raise AssertionError(
+            f"unhandled large-document command: {args.large_document_command}"
         )
     if args.command == "cleanup-source-copies":
         return service.cleanup_source_copies(

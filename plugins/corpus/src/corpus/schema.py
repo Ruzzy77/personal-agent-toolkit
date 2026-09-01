@@ -1,8 +1,8 @@
 """SQLite schemas for the catalog and per-corpus source fabric."""
 
 CATALOG_SCHEMA_VERSION = 1
-CORPUS_SCHEMA_VERSION = 4
-EXTRACTION_SCHEMA_VERSION = 4
+CORPUS_SCHEMA_VERSION = 5
+EXTRACTION_SCHEMA_VERSION = 5
 CONTEXT_SCHEMA_VERSION = 5
 WORKSPACE_SCHEMA_VERSION = 1
 
@@ -302,7 +302,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 4
+SELECT 5
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -391,6 +391,8 @@ CREATE TABLE IF NOT EXISTS extraction_projections (
     result_manifest_hash TEXT NOT NULL,
     completeness_state TEXT NOT NULL
         CHECK (completeness_state IN ('complete', 'partial')),
+    coverage_json TEXT NOT NULL DEFAULT
+        '{"reading_order":"unverified","structure":"unverified","text_content":"unverified","visual_content":"unverified"}',
     capability_manifest_json TEXT NOT NULL,
     assurance_state TEXT NOT NULL
         CHECK (assurance_state IN ('declared', 'legacy_unverified')),
@@ -435,6 +437,22 @@ CREATE INDEX IF NOT EXISTS idx_attempts_revision
     ON extraction_attempts(revision_id, started_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_identity
     ON extraction_attempts(attempt_id, revision_id);
+
+CREATE TABLE IF NOT EXISTS large_document_approvals (
+    document_id TEXT PRIMARY KEY,
+    source_size INTEGER NOT NULL CHECK (source_size >= 0),
+    source_modified_ns INTEGER NOT NULL,
+    source_changed_ns INTEGER NOT NULL,
+    source_device INTEGER NOT NULL,
+    source_inode INTEGER NOT NULL,
+    approved_revision_id TEXT,
+    max_bytes INTEGER NOT NULL CHECK (max_bytes > 0 AND max_bytes <= 1073741824),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY(approved_revision_id) REFERENCES revisions(revision_id)
+        ON DELETE SET NULL
+);
 
 CREATE TABLE IF NOT EXISTS source_units (
     unit_id TEXT PRIMARY KEY,

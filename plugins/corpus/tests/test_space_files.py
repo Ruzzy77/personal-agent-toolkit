@@ -64,6 +64,19 @@ class SpaceFileServiceTest(unittest.TestCase):
             corpus_id="slides", source_root=root, execution_policy="local_only"
         )
         self.service.sync("slides")
+        status = self.service.status("slides", include_warning_items=True)
+        self.assertEqual(
+            status["coverage_profiles"]["reading_order"]["unverified"],
+            1,
+        )
+        self.assertEqual(status["coverage_gaps"]["partial_active_projections"], 0)
+        reading_order = next(
+            item
+            for item in status["warning_items"]
+            if item["issue_code"] == "reading_order_unverified"
+        )
+        self.assertEqual(reading_order["impact"], "reading_order_unverified")
+        self.assertEqual(reading_order["coverage_dimensions"], ["reading_order"])
         hit = self.service.search("slides", "First value")["candidates"][0]
         context = self.service.read_units(
             "slides", [hit["unit_id"]], include_structure_context=True

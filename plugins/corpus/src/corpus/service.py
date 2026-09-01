@@ -121,6 +121,7 @@ _MAX_EXACT_INGEST_BYTES = 1024 * 1024 * 1024
 _MAX_EXACT_INGEST_FILE_BYTES = 1024 * 1024 * 1024
 _MAX_INGEST_DOCUMENT_IDS = 100
 _MAX_INGEST_TIMEOUT_SECONDS = 600
+_DEFAULT_LARGE_DOCUMENT_SYNC_FILES = 10
 _INVENTORY_ELIGIBILITY_STATES = {
     "all",
     "supported",
@@ -140,33 +141,6 @@ _INVENTORY_INDEX_STATES = {
     "unindexed",
     "not_applicable",
 }
-
-
-def _extraction_issue_category(code: str) -> str:
-    if code == "reading_order_unverified":
-        return "verification"
-    if code == "office_image_visual_content_partial":
-        return "visual_content_uninterpreted"
-    if (
-        "budget" in code
-        or "limit" in code
-        or "truncated" in code
-        or code.endswith("range_pending")
-    ):
-        return "processing_limit"
-    if code.endswith("format_unsupported"):
-        return "unsupported_format"
-    if code.endswith(("failed", "unavailable")):
-        return "extraction_failure"
-    if (
-        "without_text" in code
-        or "content_unread" in code
-        or "object_content_partial" in code
-    ):
-        return "unread_content"
-    if code.endswith(("partial", "unresolved")):
-        return "structure_unresolved"
-    return "other"
 
 
 def _validate_ingest_budgets(
@@ -1882,8 +1856,17 @@ class CorpusService:
     def status(
         self,
         corpus_id: str,
+        *,
+        max_file_bytes: int = _MAX_INGEST_FILE_BYTES,
+        include_remote: bool = False,
+        include_warning_items: bool = False,
     ) -> dict:
+        if not 1 <= max_file_bytes <= _MAX_EXACT_INGEST_FILE_BYTES:
+            raise BudgetExceededError(
+                "status file limit must be between 1 byte and 1 GiB"
+            )
         corpus = get_corpus(self.data_root, corpus_id)
+        warning_items: list[dict] = []
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             scan = connection.execute(
                 "SELECT * FROM scan_runs ORDER BY rowid DESC LIMIT 1"
@@ -1974,7 +1957,7 @@ class CorpusService:
             active_projection_rows = connection.execute(
                 """
                 SELECT d.extension, p.adapter_id, p.adapter_version, p.config_hash,
-                       p.completeness_state
+                       p.completeness_state, p.coverage_json
                 FROM documents d
                 JOIN revisions r ON r.revision_id = d.current_revision_id
                 JOIN extraction_projections p
@@ -2017,29 +2000,134 @@ class CorpusService:
                      AND i.severity IN ('warning', 'error') GROUP BY i.code"""
                 ).fetchall()
             )
-            categorized_documents = {}
-            for document_id, issue_code in connection.execute(
-                """SELECT DISTINCT d.document_id, i.code FROM documents d
+            impact_documents = {}
+            for document_id, details_json in connection.execute(
+                """SELECT DISTINCT d.document_id, i.details_json FROM documents d
                    JOIN extraction_projections p ON p.revision_id = d.current_revision_id AND p.is_active = 1
                    LEFT JOIN extraction_issues i ON i.projection_id = p.projection_id
                        AND i.lifecycle_state = 'active' AND i.severity IN ('warning', 'error')
                    WHERE d.deleted_at IS NULL AND p.completeness_state = 'partial'"""
             ):
-                categories = categorized_documents.setdefault(document_id, set())
-                if issue_code:
-                    categories.add(_extraction_issue_category(issue_code))
-            partial_by_category = {}
-            for categories in categorized_documents.values():
-                for category in categories or {"other"}:
-                    partial_by_category[category] = (
-                        partial_by_category.get(category, 0) + 1
+                impacts = impact_documents.setdefault(document_id, set())
+                if details_json:
+                    try:
+                        payload = json.loads(details_json)
+                    except (TypeError, json.JSONDecodeError):
+                        payload = {}
+                    impact = payload.get("impact")
+                    if isinstance(impact, str) and impact:
+                        impacts.add(impact)
+                    else:
+                        impacts.add("legacy_unclassified")
+            partial_by_impact = {}
+            for impacts in impact_documents.values():
+                for impact in impacts or {"unclassified"}:
+                    partial_by_impact[impact] = (
+                        partial_by_impact.get(impact, 0) + 1
                     )
             verification_only = sum(
-                categories == {"verification"}
-                for categories in categorized_documents.values()
+                impacts == {"reading_order_unverified"}
+                for impacts in impact_documents.values()
             )
+            if include_warning_items:
+                grouped_warnings: dict[tuple, dict] = {}
+                warning_rows = connection.execute(
+                    """
+                    SELECT d.document_id, d.relative_path, d.current_revision_id,
+                           p.projection_id, p.adapter_id, p.adapter_version,
+                           p.config_hash, i.severity, i.code, i.details_json
+                    FROM documents d
+                    JOIN revisions r ON r.revision_id = d.current_revision_id
+                    JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                    JOIN extraction_issues i
+                      ON i.projection_id = p.projection_id
+                     AND i.lifecycle_state = 'active'
+                    WHERE d.deleted_at IS NULL
+                      AND d.eligibility_state = 'supported'
+                      AND i.severity IN ('warning', 'error')
+                      AND r.source_size = d.logical_size
+                      AND r.source_modified_ns = d.modified_ns
+                      AND r.source_changed_ns = d.changed_ns
+                      AND r.source_inode = d.inode
+                    ORDER BY d.document_id, i.code, i.locator_key
+                    """
+                ).fetchall()
+                for row in warning_rows:
+                    try:
+                        issue_payload = json.loads(row["details_json"])
+                    except (TypeError, json.JSONDecodeError):
+                        issue_payload = {}
+                    issue_details = issue_payload.get("details", {})
+                    impact = issue_payload.get("impact") or (
+                        issue_details.get("impact")
+                        if isinstance(issue_details, dict)
+                        else None
+                    )
+                    dimensions = issue_payload.get("coverage_dimensions") or (
+                        issue_details.get("coverage_dimensions")
+                        if isinstance(issue_details, dict)
+                        else None
+                    )
+                    if not isinstance(impact, str) or not impact:
+                        impact = "legacy_unclassified"
+                    if not isinstance(dimensions, list):
+                        dimensions = []
+                    normalized_dimensions = sorted(
+                        {
+                            value
+                            for value in dimensions
+                            if isinstance(value, str) and value
+                        }
+                    )
+                    key = (
+                        row["document_id"],
+                        row["current_revision_id"],
+                        row["projection_id"],
+                        row["adapter_id"],
+                        row["adapter_version"],
+                        row["config_hash"],
+                        row["severity"],
+                        row["code"],
+                        impact,
+                        tuple(normalized_dimensions),
+                    )
+                    item = grouped_warnings.get(key)
+                    if item is None:
+                        item = {
+                            "kind": "extraction_issue",
+                            "document_id": row["document_id"],
+                            "relative_path": row["relative_path"],
+                            "revision_id": row["current_revision_id"],
+                            "projection_id": row["projection_id"],
+                            "adapter_id": row["adapter_id"],
+                            "adapter_version": row["adapter_version"],
+                            "config_hash": row["config_hash"],
+                            "severity": row["severity"],
+                            "issue_code": row["code"],
+                            "impact": impact,
+                            "coverage_dimensions": normalized_dimensions,
+                            "occurrence_count": 0,
+                        }
+                        grouped_warnings[key] = item
+                    item["occurrence_count"] += 1
+                warning_items = list(grouped_warnings.values())
         outdated_projections = 0
         partial_projections = 0
+        coverage_profiles = {
+            dimension: {
+                "complete": 0,
+                "partial": 0,
+                "unverified": 0,
+                "not_applicable": 0,
+            }
+            for dimension in (
+                "text_content",
+                "structure",
+                "visual_content",
+                "reading_order",
+            )
+        }
         for row in active_projection_rows:
             if row["completeness_state"] != "complete":
                 partial_projections += 1
@@ -2050,6 +2138,15 @@ class CorpusService:
                 row["config_hash"],
             ):
                 outdated_projections += 1
+            try:
+                coverage = json.loads(row["coverage_json"])
+            except (TypeError, json.JSONDecodeError):
+                coverage = {}
+            for dimension, counts in coverage_profiles.items():
+                value = coverage.get(dimension, "unverified")
+                if value not in counts:
+                    value = "unverified"
+                counts[value] += 1
         supported_documents = int(totals["supported_documents"] or 0)
         indexed_documents = int(totals["indexed_documents"] or 0)
         coverage_gaps = {
@@ -2060,6 +2157,15 @@ class CorpusService:
             "outdated_active_projections": outdated_projections,
         }
         staging_observation = observe_staging(self._paths(corpus_id))
+        pending_state = self._pending_state_summary(
+            corpus_id,
+            max_file_bytes=max_file_bytes,
+            include_remote=include_remote,
+            include_items=include_warning_items,
+        )
+        if include_warning_items:
+            warning_items.extend(pending_state.get("items", []))
+            pending_state.pop("items", None)
         response = {
             "corpus": corpus,
             "data_root": str(self.data_root),
@@ -2073,13 +2179,15 @@ class CorpusService:
             "extraction_attempts": attempts,
             "source_state": self._space_source_state(corpus_id),
             "coverage_gaps": coverage_gaps,
+            "pending": pending_state,
             "partial_extraction": {
                 "by_format": partial_by_format,
                 "by_issue": partial_by_issue,
-                "by_category": dict(sorted(partial_by_category.items())),
+                "by_impact": dict(sorted(partial_by_impact.items())),
                 "verification_only_documents": verification_only,
                 "issue_document_counts_overlap": True,
             },
+            "coverage_profiles": coverage_profiles,
             "issues": issues,
             "issue_lifecycle": issue_lifecycle,
             "extraction_adapters": [
@@ -2097,6 +2205,8 @@ class CorpusService:
                 "staging_observation": staging_observation,
             },
         }
+        if include_warning_items:
+            response["warning_items"] = warning_items
         return response
 
     def _document_index_state(self, document: dict) -> tuple[str, list[str]]:
@@ -2549,6 +2659,7 @@ class CorpusService:
         max_file_bytes: int,
         include_remote: bool,
         observed_scan_id: str | None = None,
+        include_items: bool = False,
     ) -> dict:
         with corpus_read_connection(self.data_root, corpus_id) as connection:
             rows = connection.execute(
@@ -2564,7 +2675,14 @@ class CorpusService:
                        p.config_hash AS projection_config_hash,
                        failed.adapter_id AS failed_adapter_id,
                        failed.adapter_version AS failed_adapter_version,
-                       failed.config_hash AS failed_config_hash
+                       failed.config_hash AS failed_config_hash,
+                       approval.document_id AS approved_document_id,
+                       approval.source_size AS approval_source_size,
+                       approval.source_modified_ns AS approval_source_modified_ns,
+                       approval.source_changed_ns AS approval_source_changed_ns,
+                       approval.source_device AS approval_source_device,
+                       approval.source_inode AS approval_source_inode,
+                       approval.max_bytes AS approval_max_bytes
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
@@ -2578,6 +2696,8 @@ class CorpusService:
                     ORDER BY candidate.completed_at DESC, candidate.attempt_id DESC
                     LIMIT 1
                   )
+                LEFT JOIN large_document_approvals approval
+                  ON approval.document_id = d.document_id
                 WHERE d.deleted_at IS NULL
                   AND d.eligibility_state = 'supported'
                   AND (? IS NULL OR d.last_seen_scan_id = ?)
@@ -2592,6 +2712,7 @@ class CorpusService:
             "failed": 0,
             "coverage_gaps": 0,
         }
+        items: list[dict] = []
         outdated = {
             "total": 0,
             "refreshable": 0,
@@ -2627,20 +2748,72 @@ class CorpusService:
                 outdated["total"] += 1
                 outdated[category] += 1
             if document["logical_size"] > max_file_bytes:
+                category = "too_large"
                 result["too_large"] += 1
                 result["coverage_gaps"] += 1
-                continue
-            if document["is_dataless"] and not include_remote:
+            elif document["is_dataless"] and not include_remote:
+                category = "pending_remote"
                 result["pending_remote"] += 1
                 result["coverage_gaps"] += 1
-                continue
-            if failed:
+            elif failed:
+                category = "failed"
                 result["failed"] += 1
                 result["coverage_gaps"] += 1
-                continue
-            result["refreshable"] += 1
-            result["remaining"] += 1
+            else:
+                category = "refreshable"
+                result["refreshable"] += 1
+                result["remaining"] += 1
+            if include_items:
+                impact = (
+                    "processing_limit"
+                    if category == "too_large"
+                    else "operational_failure"
+                )
+                approval_state = None
+                if category == "too_large":
+                    if document.get("approved_document_id") is None:
+                        approval_state = "not_approved"
+                    else:
+                        approval = {
+                            "source_size": document["approval_source_size"],
+                            "source_modified_ns": document[
+                                "approval_source_modified_ns"
+                            ],
+                            "source_changed_ns": document[
+                                "approval_source_changed_ns"
+                            ],
+                            "source_device": document["approval_source_device"],
+                            "source_inode": document["approval_source_inode"],
+                        }
+                        approval_state = (
+                            "approved"
+                            if self._approval_matches_document(approval, document)
+                            else "source_changed"
+                        )
+                item = {
+                    "kind": "pending_document",
+                    "document_id": document["document_id"],
+                    "relative_path": document["relative_path"],
+                    "revision_id": document["current_revision_id"],
+                    "projection_id": document.get("active_projection_id"),
+                    "adapter_id": descriptor.adapter_id,
+                    "adapter_version": descriptor.adapter_version,
+                    "config_hash": descriptor.config_hash,
+                    "severity": "error" if category == "failed" else "warning",
+                    "issue_code": f"pending_{category}",
+                    "impact": impact,
+                    "coverage_dimensions": ["text_content"],
+                    "occurrence_count": 1,
+                    "logical_size": document["logical_size"],
+                    "refresh_reasons": reasons,
+                }
+                if approval_state is not None:
+                    item["approval_state"] = approval_state
+                    item["approval_max_bytes"] = document.get("approval_max_bytes")
+                items.append(item)
         result["outdated"] = outdated
+        if include_items:
+            result["items"] = items
         return result
 
     def _ingest_locked(
@@ -2850,6 +3023,357 @@ class CorpusService:
         return {
             "corpus_id": corpus_id,
             **result,
+        }
+
+    @staticmethod
+    def _approval_matches_document(approval: dict, document: dict) -> bool:
+        return all(
+            int(approval[approval_key]) == int(document[document_key])
+            for approval_key, document_key in (
+                ("source_size", "logical_size"),
+                ("source_modified_ns", "modified_ns"),
+                ("source_changed_ns", "changed_ns"),
+                ("source_device", "device"),
+                ("source_inode", "inode"),
+            )
+        )
+
+    def approve_large_document(
+        self,
+        corpus_id: str,
+        *,
+        document_id: str,
+        max_bytes: int | None = None,
+    ) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        get_corpus(self.data_root, corpus_id)
+        if not document_id or len(document_id) > 200:
+            raise InvalidRequestError(
+                "large-document approval requires one valid document id"
+            )
+        paths = self._paths(corpus_id)
+        paths.ensure()
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            row = connection.execute(
+                """
+                SELECT document_id, relative_path, logical_size, modified_ns,
+                       changed_ns, device, inode, is_dataless, residency_state,
+                       eligibility_state, current_revision_id, deleted_at
+                FROM documents
+                WHERE document_id = ?
+                """,
+                (document_id,),
+            ).fetchone()
+            if row is None or row["deleted_at"] is not None:
+                raise InvalidRequestError(
+                    "large-document approval target is not in the current inventory",
+                    details={"document_id": document_id},
+                )
+            document = dict(row)
+            if document["eligibility_state"] != "supported":
+                raise InvalidRequestError(
+                    "large-document approval requires a supported document",
+                    details={"document_id": document_id},
+                )
+            if document["is_dataless"] or document["residency_state"] != "resident":
+                raise InvalidRequestError(
+                    "large-document approval requires resident local source bytes",
+                    details={"document_id": document_id},
+                )
+            logical_size = int(document["logical_size"])
+            if logical_size <= _MAX_INGEST_FILE_BYTES:
+                raise InvalidRequestError(
+                    "large-document approval is only needed above the standard file limit",
+                    details={
+                        "document_id": document_id,
+                        "logical_size": logical_size,
+                        "standard_limit": _MAX_INGEST_FILE_BYTES,
+                    },
+                )
+            approved_max_bytes = logical_size if max_bytes is None else max_bytes
+            if not logical_size <= approved_max_bytes <= _MAX_EXACT_INGEST_FILE_BYTES:
+                raise BudgetExceededError(
+                    "large-document approval limit must cover the current file and stay within 1 GiB",
+                    details={
+                        "document_id": document_id,
+                        "logical_size": logical_size,
+                        "max_bytes": approved_max_bytes,
+                        "maximum": _MAX_EXACT_INGEST_FILE_BYTES,
+                    },
+                )
+            now = utc_now()
+            connection.execute(
+                """
+                INSERT INTO large_document_approvals(
+                    document_id, source_size, source_modified_ns,
+                    source_changed_ns, source_device, source_inode,
+                    approved_revision_id, max_bytes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    source_size = excluded.source_size,
+                    source_modified_ns = excluded.source_modified_ns,
+                    source_changed_ns = excluded.source_changed_ns,
+                    source_device = excluded.source_device,
+                    source_inode = excluded.source_inode,
+                    approved_revision_id = excluded.approved_revision_id,
+                    max_bytes = excluded.max_bytes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    document_id,
+                    logical_size,
+                    document["modified_ns"],
+                    document["changed_ns"],
+                    document["device"],
+                    document["inode"],
+                    document["current_revision_id"],
+                    approved_max_bytes,
+                    now,
+                    now,
+                ),
+            )
+        return {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "relative_path": document["relative_path"],
+            "approved_source": {
+                "logical_size": logical_size,
+                "modified_ns": document["modified_ns"],
+                "changed_ns": document["changed_ns"],
+                "device": document["device"],
+                "inode": document["inode"],
+                "revision_id": document["current_revision_id"],
+            },
+            "max_bytes": approved_max_bytes,
+            "state": "approved",
+        }
+
+    def list_large_document_approvals(self, corpus_id: str) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        get_corpus(self.data_root, corpus_id)
+        with corpus_read_connection(self.data_root, corpus_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT approval.*, d.relative_path, d.logical_size, d.modified_ns,
+                       d.changed_ns, d.device, d.inode, d.is_dataless,
+                       d.residency_state, d.eligibility_state, d.deleted_at,
+                       d.current_revision_id
+                FROM large_document_approvals approval
+                LEFT JOIN documents d ON d.document_id = approval.document_id
+                ORDER BY d.relative_path_nfc, approval.document_id
+                """
+            ).fetchall()
+        approvals = []
+        for row in rows:
+            item = dict(row)
+            available = item.get("relative_path") is not None and item["deleted_at"] is None
+            matches = available and self._approval_matches_document(item, item)
+            if not available:
+                state = "unavailable"
+            elif item["eligibility_state"] != "supported":
+                state = "unsupported"
+            elif item["is_dataless"] or item["residency_state"] != "resident":
+                state = "remote"
+            elif not matches:
+                state = "source_changed"
+            else:
+                state = "approved"
+            approvals.append(
+                {
+                    "document_id": item["document_id"],
+                    "relative_path": item.get("relative_path"),
+                    "state": state,
+                    "approved_revision_id": item["approved_revision_id"],
+                    "current_revision_id": item.get("current_revision_id"),
+                    "approved_source_size": item["source_size"],
+                    "current_logical_size": item.get("logical_size"),
+                    "max_bytes": item["max_bytes"],
+                    "created_at": item["created_at"],
+                    "updated_at": item["updated_at"],
+                }
+            )
+        return {
+            "corpus_id": corpus_id,
+            "approvals": approvals,
+            "count": len(approvals),
+        }
+
+    def revoke_large_document_approval(
+        self,
+        corpus_id: str,
+        *,
+        document_id: str,
+    ) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        get_corpus(self.data_root, corpus_id)
+        paths = self._paths(corpus_id)
+        paths.ensure()
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            cursor = connection.execute(
+                "DELETE FROM large_document_approvals WHERE document_id = ?",
+                (document_id,),
+            )
+        return {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "revoked": cursor.rowcount == 1,
+        }
+
+    def sync_approved_large_documents(
+        self,
+        corpus_id: str,
+        *,
+        max_files: int = _DEFAULT_LARGE_DOCUMENT_SYNC_FILES,
+        max_bytes: int = _MAX_EXACT_INGEST_BYTES,
+        timeout_seconds: float = _MAX_INGEST_TIMEOUT_SECONDS,
+    ) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        corpus = get_corpus(self.data_root, corpus_id)
+        if not 1 <= max_files <= _MAX_INGEST_FILES:
+            raise BudgetExceededError(
+                "approved large-document file limit must be between 1 and 50"
+            )
+        if not 1 <= max_bytes <= _MAX_EXACT_INGEST_BYTES:
+            raise BudgetExceededError(
+                "approved large-document byte limit must be between 1 byte and 1 GiB"
+            )
+        if not 0 < timeout_seconds <= _MAX_INGEST_TIMEOUT_SECONDS:
+            raise BudgetExceededError(
+                "approved large-document timeout must be between 0 and 600 seconds"
+            )
+        paths = self._paths(corpus_id)
+        paths.ensure()
+        results: list[dict] = []
+        skipped = {
+            "current": 0,
+            "source_changed": 0,
+            "unavailable": 0,
+            "unsupported": 0,
+            "remote": 0,
+            "over_limit": 0,
+            "failed_waiting_for_change": 0,
+            "budget_deferred": 0,
+        }
+        selected_bytes = 0
+        with writer_lock(paths.corpus_root / "writer.lock"):
+            with corpus_read_connection(self.data_root, corpus_id) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT approval.*, d.*,
+                           r.source_size AS revision_source_size,
+                           r.source_modified_ns AS revision_source_modified_ns,
+                           r.source_changed_ns AS revision_source_changed_ns,
+                           r.source_device AS revision_source_device,
+                           r.source_inode AS revision_source_inode,
+                           p.projection_id AS active_projection_id,
+                           p.adapter_id AS projection_adapter_id,
+                           p.adapter_version AS projection_adapter_version,
+                           p.config_hash AS projection_config_hash,
+                           failed.adapter_id AS failed_adapter_id,
+                           failed.adapter_version AS failed_adapter_version,
+                           failed.config_hash AS failed_config_hash,
+                           failed.completed_at AS failed_completed_at
+                    FROM large_document_approvals approval
+                    LEFT JOIN documents d ON d.document_id = approval.document_id
+                    LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
+                    LEFT JOIN extraction_projections p
+                      ON p.revision_id = d.current_revision_id AND p.is_active = 1
+                    LEFT JOIN extraction_attempts failed
+                      ON failed.attempt_id = (
+                        SELECT candidate.attempt_id
+                        FROM extraction_attempts candidate
+                        WHERE candidate.revision_id = d.current_revision_id
+                          AND candidate.state = 'failed'
+                        ORDER BY candidate.completed_at DESC, candidate.attempt_id DESC
+                        LIMIT 1
+                      )
+                    ORDER BY approval.source_size, approval.document_id
+                    """
+                ).fetchall()
+            for row in rows:
+                document = dict(row)
+                document_id = document["document_id"]
+                if document.get("relative_path") is None or document["deleted_at"] is not None:
+                    skipped["unavailable"] += 1
+                    continue
+                if document["eligibility_state"] != "supported":
+                    skipped["unsupported"] += 1
+                    continue
+                if document["is_dataless"] or document["residency_state"] != "resident":
+                    skipped["remote"] += 1
+                    continue
+                if not self._approval_matches_document(document, document):
+                    skipped["source_changed"] += 1
+                    continue
+                if int(document["logical_size"]) > int(document["max_bytes"]):
+                    skipped["over_limit"] += 1
+                    continue
+                document_index_state, reasons = self._document_index_state(document)
+                if document_index_state == "current":
+                    skipped["current"] += 1
+                    continue
+                descriptor = self.adapter_registry.resolve(document["extension"]).descriptor
+                failed_after_approval = (
+                    "source_observation_changed" not in reasons
+                    and document.get("failed_adapter_id") == descriptor.adapter_id
+                    and document.get("failed_adapter_version") == descriptor.adapter_version
+                    and document.get("failed_config_hash") == descriptor.config_hash
+                    and str(document.get("failed_completed_at") or "")
+                    >= str(document["updated_at"])
+                )
+                if failed_after_approval:
+                    skipped["failed_waiting_for_change"] += 1
+                    continue
+                if (
+                    len(results) >= max_files
+                    or selected_bytes + int(document["logical_size"]) > max_bytes
+                ):
+                    skipped["budget_deferred"] += 1
+                    continue
+                ingested = self._ingest_locked(
+                    corpus=corpus,
+                    paths=paths,
+                    max_files=1,
+                    max_bytes=int(document["logical_size"]),
+                    max_file_bytes=int(document["max_bytes"]),
+                    include_remote=False,
+                    remote_only=False,
+                    document_ids=[document_id],
+                    timeout_seconds=timeout_seconds,
+                )
+                result = dict(ingested["results"][0])
+                result["approved_max_bytes"] = int(document["max_bytes"])
+                results.append(result)
+                selected_bytes += int(document["logical_size"])
+            self._prune_corpus_history_locked(corpus_id)
+        self._reconcile_workspace_index_changes(corpus_id)
+        return {
+            "corpus_id": corpus_id,
+            "selected_files": len(results),
+            "selected_logical_bytes": selected_bytes,
+            "results": results,
+            "skipped": skipped,
+            "summary": {
+                "indexed": sum(item.get("state") == "indexed" for item in results),
+                "already_indexed": sum(
+                    item.get("state") == "already_indexed" for item in results
+                ),
+                "failed": sum(item.get("state") == "failed" for item in results),
+            },
+            "policy": {
+                "max_files": max_files,
+                "max_bytes": max_bytes,
+                "max_file_bytes": _MAX_EXACT_INGEST_FILE_BYTES,
+                "timeout_seconds": timeout_seconds,
+                "include_remote": False,
+                "concurrency": 1,
+            },
         }
 
     def _validate_sync_boundary(self, corpus: dict) -> RuntimePaths:
@@ -3402,6 +3926,7 @@ class CorpusService:
             result_manifest_hash,
         )
         completeness_state = extraction.completeness
+        coverage = extraction.coverage.to_dict()
         capability_manifest = descriptor.capabilities.to_dict()
         content_hashes = [
             hashlib.sha256(unit.content.encode("utf-8")).hexdigest()
@@ -3464,8 +3989,9 @@ class CorpusService:
                     INSERT INTO extraction_projections(
                         projection_id, revision_id, adapter_id, adapter_version,
                         config_hash, result_manifest_hash, completeness_state,
-                        capability_manifest_json, assurance_state, is_active, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'declared', 0, ?)
+                        coverage_json, capability_manifest_json, assurance_state,
+                        is_active, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'declared', 0, ?)
                     """,
                     (
                         projection_id,
@@ -3475,6 +4001,7 @@ class CorpusService:
                         descriptor.config_hash,
                         result_manifest_hash,
                         completeness_state,
+                        encode_json(coverage),
                         encode_json(capability_manifest),
                         now,
                     ),
@@ -3638,6 +4165,7 @@ class CorpusService:
             "projection_id": projection_id,
             "source_units": len(extraction.units),
             "completeness_state": completeness_state,
+            "coverage": coverage,
             "extraction_issues": len(registry_issues),
         }
 

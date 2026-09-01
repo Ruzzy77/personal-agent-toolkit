@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import subprocess
 import sys
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +19,8 @@ MAX_BYTES = 500 * 1024 * 1024
 MAX_FILE_BYTES = 250 * 1024 * 1024
 TIMEOUT_SECONDS = 600
 MAX_PASSES = 4
+WARNING_STATE_SCHEMA_VERSION = 1
+MAX_WARNING_STATE_BYTES = 64 * 1024 * 1024
 
 
 class CorpusCommandError(RuntimeError):
@@ -82,6 +88,213 @@ def _warning_counts(
     return {name: count for name, count in values.items() if count}
 
 
+def _warning_key(corpus_id: str, item: dict[str, Any]) -> str:
+    identity = {
+        "corpus_id": corpus_id,
+        "document_id": item.get("document_id"),
+        "revision_id": item.get("revision_id"),
+        "adapter_id": item.get("adapter_id"),
+        "adapter_version": item.get("adapter_version"),
+        "config_hash": item.get("config_hash"),
+        "issue_code": item.get("issue_code"),
+        "impact": item.get("impact"),
+        "severity": item.get("severity"),
+    }
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _current_warning_items(
+    corpus_id: str, items: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    current: dict[str, dict[str, Any]] = {}
+    for source_item in items:
+        item = dict(source_item)
+        key = _warning_key(corpus_id, item)
+        occurrence_count = max(1, int(item.get("occurrence_count", 1)))
+        if key in current:
+            current[key]["occurrence_count"] += occurrence_count
+        else:
+            item["occurrence_count"] = occurrence_count
+            current[key] = item
+    return current
+
+
+def _warning_delta(
+    previous: dict[str, Any],
+    results: list[dict[str, Any]],
+    *,
+    reset: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    previous_corpora = previous.get("corpora", {})
+    if not isinstance(previous_corpora, dict):
+        previous_corpora = {}
+    next_corpora = {
+        corpus_id: dict(value)
+        for corpus_id, value in previous_corpora.items()
+        if isinstance(corpus_id, str) and isinstance(value, dict)
+    }
+    changes: dict[str, list[dict[str, Any]]] = {
+        "new": [],
+        "increased": [],
+        "reappeared": [],
+        "resolved": [],
+        "decreased": [],
+    }
+    initialized: list[str] = []
+    for result in results:
+        corpus_id = str(result["corpus_id"])
+        source_items = result.get("warning_items", [])
+        if not isinstance(source_items, list):
+            source_items = []
+        current = _current_warning_items(corpus_id, source_items)
+        old_entry = previous_corpora.get(corpus_id)
+        old_current = (
+            old_entry.get("current", {}) if isinstance(old_entry, dict) else {}
+        )
+        old_seen = set(old_entry.get("seen", [])) if isinstance(old_entry, dict) else set()
+        if reset:
+            old_seen = set()
+        if not isinstance(old_current, dict):
+            old_current = {}
+        establish_baseline = reset or not isinstance(old_entry, dict)
+        if establish_baseline:
+            initialized.append(corpus_id)
+        else:
+            for key, item in current.items():
+                if key not in old_current:
+                    change_type = "reappeared" if key in old_seen else "new"
+                    changes[change_type].append({"corpus_id": corpus_id, **item})
+                    continue
+                previous_count = max(
+                    1, int(old_current[key].get("occurrence_count", 1))
+                )
+                current_count = int(item["occurrence_count"])
+                if current_count > previous_count:
+                    changes["increased"].append(
+                        {
+                            "corpus_id": corpus_id,
+                            **item,
+                            "previous_occurrence_count": previous_count,
+                        }
+                    )
+                elif current_count < previous_count:
+                    changes["decreased"].append(
+                        {
+                            "corpus_id": corpus_id,
+                            **item,
+                            "previous_occurrence_count": previous_count,
+                        }
+                    )
+            for key, item in old_current.items():
+                if key not in current:
+                    changes["resolved"].append({"corpus_id": corpus_id, **item})
+        next_corpora[corpus_id] = {
+            "current": current,
+            "seen": sorted(old_seen | set(current)),
+        }
+
+    state = {
+        "schema_version": WARNING_STATE_SCHEMA_VERSION,
+        "updated_at": datetime.now(UTC).isoformat(),
+        "corpora": next_corpora,
+    }
+    summary = {name: len(items) for name, items in changes.items()}
+    summary["active"] = sum(
+        len(entry.get("current", {}))
+        for entry in next_corpora.values()
+        if isinstance(entry, dict)
+    )
+    summary["alerting_changes"] = (
+        summary["new"] + summary["increased"] + summary["reappeared"]
+    )
+    return state, {
+        "baseline_initialized": initialized,
+        "reset": reset,
+        "summary": summary,
+        "changes": changes,
+    }
+
+
+def _load_warning_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": WARNING_STATE_SCHEMA_VERSION, "corpora": {}}
+    if path.is_symlink() or not path.is_file():
+        raise CorpusCommandError("warning state path must be a regular file")
+    if path.stat().st_size > MAX_WARNING_STATE_BYTES:
+        raise CorpusCommandError("warning state file exceeds the supported size")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CorpusCommandError(f"warning state could not be read: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise CorpusCommandError("warning state has an unsupported schema")
+    return payload
+
+
+def _write_warning_state(path: Path, state: dict[str, Any]) -> None:
+    path = path.expanduser()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.exists() and path.is_symlink():
+        raise CorpusCommandError("warning state path must not be a symbolic link")
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        encoded = json.dumps(
+            state,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temporary, path)
+        path.chmod(0o600)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except Exception:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _update_warning_state(
+    path: Path,
+    results: list[dict[str, Any]],
+    *,
+    reset: bool,
+    refresh_ok: bool,
+) -> dict[str, Any]:
+    expanded = path.expanduser()
+    if not refresh_ok:
+        return {
+            "path": str(expanded),
+            "updated": False,
+            "reason": "refresh_failed",
+        }
+    previous_state = _load_warning_state(expanded)
+    next_state, delta = _warning_delta(previous_state, results, reset=reset)
+    _write_warning_state(expanded, next_state)
+    return {
+        "path": str(expanded),
+        "updated": True,
+        **delta,
+    }
+
+
 def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
     corpus_id = str(corpus["corpus_id"])
     source_root = Path(str(corpus["source_root"])).expanduser()
@@ -141,16 +354,45 @@ def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
             break
 
     status: dict[str, Any] | None = None
+    approved_large: dict[str, Any] | None = None
+    if last_sync is not None:
+        try:
+            approved_large = _run_json(
+                launcher,
+                [
+                    "large-document",
+                    "sync",
+                    "--corpus",
+                    corpus_id,
+                    "--max-files",
+                    "1",
+                    "--max-bytes",
+                    str(1024 * 1024 * 1024),
+                    "--timeout-seconds",
+                    str(TIMEOUT_SECONDS),
+                ],
+                timeout=TIMEOUT_SECONDS + 60,
+            )
+        except CorpusCommandError as exc:
+            report["errors"].append(f"approved large-document sync failed: {exc}")
     try:
         status = _run_json(
             launcher,
-            ["status", "--corpus", corpus_id],
+            [
+                "status",
+                "--corpus",
+                corpus_id,
+                "--max-file-bytes",
+                str(MAX_FILE_BYTES),
+                "--include-warning-items",
+            ],
             timeout=60,
         )
     except CorpusCommandError as exc:
         report["errors"].append(f"status check failed: {exc}")
 
-    pending = dict((last_sync or {}).get("pending", {}))
+    pending = dict((status or last_sync or {}).get("pending", {}))
+    pending.pop("items", None)
     inventory = dict((last_sync or {}).get("inventory", {}))
     coverage = dict((status or {}).get("coverage_gaps", {}))
     latest_scan = (status or {}).get("latest_scan") or {}
@@ -164,6 +406,8 @@ def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
             "pending": pending,
             "coverage_gaps": coverage,
             "partial_extraction": dict((status or {}).get("partial_extraction", {})),
+            "approved_large_documents": approved_large,
+            "warning_items": list((status or {}).get("warning_items", [])),
             "warnings": _warning_counts(pending, coverage),
         }
     )
@@ -195,6 +439,10 @@ def _refresh_one(launcher: Path, corpus: dict[str, Any]) -> dict[str, Any]:
                 )
             else:
                 report["warnings"]["outdated_blocked_projections"] = outdated
+    if approved_large is not None and int(
+        approved_large.get("summary", {}).get("failed", 0)
+    ):
+        report["errors"].append("an approved large-document refresh failed")
 
     report["ok"] = not report["errors"]
     return report
@@ -217,11 +465,28 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Indent the final JSON report.",
     )
+    parser.add_argument(
+        "--warning-state",
+        type=Path,
+        help="Private JSON file used to compare document-level warnings between runs.",
+    )
+    parser.add_argument(
+        "--reset-warning-baseline",
+        action="store_true",
+        help="Replace the selected warning baseline without reporting current items as new.",
+    )
     return parser
 
 
 def main() -> int:
     args = _build_parser().parse_args()
+    if args.reset_warning_baseline and args.warning_state is None:
+        report = {
+            "ok": False,
+            "errors": ["--reset-warning-baseline requires --warning-state"],
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2 if args.pretty else None))
+        return 2
     plugin_root = Path(__file__).resolve().parents[3]
     launcher = plugin_root / "launchers" / "corpus"
 
@@ -283,6 +548,24 @@ def main() -> int:
         "summary": totals,
         "corpora": results,
     }
+    if args.warning_state is not None:
+        try:
+            report["warning_state"] = _update_warning_state(
+                args.warning_state,
+                results,
+                reset=args.reset_warning_baseline,
+                refresh_ok=bool(report["ok"]),
+            )
+        except (CorpusCommandError, OSError, ValueError) as exc:
+            report["ok"] = False
+            report["warning_state"] = {
+                "path": str(args.warning_state.expanduser()),
+                "updated": False,
+                "error": str(exc),
+            }
+    for corpus_report in results:
+        warning_items = corpus_report.pop("warning_items", [])
+        corpus_report["warning_item_count"] = len(warning_items)
     print(
         json.dumps(
             report,

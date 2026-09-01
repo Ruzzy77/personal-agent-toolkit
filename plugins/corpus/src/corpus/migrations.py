@@ -242,6 +242,45 @@ def _assert_v4_structure(connection: sqlite3.Connection) -> None:
         )
 
 
+def _assert_v5_structure(connection: sqlite3.Connection) -> None:
+    _assert_v4_structure(connection)
+    projection_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(extraction_projections)"
+        ).fetchall()
+    }
+    approval_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(large_document_approvals)"
+        ).fetchall()
+    }
+    missing: dict[str, list[str]] = {}
+    if "coverage_json" not in projection_columns:
+        missing["extraction_projections"] = ["coverage_json"]
+    required_approval_columns = {
+        "document_id",
+        "source_size",
+        "source_modified_ns",
+        "source_changed_ns",
+        "source_device",
+        "source_inode",
+        "approved_revision_id",
+        "max_bytes",
+        "created_at",
+        "updated_at",
+    }
+    absent_approval_columns = sorted(required_approval_columns - approval_columns)
+    if absent_approval_columns:
+        missing["large_document_approvals"] = absent_approval_columns
+    if missing:
+        raise MigrationError(
+            "corpus database does not satisfy the v5 schema contract",
+            details={"missing_columns": missing},
+        )
+
+
 def inspect_schema(path: Path) -> SchemaState:
     if not _require_corpus_database(path):
         return SchemaState(CORPUS_SCHEMA_VERSION, CORPUS_SCHEMA_VERSION)
@@ -249,7 +288,7 @@ def inspect_schema(path: Path) -> SchemaState:
     try:
         version = _schema_version(connection)
         user_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version in {2, 3, CORPUS_SCHEMA_VERSION}:
+        if version in {2, 3, 4, CORPUS_SCHEMA_VERSION}:
             if user_version != version:
                 raise MigrationError(
                     "schema_info and PRAGMA user_version disagree",
@@ -263,8 +302,10 @@ def inspect_schema(path: Path) -> SchemaState:
                 _assert_v2_structure(connection)
             elif version == 3:
                 _assert_v3_structure(connection)
-            else:
+            elif version == 4:
                 _assert_v4_structure(connection)
+            else:
+                _assert_v5_structure(connection)
     finally:
         connection.close()
     if version is None:
@@ -929,6 +970,39 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA user_version = 4")
 
 
+def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        ALTER TABLE extraction_projections
+        ADD COLUMN coverage_json TEXT NOT NULL DEFAULT
+            '{"reading_order":"unverified","structure":"unverified","text_content":"unverified","visual_content":"unverified"}'
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE large_document_approvals (
+            document_id TEXT PRIMARY KEY,
+            source_size INTEGER NOT NULL CHECK (source_size >= 0),
+            source_modified_ns INTEGER NOT NULL,
+            source_changed_ns INTEGER NOT NULL,
+            source_device INTEGER NOT NULL,
+            source_inode INTEGER NOT NULL,
+            approved_revision_id TEXT,
+            max_bytes INTEGER NOT NULL CHECK (
+                max_bytes > 0 AND max_bytes <= 1073741824
+            ),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+            FOREIGN KEY(approved_revision_id) REFERENCES revisions(revision_id)
+                ON DELETE SET NULL
+        )
+        """
+    )
+    connection.execute("UPDATE schema_info SET version = 5")
+    connection.execute("PRAGMA user_version = 5")
+
+
 BACKUP_COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -1114,7 +1188,7 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             "from_version": state.current_version,
             "to_version": state.target_version,
         }
-    if state.current_version not in {1, 2, 3} or state.target_version != 4:
+    if state.current_version not in {1, 2, 3, 4} or state.target_version != 5:
         raise UnsupportedSchemaError(
             "no migration path is available",
             details={
@@ -1140,6 +1214,10 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             if migrated_version == 3:
                 _migrate_v3_to_v4(connection)
                 _assert_v4_structure(connection)
+                migrated_version = 4
+            if migrated_version == 4:
+                _migrate_v4_to_v5(connection)
+                _assert_v5_structure(connection)
             foreign_key_issues = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

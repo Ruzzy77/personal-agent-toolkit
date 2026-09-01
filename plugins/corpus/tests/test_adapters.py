@@ -52,6 +52,12 @@ class ExternalAdapterBoundaryTest(unittest.TestCase):
         result = {
             "schema_version": RESULT_SCHEMA_VERSION,
             "completeness": "complete",
+            "coverage": {
+                "text_content": "complete",
+                "structure": "complete",
+                "visual_content": "not_applicable",
+                "reading_order": "complete",
+            },
             "units": [
                 {
                     "unit_type": "paragraph",
@@ -74,6 +80,7 @@ class ExternalAdapterBoundaryTest(unittest.TestCase):
             self.assertEqual(source.read_bytes(), before)
 
         self.assertEqual(extracted.completeness, "complete")
+        self.assertEqual(extracted.coverage.text_content, "complete")
         self.assertEqual([unit.content for unit in extracted.units], ["본문"])
         self.assertNotIn("source_path", extracted.to_dict())
 
@@ -108,10 +115,16 @@ class ExternalAdapterBoundaryTest(unittest.TestCase):
                     with self.assertRaises(ExtractionError):
                         adapter.extract(source, format_id="txt")
 
-    def test_warning_forces_honest_partial_result(self) -> None:
+    def test_semantic_gap_is_bound_to_partial_text_coverage(self) -> None:
         result = {
             "schema_version": RESULT_SCHEMA_VERSION,
-            "completeness": "complete",
+            "completeness": "partial",
+            "coverage": {
+                "text_content": "partial",
+                "structure": "complete",
+                "visual_content": "not_applicable",
+                "reading_order": "complete",
+            },
             "units": [
                 {
                     "unit_type": "paragraph",
@@ -124,6 +137,8 @@ class ExternalAdapterBoundaryTest(unittest.TestCase):
                     "code": "coverage_gap",
                     "message": "Some source content was not observed.",
                     "severity": "warning",
+                    "impact": "content_gap",
+                    "coverage_dimensions": ["text_content"],
                     "details": {},
                 }
             ],
