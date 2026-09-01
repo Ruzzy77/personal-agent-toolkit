@@ -19,7 +19,9 @@ CorpusService
     ├── ContextService
     ├── WorkspaceService
     ├── SpaceService
-    └── Source scan / extraction / search
+    └── Source scan / capture / projection / search
+             │
+             └── document-files process
 ```
 
 `CorpusService`가 CLI와 MCP의 공통 진입점입니다. 각 서비스는 같은 private data root를 사용하고 Source 원본과 Work 파일은 등록 폴더에서 읽습니다.
@@ -59,43 +61,20 @@ Connection의 공개 속성은 다음과 같습니다.
 
 Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준으로 삼습니다. 불완전한 scan에서도 확인한 파일은 갱신하고 `partial`로 표시합니다. 처리할 수 없는 파일은 coverage gap으로 남기지만, 다른 파일의 갱신을 막지 않습니다. snapshot, event history와 모델이 만든 claim의 semantic cache는 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
 
-HWP/HWPX와 OOXML 문서의 표·주석·개체 관계는 기존 unit의 `structure_path`에 원문 위치로 기록합니다.
-빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과
-같은 projection 안에서만 확장하며 기존 응답 제한을 적용합니다. 추출된 원문, 원문에 선언된
-문단 속성과 에이전트의 의미 해석을 구분하고, 제목·머리글·번호를 추측해 원문에 덧붙이지 않습니다.
-원문이 지정한 번호 형식과 시작·재시작 조건이 명확한 목록은 계산한 번호·기호를 구조
-메타데이터로 제공합니다. 번호는 원문 본문에 덧붙이지 않으며, 정의나 참조 수준이
-불명확하면 미복원 상태를 유지합니다. 그룹 그림도 그룹과 개별 그림의 원문 주소를
-나누어 보존합니다. 표시 크기가 명시적으로 0이고 상속이나 애니메이션에 의존하지 않는
-그림 인스턴스는 표시되지 않는 개체로 기록하며 디코딩 실패로 분류하지 않습니다.
-수식의 XML 요소 관계와 SmartArt의 점·연결도 원본 주소가 있는 구조 메타데이터로 보존합니다.
-삽입 개체의 저장된 미리보기는 내부 문서 본문과 구분합니다. 이 보완 추출은 기존 본문을
-교체하지 않으며, 화면 배치와 실행 결과를 새로 만들어 원문으로 취급하지 않습니다.
+형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는
+해당 결과가 선언한 unit type, geometry, confidence, OCR 여부와 품질 표지를 검증한 뒤
+revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는
+제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장하며 기존 응답
+제한을 적용합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고, 원문에 없는 제목·번호나
+배치를 추측해 Source unit에 덧붙이지 않습니다.
 
-같은 HWP 원본의 주 추출기 오류로 구조 결과 대신 페이지 텍스트만 반환되면 기존 구조
-색인을 보존합니다. 주 추출기 오류로 생성된 페이지 텍스트 색인은 한 번 구조 복구를
-시도하되, 같은 추출기에서 다시 실패하면 기존 결과를 유지하고 자동 재시도를 멈춥니다.
-
-PDF의 이어 처리에는 현재 projection에 저장된 연속 페이지 범위를 사용합니다. 원본 바이트와
-adapter identity가 같은 경우에만 다음 구간을 합쳐 원자적으로 교체하며, 별도 체크포인트 파일이나
-과거 projection은 남기지 않습니다. 구간 실패 시 기존 projection을 유지합니다. 전체 결과 한도에
-도달한 문서는 자동으로 무한 재시도하지 않습니다. 이전 PDF 추출기와 의미가 같은 결과는 정확히
-지정된 구현·설정 조합만 호환으로 인정하고, 그 구현의 페이지 한도 경고는 이어 처리 대상으로 분류합니다.
-호환되는 이전 PDF에 누락된 쪽이 있으면 같은 revision의 기존 unit은 보존하고 비어 있던 쪽만
-복구합니다. 새 추출기가 원본의 쪽수와 복구 범위를 확인하지 못하면 기존 색인을 유지합니다.
-
-Office 그림의 이어 처리도 현재 projection만 사용합니다. 원본 digest와 이미지 순서가 같은지
-확인한 뒤, 이미 인식한 결과를 보존하며 다음 그림을 읽습니다. 그림 수·바이트·시간의 구간 한도와
-누적 결과 한도를 구분하고, 미지원 형식이나 해석하지 못한 시각 내용은 갱신 실패와 구분합니다.
-
-EMF의 저장된 Unicode 문자열은 OCR과 다른 `image_native_text` unit으로 보존합니다.
-문자열의 원본 바이트 주소는 확인하지만, 그래픽 명령을 재생하거나 글자 조각을 문장으로
-조합하지 않습니다. 그림 형식 미지원, 표시 여부와 읽기 순서 미확인도 함께 유지합니다.
-새 문자열 추출은 기존 그림 처리 한도 안에서 수행하며 OCR 인식 설정의 identity는 바꾸지 않습니다.
-
-원문 구조를 새로 추출할 때에도 동일한 원본과 동일한 OCR 구현·설정에서 얻은 현재
-인식 결과는 개별 그림과 자르기 영역을 대조해 재사용할 수 있습니다. 이전 projection을
-현재 버전으로 인정하거나 과거 결과를 별도로 저장하는 방식은 사용하지 않습니다.
+Corpus는 `document-files process --describe`에서 형식별 adapter identity와 capability를
+읽습니다. identity가 바뀌면 같은 revision도 새 projection 대상으로 분류합니다. 입력은
+private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID, revision ID,
+anchor와 authority는 전달하지 않습니다. Document Files는 형식별 bounded continuation을 한
+프로세스 안에서 완료한 뒤 결과를 반환합니다. Corpus는 형식별 cursor나 issue를 해석하지 않고,
+실패한 새 시도는 기록하되 기존 active projection을 보존합니다. Document Files를 사용할 수
+없으면 Corpus가 자체 parser, OCR이나 renderer로 대체하지 않습니다.
 
 ## Context
 
