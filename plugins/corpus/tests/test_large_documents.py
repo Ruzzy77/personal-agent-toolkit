@@ -16,14 +16,27 @@ class LargeDocumentApprovalTest(unittest.TestCase):
             base = Path(temporary)
             source = base / "source"
             source.mkdir()
+            (source / "sample.txt").write_text("indexed text", encoding="utf-8")
             service = CorpusService(base / "data")
             service.register(
                 corpus_id="migration",
                 source_root=source,
                 execution_policy="local_only",
             )
+            service.sync("migration")
             paths = RuntimePaths(data_root=base / "data", corpus_id="migration")
             with sqlite3.connect(paths.corpus_db) as connection:
+                unit_id = connection.execute(
+                    "SELECT unit_id FROM source_units LIMIT 1"
+                ).fetchone()[0]
+                connection.execute(
+                    "UPDATE source_units SET normalized_content = '' WHERE unit_id = ?",
+                    (unit_id,),
+                )
+                connection.execute(
+                    "DELETE FROM source_units_fts WHERE unit_id = ?",
+                    (unit_id,),
+                )
                 connection.execute("DROP TABLE large_document_approvals")
                 connection.execute(
                     "ALTER TABLE extraction_projections DROP COLUMN coverage_json"

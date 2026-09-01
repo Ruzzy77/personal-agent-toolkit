@@ -1232,8 +1232,20 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
                     "SQLite integrity check failed after migration",
                     details={"result": integrity},
                 )
-            unit_count = connection.execute(
+            connection.create_function(
+                "corpus_searchable_text",
+                1,
+                lambda value: int(isinstance(value, str) and bool(value.strip())),
+                deterministic=True,
+            )
+            source_unit_count = connection.execute(
                 "SELECT COUNT(*) FROM source_units"
+            ).fetchone()[0]
+            searchable_unit_count = connection.execute(
+                """
+                SELECT COUNT(*) FROM source_units
+                WHERE corpus_searchable_text(normalized_content) = 1
+                """
             ).fetchone()[0]
             fts_count = connection.execute(
                 "SELECT COUNT(*) FROM source_units_fts"
@@ -1243,6 +1255,7 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
                 for row in connection.execute(
                     """
                     SELECT unit_id FROM source_units
+                    WHERE corpus_searchable_text(normalized_content) = 1
                     EXCEPT
                     SELECT unit_id FROM source_units_fts
                     LIMIT 20
@@ -1256,6 +1269,7 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
                     SELECT unit_id FROM source_units_fts
                     EXCEPT
                     SELECT unit_id FROM source_units
+                    WHERE corpus_searchable_text(normalized_content) = 1
                     LIMIT 20
                     """
                 )
@@ -1272,11 +1286,17 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
                     """
                 )
             ]
-            if unit_count != fts_count or missing_fts or stale_fts or duplicate_fts:
+            if (
+                searchable_unit_count != fts_count
+                or missing_fts
+                or stale_fts
+                or duplicate_fts
+            ):
                 raise MigrationError(
                     "FTS and source-unit identities differ after migration",
                     details={
-                        "source_units": unit_count,
+                        "source_units": source_unit_count,
+                        "searchable_source_units": searchable_unit_count,
                         "fts_rows": fts_count,
                         "missing_fts": missing_fts,
                         "stale_fts": stale_fts,
