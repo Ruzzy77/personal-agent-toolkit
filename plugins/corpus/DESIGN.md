@@ -82,6 +82,8 @@ Context에는 제목, 목적, 범위, 연결 Source와 item이 들어갑니다. 
 
 Context는 Source 원문을 대체하지 않습니다. 변경 가능성이 있는 사실이나 원문 인용이 필요하면 연결된 현재 Source를 다시 읽습니다. Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. Context Skill은 private Corpus 저장소에서 선택한 Space와 함께 읽으며, plugin이나 marketplace 배포본에 복사하지 않습니다.
 
+사용자가 명시적으로 선택한 기존 Context 항목은 현재 Context version과 대조해 종류, 본문과 `attributes.status`를 한 transaction으로 교체할 수 있습니다. 이 교체는 나머지 속성과 기존 Source 연결을 보존하며, 출처를 새로 만들거나 현재성을 주장하지 않습니다. 항목 추가·삭제, 출처 연결 변경과 Context 자체의 생성·보관은 로컬 작업으로 남깁니다.
+
 이전 Source unit이 정리된 뒤에도 등록 문서의 현재 상태로 출처 변경 원인을 구분합니다.
 문서 삭제, 원본 revision 변경과 추출 projection 변경은 같은 접근 불가 상태로 뭉뚱그리지
 않습니다. 이 진단은 오래된 출처를 현재 본문으로 자동 연결하지 않으며, Context 출처
@@ -110,8 +112,8 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면
 
-기본 MCP 서버에는 Space/File 도구 아홉 개와 Context Skill 교체 도구 하나가 있습니다. Context Skill은 사용자의 명시적 요청, 현재 `version`과 전체 교체안이 모두 있을 때에만 저장하며, 충돌하면 기존 Skill을 보존합니다. Source Connection은 계속 읽기 전용입니다. 등록·등록 해제, scan, ingest, Context item 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. 등록 해제는 현재 경로의 명시적 확인을 요구하며 Context나 Work Connection이 남아 있으면 중단합니다. 다른 정본으로 옮겨진 보관 Context가 유일한 연결이면 Context ID와 version을 지정해 Corpus 내부 연결 기록까지 정리할 수 있으며, 이때 등록부와 Context 데이터베이스의 비공개 사본을 먼저 남깁니다. 비공개 색인과 원래 제공자의 세션 파일은 자동으로 지우지 않습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
+기본 MCP 서버에는 Space/File 도구 아홉 개, 기존 Context 항목 일괄 교체 도구 하나와 Context Skill 교체 도구 하나가 있습니다. 항목 교체는 사용자의 명시적 요청, 현재 Context version과 대상별 종류·본문·상태 완전값이 있을 때에만 한 transaction으로 저장합니다. 대상이 없거나 version이 충돌하면 현재 항목을 모두 보존하고, 지정하지 않은 속성과 Source 연결도 바꾸지 않습니다. Context Skill도 명시적 요청, 현재 `version`과 전체 교체안이 모두 있을 때에만 저장하며 충돌하면 기존 Skill을 보존합니다. Source Connection은 계속 읽기 전용입니다. 등록·등록 해제, scan, ingest, Context와 항목의 생성·삭제·출처 변경, Work Connection 변경은 로컬 CLI가 맡습니다. 등록 해제는 현재 경로의 명시적 확인을 요구하며 Context나 Work Connection이 남아 있으면 중단합니다. 다른 정본으로 옮겨진 보관 Context가 유일한 연결이면 Context ID와 version을 지정해 Corpus 내부 연결 기록까지 정리할 수 있으며, 이때 등록부와 Context 데이터베이스의 비공개 사본을 먼저 남깁니다. 비공개 색인과 원래 제공자의 세션 파일은 자동으로 지우지 않습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
 
-stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
+stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. Context 항목 배열과 Context Skill 객체처럼 중첩된 입력도 각 필드가 도구 schema 안에 직접 나타나며, 클라이언트의 `$ref` 해석에 의존하지 않습니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
 
 응답은 로컬 절대 경로를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.

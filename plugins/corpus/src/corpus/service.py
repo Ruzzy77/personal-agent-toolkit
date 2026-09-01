@@ -414,17 +414,14 @@ class CorpusService:
         if latest_scan is None:
             return "needs_refresh"
 
-        if (
-            summary["stale_projections"]
-            or any(
-                not self._projection_uses_current_adapter(
-                    row["extension"],
-                    row["adapter_id"],
-                    row["adapter_version"],
-                    row["config_hash"],
-                )
-                for row in adapter_rows
+        if summary["stale_projections"] or any(
+            not self._projection_uses_current_adapter(
+                row["extension"],
+                row["adapter_id"],
+                row["adapter_version"],
+                row["config_hash"],
             )
+            for row in adapter_rows
         ):
             return "needs_refresh"
 
@@ -777,6 +774,28 @@ class CorpusService:
             with workspace_writer_lock(self.data_root):
                 return update_context()
         return update_context()
+
+    def context_items_revise(
+        self,
+        *,
+        context_id: str,
+        expected_version: int,
+        revisions: list[dict],
+        audience: str = "local_cli",
+    ) -> dict:
+        if audience == "external_mcp":
+            self.space_get(
+                space_id=context_id,
+                audience=audience,
+                context_limit=1,
+                context_offset=0,
+            )
+        return self.contexts.revise_items(
+            context_id=context_id,
+            expected_version=expected_version,
+            revisions=revisions,
+            audience=audience,
+        )
 
     def context_skill_read(
         self,
@@ -2022,9 +2041,7 @@ class CorpusService:
             partial_by_impact = {}
             for impacts in impact_documents.values():
                 for impact in impacts or {"unclassified"}:
-                    partial_by_impact[impact] = (
-                        partial_by_impact.get(impact, 0) + 1
-                    )
+                    partial_by_impact[impact] = partial_by_impact.get(impact, 0) + 1
             verification_only = sum(
                 impacts == {"reading_order_unverified"}
                 for impacts in impact_documents.values()
@@ -2779,9 +2796,7 @@ class CorpusService:
                             "source_modified_ns": document[
                                 "approval_source_modified_ns"
                             ],
-                            "source_changed_ns": document[
-                                "approval_source_changed_ns"
-                            ],
+                            "source_changed_ns": document["approval_source_changed_ns"],
                             "source_device": document["approval_source_device"],
                             "source_inode": document["approval_source_inode"],
                         }
@@ -3169,7 +3184,9 @@ class CorpusService:
         approvals = []
         for row in rows:
             item = dict(row)
-            available = item.get("relative_path") is not None and item["deleted_at"] is None
+            available = (
+                item.get("relative_path") is not None and item["deleted_at"] is None
+            )
             matches = available and self._approval_matches_document(item, item)
             if not available:
                 state = "unavailable"
@@ -3299,7 +3316,10 @@ class CorpusService:
             for row in rows:
                 document = dict(row)
                 document_id = document["document_id"]
-                if document.get("relative_path") is None or document["deleted_at"] is not None:
+                if (
+                    document.get("relative_path") is None
+                    or document["deleted_at"] is not None
+                ):
                     skipped["unavailable"] += 1
                     continue
                 if document["eligibility_state"] != "supported":
@@ -3318,11 +3338,14 @@ class CorpusService:
                 if document_index_state == "current":
                     skipped["current"] += 1
                     continue
-                descriptor = self.adapter_registry.resolve(document["extension"]).descriptor
+                descriptor = self.adapter_registry.resolve(
+                    document["extension"]
+                ).descriptor
                 failed_after_approval = (
                     "source_observation_changed" not in reasons
                     and document.get("failed_adapter_id") == descriptor.adapter_id
-                    and document.get("failed_adapter_version") == descriptor.adapter_version
+                    and document.get("failed_adapter_version")
+                    == descriptor.adapter_version
                     and document.get("failed_config_hash") == descriptor.config_hash
                     and str(document.get("failed_completed_at") or "")
                     >= str(document["updated_at"])

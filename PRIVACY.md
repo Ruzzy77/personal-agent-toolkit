@@ -35,6 +35,10 @@ Corpus indexes only sources the user explicitly registers.
   used to detect changes.
 - Exact provider content is read at request time and is not copied into the Corpus index.
 - Archived context remains readable. Destructive context purge is not currently provided.
+- Existing Context item kind, body, and status replacement requires an explicit user request and the
+  current Context version. One transaction changes every selected item or none, while preserving
+  other attributes and existing Source links. Item creation, deletion, and Source-link changes
+  remain local operations.
 - A complete Context Skill replacement requires an explicit user request and the current Skill
   version. It does not make a Source Connection writable or change Source bytes.
 - A separately connected local work folder is writable only when the user explicitly registers it

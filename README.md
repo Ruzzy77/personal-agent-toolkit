@@ -163,7 +163,7 @@ Chat과 로컬 작업이 함께 편집할 폴더는 Context에 Work Connection�
   --execution-policy external_host_allowed
 ```
 
-Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 로컬 파일이 정본이고, 교체에는 직전 읽기에서 받은 version token을 사용합니다. Context Skill은 Source와 분리되어 있으며, 사용자가 요청한 전체 교체안을 현재 Skill 버전과 대조해 Chat에서 수정할 수 있습니다.
+Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 로컬 파일이 정본이고, 교체에는 직전 읽기에서 받은 version token을 사용합니다. 사용자가 명시적으로 요청하면 기존 Context 항목의 종류·본문·상태를 현재 Context version과 대조해 한 번에 수정할 수 있습니다. 나머지 속성과 Source 연결은 보존하며 항목 추가·삭제는 로컬 작업으로 남깁니다. Context Skill은 Source와 분리되어 있으며, 사용자가 요청한 전체 교체안을 현재 Skill 버전과 대조해 Chat에서 수정할 수 있습니다.
 
 ## Hypes 시작
 

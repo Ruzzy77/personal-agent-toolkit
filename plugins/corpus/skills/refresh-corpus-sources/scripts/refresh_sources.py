@@ -157,7 +157,9 @@ def _warning_delta(
         old_current = (
             old_entry.get("current", {}) if isinstance(old_entry, dict) else {}
         )
-        old_seen = set(old_entry.get("seen", [])) if isinstance(old_entry, dict) else set()
+        old_seen = (
+            set(old_entry.get("seen", [])) if isinstance(old_entry, dict) else set()
+        )
         if reset:
             old_seen = set()
         if not isinstance(old_current, dict):

@@ -50,9 +50,7 @@ _ISSUE_IMPACTS = frozenset(
 _COVERAGE_DIMENSIONS = frozenset(
     {"text_content", "structure", "visual_content", "reading_order"}
 )
-_COVERAGE_VALUES = frozenset(
-    {"complete", "partial", "unverified", "not_applicable"}
-)
+_COVERAGE_VALUES = frozenset({"complete", "partial", "unverified", "not_applicable"})
 _DERIVATION_METHODS = frozenset({"native_text", "ocr"})
 _PROHIBITED_CONTROL_FIELDS = frozenset(
     {
@@ -209,8 +207,7 @@ def _default_issue_semantics(
     if dimensions == ("structure",) or code.endswith(("partial", "unresolved")):
         return "structure_gap", dimensions
     if any(
-        value in code
-        for value in ("content_unread", "without_text", "content_partial")
+        value in code for value in ("content_unread", "without_text", "content_partial")
     ):
         return "content_gap", ("text_content",)
     return "content_gap", dimensions
@@ -604,7 +601,10 @@ def _coverage_profile(
     for issue in all_issues:
         for dimension in issue.coverage_dimensions:
             if issue.impact == "observation":
-                if dimension == "visual_content" and values[dimension] == "not_applicable":
+                if (
+                    dimension == "visual_content"
+                    and values[dimension] == "not_applicable"
+                ):
                     values[dimension] = "unverified"
                 continue
             if dimension == "reading_order":
@@ -1383,7 +1383,10 @@ class ExternalJSONLAdapter:
             issues=issues,
         )
         completeness = envelope.completeness
-        if declared_coverage != envelope.coverage or declared_completeness != completeness:
+        if (
+            declared_coverage != envelope.coverage
+            or declared_completeness != completeness
+        ):
             raise ExtractionError(
                 "external adapter coverage does not match its units and issues"
             )

@@ -28,6 +28,7 @@ class MCPServerTest(unittest.TestCase):
             {
                 "corpus_space_list",
                 "corpus_space_get",
+                "corpus_context_items_revise",
                 "corpus_context_skill_revise",
                 "corpus_space_search",
                 "corpus_file_list",
@@ -47,6 +48,15 @@ class MCPServerTest(unittest.TestCase):
             ]["default"],
             False,
         )
+        item_revision_schema = tools["corpus_context_items_revise"].input_schema[
+            "properties"
+        ]["revisions"]["items"]
+        self.assertEqual(
+            set(item_revision_schema["properties"]),
+            {"item_id", "kind", "body_text", "status"},
+        )
+        self.assertNotIn("$defs", tools["corpus_context_items_revise"].input_schema)
+        self.assertNotIn("$defs", tools["corpus_context_skill_revise"].input_schema)
         self.assertTrue(response["ok"])
         self.assertEqual(response["result"]["spaces"], [])
         self.assertEqual(json.loads(content[0].text), response)

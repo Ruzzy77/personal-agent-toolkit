@@ -59,6 +59,7 @@ CONTEXT_MAX_READ_BYTES = 2 * 1024 * 1024
 CONTEXT_MAX_TITLE_CHARS = 200
 CONTEXT_MAX_PURPOSE_CHARS = 4_000
 CONTEXT_MAX_BODY_CHARS = 12_000
+CONTEXT_MAX_STATUS_CHARS = 200
 CONTEXT_MAX_IDENTIFIER_CHARS = 200
 CONTEXT_MAX_ATTRIBUTES_BYTES = 16 * 1024
 CONTEXT_MAX_SCOPE_BYTES = 32 * 1024
@@ -77,6 +78,7 @@ _ITEM_KEYS = {
     "external_sources",
     "supersedes_item_id",
 }
+_ITEM_REVISION_KEYS = {"item_id", "kind", "body_text", "status"}
 _SOURCE_KEYS = {
     "corpus_id",
     "document_id",
@@ -1741,6 +1743,235 @@ class ContextService:
         if row is None:
             raise ContextNotFoundError("context does not exist")
         return str(row["state"])
+
+    def revise_items(
+        self,
+        *,
+        context_id: str,
+        expected_version: int,
+        revisions: list[dict[str, Any]],
+        audience: str = "local_cli",
+    ) -> dict[str, Any]:
+        """Atomically replace selected item fields while preserving links and metadata."""
+
+        _validate_audience(audience)
+        normalized_id = normalize_context_id(context_id)
+        if (
+            type(expected_version) is not int
+            or not 1 <= expected_version <= (1 << 63) - 1
+        ):
+            raise ContextValidationError(
+                "context expected_version is outside the supported range"
+            )
+        if (
+            not isinstance(revisions, list)
+            or not 1 <= len(revisions) <= CONTEXT_MAX_ITEMS_PER_UPDATE
+        ):
+            raise BudgetExceededError(
+                "context item revision count is outside the supported range",
+                details={"maximum_items": CONTEXT_MAX_ITEMS_PER_UPDATE},
+            )
+        try:
+            serialized_revisions = encode_json(revisions).encode()
+        except (TypeError, ValueError) as exc:
+            raise ContextValidationError(
+                "context item revisions must be JSON-compatible"
+            ) from exc
+        if len(serialized_revisions) > CONTEXT_MAX_UPDATE_BYTES:
+            raise BudgetExceededError(
+                "context item revisions exceed the serialized budget",
+                details={
+                    "serialized_bytes": len(serialized_revisions),
+                    "maximum_bytes": CONTEXT_MAX_UPDATE_BYTES,
+                },
+            )
+
+        normalized: list[dict[str, str]] = []
+        for revision in revisions:
+            if not isinstance(revision, dict) or set(revision) != _ITEM_REVISION_KEYS:
+                raise ContextValidationError(
+                    "context item revision fields are invalid",
+                    details={"required": sorted(_ITEM_REVISION_KEYS)},
+                )
+            item_id = _require_string(
+                revision["item_id"],
+                field="item_id",
+                maximum=CONTEXT_MAX_IDENTIFIER_CHARS,
+            )
+            kind = _require_string(
+                revision["kind"],
+                field="kind",
+                maximum=32,
+            )
+            if kind not in CONTEXT_ITEM_KINDS:
+                raise ContextValidationError(
+                    "unsupported context item kind",
+                    details={"kind": kind, "allowed": sorted(CONTEXT_ITEM_KINDS)},
+                )
+            normalized.append(
+                {
+                    "item_id": item_id,
+                    "kind": kind,
+                    "body_text": _require_string(
+                        revision["body_text"],
+                        field="body_text",
+                        maximum=CONTEXT_MAX_BODY_CHARS,
+                    ),
+                    "status": _require_string(
+                        revision["status"],
+                        field="status",
+                        maximum=CONTEXT_MAX_STATUS_CHARS,
+                    ),
+                }
+            )
+        item_ids = [revision["item_id"] for revision in normalized]
+        if len(set(item_ids)) != len(item_ids):
+            raise ContextValidationError(
+                "context item revision targets must be unique per update"
+            )
+
+        if not self.database_path.exists():
+            raise ContextNotFoundError("context does not exist")
+        with (
+            context_writer_lock(self.data_root),
+            context_connection(self.data_root) as connection,
+        ):
+            context_row = self._load_context(connection, normalized_id)
+            corpus_ids = self._context_corpus_ids(connection, normalized_id)
+            if audience == "external_mcp":
+                self._require_external_visibility(corpus_ids)
+            if context_row["state"] != "active":
+                raise ContextConflictError(
+                    "archived context cannot be updated",
+                    details={"reason": "context_archived"},
+                )
+
+            placeholders = ",".join("?" for _ in item_ids)
+            item_rows = connection.execute(
+                f"""
+                SELECT *
+                FROM context_items
+                WHERE context_id = ?
+                  AND lifecycle_state = 'active'
+                  AND item_id IN ({placeholders})
+                """,
+                (normalized_id, *item_ids),
+            ).fetchall()
+            items_by_id = {row["item_id"]: row for row in item_rows}
+            missing_item_ids = [
+                item_id for item_id in item_ids if item_id not in items_by_id
+            ]
+            if missing_item_ids:
+                raise ContextNotFoundError(
+                    "one or more Context items do not exist",
+                    details={"item_ids": missing_item_ids},
+                )
+
+            prepared: list[dict[str, Any]] = []
+            for revision in normalized:
+                current = items_by_id[revision["item_id"]]
+                attributes = _json_dict(current["attributes_json"])
+                revised_attributes = {**attributes, "status": revision["status"]}
+                changed = (
+                    current["kind"] != revision["kind"]
+                    or current["body_text"] != revision["body_text"]
+                    or attributes != revised_attributes
+                )
+                prepared.append(
+                    {
+                        **revision,
+                        "attributes": revised_attributes,
+                        "created_at": current["created_at"],
+                        "changed": changed,
+                    }
+                )
+
+            if not any(revision["changed"] for revision in prepared):
+                return {
+                    "context_id": normalized_id,
+                    "changed": False,
+                    "version": context_row["version"],
+                    "items": [
+                        {
+                            key: revision[key]
+                            for key in (
+                                "item_id",
+                                "kind",
+                                "body_text",
+                                "status",
+                                "created_at",
+                            )
+                        }
+                        for revision in prepared
+                    ],
+                }
+            if context_row["version"] != expected_version:
+                raise ContextConflictError(
+                    "context version is not current",
+                    details={
+                        "reason": "version_mismatch",
+                        "expected_version": expected_version,
+                        "current_version": context_row["version"],
+                    },
+                )
+
+            now = utc_now()
+            for revision in prepared:
+                if not revision["changed"]:
+                    continue
+                revision_identity = {
+                    "operation": "context_item_revision_v1",
+                    "item_id": revision["item_id"],
+                    "kind": revision["kind"],
+                    "body_text": revision["body_text"],
+                    "attributes": revision["attributes"],
+                }
+                input_sha256 = hashlib.sha256(
+                    encode_json(revision_identity).encode()
+                ).hexdigest()
+                connection.execute(
+                    """
+                    UPDATE context_items
+                    SET input_sha256 = ?, kind = ?, body_text = ?, attributes_json = ?
+                    WHERE context_id = ? AND item_id = ? AND lifecycle_state = 'active'
+                    """,
+                    (
+                        input_sha256,
+                        revision["kind"],
+                        revision["body_text"],
+                        encode_json(revision["attributes"]),
+                        normalized_id,
+                        revision["item_id"],
+                    ),
+                )
+            new_version = context_row["version"] + 1
+            connection.execute(
+                """
+                UPDATE contexts
+                SET version = ?, updated_at = ?
+                WHERE context_id = ?
+                """,
+                (new_version, now, normalized_id),
+            )
+
+        return {
+            "context_id": normalized_id,
+            "changed": True,
+            "version": new_version,
+            "items": [
+                {
+                    key: revision[key]
+                    for key in (
+                        "item_id",
+                        "kind",
+                        "body_text",
+                        "status",
+                        "created_at",
+                    )
+                }
+                for revision in prepared
+            ],
+        }
 
     def update(
         self,

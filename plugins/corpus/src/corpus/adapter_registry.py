@@ -143,8 +143,13 @@ def _load_routes(
     try:
         raw = json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ExtractionError("Document Files descriptor is not valid UTF-8 JSON") from exc
-    if not isinstance(raw, Mapping) or raw.get("schema_version") != DESCRIPTOR_SCHEMA_VERSION:
+        raise ExtractionError(
+            "Document Files descriptor is not valid UTF-8 JSON"
+        ) from exc
+    if (
+        not isinstance(raw, Mapping)
+        or raw.get("schema_version") != DESCRIPTOR_SCHEMA_VERSION
+    ):
         raise ExtractionError("Document Files descriptor schema is unsupported")
     formats = raw.get("formats")
     if not isinstance(formats, Mapping):

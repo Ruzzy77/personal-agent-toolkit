@@ -221,7 +221,9 @@ class DocumentFilesIntegrationTest(unittest.TestCase):
         self.assertNotIn("document_id", extracted.to_dict())
         self.assertNotIn("source_path", extracted.to_dict())
 
-    def test_exact_document_selection_retains_one_gibibyte_capture_ceiling(self) -> None:
+    def test_exact_document_selection_retains_one_gibibyte_capture_ceiling(
+        self,
+    ) -> None:
         mib = 1024 * 1024
         with self.assertRaises(BudgetExceededError):
             _validate_ingest_budgets(

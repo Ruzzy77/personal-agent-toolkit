@@ -89,9 +89,9 @@ class LargeDocumentApprovalTest(unittest.TestCase):
             )
             self.assertEqual(approved["state"], "approved")
             self.assertEqual(
-                service.list_large_document_approvals("large-files")["approvals"][
-                    0
-                ]["state"],
+                service.list_large_document_approvals("large-files")["approvals"][0][
+                    "state"
+                ],
                 "approved",
             )
 
@@ -100,9 +100,9 @@ class LargeDocumentApprovalTest(unittest.TestCase):
             service.scan("large-files")
 
             self.assertEqual(
-                service.list_large_document_approvals("large-files")["approvals"][
-                    0
-                ]["state"],
+                service.list_large_document_approvals("large-files")["approvals"][0][
+                    "state"
+                ],
                 "source_changed",
             )
 
