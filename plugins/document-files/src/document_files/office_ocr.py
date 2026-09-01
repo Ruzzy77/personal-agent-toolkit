@@ -11,7 +11,8 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 from pathlib import Path
 
-from .adapters import (
+from .extraction_errors import BudgetExceededError, DocumentExtractionError, ExtractionError
+from .extraction_protocol import (
     AdapterBudgets,
     AdapterCapabilities,
     AdapterDescriptor,
@@ -20,34 +21,41 @@ from .adapters import (
     ExtractionEnvelope,
     ExtractionIssue,
 )
-from .errors import BudgetExceededError, CorpusError, ExtractionError
 from .extractors import MAX_UNIT_CHARS, normalize_text
-from .hancom_images import EmbeddedImageArchive
+from .hwp_images import EmbeddedImageArchive
 from .metafile_images import single_bitmap_emf
 from .metafile_text import stored_emf_strings
 from .native_adapters import PDFKitVisionAdapter
-from .office_reuse import (
-    IMAGE_DIAGNOSTICS_PREDECESSOR,
-    METAFILE_TEXT_PREDECESSOR,
-    NUMBERING_PREFIX_PREDECESSOR,
-    can_reuse_ocr,
-    reusable_images,
-)
 
 _MESSAGES = {
     "office_image_placement_unresolved": "A cropped or ambiguous image placement was left unread.",
     "office_image_size_limit": "An embedded image exceeds the configured byte or pixel budget.",
-    "office_image_ocr_budget_reached": "Further image recognition exceeds the count or time budget.",
-    "office_image_ocr_failed": "Vision could not process an embedded image; native content was retained.",
-    "office_image_format_unsupported": "The local image decoder does not support an embedded image format.",
-    "office_image_decode_failed": "An embedded image could not be decoded; native content was retained.",
+    "office_image_ocr_budget_reached": (
+        "Further image recognition exceeds the count or time budget."
+    ),
+    "office_image_ocr_failed": (
+        "Vision could not process an embedded image; native content was retained."
+    ),
+    "office_image_format_unsupported": (
+        "The local image decoder does not support an embedded image format."
+    ),
+    "office_image_decode_failed": (
+        "An embedded image could not be decoded; native content was retained."
+    ),
     "office_image_without_text": "Vision found no text in an embedded image.",
     "office_image_ocr_output_limit": "Image recognition exceeds the configured result size.",
-    "office_image_ocr_observed": "Local OCR recovered text at the original embedded image location.",
-    "office_image_ocr_reused_observed": "Verified OCR was reused for identical source pixels and recognition settings.",
-    "office_image_ocr_padding_observed": "A bounded margin let Vision process an otherwise rejected thin image.",
-    "office_image_visual_content_partial": "OCR text does not reconstruct the image's non-text visual content.",
-    "office_metafile_text_observed": "Stored Unicode text records were read without replaying metafile graphics.",
+    "office_image_ocr_observed": (
+        "Local OCR recovered text at the original embedded image location."
+    ),
+    "office_image_ocr_padding_observed": (
+        "A bounded margin let Vision process an otherwise rejected thin image."
+    ),
+    "office_image_visual_content_partial": (
+        "OCR text does not reconstruct the image's non-text visual content."
+    ),
+    "office_metafile_text_observed": (
+        "Stored Unicode text records were read without replaying metafile graphics."
+    ),
 }
 
 
@@ -116,13 +124,11 @@ class OfficeVisionAdapter:
         source_hash = hashlib.sha256(
             Path(__file__).read_bytes()
             + b"\0"
-            + Path(__file__).with_name("hancom_images.py").read_bytes()
+            + Path(__file__).with_name("hwp_images.py").read_bytes()
             + b"\0"
             + Path(__file__).with_name("metafile_images.py").read_bytes()
             + b"\0"
             + Path(__file__).with_name("metafile_text.py").read_bytes()
-            + b"\0"
-            + Path(__file__).with_name("office_reuse.py").read_bytes()
         ).hexdigest()
         self.config = {
             "native": native.descriptor.to_dict(),
@@ -143,7 +149,7 @@ class OfficeVisionAdapter:
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id=f"work-corpus.native.office-vision.{format_id or native.adapter_name}",
+            adapter_id=f"document-files.native.office-vision.{format_id or native.adapter_name}",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=self.config,
             capabilities=replace(
@@ -172,84 +178,19 @@ class OfficeVisionAdapter:
                 Path(__file__).with_name("metafile_images.py").read_bytes()
             ).hexdigest(),
             "image_archive_source": hashlib.sha256(
-                Path(__file__).with_name("hancom_images.py").read_bytes()
+                Path(__file__).with_name("hwp_images.py").read_bytes()
             ).hexdigest(),
         }
 
         def profile(config):
             return AdapterDescriptor.from_config(
-                adapter_id="work-corpus.native.office-image-recognition",
+                adapter_id="document-files.native.office-image-recognition",
                 adapter_version="1",
                 config=config,
                 capabilities=self.descriptor.capabilities,
             ).config_hash
 
         self.recognition_profile = profile(recognition_config)
-        # The new image-only fallback runs after VNErrorInvalidImage. Successful
-        # observations from this exact source are unchanged; failed inputs are
-        # never reusable_images entries. Runtime, crop and budgets still match.
-        self.compatible_recognition_profiles = {
-            self.recognition_profile,
-            profile(
-                {
-                    **recognition_config,
-                    "vision_source": "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a",
-                }
-            ),
-        }
-        # These exact builds differ only in the queued image diagnostics and
-        # unresolved PPTX list prefixes. Other native content and OCR are equal.
-        # Core revisits those diagnostics once, preserving unrelated references.
-        previous_config = dict(self.config)
-        previous_config.pop("metafile_stored_text")
-        metafile_predecessor = AdapterDescriptor.from_config(
-            adapter_id=self.descriptor.adapter_id,
-            adapter_version=METAFILE_TEXT_PREDECESSOR,
-            config=previous_config,
-            capabilities=self.descriptor.capabilities,
-        )
-        if (
-            self.descriptor.adapter_id.endswith(".pptx")
-            and native.descriptor.adapter_version == "source-units-v8"
-        ):
-            previous_config["native"] = {
-                **previous_config["native"],
-                "adapter_version": "source-units-v7",
-            }
-        predecessor = AdapterDescriptor.from_config(
-            adapter_id=self.descriptor.adapter_id,
-            adapter_version=IMAGE_DIAGNOSTICS_PREDECESSOR,
-            config={
-                **previous_config,
-                "vision_source": "507ccaa03634ac9d2361fa756bff3e52f30adc04a545dff86721479b87de052a",
-            },
-            capabilities=self.descriptor.capabilities,
-        )
-        numbering_predecessor = AdapterDescriptor.from_config(
-            adapter_id=self.descriptor.adapter_id,
-            adapter_version=NUMBERING_PREFIX_PREDECESSOR,
-            config=previous_config,
-            capabilities=self.descriptor.capabilities,
-        )
-        self.compatible_projection_identities = frozenset(
-            {
-                (
-                    predecessor.adapter_id,
-                    predecessor.adapter_version,
-                    predecessor.config_hash,
-                ),
-                (
-                    numbering_predecessor.adapter_id,
-                    numbering_predecessor.adapter_version,
-                    numbering_predecessor.config_hash,
-                ),
-                (
-                    metafile_predecessor.adapter_id,
-                    metafile_predecessor.adapter_version,
-                    metafile_predecessor.config_hash,
-                ),
-            }
-        )
 
     def _image_text(self, image_path, seconds, *, crop=None):
         started = time.monotonic()
@@ -260,7 +201,7 @@ class OfficeVisionAdapter:
         if crop is not None:
             config["source_crop_bbox"] = list(crop)
         descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.native.vision-image",
+            adapter_id="document-files.native.vision-image",
             adapter_version=self.vision.descriptor.adapter_version,
             config=config,
             capabilities=AdapterCapabilities(
@@ -325,38 +266,10 @@ class OfficeVisionAdapter:
             )
         return self._extract_range(path, format_id=format_id, previous=previous)
 
-    def can_reuse_projection(self, adapter_id, adapter_version, config_hash):
-        # This only permits inspection. It never accepts an old native projection.
-        return adapter_id == self.descriptor.adapter_id
-
-    def reextract(self, path, *, format_id, previous):
-        prior = previous.descriptor
-        coverage = [
-            i.details
-            for i in previous.issues
-            if i.code == "office_image_range_observed"
-        ]
-        compatible = self.can_reuse_projection(
-            prior.adapter_id, prior.adapter_version, prior.config_hash
-        ) and (
-            can_reuse_ocr(
-                self.config, prior.adapter_id, prior.adapter_version, prior.config_hash
-            )
-            or (
-                len(coverage) == 1
-                and coverage[0].get("recognition_profile")
-                in self.compatible_recognition_profiles
-            )
-        )
-        return self._extract_range(
-            path, format_id=format_id, reuse_previous=previous if compatible else None
-        )
-
-    def _extract_range(self, path, *, format_id, previous=None, reuse_previous=None):
+    def _extract_range(self, path, *, format_id, previous=None):
         native = self.native.extract(path, format_id=format_id)
         with Path(path).open("rb") as source:
             source_digest = hashlib.file_digest(source, "sha256").hexdigest()
-        reused = reusable_images(reuse_previous, source_digest, _source_crop)
         native_characters = Counter()
         for unit in native.units:
             if unit.unit_type not in {"embedded_object", "speaker_notes", "field"}:
@@ -471,57 +384,6 @@ class OfficeVisionAdapter:
         )
         added_count = sum(len(group) for group in insertions.values())
         native_total = sum(len(u.content) for u in native.units)
-        # Retain every proven prior OCR occurrence, including those after the
-        # next bounded cursor. Continuation skips these already retained positions.
-        for position in image_order:
-            location = native.units[position].to_dict()["structure_path"]
-            parts = location.get("image_parts", [])
-            if location.get("display_state") == "not_displayed" or len(parts) != 1:
-                continue
-            crop_notes = {}
-            try:
-                key = (parts[0], _source_crop(location, crop_notes))
-            except (TypeError, ValueError):
-                continue
-            cached = reused.get(key)
-            if not cached:
-                continue
-            characters = sum(len(u.content) for u in cached)
-            if (
-                len(native.units) + added_count + len(cached) > 200_000
-                or native_total + added_characters + characters > 50_000_000
-            ):
-                continue
-            insertions[position] = [
-                replace(
-                    old,
-                    structure_path={
-                        **location,
-                        **{
-                            key: value
-                            for key, value in old.to_dict()["structure_path"].items()
-                            if key
-                            in {
-                                "image_part",
-                                "image_sha256",
-                                "image_region",
-                                "geometry_scope",
-                                "source_image_orientation",
-                                "recognized_source_crop",
-                                "text_representation",
-                                "source_bitmap",
-                                "recognition_padding",
-                            }
-                        },
-                        **crop_notes,
-                    },
-                )
-                for old in cached
-            ]
-            added_characters += characters
-            added_count += len(cached)
-            observations["office_image_ocr_observed"] += 1
-            observations["office_image_ocr_reused_observed"] += 1
         by_part, by_digest, source_data, metafile_strings = {}, {}, {}, {}
         bytes_read = 0
         next_image = start
@@ -529,7 +391,7 @@ class OfficeVisionAdapter:
         deadline = time.monotonic() + self.config["timeout_seconds"]
         with (
             EmbeddedImageArchive(path) as archive,
-            tempfile.TemporaryDirectory(prefix="corpus-image-") as temporary,
+            tempfile.TemporaryDirectory(prefix="document-files-image-") as temporary,
         ):
             for image_index in range(start, len(image_order)):
                 position = image_order[image_index]
@@ -564,17 +426,6 @@ class OfficeVisionAdapter:
                     )
                     continue
                 image_key = (part, crop)
-                if image_key in reused:
-                    cached = reused[image_key]
-                    if cached is None:
-                        observations["office_image_without_text"] += 1
-                        continue
-                    # A cache entry not retained above exceeded the combined
-                    # result limit. Do not recognize or truncate it silently.
-                    observations["office_image_ocr_output_limit"] += 1
-                    output_limited = True
-                    next_image = image_index
-                    break
                 if image_key not in by_part:
                     try:
                         size = archive.size(part)
@@ -658,7 +509,7 @@ class OfficeVisionAdapter:
                             by_digest[recognition_key] = self._image_text(
                                 image_path, deadline - time.monotonic(), crop=crop
                             )
-                        except (CorpusError, OSError) as exc:
+                        except (DocumentExtractionError, OSError) as exc:
                             by_digest[recognition_key] = None
                             failures[recognition_key] = {
                                 "stage": "image_subprocess",
@@ -881,7 +732,6 @@ class OfficeVisionAdapter:
                         if code
                         in {
                             "office_image_ocr_observed",
-                            "office_image_ocr_reused_observed",
                             "office_image_ocr_padding_observed",
                             "office_metafile_text_observed",
                         }

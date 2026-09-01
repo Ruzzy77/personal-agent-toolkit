@@ -11,7 +11,7 @@ import posixpath
 import zipfile
 from collections import Counter, defaultdict
 
-from .errors import ExtractionError
+from .extraction_errors import ExtractionError
 from .extractors import (
     ExtractionResult,
     UnitDraft,
@@ -55,8 +55,12 @@ _IMAGE_REFERENCES = {"blip", "imagedata"}
 _GROUP_ELEMENTS = {"wgp", "grpSp", "group"}
 _MAX_GROUP_IMAGES = 256
 _ISSUE_MESSAGES = {
-    "pptx_table_merge_content_observed": "Stored continuation-cell text was linked to its explicit merge origin.",
-    "office_image_not_displayed_observed": "A picture instance declares its own zero display area in the source.",
+    "pptx_table_merge_content_observed": (
+        "Stored continuation-cell text was linked to its explicit merge origin."
+    ),
+    "office_image_not_displayed_observed": (
+        "A picture instance declares its own zero display area in the source."
+    ),
 }
 
 
@@ -835,7 +839,7 @@ class _WordReader(_Reader):
                 elif merge == "restart":
                     next_active[col] = loc
                 if prop is not None and _child(prop, "hMerge") is not None:
-                    self.issues["docx_legacy_table_merge_partial"] += 1
+                    self.issues["docx_table_merge_partial"] += 1
                 cells.append((cell, loc))
                 col += span
             active = next_active

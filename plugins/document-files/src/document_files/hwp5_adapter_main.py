@@ -13,18 +13,18 @@ from collections import Counter
 import olefile
 
 if __package__:
-    from .hancom_images import hwp_binary_items
+    from .hwp_images import hwp_binary_items
     from .hwp_structure import (
         SectionStructure,
         doc_info_properties,
         link_document_memos,
     )
 else:
-    from hancom_images import hwp_binary_items
+    from hwp_images import hwp_binary_items
     from hwp_structure import SectionStructure, doc_info_properties, link_document_memos
 
-REQUEST_SCHEMA_VERSION = "corpus.extraction-request.v1"
-RESULT_SCHEMA_VERSION = "corpus.extraction-result.v1"
+REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v1"
+RESULT_SCHEMA_VERSION = "document-files.extraction-result.v1"
 HWP_SIGNATURE = b"HWP Document File"
 PARA_HEADER = 0x42
 PARA_TEXT = 0x43

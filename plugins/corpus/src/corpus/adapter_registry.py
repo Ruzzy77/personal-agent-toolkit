@@ -1,46 +1,189 @@
-"""Format-to-adapter routing used by Corpus.
+"""Route Corpus source capture to the Document Files extraction process.
 
-Backend packages can change without making their identifiers, chunks, or
-lifecycle part of the corpus schema.  The registry only selects an adapter;
-the service continues to own revisions, projections, anchors, and authority.
+Corpus owns source registration, capture, revisions, projections, identifiers,
+anchors, and search. Format parsing and OCR are supplied only by the separately
+installed Document Files plugin through a strict read-only subprocess boundary.
 """
 
 from __future__ import annotations
 
-import sys
+import json
+import os
+import shutil
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
 from .adapters import (
+    AdapterBudgets,
+    AdapterCapabilities,
     AdapterDescriptor,
+    ExternalJSONLAdapter,
     ExtractionAdapter,
-    ExtractionEnvelope,
-    builtin_adapter_descriptor,
-    run_builtin_extraction,
 )
 from .errors import ExtractionError
-from .extractors import EXTRACTORS
-from .formats import FORMAT_SPECS
+
+DESCRIPTOR_SCHEMA_VERSION = "document-files.descriptor.v1"
+SUPPORTED_FORMATS = (
+    "docx",
+    "htm",
+    "html",
+    "hwp",
+    "hwpx",
+    "markdown",
+    "md",
+    "pdf",
+    "pptx",
+    "txt",
+    "xlsx",
+)
 
 
-class BuiltinExtractionAdapter:
-    """Expose a legacy in-process extractor through the neutral adapter API."""
+def _candidate_executables() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    configured = os.environ.get("DOCUMENT_FILES_EXECUTABLE")
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    resolved = shutil.which("document-files")
+    if resolved:
+        candidates.append(Path(resolved))
 
-    def __init__(self, adapter_name: str) -> None:
-        self.adapter_name = adapter_name
-        self.descriptor = builtin_adapter_descriptor(adapter_name)
+    package_root = Path(__file__).resolve().parents[2]
+    candidates.append(package_root.parent / "document-files" / "bin" / "document-files")
 
-    def extract(self, path: Path, *, format_id: str) -> ExtractionEnvelope:
-        if format_id not in self.descriptor.capabilities.format_ids:
-            raise ExtractionError(
-                "built-in adapter does not declare support for this format",
-                details={
-                    "adapter_name": self.adapter_name,
-                    "format_id": format_id,
-                },
+    cache_root = Path.home() / ".codex" / "plugins" / "cache"
+    if cache_root.is_dir():
+        candidates.extend(
+            sorted(
+                cache_root.glob("*/document-files/*/bin/document-files"),
+                reverse=True,
             )
-        return run_builtin_extraction(path, self.adapter_name)
+        )
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            normalized = candidate.resolve(strict=False)
+        except OSError:
+            continue
+        if normalized not in seen:
+            seen.add(normalized)
+            unique.append(normalized)
+    return tuple(unique)
+
+
+def resolve_document_files_executable() -> Path:
+    for candidate in _candidate_executables():
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    raise ExtractionError(
+        "Document Files is required for source extraction but its executable was not found",
+        details={
+            "environment_variable": "DOCUMENT_FILES_EXECUTABLE",
+            "required_plugin": "document-files",
+        },
+    )
+
+
+def _descriptor_capabilities(raw: object, *, format_id: str) -> AdapterCapabilities:
+    if not isinstance(raw, Mapping):
+        raise ExtractionError("Document Files descriptor capabilities are invalid")
+    try:
+        capabilities = AdapterCapabilities(
+            format_ids=tuple(raw["format_ids"]),
+            structural_unit_types=tuple(raw["structural_unit_types"]),
+            execution_mode=raw["execution_mode"],
+            preserves_reading_order=raw.get("preserves_reading_order", True),
+            supports_geometry=raw.get("supports_geometry", False),
+            supports_confidence=raw.get("supports_confidence", False),
+            supports_ocr=raw.get("supports_ocr", False),
+            may_emit_partial=raw.get("may_emit_partial", True),
+            protocol_version=raw.get(
+                "protocol_version", "document-files.extraction-result.v1"
+            ),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ExtractionError(
+            "Document Files descriptor capabilities are invalid",
+            details={"format_id": format_id},
+        ) from exc
+    if format_id not in capabilities.format_ids:
+        raise ExtractionError(
+            "Document Files descriptor does not declare its requested format",
+            details={"format_id": format_id},
+        )
+    return capabilities
+
+
+def _load_routes(
+    executable: Path,
+) -> dict[str, tuple[AdapterDescriptor, Mapping[str, object]]]:
+    try:
+        completed = subprocess.run(
+            (str(executable), "process", "--describe"),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ExtractionError(
+            "Document Files could not report its extraction descriptor",
+            details={"error_type": type(exc).__name__},
+        ) from exc
+    if completed.returncode != 0:
+        raise ExtractionError(
+            "Document Files descriptor command failed",
+            details={
+                "return_code": completed.returncode,
+                "stderr_bytes": len(completed.stderr),
+            },
+        )
+    try:
+        raw = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ExtractionError("Document Files descriptor is not valid UTF-8 JSON") from exc
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != DESCRIPTOR_SCHEMA_VERSION:
+        raise ExtractionError("Document Files descriptor schema is unsupported")
+    formats = raw.get("formats")
+    if not isinstance(formats, Mapping):
+        raise ExtractionError("Document Files descriptor has no format routes")
+    if set(formats) != set(SUPPORTED_FORMATS):
+        raise ExtractionError(
+            "Document Files format routes do not match the Corpus contract",
+            details={
+                "required": list(SUPPORTED_FORMATS),
+                "reported": sorted(str(key) for key in formats),
+            },
+        )
+
+    routes: dict[str, tuple[AdapterDescriptor, Mapping[str, object]]] = {}
+    for format_id in SUPPORTED_FORMATS:
+        route = formats[format_id]
+        if not isinstance(route, Mapping):
+            raise ExtractionError("Document Files format descriptor is invalid")
+        descriptor_raw = route.get("descriptor")
+        config = route.get("config")
+        if not isinstance(descriptor_raw, Mapping) or not isinstance(config, Mapping):
+            raise ExtractionError("Document Files format descriptor is incomplete")
+        capabilities = _descriptor_capabilities(
+            descriptor_raw.get("capabilities"), format_id=format_id
+        )
+        try:
+            descriptor = AdapterDescriptor(
+                adapter_id=descriptor_raw["adapter_id"],
+                adapter_version=descriptor_raw["adapter_version"],
+                config_hash=descriptor_raw["config_hash"],
+                capabilities=capabilities,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ExtractionError(
+                "Document Files format identity is invalid",
+                details={"format_id": format_id},
+            ) from exc
+        routes[format_id] = (descriptor, config)
+    return routes
 
 
 class AdapterRegistry:
@@ -61,15 +204,10 @@ class AdapterRegistry:
 
     @property
     def descriptors(self) -> tuple[AdapterDescriptor, ...]:
-        by_identity = {
-            (
-                adapter.descriptor.adapter_id,
-                adapter.descriptor.adapter_version,
-                adapter.descriptor.config_hash,
-            ): adapter.descriptor
-            for adapter in self._adapters_by_format.values()
-        }
-        return tuple(by_identity[key] for key in sorted(by_identity))
+        return tuple(
+            self._adapters_by_format[format_id].descriptor
+            for format_id in sorted(self._adapters_by_format)
+        )
 
     def resolve(self, format_id: str) -> ExtractionAdapter:
         try:
@@ -87,27 +225,15 @@ class AdapterRegistry:
         adapter_version: str,
         config_hash: str,
     ) -> bool:
-        """Return whether a persisted projection is current for one route.
-
-        Most routes accept only their current descriptor.  Content routers may
-        explicitly retain a bounded set of earlier identities when the new
-        route preserves the meaning of those successful projections.
-        """
-
         try:
-            adapter = self.resolve(format_id)
+            current = self.resolve(format_id).descriptor
         except ExtractionError:
             return False
-        identity = (adapter_id, adapter_version, config_hash)
-        current = (
-            adapter.descriptor.adapter_id,
-            adapter.descriptor.adapter_version,
-            adapter.descriptor.config_hash,
+        return (adapter_id, adapter_version, config_hash) == (
+            current.adapter_id,
+            current.adapter_version,
+            current.config_hash,
         )
-        if identity == current:
-            return True
-        compatible = getattr(adapter, "compatible_projection_identities", ())
-        return identity in compatible
 
 
 def build_default_registry(
@@ -115,41 +241,29 @@ def build_default_registry(
     *,
     overrides: Mapping[str, ExtractionAdapter] | None = None,
 ) -> AdapterRegistry:
-    """Build the packaged registry, optionally replacing exact format routes."""
+    """Build Document Files subprocess routes, then apply exact test overrides."""
 
-    builtin_adapters = {
-        specification.adapter: BuiltinExtractionAdapter(specification.adapter)
-        for specification in FORMAT_SPECS.values()
-        if specification.adapter in EXTRACTORS
-    }
-    routes: dict[str, ExtractionAdapter] = {
-        extension: builtin_adapters[specification.adapter]
-        for extension, specification in FORMAT_SPECS.items()
-        if specification.adapter in builtin_adapters
-    }
-    from .hwp_adapters import HWP5ContentRouter, HWP5SpecPartialAdapter
-    from .hwpx_adapters import HWPXContentRouter
-    from .rhwp_adapters import RhwpPageTextAdapter
-
-    hwp_spec_adapter = HWP5SpecPartialAdapter()
-    hwp_adapter = HWP5ContentRouter(
-        hwp_spec_adapter,
-        RhwpPageTextAdapter(runtime_root),
+    del runtime_root  # Extraction runtime ownership belongs to Document Files.
+    executable = resolve_document_files_executable()
+    described = _load_routes(executable)
+    budgets = AdapterBudgets(
+        timeout_seconds=600,
+        max_input_bytes=2 * 1024 * 1024 * 1024,
+        max_stdout_bytes=512 * 1024 * 1024,
+        max_stderr_bytes=512 * 1024,
+        max_units=1_000_000,
+        max_issues=1_000_000,
+        max_unit_content_chars=50_000_000,
+        max_total_content_chars=500_000_000,
     )
-    routes["hwp"] = hwp_adapter
-    routes["hwpx"] = HWPXContentRouter(routes["hwpx"], hwp_adapter)
-    if (
-        runtime_root is not None
-        and sys.platform == "darwin"
-        and Path("/usr/bin/xcrun").is_file()
-    ):
-        from .native_adapters import PDFKitVisionAdapter
-        from .office_ocr import OfficeVisionAdapter
-
-        routes["pdf"] = PDFKitVisionAdapter(runtime_root)
-        for format_id in ("docx", "pptx", "hwp", "hwpx"):
-            routes[format_id] = OfficeVisionAdapter(
-                routes[format_id], runtime_root, format_id=format_id
-            )
+    routes: dict[str, ExtractionAdapter] = {
+        format_id: ExternalJSONLAdapter(
+            descriptor,
+            (str(executable), "process"),
+            budgets,
+            config=config,
+        )
+        for format_id, (descriptor, config) in described.items()
+    }
     routes.update(overrides or {})
     return AdapterRegistry(routes)

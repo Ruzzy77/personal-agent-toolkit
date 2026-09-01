@@ -1,8 +1,11 @@
-"""Source format declarations used for scanning and media-type metadata."""
+"""Format support declarations kept separate from extractor implementations."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from .hwp_structure import STRUCTURAL_UNIT_TYPES
+from .office_structure import DOCX_UNITS, PPTX_UNITS
 
 
 @dataclass(frozen=True)
@@ -10,39 +13,47 @@ class FormatSpec:
     extension: str
     media_type: str
     adapter: str
+    structural_units: tuple[str, ...]
 
 
 FORMAT_SPECS = {
-    "md": FormatSpec("md", "text/markdown", "document-files"),
-    "markdown": FormatSpec("markdown", "text/markdown", "document-files"),
-    "txt": FormatSpec("txt", "text/plain", "document-files"),
-    "html": FormatSpec("html", "text/html", "document-files"),
-    "htm": FormatSpec("htm", "text/html", "document-files"),
-    "pdf": FormatSpec("pdf", "application/pdf", "document-files"),
+    "md": FormatSpec("md", "text/markdown", "markdown", ("heading", "paragraph")),
+    "markdown": FormatSpec(
+        "markdown", "text/markdown", "markdown", ("heading", "paragraph")
+    ),
+    "txt": FormatSpec("txt", "text/plain", "text", ("paragraph",)),
+    "html": FormatSpec("html", "text/html", "html", ("heading", "paragraph", "table")),
+    "htm": FormatSpec("htm", "text/html", "html", ("heading", "paragraph", "table")),
+    "pdf": FormatSpec("pdf", "application/pdf", "pdf", ("page",)),
     "docx": FormatSpec(
         "docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "document-files",
+        "docx",
+        DOCX_UNITS,
     ),
     "pptx": FormatSpec(
         "pptx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "document-files",
+        "pptx",
+        PPTX_UNITS,
     ),
     "xlsx": FormatSpec(
         "xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "document-files",
+        "xlsx",
+        ("sheet_row",),
     ),
     "hwpx": FormatSpec(
         "hwpx",
         "application/vnd.hancom.hwpx",
-        "document-files",
+        "hwpx",
+        STRUCTURAL_UNIT_TYPES,
     ),
     "hwp": FormatSpec(
         "hwp",
         "application/x-hwp",
-        "document-files",
+        "hwp5",
+        ("section_paragraph",),
     ),
 }
 

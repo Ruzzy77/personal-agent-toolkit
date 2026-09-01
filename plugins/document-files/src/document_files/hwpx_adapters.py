@@ -5,14 +5,14 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from .adapters import (
+from .extraction_errors import ExtractionError
+from .extraction_protocol import (
     AdapterCapabilities,
     AdapterDescriptor,
     ExtractionAdapter,
     ExtractionEnvelope,
     ExtractionIssue,
 )
-from .errors import ExtractionError
 
 OLE_COMPOUND_FILE_SIGNATURE = bytes.fromhex("d0cf11e0a1b11ae1")
 _ROUTER_SOURCE = Path(__file__)
@@ -38,7 +38,7 @@ class HWPXContentRouter:
             "binary_hwp_adapter": binary_hwp_adapter.descriptor.to_dict(),
         }
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.hwpx.content-router",
+            adapter_id="document-files.hwpx.content-router",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=config,
             capabilities=AdapterCapabilities(

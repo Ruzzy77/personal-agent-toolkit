@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.17.4+codex.20260831134028",
+  "version": "0.18.0+codex.20260901112050",
   "description": "Connect saved questions and relationships to their exact current sources.",
   "author": {
     "name": "Ruzzy77",
@@ -27,7 +27,7 @@
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
-    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. Chat starts from saved Context, reads exact current Source text only when needed, and can replace a user-requested Context Skill with version conflict protection. It can continue files in an explicitly connected remote-allowed Work Connection while Source Connections and local-only Connections remain read-only or local.",
+    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. It owns source capture, revision and projection identity, anchors, search, and exact reading; the Document Files plugin supplies document parsing and OCR through a read-only process boundary. Chat starts from saved Context and reads exact current Source text only when needed.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

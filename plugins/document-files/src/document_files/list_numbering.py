@@ -69,7 +69,7 @@ PRESENTATION_SCHEMES = {
 
 # hp:paraHead/@numFormat values. Hangul, ideograph and symbol formats are not
 # rendered because their displayed sequence is not fixed by the identifier.
-HANCOM_NUMBER_FORMATS = {
+HWP_NUMBER_FORMATS = {
     "DIGIT": "decimal",
     "CIRCLED_DIGIT": "circled_decimal",
     "ROMAN_CAPITAL": "upper_roman",
@@ -81,7 +81,7 @@ HANCOM_NUMBER_FORMATS = {
 }
 
 OOXML_MARKER = "%"
-HANCOM_MARKER = "^"
+HWP_MARKER = "^"
 
 
 def render(value: int, style: str | None) -> str | None:

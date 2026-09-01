@@ -29,6 +29,18 @@
       "category": "Productivity"
     },
     {
+      "name": "document-files",
+      "source": {
+        "source": "local",
+        "path": "./plugins/document-files"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
       "name": "hypes",
       "source": {
         "source": "local",

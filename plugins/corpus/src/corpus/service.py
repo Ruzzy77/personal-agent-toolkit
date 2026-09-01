@@ -64,12 +64,6 @@ from .locking import (
     workspace_writer_lock,
     writer_lock,
 )
-from .native_adapters import LEGACY_PDF_VERSIONS
-from .office_reuse import (
-    IMAGE_DIAGNOSTICS_PREDECESSOR,
-    METAFILE_TEXT_PREDECESSOR,
-    NUMBERING_PREFIX_PREDECESSOR,
-)
 from .scanner import scan_corpus
 from .schema import EXTRACTION_SCHEMA_VERSION
 from .session_sources import SESSION_SOURCE_FETCH_DEFAULT_CHARS
@@ -150,41 +144,9 @@ _INVENTORY_INDEX_STATES = {
 }
 
 
-# Queue bounded continuations and one recoverable HWP backend attempt. Current
-# failed attempts are excluded by the normal pending-document selection below.
-_CONTINUATION_ISSUE_SQL = (
-    "(progress.code IN ('pdf_page_range_pending', 'pdf_page_limit_reached', "
-    "'office_image_range_pending') OR ("
-    "p.adapter_id IN ('work-corpus.native.office-vision.docx', "
-    "'work-corpus.native.office-vision.pptx', 'work-corpus.native.office-vision.hwp', "
-    "'work-corpus.native.office-vision.hwpx') "
-    f"AND p.adapter_version = '{IMAGE_DIAGNOSTICS_PREDECESSOR}' "
-    "AND progress.code IN ('office_image_ocr_failed', 'office_image_size_limit')) OR ("
-    "p.adapter_id = 'work-corpus.native.office-vision.pptx' "
-    f"AND p.adapter_version IN ('{IMAGE_DIAGNOSTICS_PREDECESSOR}', "
-    f"'{NUMBERING_PREFIX_PREDECESSOR}') "
-    "AND progress.code = 'pptx_list_marker_partial') OR ("
-    "p.adapter_id IN ('work-corpus.native.office-vision.docx', "
-    "'work-corpus.native.office-vision.pptx', 'work-corpus.native.office-vision.hwp', "
-    "'work-corpus.native.office-vision.hwpx') "
-    f"AND p.adapter_version IN ('{IMAGE_DIAGNOSTICS_PREDECESSOR}', "
-    f"'{NUMBERING_PREFIX_PREDECESSOR}', '{METAFILE_TEXT_PREDECESSOR}') "
-    "AND progress.code = 'office_image_format_unsupported') OR ("
-    "p.adapter_id = 'work-corpus.native.pdfkit-vision' AND p.adapter_version IN ("
-    + ",".join("'" + version + "'" for version in LEGACY_PDF_VERSIONS)
-    + ") AND progress.code IN ('pdf_page_without_text', 'pdf_ocr_page_failed')) OR ("
-    "p.adapter_id IN ('work-corpus.native.office-vision.hwp', "
-    "'work-corpus.native.office-vision.hwpx') "
-    "AND progress.code = 'hwp_alternate_backend_used' "
-    "AND json_extract(progress.details_json, '$.details.reason') "
-    "= 'specification_adapter_error'))"
-)
-
-
-def _hwp_page_fallback(extraction: ExtractionEnvelope) -> bool:
-    return any(
-        issue.code == "hwp_alternate_backend_used" for issue in extraction.issues
-    ) and any(unit.unit_type == "page_text" for unit in extraction.units)
+# Document Files completes bounded format continuations inside one extraction
+# process. Corpus never schedules parser-specific follow-up work.
+_CONTINUATION_ISSUE_SQL = "0"
 
 
 def _extraction_issue_category(code: str) -> str:
@@ -3146,8 +3108,6 @@ class CorpusService:
             previous = None
             repair_previous = False
             reextract_previous = False
-            recover_hwp_structure = False
-            previous_native_structure = False
 
             with corpus_connection(self.data_root, corpus["corpus_id"]) as connection:
                 existing = connection.execute(
@@ -3163,22 +3123,6 @@ class CorpusService:
                 if (
                     existing
                     and existing["projection_id"] is not None
-                    and document["extension"] in {"hwp", "hwpx"}
-                ):
-                    previous_native_structure = bool(
-                        connection.execute(
-                            """SELECT 1 FROM source_units WHERE projection_id = ?
-                               AND derivation_method = 'native_text'
-                               AND unit_type NOT IN
-                                   ('page_text', 'image_text', 'image_native_text',
-                                    'embedded_object', 'field')
-                               LIMIT 1""",
-                            (existing["projection_id"],),
-                        ).fetchone()
-                    )
-                if (
-                    existing
-                    and existing["projection_id"] is not None
                     and existing["adapter_id"] == descriptor.adapter_id
                     and existing["adapter_version"] == descriptor.adapter_version
                     and existing["config_hash"] == descriptor.config_hash
@@ -3187,20 +3131,7 @@ class CorpusService:
                         previous = self._continuation_envelope(
                             connection, existing["projection_id"], descriptor
                         )
-                    if previous is None and document["extension"] in {"hwp", "hwpx"}:
-                        recover_hwp_structure = bool(
-                            connection.execute(
-                                """SELECT 1 FROM extraction_issues
-                                   WHERE projection_id = ?
-                                     AND lifecycle_state = 'active'
-                                     AND code = 'hwp_alternate_backend_used'
-                                     AND json_extract(details_json, '$.details.reason')
-                                         = 'specification_adapter_error'
-                                   LIMIT 1""",
-                                (existing["projection_id"],),
-                            ).fetchone()
-                        )
-                    if previous is None and not recover_hwp_structure:
+                    if previous is None:
                         self._reactivate_existing_projection(
                             connection,
                             document=document,
@@ -3286,18 +3217,6 @@ class CorpusService:
                         captured.capture_path, format_id=document["extension"]
                     )
                 )
-                if _hwp_page_fallback(extraction) and (
-                    previous_native_structure or recover_hwp_structure
-                ):
-                    raise ExtractionError(
-                        "HWP structure recovery did not produce a native structured result; "
-                        "the existing index was preserved",
-                        details={
-                            "reason": "hwp_native_structure_unavailable",
-                            "previous_native_structure": previous_native_structure,
-                            "existing_projection_preserved": True,
-                        },
-                    )
             except (ExtractionError, BudgetExceededError) as exc:
                 self._record_failed_extraction(
                     corpus_id=corpus["corpus_id"],

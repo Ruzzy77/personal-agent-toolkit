@@ -7,7 +7,7 @@ import re
 import zipfile
 from collections import Counter
 
-from .errors import ExtractionError
+from .extraction_errors import ExtractionError
 from .extractors import (
     ExtractionResult,
     UnitDraft,
@@ -17,8 +17,8 @@ from .extractors import (
     _safe_archive_xml_root,
     normalize_text,
 )
-from .hancom_images import hwpx_binary_items, hwpx_picture
-from .list_numbering import HANCOM_MARKER, HANCOM_NUMBER_FORMATS, ListCounters
+from .hwp_images import hwpx_binary_items, hwpx_picture
+from .list_numbering import HWP_MARKER, HWP_NUMBER_FORMATS, ListCounters
 
 _CONTAINERS = {
     "footNote": "footnote",
@@ -109,12 +109,12 @@ def _numbering_counters(levels: dict) -> ListCounters:
         except ExtractionError:
             value = None
         definitions[level] = {
-            "style": HANCOM_NUMBER_FORMATS.get(declared.get("number_format")),
+            "style": HWP_NUMBER_FORMATS.get(declared.get("number_format")),
             "start": value,
             "restarts": True,
             "pattern": declared.get("marker_pattern"),
         }
-    return ListCounters(definitions, HANCOM_MARKER)
+    return ListCounters(definitions, HWP_MARKER)
 
 
 class _Reader:
@@ -546,7 +546,7 @@ class _Reader:
                             {
                                 **context,
                                 "element": f"{address}.{index}",
-                                "text_representation": "hancom_equation_script",
+                                "text_representation": "hwp_equation_script",
                             },
                             child.text,
                         )

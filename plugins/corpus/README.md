@@ -28,7 +28,7 @@ Source 등록·색인, Context item 수정과 Work Connection 연결은 로컬 C
 
 ## 설치
 
-Python 3.11 이상과 `uv`가 필요합니다.
+Python 3.11 이상, `uv`, 활성화된 Document Files 플러그인이 필요합니다.
 
 ```sh
 uv sync --frozen
@@ -62,33 +62,15 @@ CORPUS_MCP_PORT=8000 \
 ./launchers/corpus sync --corpus thesis-sources
 ```
 
-`scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 내용은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
+`scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 연동 규격은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
-HWP/HWPX는 원문에 기록된 표·셀·병합 관계, 제목·목록 속성과 주석·개체의 위치를 함께 읽습니다.
-DOCX는 본문·표·중첩 셀을 XML 순서대로 읽고, PPTX는 그룹 도형 안의 글자, 표, 저장된 차트·SmartArt 본문을 읽습니다.
-Word 수식의 원본 요소 관계와 SmartArt에 저장된 점·연결 관계도 보존합니다.
-PowerPoint 삽입 개체의 저장된 미리보기는 원본 개체와 유일하게 대응할 때만 그림으로 읽습니다.
-검색으로 찾은 셀의 행과 제목 셀, 캡션이 필요하면 `corpus_file_read`에
-`include_structure_context=true`를 지정합니다. 기본 조회는 해당 unit의 본문만 반환합니다.
-macOS에서는 Word, PowerPoint와 HWP/HWPX에 삽입된 그림을 제한된 로컬 OCR로 보완합니다.
-본문이 거의 없는 문서와 슬라이드를 먼저 처리하며, 남은 그림은 다음 갱신에서 이어 읽습니다.
-OCR 결과에는 그림의 원본 위치와 인식 신뢰도를 남깁니다. 잘린 그림은 원본 대응과 보이는 영역을
-확인할 수 있을 때만 읽으며, 불명확한 자르기와 미지원 그림 형식은 별도 경고로 남깁니다.
-EMF 그림에 저장된 Unicode 문자열은 원본 레코드 위치와 함께 따로 읽습니다. 이 문자열은
-화면을 인식한 OCR과 구분하며, 글자 조각의 읽기 순서나 표시 상태는 추정하지 않습니다.
-HWP의 BinData 레코드와 HWPX의 패키지 참조를 대조하며, 외부 연결 그림은 열지 않습니다.
-시각 배치나 지원하지 않는 개체 내용은 부분 추출로 표시합니다.
+문서 형식별 파싱, OCR, 구조 단위와 추출 범위 판정은 Document Files가 담당합니다. Corpus는 등록된 원본을 읽기 전용 임시 사본으로 캡처하고, Document Files의 검증된 결과에 revision·projection·Source unit ID와 anchor를 부여해 검색에 연결합니다. Corpus에는 PDF·Office·HWP/HWPX 파서나 해당 라이브러리를 포함하지 않습니다.
 
-PDF는 한 번에 최대 200쪽을 읽고, 남은 쪽은 다음 갱신에서 이어 처리합니다.
-이어 처리에 실패하면 기존 색인을 보존합니다. `status`와 갱신 스크립트의 최종 JSON에는
-부분 추출 문서의 형식별·문제별 집계가 포함됩니다. 실제 추출 실패, 처리 한도, 미지원 형식,
-미해결 구조와 읽기 순서 미확인도 구분합니다. 분류별 수치는 같은 문서를 중복 집계할 수 있습니다.
+Document Files는 큰 PDF의 페이지 구간과 Office 계열 문서의 그림 구간을 한 추출 프로세스 안에서 이어 처리한 뒤 결과를 반환합니다. Corpus는 형식별 후속 처리나 별도 OCR을 예약하지 않습니다. `status`와 갱신 스크립트의 최종 JSON에는 부분 추출 문서의 형식별·문제별 집계가 포함되며, 실제 추출 실패, 처리 한도, 미지원 형식, 미해결 구조와 읽기 순서 미확인을 구분합니다. 분류별 수치는 같은 문서를 중복 집계할 수 있습니다.
 
-배포용 HWP의 페이지 본문을 복구하려면 고정된 `rhwp` 실행 파일을 Corpus 캐시에 한 번 설치합니다.
+검색으로 찾은 셀의 행과 제목 셀, 캡션이 필요하면 `corpus_file_read`에 `include_structure_context=true`를 지정합니다. 기본 조회는 해당 unit의 본문만 반환합니다.
 
-```sh
-python3 scripts/provision_rhwp.py
-```
+HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Document Files에서 수행합니다.
 
 자동 갱신은 파일당 250 MiB 제한을 유지합니다. 그보다 큰 로컬 파일은 inventory에서 확인한 문서 ID를 정확히 지정하고 한 파일씩 색인할 수 있습니다. 이 경로도 파일당·실행당 1 GiB를 넘지 않습니다.
 

@@ -13,7 +13,8 @@ from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 
-from .adapters import (
+from .extraction_errors import BudgetExceededError, ExtractionError
+from .extraction_protocol import (
     AdapterBudgets,
     AdapterCapabilities,
     AdapterDescriptor,
@@ -23,15 +24,12 @@ from .adapters import (
     ExtractionIssue,
     _honest_completeness,
 )
-from .errors import BudgetExceededError, ExtractionError
 from .extractors import extract_pdf
 
 _PDF_VISION_SOURCE = (
-    Path(__file__).resolve().with_name("native") / "corpus_pdf_vision.swift"
+    Path(__file__).resolve().with_name("native") / "document_files_pdf_vision.swift"
 )
 _PDF_PAGE_FALLBACK_SOURCE = Path(__file__).with_name("pdf_page_fallback_main.py")
-LEGACY_PDF_VERSIONS = ("1.2.0+source.ebd131a63d82", "1.3.0+source.13a8030490c5")
-_LEGACY_PDF_MAX_PAGES = 200
 
 
 def _source_digest(path: Path) -> str:
@@ -75,11 +73,10 @@ class PDFKitVisionAdapter:
             "page_pipeline": "native_ocr_then_empty_page_fallback_v1",
             "build_identity": "source_hash_adhoc_v1",
             "adapter_wrapper_source": _source_digest(Path(__file__)),
-            "legacy_repair_scope": "empty_pages_current_projection_v1",
             "runtime": _macos_runtime_identity(),
         }
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.native.pdfkit-vision",
+            adapter_id="document-files.native.pdfkit-vision",
             adapter_version=f"1.4.0+source.{self.source_hash[:12]}",
             config=self.config,
             capabilities=AdapterCapabilities(
@@ -97,64 +94,6 @@ class PDFKitVisionAdapter:
                 supports_ocr=True,
                 may_emit_partial=True,
             ),
-        )
-        # Keep successful native projections on the same host. The core queues
-        # missing-page issues from these exact retired builds for one repair run.
-        legacy_config = {
-            k: v
-            for k, v in self.config.items()
-            if k
-            not in {
-                "page_fallback_source",
-                "page_fallback_timeout_seconds",
-                "structured_ocr_empty_fallback",
-                "page_pipeline",
-                "build_identity",
-                "adapter_wrapper_source",
-                "legacy_repair_scope",
-            }
-        }
-        legacy_config.update(
-            max_pages=_LEGACY_PDF_MAX_PAGES,
-            blank_page_detection="rendered_luma_near_white_v1",
-            fallback_scope="native_adapter_error",
-        )
-        legacy = [
-            AdapterDescriptor.from_config(
-                adapter_id=self.descriptor.adapter_id,
-                adapter_version=version,
-                config={
-                    k: v
-                    for k, v in legacy_config.items()
-                    if version.startswith("1.3.") or k != "page_ranges"
-                },
-                capabilities=self.descriptor.capabilities,
-            )
-            for version in LEGACY_PDF_VERSIONS
-        ]
-        # Only the image branch changed from this exact shared Swift build.
-        # Preserve PDF projections without treating a different runtime or PDF
-        # configuration as equivalent. This is not a missing-page repair build.
-        legacy.append(
-            AdapterDescriptor.from_config(
-                adapter_id=self.descriptor.adapter_id,
-                adapter_version="1.4.0+source.507ccaa03634",
-                config={
-                    **self.config,
-                    "adapter_wrapper_source": "7351f8b5b95d44aacd073d396d2201703f719576293a8c6426aa8fa4dd2c9263",
-                },
-                capabilities=self.descriptor.capabilities,
-            )
-        )
-        self.compatible_projection_identities = frozenset(
-            {
-                (
-                    item.adapter_id,
-                    item.adapter_version,
-                    item.config_hash,
-                )
-                for item in legacy
-            }
         )
         self.budgets = AdapterBudgets(
             timeout_seconds=180,
@@ -220,7 +159,7 @@ class PDFKitVisionAdapter:
                     "--sign",
                     "-",
                     "--identifier",
-                    f"work-corpus.native.pdfkit-vision.{self.source_hash[:16]}",
+                    f"document-files.native.pdfkit-vision.{self.source_hash[:16]}",
                     str(temporary_path),
                 ),
                 stdin=subprocess.DEVNULL,
@@ -312,161 +251,6 @@ class PDFKitVisionAdapter:
             completeness=result.completeness,
             units=result.units,
             issues=result.issues,
-        )
-
-    def repair(self, path: Path, *, format_id: str, previous: ExtractionEnvelope):
-        """Core supplies only the active projection of the same captured revision."""
-        old = previous.descriptor
-        if (
-            old.adapter_id,
-            old.adapter_version,
-            old.config_hash,
-        ) not in self.compatible_projection_identities:
-            raise ExtractionError(
-                "PDF repair requires an explicitly compatible prior identity"
-            )
-        coverage = [
-            i.details for i in previous.issues if i.code == "pdf_page_range_observed"
-        ]
-        legacy_without_range = (
-            old.adapter_version == LEGACY_PDF_VERSIONS[0]
-            and not coverage
-            and not any(
-                i.code in {"pdf_page_limit_reached", "pdf_page_range_pending"}
-                for i in previous.issues
-            )
-        )
-        if legacy_without_range:
-            # This exact build visited pages 1..200 without a range marker.
-            # The fresh selected-page run must confirm the document fits there.
-            total = None
-        elif (
-            len(coverage) == 1
-            and coverage[0].get("page_start") == 1
-            and type(coverage[0].get("document_pages")) is int
-            and coverage[0].get("page_end") == coverage[0]["document_pages"]
-        ):
-            total = coverage[0]["document_pages"]
-        else:
-            raise ExtractionError(
-                "PDF repair requires a complete prior processed page range"
-            )
-        prior_end = _LEGACY_PDF_MAX_PAGES if total is None else total
-        repair_codes = {"pdf_page_without_text", "pdf_ocr_page_failed"}
-        occupied = {u.structure_path.get("page") for u in previous.units}
-        if any(
-            type(page) is not int or not 1 <= page <= prior_end for page in occupied
-        ):
-            raise ExtractionError("PDF repair has inconsistent prior page positions")
-        pages = sorted(
-            {
-                i.details["page"]
-                for i in previous.issues
-                if i.code in repair_codes
-                and type(i.details.get("page")) is int
-                and 1 <= i.details["page"] <= prior_end
-                and i.details["page"] not in occupied
-            }
-        )
-        if not pages:
-            raise ExtractionError("PDF repair has no safely isolated empty pages")
-        started = time.monotonic()
-        additions, new_issues = [], []
-        windows = sorted({(page - 1) // self.config["max_pages"] for page in pages})
-        for window in windows:
-            start = window * self.config["max_pages"] + 1
-            selected = tuple(
-                page
-                for page in pages
-                if start <= page < start + self.config["max_pages"]
-            )
-            remaining = self.budgets.timeout_seconds - (time.monotonic() - started)
-            if remaining <= 0:
-                raise BudgetExceededError("PDF repair exceeded its bounded runtime")
-            result = self._extract_range(
-                path,
-                format_id=format_id,
-                page_start=start,
-                selected_pages=selected,
-                timeout_seconds=remaining,
-            )
-            observed = [
-                i.details for i in result.issues if i.code == "pdf_page_range_observed"
-            ]
-            if legacy_without_range and total is None and len(observed) == 1:
-                total = observed[0].get("document_pages")
-                if (
-                    type(total) is not int
-                    or not max((*occupied, *pages)) <= total <= prior_end
-                    or observed[0].get("page_start") != 1
-                ):
-                    raise ExtractionError(
-                        "PDF repair cannot confirm the legacy page extent"
-                    )
-            if (
-                len(observed) != 1
-                or observed[0].get("document_pages") != total
-                or observed[0].get("page_end", 0) < max(selected)
-                or any(
-                    u.structure_path.get("page") not in selected for u in result.units
-                )
-            ):
-                raise ExtractionError(
-                    "PDF repair did not retain the requested source page boundaries"
-                )
-            additions.extend(result.units)
-            new_issues.extend(
-                i
-                for i in result.issues
-                if i.code not in {"pdf_page_range_observed", "pdf_page_range_pending"}
-            )
-        if legacy_without_range:
-            new_issues.append(
-                ExtractionIssue(
-                    "pdf_page_range_observed",
-                    "The legacy processed range was confirmed against the unchanged source page count.",
-                    "info",
-                    {"page_start": 1, "page_end": total, "document_pages": total},
-                )
-            )
-        units = tuple(
-            sorted(
-                (*previous.units, *additions), key=lambda u: u.structure_path["page"]
-            )
-        )
-        issues = (
-            tuple(
-                i
-                for i in previous.issues
-                if not (i.code in repair_codes and i.details.get("page") in pages)
-            )
-            + tuple(new_issues)
-            + (
-                ExtractionIssue(
-                    "pdf_existing_pages_retained",
-                    "Previously observed units were retained; only empty source pages were repaired.",
-                    "info",
-                    {
-                        "repaired_pages": pages,
-                        "retained_units": len(previous.units),
-                        "document_pages": total,
-                        "prior_adapter_version": old.adapter_version,
-                        "prior_config_hash": old.config_hash,
-                    },
-                ),
-            )
-        )
-        if (
-            len(units) > self.budgets.max_units
-            or sum(len(u.content) for u in units) > self.budgets.max_total_content_chars
-            or len(issues) > self.budgets.max_issues
-        ):
-            raise BudgetExceededError("PDF repair exceeds the cumulative result budget")
-        return ExtractionEnvelope.create(
-            descriptor=self.descriptor,
-            completeness=_honest_completeness("complete", units, issues),
-            units=units,
-            issues=issues,
         )
 
     def _recover_empty_pages(self, path, result, seconds):

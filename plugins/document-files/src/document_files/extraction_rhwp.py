@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .adapters import (
+from .extraction_errors import BudgetExceededError, ExtractionError
+from .extraction_protocol import (
     AdapterBudgets,
     AdapterCapabilities,
     AdapterDescriptor,
@@ -19,7 +20,6 @@ from .adapters import (
     ExtractionIssue,
     _bounded_subprocess,
 )
-from .errors import BudgetExceededError, ExtractionError
 
 RHWP_VERSION = "0.8.2"
 _SOURCE = Path(__file__)
@@ -40,8 +40,8 @@ def _platform_key() -> str | None:
 def _global_cache_root() -> Path:
     system = platform.system().casefold()
     if system == "darwin":
-        return Path.home() / "Library" / "Caches" / "Corpus"
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "corpus"
+        return Path.home() / "Library" / "Caches" / "Document Files"
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "document-files"
 
 
 def _rhwp_name() -> str:
@@ -53,7 +53,7 @@ def _candidate_executables(
 ) -> tuple[Path, ...]:
     key = _platform_key()
     candidates: list[Path] = []
-    configured = os.environ.get("CORPUS_RHWP")
+    configured = os.environ.get("DOCUMENT_FILES_RHWP")
     if explicit is not None:
         candidates.append(explicit)
     elif configured:
@@ -91,7 +91,7 @@ class RhwpPageTextAdapter:
             "output_schema_version": "1.0",
         }
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.hwp5.rhwp-page-text",
+            adapter_id="document-files.hwp5.rhwp-page-text",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=self.config,
             capabilities=AdapterCapabilities(
@@ -155,7 +155,7 @@ class RhwpPageTextAdapter:
     def _run(self, executable: Path, input_fd: int) -> dict:
         if os.name != "posix":
             raise ExtractionError("rhwp file-descriptor extraction requires POSIX")
-        with tempfile.TemporaryDirectory(prefix="corpus-rhwp-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="document-files-rhwp-") as temporary:
             stdout, _stderr = _bounded_subprocess(
                 command=(
                     str(executable),

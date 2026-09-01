@@ -18,6 +18,12 @@
       "category": "productivity"
     },
     {
+      "name": "document-files",
+      "source": "./plugins/document-files",
+      "description": "Read, extract, convert, render, create, edit, and verify local document files.",
+      "category": "productivity"
+    },
+    {
       "name": "hypes",
       "source": "./plugins/hypes",
       "description": "Give the assistant a private, revisable relationship model of the user.",

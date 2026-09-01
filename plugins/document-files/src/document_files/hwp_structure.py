@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import struct
 from collections import Counter, defaultdict
+from contextlib import suppress
 
 if __package__:
-    from .hancom_images import hwp_picture
+    from .hwp_images import hwp_picture
 else:
-    from hancom_images import hwp_picture
+    from hwp_images import hwp_picture
 
 STRUCTURAL_UNIT_TYPES = (
     "section_paragraph",
@@ -134,13 +135,11 @@ def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[
         elif tag == 0x18:
             marker = {}
             if len(data) >= 18 and struct.unpack_from("<I", data, 14)[0] == 0:
-                try:
+                with suppress(UnicodeError):
                     marker = {
                         "marker_text": data[12:14].decode("utf-16-le"),
                         "numbering_record": record,
                     }
-                except UnicodeError:
-                    pass
             bullets.append(marker)
         elif tag == 0x19:
             if len(data) < 32:
@@ -426,7 +425,7 @@ class SectionStructure:
                                 **control["context"],
                                 "record": record,
                                 "object": f"r{control['record']}",
-                                "text_representation": "hancom_equation_script",
+                                "text_representation": "hwp_equation_script",
                             },
                             script,
                         )
@@ -687,7 +686,9 @@ class SectionStructure:
             {
                 "code": "hwp_structure_observed",
                 "severity": "info",
-                "message": "Native HWP record ownership was observed without inferring page layout.",
+                "message": (
+                    "Native HWP record ownership was observed without inferring page layout."
+                ),
                 "details": {**self.base, **dict(self.counts)},
             }
         )
@@ -737,7 +738,9 @@ def link_document_memos(units: list[dict], issues: list[dict]) -> list[dict]:
             {
                 "code": "hwp_memo_attachment_observed",
                 "severity": "info",
-                "message": "Unique native MEMO tokens link the field range to its stored memo body.",
+                "message": (
+                    "Unique native MEMO tokens link the field range to its stored memo body."
+                ),
                 "details": {"occurrences": sum(resolved.values())},
             }
         )

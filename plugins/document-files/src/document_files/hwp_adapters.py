@@ -9,7 +9,8 @@ from pathlib import Path
 
 import olefile
 
-from .adapters import (
+from .extraction_errors import BudgetExceededError, ExtractionError
+from .extraction_protocol import (
     AdapterBudgets,
     AdapterCapabilities,
     AdapterDescriptor,
@@ -18,7 +19,6 @@ from .adapters import (
     ExtractionEnvelope,
     ExtractionIssue,
 )
-from .errors import BudgetExceededError, ExtractionError
 from .hwp_structure import STRUCTURAL_UNIT_TYPES
 
 _ADAPTER_SOURCE = Path(__file__).with_name("hwp5_adapter_main.py")
@@ -37,7 +37,7 @@ class HWP5SpecPartialAdapter:
                 + b"\0"
                 + Path(__file__).with_name("hwp_structure.py").read_bytes()
                 + b"\0"
-                + Path(__file__).with_name("hancom_images.py").read_bytes()
+                + Path(__file__).with_name("hwp_images.py").read_bytes()
             ).hexdigest()
         except OSError as exc:
             raise ExtractionError("packaged HWP adapter source is unavailable") from exc
@@ -50,7 +50,7 @@ class HWP5SpecPartialAdapter:
             "specification": "hancom-hwp5-revision-1.3",
         }
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.hwp5.spec-partial",
+            adapter_id="document-files.hwp5.spec-partial",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=self.config,
             capabilities=AdapterCapabilities(
@@ -120,7 +120,7 @@ class HWP5ContentRouter:
             "page_text_adapter": page_text_adapter.descriptor.to_dict(),
         }
         self.descriptor = AdapterDescriptor.from_config(
-            adapter_id="work-corpus.hwp5.content-router",
+            adapter_id="document-files.hwp5.content-router",
             adapter_version=f"1.0.0+source.{source_hash[:12]}",
             config=config,
             capabilities=AdapterCapabilities(

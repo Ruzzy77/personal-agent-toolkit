@@ -15,7 +15,7 @@ from typing import ClassVar
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
 
-from .errors import ExtractionError
+from .extraction_errors import ExtractionError
 
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
@@ -572,7 +572,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
         try:
             package, workbook = _open_xlsx_workbook(load_workbook, path)
         except ValueError:
-            temporary = tempfile.TemporaryDirectory(prefix="corpus-xlsx-")
+            temporary = tempfile.TemporaryDirectory(prefix="document-files-xlsx-")
             normalized_path = Path(temporary.name) / "normalized.xlsx"
             removed = _write_xlsx_with_safe_font_families(path, normalized_path)
             if not removed:

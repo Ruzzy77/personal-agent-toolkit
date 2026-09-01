@@ -1,6 +1,6 @@
 """Neutral, bounded extraction-adapter boundary.
 
-Adapters only produce ordered structural observations.  Corpus identity,
+Adapters only produce ordered structural observations.  Index identity,
 revision identity, source-unit identity, final source anchors, and authority
 remain owned by the core.
 """
@@ -23,11 +23,19 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Protocol
 
-from .errors import BudgetExceededError, ExtractionError
+from .extraction_errors import BudgetExceededError, ExtractionError
+from .extractors import (
+    EXTRACTOR_VERSION,
+    EXTRACTOR_VERSION_OVERRIDES,
+    EXTRACTORS,
+    ExtractionResult,
+    extract,
+)
+from .formats import FORMAT_SPECS
 
 REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v1"
 RESULT_SCHEMA_VERSION = "document-files.extraction-result.v1"
-ENVELOPE_SCHEMA_VERSION = "corpus.extraction-envelope.v1"
+ENVELOPE_SCHEMA_VERSION = "document-files.extraction-envelope.v1"
 
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -389,7 +397,7 @@ class ExtractionIssue:
 
 @dataclass(frozen=True)
 class ExtractedUnit:
-    """One ordered structural observation without corpus-owned identity."""
+    """One ordered structural observation without index-owned identity."""
 
     unit_type: str
     structure_path: Mapping[str, FrozenJSON]
@@ -606,6 +614,93 @@ def _issue_from_mapping(
     )
 
 
+def _built_in_capabilities(adapter_name: str) -> AdapterCapabilities:
+    unit_types: set[str] = set()
+    format_ids: set[str] = set()
+    for extension, specification in FORMAT_SPECS.items():
+        if specification.adapter == adapter_name:
+            format_ids.add(extension)
+            unit_types.update(specification.structural_units)
+    if not format_ids:
+        format_ids.add(adapter_name)
+    if not unit_types:
+        unit_types.add("structural_unit")
+    if adapter_name == "html":
+        unit_types.add("document_text")
+    preserves_reading_order = adapter_name not in {"docx", "pdf", "pptx"}
+    return AdapterCapabilities(
+        format_ids=tuple(format_ids),
+        structural_unit_types=tuple(unit_types),
+        execution_mode="in_process",
+        preserves_reading_order=preserves_reading_order,
+        supports_geometry=False,
+        supports_confidence=False,
+        supports_ocr=False,
+        may_emit_partial=True,
+    )
+
+
+def builtin_adapter_descriptor(
+    adapter_name: str,
+    *,
+    config: Mapping[str, object] | None = None,
+) -> AdapterDescriptor:
+    if adapter_name not in EXTRACTORS:
+        raise ExtractionError(
+            "no built-in extractor is registered",
+            details={"adapter_name": adapter_name},
+        )
+    if config:
+        raise ExtractionError(
+            "the current built-in adapters do not accept configuration",
+            details={"adapter_name": adapter_name},
+        )
+    adapter_version = EXTRACTOR_VERSION_OVERRIDES.get(
+        adapter_name,
+        EXTRACTOR_VERSION,
+    )
+    return AdapterDescriptor.from_config(
+        # Persisted adapter IDs retain their original namespace so an identity
+        # rename does not invalidate every existing extraction projection.
+        adapter_id=f"document-files.builtin.{adapter_name}",
+        adapter_version=adapter_version,
+        config={},
+        capabilities=_built_in_capabilities(adapter_name),
+    )
+
+
+def _convert_builtin_result(
+    result: ExtractionResult,
+) -> tuple[tuple[ExtractedUnit, ...], tuple[ExtractionIssue, ...]]:
+    units: list[ExtractedUnit] = []
+    for unit_index, unit in enumerate(result.units):
+        issues = tuple(
+            _issue_from_mapping(
+                issue,
+                location=f"$.units[{unit_index}].issues[{issue_index}]",
+                strict=False,
+            )
+            for issue_index, issue in enumerate(unit.issues)
+        )
+        units.append(
+            ExtractedUnit(
+                unit_type=unit.unit_type,
+                structure_path=unit.structure_path,
+                content=unit.content,
+                issues=issues,
+            )
+        )
+    issues = tuple(
+        _issue_from_mapping(
+            issue,
+            location=f"$.issues[{issue_index}]",
+            strict=False,
+        )
+        for issue_index, issue in enumerate(result.issues)
+    )
+    return tuple(units), issues
+
+
 def _honest_completeness(
     declared: str,
     units: Sequence[ExtractedUnit],
@@ -621,6 +716,41 @@ def _honest_completeness(
     ):
         return "partial"
     return "complete"
+
+
+def run_builtin_extraction(
+    path: Path,
+    adapter_name: str,
+    *,
+    config: Mapping[str, object] | None = None,
+) -> ExtractionEnvelope:
+    """Wrap the current local extractor in the neutral adapter envelope."""
+
+    path = Path(path)
+    if not path.is_file():
+        raise ExtractionError("adapter input must be an existing regular file")
+    descriptor = builtin_adapter_descriptor(adapter_name, config=config)
+    units, issues = _convert_builtin_result(extract(path, adapter_name))
+    if not descriptor.capabilities.preserves_reading_order:
+        issues = (
+            *issues,
+            ExtractionIssue(
+                code="reading_order_unverified",
+                message=(
+                    "This built-in adapter does not verify that extracted units preserve the "
+                    "document's reading order."
+                ),
+                severity="warning",
+                details={"adapter": adapter_name},
+            ),
+        )
+    completeness = _honest_completeness("complete", units, issues)
+    return ExtractionEnvelope.create(
+        descriptor=descriptor,
+        completeness=completeness,
+        units=units,
+        issues=issues,
+    )
 
 
 def _reject_adapter_control_fields(value: object, *, location: str = "$") -> None:
@@ -1087,7 +1217,7 @@ class ExternalJSONLAdapter:
                         "limit": self.budgets.max_request_bytes,
                     },
                 )
-            with tempfile.TemporaryDirectory(prefix="corpus-adapter-") as temporary:
+            with tempfile.TemporaryDirectory(prefix="document-files-adapter-") as temporary:
                 stdout, _stderr = _bounded_subprocess(
                     command=self.command,
                     request=request_bytes,

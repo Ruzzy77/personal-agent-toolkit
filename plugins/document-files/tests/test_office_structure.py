@@ -6,16 +6,21 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from corpus.adapters import ExtractedUnit, ExtractionEnvelope, run_builtin_extraction
+from document_files.extraction_protocol import (
+    ExtractedUnit,
+    ExtractionEnvelope,
+    run_builtin_extraction,
+)
 
 
 class OfficeStructureTest(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
     def test_local_image_ocr_has_source_object_location_and_keeps_native_text(self):
-        from corpus.adapter_registry import build_default_registry
         from PIL import Image, ImageDraw, ImageFont
         from pptx import Presentation
         from pptx.util import Inches
+
+        from document_files.extraction_registry import build_default_registry
 
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -82,12 +87,11 @@ class OfficeStructureTest(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
     def test_image_continuation_preserves_prior_units_and_source_order(self):
-        from corpus.adapter_registry import build_default_registry
-        from corpus.database import corpus_read_connection
-        from corpus.service import CorpusService
         from PIL import Image
         from pptx import Presentation
         from pptx.util import Inches
+
+        from document_files.extraction_registry import build_default_registry
 
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -108,10 +112,6 @@ class OfficeStructureTest(unittest.TestCase):
             registry = build_default_registry(base / "runtime")
             adapter = registry.resolve("pptx")
             adapter.config["max_images"] = 1
-            service = CorpusService(base / "private", adapter_registry=registry)
-            service.register(
-                corpus_id="images", source_root=source, execution_policy="local_only"
-            )
             calls = []
 
             def recognize(image_path, seconds, *, crop=None):
@@ -131,22 +131,15 @@ class OfficeStructureTest(unittest.TestCase):
                 )
 
             with mock.patch.object(adapter, "_image_text", side_effect=recognize):
+                result = adapter.extract(path, format_id="pptx")
                 for count in (1, 2, 3):
-                    service.sync("images")
-                    document = service.inventory("images")["documents"][0]
-                    with corpus_read_connection(
-                        service.data_root, "images"
-                    ) as connection:
-                        rows = connection.execute(
-                            "SELECT normalized_content FROM source_units ORDER BY ordinal"
-                        ).fetchall()
-                        self.assertEqual(
-                            connection.execute(
-                                "SELECT COUNT(*) FROM extraction_projections"
-                            ).fetchone()[0],
-                            1,
+                    if count > 1:
+                        result = adapter.resume(
+                            path,
+                            format_id="pptx",
+                            previous=result,
                         )
-                    contents = [r[0] for r in rows if r[0]]
+                    contents = [unit.content for unit in result.units]
                     self.assertEqual(
                         [t for t in contents if t.startswith("Native")],
                         ["Native 0", "Native 1", "Native 2"],
@@ -155,8 +148,9 @@ class OfficeStructureTest(unittest.TestCase):
                         [t for t in contents if t.startswith("Recognized")],
                         [f"Recognized {n}" for n in range(1, count + 1)],
                     )
+                    issue_codes = {issue.code for issue in result.issues}
                     self.assertEqual(
-                        "extraction_continuation" in document["refresh_reasons"],
+                        "office_image_range_pending" in issue_codes,
                         count < 3,
                     )
             self.assertEqual(len(calls), 3)
