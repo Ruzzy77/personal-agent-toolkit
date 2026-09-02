@@ -91,6 +91,11 @@ def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(
     reconcile_all(state)
     observed = state.due_changes()[0]
     assert observed["document_id"] != "doc_canonical"
+    with state.connect() as connection:
+        connection.execute(
+            "UPDATE documents SET inode = inode + 1 WHERE connection_key = ?",
+            ("notes:main",),
+        )
 
     metadata = document.stat()
     seeded = state.seed_documents(

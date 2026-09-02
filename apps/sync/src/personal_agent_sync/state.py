@@ -269,6 +269,20 @@ class SyncState:
         now = now_iso()
         with self.connect() as connection:
             for document in documents:
+                path_record = connection.execute(
+                    "SELECT document_id FROM documents "
+                    "WHERE connection_key = ? AND relative_path_nfc = ?",
+                    (key, document["relative_path_nfc"]),
+                ).fetchone()
+                if (
+                    path_record is not None
+                    and path_record["document_id"] != document["document_id"]
+                ):
+                    connection.execute(
+                        "DELETE FROM documents "
+                        "WHERE connection_key = ? AND document_id = ?",
+                        (key, path_record["document_id"]),
+                    )
                 identity = connection.execute(
                     "SELECT document_id, relative_path_nfc FROM documents "
                     "WHERE connection_key = ? AND device = ? AND inode = ?",
