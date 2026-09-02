@@ -87,9 +87,34 @@ revisable relationship model of the user on the user's machine.
 - Sense continues to own durable user-set direction, while Corpus owns registered sources and
   project relationships. Hypes does not copy either store.
 
+## Journal
+
+Journal is an owner-operated remote service for daily capture, weekly status, and period review.
+Its Cloudflare D1 database is the canonical chronology; Corpus remains the canonical home for
+project source material and reusable project context.
+
+- Journal stores concise item titles, current summaries, lane and resolution, project keys,
+  timestamps, source references, append-only state events, weekly closures, corrections, and
+  Corpus propagation receipts.
+- Journal does not store raw email bodies, document bytes, calendar descriptions, browser history,
+  or full AI conversations. Those remain with their source provider or local file.
+- Monitoring credentials can create and refresh observations but cannot mark an item completed,
+  held, canceled, or active. Those resolution changes require the authenticated owner.
+- Closing a week makes its items immutable. Later changes are separate correction events rather
+  than rewrites of the closed chronology.
+- Only an explicit durable outcome with a target project becomes a Corpus propagation candidate.
+  Journal does not create a combined Journal archive in Corpus or copy transient daily activity
+  into project Context.
+- The Sites frontend keeps its service credential as a secret runtime environment variable and is
+  published with owner-only access. WebMCP tools operate only on the same visible board actions.
+- The remote MCP uses the owner authentication service and exact Journal resource scopes. The
+  automation client uses a separate read-and-ingest credential stored outside the repository.
+- D1 exports are operational backups controlled by the owner. They are not shipped in the plugin
+  or public repository.
+
 ## Private ChatGPT tunnel use
 
-The product plugins remain local-first and contain no `.app.json`, maintainer-owned ChatGPT
+The local product plugins remain local-first and contain no `.app.json`, maintainer-owned ChatGPT
 connection, OAuth credential, or multi-user storage. Their streamable HTTP listeners accept only
 loopback connections.
 
@@ -113,6 +138,8 @@ a hosted service, cross-product profile, or model router.
 
 The `auth` directory is a self-deploy template for one owner to authorize selected remote services.
 It is separate from the local gateway and does not turn Sense, Corpus, or Hypes into hosted products.
+Journal is an explicit remote resource that uses this authentication service; it does not change
+the storage model of the local products.
 
 - The public repository contains no Google client secret, Cloudflare credential, owner identifier,
   production resource URI, token, grant, or session.
@@ -133,16 +160,19 @@ It is separate from the local gateway and does not turn Sense, Corpus, or Hypes 
 
 The release repository must not contain:
 
-- Sense, Corpus, or Hypes runtime databases, or any Hypes relationship-model data;
+- Sense, Corpus, Hypes, or Journal runtime databases, or any Hypes relationship-model data;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;
 - generated caches, virtual environments, Node dependency folders, local Worker state, or staging
   files.
 
-The three product directories under `plugins/` are both the source and the marketplace installation
-targets. They contain no build-time copy of runtime data or maintainer credentials. The optional
-gateway remains a separate package and follows the same repository-content boundary.
+The product directories under `plugins/` are marketplace installation targets. They contain no
+build-time copy of runtime data or maintainer credentials. `services/journal` contains only the
+deployable schema and service source; D1 identifiers, account configuration, and secrets stay in
+ignored runtime configuration. Public resource and Site endpoints may appear in the plugin
+manifest. The optional gateway remains a separate package and follows the same repository-content
+boundary.
 
-The optional authentication template records its resolved JavaScript dependencies in
-`auth/package-lock.json`.
+The authentication template and Journal service record their resolved JavaScript dependencies in
+`auth/package-lock.json` and `services/journal/package-lock.json`.

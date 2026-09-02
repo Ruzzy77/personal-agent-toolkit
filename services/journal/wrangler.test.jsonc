@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-journal-test",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-agent-journal-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "JOURNAL_RESOURCE": "https://journal.example.test/mcp",
+    "AUTH_ISSUER": "https://auth.example.test",
+    "ALLOWED_SITE_ORIGIN": "https://journal-site.example.test",
+    "JOURNAL_SITE_TOKEN": "test-site-token",
+    "JOURNAL_INGEST_TOKEN": "test-ingest-token"
+  }
+}

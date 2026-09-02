@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "journal": {
+      "type": "http",
+      "url": "https://personal-agent-journal.hiyaq77.workers.dev/mcp"
+    }
+  }
+}

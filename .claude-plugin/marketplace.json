@@ -28,6 +28,12 @@
       "source": "./plugins/hypes",
       "description": "Give the assistant a private, revisable relationship model of the user.",
       "category": "productivity"
+    },
+    {
+      "name": "journal",
+      "source": "./plugins/journal",
+      "description": "Keep a private daily and weekly work journal with owner-confirmed status changes.",
+      "category": "productivity"
     }
   ]
 }
