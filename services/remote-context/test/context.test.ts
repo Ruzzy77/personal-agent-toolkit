@@ -325,7 +325,17 @@ describe("remote personal context service", () => {
       ordinal: 1,
       unitType: "paragraph",
       structurePath: { paragraph: 1 },
-      sourceAnchor: { relative_path: "folder/한글.txt" },
+      sourceAnchor: {
+        canonical_locator: "folder/한글.txt",
+        content_hash: begin.revision.sha256,
+        document_id: documentId,
+        extraction_schema_version: 5,
+        projection_id: begin.projection.projectionId,
+        revision_id: begin.revision.revisionId,
+        schema_version: 2,
+        source_span: { paragraph: 1 },
+        structural_locator: { paragraph: 1 },
+      },
       content: firstContent,
       contentSha256: firstHash,
       previousUnitId: null,
@@ -453,7 +463,23 @@ describe("remote personal context service", () => {
       },
       body: JSON.stringify({ unitIds: ["unit_first"] }),
     });
-    expect(JSON.stringify(await body(read))).toContain("source_unavailable");
+    expect(await body(read)).toMatchObject({
+      result: {
+        units: [
+          {
+            dependency_state: "source_unavailable",
+            source_anchor: {
+              canonical_locator: "folder/한글.txt",
+              content_hash: begin.revision.sha256,
+              document_id: documentId,
+              projection_id: begin.projection.projectionId,
+              revision_id: begin.revision.revisionId,
+              structural_locator: { paragraph: 1 },
+            },
+          },
+        ],
+      },
+    });
   });
 
   it("imports durable document metadata without activating historical projections", async () => {
@@ -691,6 +717,27 @@ describe("remote personal context service", () => {
     expect(JSON.stringify(await body(currentSearch))).toContain(
       "unit_history_new",
     );
+
+    const maintained = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      {
+        corpusId,
+        removeProjectionIds: [
+          "projection_history_old",
+          "projection_history_new",
+        ],
+        removeDocumentIds: [],
+        removeUploadIds: [],
+      },
+    );
+    expect(maintained.status, await maintained.clone().text()).toBe(200);
+    expect(await body(maintained)).toMatchObject({
+      result: {
+        removed: { projections: 1, revisions: 1, units: 1 },
+        protected: { projections: 1 },
+        storage: { database_size_bytes: expect.any(Number) },
+      },
+    });
   });
 
   it("imports path-free Corpus metadata and serves one shared Space", async () => {

@@ -71,6 +71,21 @@ projection manifest, metadata, and unit count already match the committed state
 returns the existing receipt without rewriting Source units or the FTS index.
 Identical external-provider snapshots are likewise recognized by digest.
 
+Staging keeps a digest of each canonical unit envelope rather than a second
+complete JSON copy. Committed Source anchors omit identity, content-hash, and
+structural-locator fields only when those values exactly match the normalized
+document, revision, projection, and structure columns; reads reconstruct the
+same public anchor. This reduces repeated storage without discarding source
+structure or provenance. Inventory reports the shard database size and bounded
+staged-upload identities.
+
+After a complete local snapshot has been migrated, Sync may reconcile exact
+remote-minus-local document, projection, and abandoned-upload IDs in bounded
+batches. The shard refuses to remove a current active projection or a record
+referenced by an active Corpus Context. This cleanup follows the local
+retention decision; it does not infer semantic importance or prune records only
+because they are large.
+
 ## Sync behavior
 
 The Sync app connects outward to the SyncBroker. There is no inbound listener

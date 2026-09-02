@@ -16,6 +16,8 @@ on a local port and does not expose the Mac through a tunnel.
 - analyze an immutable capture through the shared Document Files job contract;
 - stage and atomically commit extracted Corpus projections while leaving the
   last good remote revision readable on failure;
+- reconcile exact remote records no longer retained by a completed local
+  Corpus snapshot, while preserving current and Context-linked records;
 - receive bounded Work jobs, recheck current Connection policy and generation,
   and delegate actual file operations to the installed local Corpus authority;
 - store the device secret in Keychain and cache completed job responses so a
@@ -57,7 +59,9 @@ deployed analyzer binding; it does not reimplement document parsing.
    runtime for the public Space projection, and copies durable Corpus document,
    revision, projection, unit, issue, Context-link, and external-provider
    metadata without copying original document bytes. It resumes at immutable
-   projection boundaries after interruption.
+   projection boundaries after interruption. When a complete Corpus has been
+   copied, it removes only exact remote-minus-local record IDs in bounded
+   batches and reports the resulting shard size.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.

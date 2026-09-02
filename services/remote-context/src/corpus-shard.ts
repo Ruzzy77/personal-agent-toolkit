@@ -47,6 +47,7 @@ interface UnitRow {
   coverage_json: string;
   issues_json: string;
   assurance_state: string;
+  revision_sha256: string;
 }
 
 interface CommittedProjectionRow {
@@ -79,6 +80,12 @@ interface CommittedProjectionRow {
   is_active: number;
   created_at: string;
   unit_count: number;
+}
+
+interface ProtectedRecordIds {
+  documents: ReadonlySet<string>;
+  revisions: ReadonlySet<string>;
+  projections: ReadonlySet<string>;
 }
 
 const SHARD_SCHEMA = `
@@ -347,8 +354,48 @@ function dependencyState(row: UnitRow): string {
   return "current_source";
 }
 
+const COMPACT_SOURCE_ANCHOR_PREFIX = "compact-v1:";
+
+function storedSourceAnchor(
+  sourceAnchor: Record<string, unknown>,
+  structurePath: Record<string, unknown>,
+  header: ProjectionBeginInput,
+): string {
+  const anchor = { ...sourceAnchor };
+  delete anchor.absolute_path;
+  delete anchor.surface_open_target;
+  const canCompact =
+    anchor.content_hash === header.revision.sha256 &&
+    anchor.document_id === header.document.documentId &&
+    anchor.revision_id === header.revision.revisionId &&
+    anchor.projection_id === header.projection.projectionId &&
+    canonicalJson(anchor.structural_locator) === canonicalJson(structurePath);
+  if (!canCompact) return canonicalJson(anchor);
+  delete anchor.content_hash;
+  delete anchor.document_id;
+  delete anchor.revision_id;
+  delete anchor.projection_id;
+  delete anchor.structural_locator;
+  return `${COMPACT_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`;
+}
+
 function unitResult(row: UnitRow): Record<string, unknown> {
-  const anchor = objectValue(row.source_anchor_json);
+  const structurePath = objectValue(row.structure_path_json);
+  const compact = row.source_anchor_json.startsWith(
+    COMPACT_SOURCE_ANCHOR_PREFIX,
+  );
+  const anchor = objectValue(
+    compact
+      ? row.source_anchor_json.slice(COMPACT_SOURCE_ANCHOR_PREFIX.length)
+      : row.source_anchor_json,
+  );
+  if (compact) {
+    anchor.content_hash = row.revision_sha256;
+    anchor.document_id = row.document_id;
+    anchor.revision_id = row.revision_id;
+    anchor.projection_id = row.projection_id;
+    anchor.structural_locator = structurePath;
+  }
   delete anchor.absolute_path;
   delete anchor.surface_open_target;
   anchor.relative_path = row.relative_path;
@@ -359,7 +406,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
     projection_id: row.projection_id,
     ordinal: row.ordinal,
     unit_type: row.unit_type,
-    structure_path: objectValue(row.structure_path_json),
+    structure_path: structurePath,
     source_anchor: anchor,
     untrusted_content: row.normalized_content,
     content_sha256: row.content_sha256,
@@ -548,6 +595,328 @@ export class CorpusShard {
     };
   }
 
+  private storageSummary(): Record<string, number> {
+    return {
+      database_size_bytes: this.sql.databaseSize,
+    };
+  }
+
+  private async protectedRecordIds(
+    ownerId: string,
+    corpusId: string,
+  ): Promise<ProtectedRecordIds> {
+    const rows = await this.env.STATE_DB.prepare(
+      `SELECT source.document_id, source.revision_id, source.projection_id,
+              source.source_unit_id
+       FROM corpus_context_sources AS source
+       JOIN corpus_context_items AS item
+         ON item.owner_id = source.owner_id AND item.item_id = source.item_id
+       WHERE source.owner_id = ? AND source.corpus_id = ?
+         AND item.lifecycle_state = 'active'`,
+    )
+      .bind(ownerId, corpusId)
+      .all<{
+        document_id: string | null;
+        revision_id: string | null;
+        projection_id: string | null;
+        source_unit_id: string | null;
+      }>();
+    const documents = new Set(
+      rows.results.flatMap((row) =>
+        row.document_id === null ? [] : [row.document_id],
+      ),
+    );
+    const revisions = new Set(
+      rows.results.flatMap((row) =>
+        row.revision_id === null ? [] : [row.revision_id],
+      ),
+    );
+    const projections = new Set(
+      rows.results.flatMap((row) =>
+        row.projection_id === null ? [] : [row.projection_id],
+      ),
+    );
+    for (const sourceUnitId of new Set(
+      rows.results.flatMap((row) =>
+        row.source_unit_id === null ? [] : [row.source_unit_id],
+      ),
+    )) {
+      const unit = this.one<{
+        document_id: string;
+        revision_id: string;
+        projection_id: string;
+      }>(
+        `SELECT revision.document_id, unit.revision_id, unit.projection_id
+         FROM source_units AS unit
+         JOIN revisions AS revision ON revision.revision_id = unit.revision_id
+         WHERE unit.unit_id = ?`,
+        sourceUnitId,
+      );
+      if (!unit) continue;
+      documents.add(unit.document_id);
+      revisions.add(unit.revision_id);
+      projections.add(unit.projection_id);
+    }
+    return { documents, revisions, projections };
+  }
+
+  private static maintenanceIds(
+    value: Record<string, unknown>,
+    key: string,
+    maximumLength: number,
+  ): string[] {
+    const ids = value[key];
+    if (
+      !Array.isArray(ids) ||
+      ids.length > maximumLength ||
+      !ids.every(
+        (item) =>
+          typeof item === "string" && item.length >= 1 && item.length <= 192,
+      ) ||
+      new Set(ids).size !== ids.length
+    ) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus maintenance identifiers are invalid",
+      );
+    }
+    return ids;
+  }
+
+  private async maintain(
+    ownerId: string,
+    raw: unknown,
+  ): Promise<Record<string, unknown>> {
+    if (raw === null || Array.isArray(raw) || typeof raw !== "object") {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus maintenance request is invalid",
+      );
+    }
+    const value = raw as Record<string, unknown>;
+    const corpusId = value.corpusId;
+    if (typeof corpusId !== "string" || corpusId.length < 1 || corpusId.length > 128) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus maintenance identity is invalid",
+      );
+    }
+    const projectionIds = CorpusShard.maintenanceIds(
+      value,
+      "removeProjectionIds",
+      500,
+    );
+    const documentIds = CorpusShard.maintenanceIds(
+      value,
+      "removeDocumentIds",
+      500,
+    );
+    const uploadIds = CorpusShard.maintenanceIds(
+      value,
+      "removeUploadIds",
+      500,
+    );
+    if (
+      Object.keys(value).some(
+        (key) =>
+          ![
+            "corpusId",
+            "removeProjectionIds",
+            "removeDocumentIds",
+            "removeUploadIds",
+          ].includes(key),
+      )
+    ) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus maintenance request contains unsupported fields",
+      );
+    }
+    this.ensureSchema();
+    const storedCorpus = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
+    );
+    if (storedCorpus && storedCorpus.value !== corpusId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
+    }
+    const protectedIds = await this.protectedRecordIds(ownerId, corpusId);
+    const removed = { documents: 0, revisions: 0, projections: 0, units: 0, uploads: 0 };
+    const protectedCounts = { documents: 0, projections: 0 };
+    const candidateRevisionIds = new Set<string>();
+
+    this.state.storage.transactionSync(() => {
+      for (const projectionId of projectionIds) {
+        const projection = this.one<{
+          revision_id: string;
+          document_id: string;
+          is_active: number;
+          current_revision_id: string | null;
+          unit_count: number;
+        }>(
+          `SELECT p.revision_id, revision.document_id, p.is_active,
+                  document.current_revision_id,
+                  (SELECT COUNT(*) FROM source_units AS unit
+                   WHERE unit.projection_id = p.projection_id) AS unit_count
+           FROM projections AS p
+           JOIN revisions AS revision ON revision.revision_id = p.revision_id
+           JOIN documents AS document ON document.document_id = revision.document_id
+           WHERE p.projection_id = ?`,
+          projectionId,
+        );
+        if (!projection) continue;
+        if (
+          protectedIds.projections.has(projectionId) ||
+          (projection.is_active === 1 &&
+            projection.revision_id === projection.current_revision_id)
+        ) {
+          protectedCounts.projections += 1;
+          continue;
+        }
+        candidateRevisionIds.add(projection.revision_id);
+        this.sql.exec(
+          "DELETE FROM source_units_fts WHERE projection_id = ?",
+          projectionId,
+        );
+        this.sql.exec(
+          "DELETE FROM source_units WHERE projection_id = ?",
+          projectionId,
+        );
+        this.sql.exec("DELETE FROM projections WHERE projection_id = ?", projectionId);
+        removed.projections += 1;
+        removed.units += projection.unit_count;
+      }
+
+      for (const documentId of documentIds) {
+        const exists = this.one<{ document_id: string }>(
+          "SELECT document_id FROM documents WHERE document_id = ?",
+          documentId,
+        );
+        if (!exists) continue;
+        const linkedRevision = [
+          ...this.sql.exec<{ revision_id: string }>(
+            "SELECT revision_id FROM revisions WHERE document_id = ?",
+            documentId,
+          ),
+        ].some((row) => protectedIds.revisions.has(row.revision_id));
+        const linkedProjection = [
+          ...this.sql.exec<{ projection_id: string }>(
+            `SELECT projection.projection_id
+             FROM projections AS projection
+             JOIN revisions AS revision ON revision.revision_id = projection.revision_id
+             WHERE revision.document_id = ?`,
+            documentId,
+          ),
+        ].some((row) => protectedIds.projections.has(row.projection_id));
+        if (
+          protectedIds.documents.has(documentId) ||
+          linkedRevision ||
+          linkedProjection
+        ) {
+          protectedCounts.documents += 1;
+          continue;
+        }
+        const documentProjections = [
+          ...this.sql.exec<{ projection_id: string; unit_count: number }>(
+            `SELECT projection.projection_id,
+                    (SELECT COUNT(*) FROM source_units AS unit
+                     WHERE unit.projection_id = projection.projection_id) AS unit_count
+             FROM projections AS projection
+             JOIN revisions AS revision ON revision.revision_id = projection.revision_id
+             WHERE revision.document_id = ?`,
+            documentId,
+          ),
+        ];
+        for (const projection of documentProjections) {
+          this.sql.exec(
+            "DELETE FROM source_units_fts WHERE projection_id = ?",
+            projection.projection_id,
+          );
+          this.sql.exec(
+            "DELETE FROM source_units WHERE projection_id = ?",
+            projection.projection_id,
+          );
+          this.sql.exec(
+            "DELETE FROM projections WHERE projection_id = ?",
+            projection.projection_id,
+          );
+          removed.projections += 1;
+          removed.units += projection.unit_count;
+        }
+        const revisionCount =
+          this.one<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM revisions WHERE document_id = ?",
+            documentId,
+          )?.count ?? 0;
+        this.sql.exec(
+          "UPDATE documents SET current_revision_id = NULL WHERE document_id = ?",
+          documentId,
+        );
+        this.sql.exec(
+          `UPDATE revisions SET predecessor_revision_id = NULL
+           WHERE document_id = ? OR predecessor_revision_id IN (
+             SELECT revision_id FROM revisions WHERE document_id = ?
+           )`,
+          documentId,
+          documentId,
+        );
+        this.sql.exec("DELETE FROM revisions WHERE document_id = ?", documentId);
+        this.sql.exec("DELETE FROM documents WHERE document_id = ?", documentId);
+        removed.revisions += revisionCount;
+        removed.documents += 1;
+      }
+
+      for (const revisionId of candidateRevisionIds) {
+        if (protectedIds.revisions.has(revisionId)) continue;
+        const revision = this.one<{
+          current_revision_id: string | null;
+          remaining_projection_count: number;
+        }>(
+          `SELECT document.current_revision_id,
+                  (SELECT COUNT(*) FROM projections AS projection
+                   WHERE projection.revision_id = revision.revision_id)
+                    AS remaining_projection_count
+           FROM revisions AS revision
+           JOIN documents AS document ON document.document_id = revision.document_id
+           WHERE revision.revision_id = ?`,
+          revisionId,
+        );
+        if (
+          !revision ||
+          revision.current_revision_id === revisionId ||
+          revision.remaining_projection_count > 0
+        ) {
+          continue;
+        }
+        this.sql.exec(
+          "UPDATE revisions SET predecessor_revision_id = NULL WHERE predecessor_revision_id = ?",
+          revisionId,
+        );
+        this.sql.exec("DELETE FROM revisions WHERE revision_id = ?", revisionId);
+        removed.revisions += 1;
+      }
+
+      for (const uploadId of uploadIds) {
+        const count =
+          this.one<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM staged_uploads WHERE upload_id = ?",
+            uploadId,
+          )?.count ?? 0;
+        this.sql.exec("DELETE FROM staged_uploads WHERE upload_id = ?", uploadId);
+        removed.uploads += count;
+      }
+    });
+    return {
+      corpusId,
+      removed,
+      protected: protectedCounts,
+      storage: this.storageSummary(),
+    };
+  }
+
   private begin(ownerId: string, raw: unknown): Record<string, unknown> {
     const input = projectionBeginSchema.parse(raw);
     this.ensureSchema();
@@ -644,7 +1013,13 @@ export class CorpusShard {
         "staged upload was not found",
         404,
       );
+    const header = projectionBeginSchema.parse(JSON.parse(upload.header_json));
 
+    const validated: Array<{
+      unit: (typeof input.units)[number];
+      serialized: string;
+      digest: string;
+    }> = [];
     for (const unit of input.units) {
       const digest = await sha256Hex(unit.content);
       if (digest !== unit.contentSha256) {
@@ -655,17 +1030,25 @@ export class CorpusShard {
           { unitId: unit.unitId },
         );
       }
+      const serialized = canonicalJson(unit);
+      validated.push({
+        unit,
+        serialized,
+        digest: await sha256Hex(serialized),
+      });
     }
     this.state.storage.transactionSync(() => {
-      for (const unit of input.units) {
-        const serialized = canonicalJson(unit);
+      for (const { unit, serialized, digest } of validated) {
         const existing = this.one<{ unit_json: string }>(
           "SELECT unit_json FROM staged_units_v2 WHERE upload_id = ? AND unit_id = ?",
           input.uploadId,
           unit.unitId,
         );
         if (existing) {
-          if (existing.unit_json !== serialized) {
+          if (
+            existing.unit_json !== serialized &&
+            existing.unit_json !== `sha256:${digest}`
+          ) {
             throw new ContextError(
               "unit_conflict",
               "a staged Source unit changed within the same upload",
@@ -688,7 +1071,7 @@ export class CorpusShard {
           unit.ordinal,
           unit.unitType,
           canonicalJson(unit.structurePath),
-          canonicalJson(unit.sourceAnchor),
+          storedSourceAnchor(unit.sourceAnchor, unit.structurePath, header),
           unit.content,
           unit.contentSha256,
           unit.previousUnitId,
@@ -699,7 +1082,7 @@ export class CorpusShard {
           unit.confidence,
           unit.ocr ? 1 : 0,
           canonicalJson(unit.qualityFlags),
-          serialized,
+          `sha256:${digest}`,
         );
       }
     });
@@ -1463,7 +1846,8 @@ export class CorpusShard {
       const row = this.one<UnitRow>(
         `SELECT u.*, d.document_id, d.relative_path, d.source_state,
                 d.current_revision_id, p.completeness_state, p.coverage_json,
-                p.issues_json, p.assurance_state
+                p.issues_json, p.assurance_state,
+                r.sha256 AS revision_sha256
          FROM source_units AS u
          JOIN revisions AS r ON r.revision_id = u.revision_id
          JOIN documents AS d ON d.document_id = r.document_id
@@ -1479,7 +1863,8 @@ export class CorpusShard {
             ...this.sql.exec(
               `SELECT u.*, d.document_id, d.relative_path, d.source_state,
                       d.current_revision_id, p.completeness_state, p.coverage_json,
-                      p.issues_json, p.assurance_state
+                      p.issues_json, p.assurance_state,
+                      r.sha256 AS revision_sha256
                FROM source_units AS u
                JOIN revisions AS r ON r.revision_id = u.revision_id
                JOIN documents AS d ON d.document_id = r.document_id
@@ -1536,7 +1921,10 @@ export class CorpusShard {
         projection_offset: projectionOffset,
         projection_has_more: false,
         staged_upload_count: 0,
+        staged_uploads: [],
+        staged_uploads_truncated: false,
         external: { binding_count: 0, run_count: 0, record_count: 0 },
+        storage: this.storageSummary(),
       };
     }
     const documents = [
@@ -1603,6 +1991,11 @@ export class CorpusShard {
       this.one<{ count: number }>(
         "SELECT COUNT(*) AS count FROM staged_uploads",
       )?.count ?? 0;
+    const stagedUploads = [
+      ...this.sql.exec<{ upload_id: string; created_at: string }>(
+        "SELECT upload_id, created_at FROM staged_uploads ORDER BY created_at, upload_id LIMIT 501",
+      ),
+    ];
     const external = {
       binding_count:
         this.one<{ count: number }>(
@@ -1626,7 +2019,10 @@ export class CorpusShard {
       projection_offset: projectionOffset,
       projection_has_more: projections.length > limit,
       staged_upload_count: staged,
+      staged_uploads: stagedUploads.slice(0, 500),
+      staged_uploads_truncated: stagedUploads.length > 500,
       external,
+      storage: this.storageSummary(),
     };
   }
 
@@ -1672,6 +2068,8 @@ export class CorpusShard {
         return json({ ok: true, result: this.readUnits(body) });
       if (path === "/inventory")
         return json({ ok: true, result: this.inventory(body) });
+      if (path === "/maintenance")
+        return json({ ok: true, result: await this.maintain(ownerId, body) });
       throw new ContextError(
         "not_found",
         "Corpus shard route was not found",

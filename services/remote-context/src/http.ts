@@ -296,6 +296,21 @@ async function syncRoutes(
     );
   }
 
+  const maintenance = /^\/sync\/v1\/corpora\/([^/]+)\/maintenance$/.exec(
+    url.pathname,
+  );
+  if (request.method === "POST" && maintenance) {
+    const corpusId = decodeURIComponent(maintenance[1]!);
+    const body = (await readJson(request)) as Record<string, unknown>;
+    if (body.corpusId !== corpusId) {
+      throw new ContextError(
+        "corpus_mismatch",
+        "Corpus maintenance id does not match its route",
+      );
+    }
+    return callShard(env, principal, corpusId, "/maintenance", body);
+  }
+
   const begin = /^\/sync\/v1\/corpora\/([^/]+)\/projections:begin$/.exec(
     url.pathname,
   );

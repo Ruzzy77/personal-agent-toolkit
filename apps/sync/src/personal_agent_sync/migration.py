@@ -1009,6 +1009,127 @@ class LocalCorpusMigration:
             }
 
 
+async def _maintain_remote_corpus(
+    remote: RemoteClient,
+    corpus: LocalCorpusMigration,
+    corpus_id: str,
+) -> dict[str, Any]:
+    local_document_ids = {
+        str(document["documentId"]) for document in corpus.documents(corpus_id)
+    }
+    headers = corpus.projection_headers(corpus_id)
+    local_projection_ids = {
+        str(header["projection"]["projectionId"]) for header in headers
+    }
+    local_upload_ids = {str(header["uploadId"]) for header in headers}
+    remote_document_ids: set[str] = set()
+    remote_projection_ids: set[str] = set()
+    remote_upload_ids: set[str] = set()
+    document_offset = 0
+    projection_offset = 0
+    document_done = False
+    projection_done = False
+    storage: dict[str, Any] | None = None
+    while not (document_done and projection_done):
+        inventory = await remote.inventory(
+            corpus_id,
+            document_offset=document_offset,
+            projection_offset=projection_offset,
+        )
+        documents = inventory.get("documents")
+        projections = inventory.get("projections")
+        if not isinstance(documents, list) or not isinstance(projections, list):
+            raise SyncError(
+                "remote_protocol_error", "remote Corpus inventory is invalid"
+            )
+        for document in documents:
+            if not isinstance(document, dict) or not isinstance(
+                document.get("document_id"), str
+            ):
+                raise SyncError(
+                    "remote_protocol_error", "remote document identity is invalid"
+                )
+            remote_document_ids.add(document["document_id"])
+        for projection in projections:
+            if not isinstance(projection, dict) or not isinstance(
+                projection.get("projection_id"), str
+            ):
+                raise SyncError(
+                    "remote_protocol_error", "remote projection identity is invalid"
+                )
+            remote_projection_ids.add(projection["projection_id"])
+        if document_offset == 0 and projection_offset == 0:
+            staged = inventory.get("staged_uploads")
+            if (
+                not isinstance(staged, list)
+                or inventory.get("staged_uploads_truncated") is not False
+            ):
+                raise SyncError(
+                    "remote_protocol_error", "remote staged uploads are invalid"
+                )
+            for upload in staged:
+                if not isinstance(upload, dict) or not isinstance(
+                    upload.get("upload_id"), str
+                ):
+                    raise SyncError(
+                        "remote_protocol_error", "remote upload identity is invalid"
+                    )
+                remote_upload_ids.add(upload["upload_id"])
+            value = inventory.get("storage")
+            if isinstance(value, dict):
+                storage = value
+        document_offset += len(documents)
+        projection_offset += len(projections)
+        document_done = inventory.get("document_has_more") is False
+        projection_done = inventory.get("projection_has_more") is False
+
+    removals = {
+        "remove_projection_ids": sorted(remote_projection_ids - local_projection_ids),
+        "remove_document_ids": sorted(remote_document_ids - local_document_ids),
+        "remove_upload_ids": sorted(remote_upload_ids - local_upload_ids),
+    }
+    totals = {
+        "documents": 0,
+        "revisions": 0,
+        "projections": 0,
+        "units": 0,
+        "uploads": 0,
+    }
+    protected = {"documents": 0, "projections": 0}
+    batches = max((len(values) + 499) // 500 for values in removals.values())
+    for index in range(batches):
+        result = await remote.maintain_corpus(
+            corpus_id,
+            remove_projection_ids=removals["remove_projection_ids"][
+                index * 500 : (index + 1) * 500
+            ],
+            remove_document_ids=removals["remove_document_ids"][
+                index * 500 : (index + 1) * 500
+            ],
+            remove_upload_ids=removals["remove_upload_ids"][
+                index * 500 : (index + 1) * 500
+            ],
+        )
+        for key, value in result.get("removed", {}).items():
+            if key in totals and isinstance(value, int) and not isinstance(value, bool):
+                totals[key] += value
+        for key, value in result.get("protected", {}).items():
+            if (
+                key in protected
+                and isinstance(value, int)
+                and not isinstance(value, bool)
+            ):
+                protected[key] += value
+        value = result.get("storage")
+        if isinstance(value, dict):
+            storage = value
+    return {
+        "removed": totals,
+        "protected": protected,
+        "storage": storage,
+    }
+
+
 async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
     """Migrate current stores and resume at projection boundaries after interruption."""
 
@@ -1107,6 +1228,9 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     "corpus-documents", corpus_id, document_digest, document_result
                 )
             corpus_summaries[corpus_id]["documents"] = document_result
+            corpus_summaries[corpus_id]["maintenance"] = await _maintain_remote_corpus(
+                remote, corpus, corpus_id
+            )
         summary["corpora"] = corpus_summaries
         return summary
     finally:

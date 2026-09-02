@@ -190,6 +190,25 @@ class RemoteClient:
             },
         )
 
+    async def maintain_corpus(
+        self,
+        corpus_id: str,
+        *,
+        remove_projection_ids: list[str],
+        remove_document_ids: list[str],
+        remove_upload_ids: list[str],
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST",
+            f"/sync/v1/corpora/{corpus_id}/maintenance",
+            {
+                "corpusId": corpus_id,
+                "removeProjectionIds": remove_projection_ids,
+                "removeDocumentIds": remove_document_ids,
+                "removeUploadIds": remove_upload_ids,
+            },
+        )
+
     async def verification_summary(self) -> dict[str, Any]:
         return await self._json("GET", "/sync/v1/verification-summary")
 
