@@ -270,16 +270,23 @@ class SyncState:
         with self.connect() as connection:
             for document in documents:
                 identity = connection.execute(
-                    "SELECT document_id FROM documents WHERE connection_key = ? AND device = ? AND inode = ?",
+                    "SELECT document_id, relative_path_nfc FROM documents "
+                    "WHERE connection_key = ? AND device = ? AND inode = ?",
                     (key, document["device"], document["inode"]),
                 ).fetchone()
                 if (
                     identity is not None
                     and identity["document_id"] != document["document_id"]
                 ):
-                    raise SyncError(
-                        "migration_identity_conflict",
-                        "a local file identity already belongs to a different document",
+                    if identity["relative_path_nfc"] != document["relative_path_nfc"]:
+                        raise SyncError(
+                            "migration_identity_conflict",
+                            "a local file identity already belongs to a different document",
+                        )
+                    connection.execute(
+                        "DELETE FROM documents "
+                        "WHERE connection_key = ? AND document_id = ?",
+                        (key, identity["document_id"]),
                     )
                 connection.execute(
                     """

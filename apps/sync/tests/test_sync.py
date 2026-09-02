@@ -80,6 +80,48 @@ def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(
     assert moved["event_kind"] == "moved"
 
 
+def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "note.txt"
+    document.write_text("indexed", encoding="utf-8")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    reconcile_all(state)
+    observed = state.due_changes()[0]
+    assert observed["document_id"] != "doc_canonical"
+
+    metadata = document.stat()
+    seeded = state.seed_documents(
+        "notes:main",
+        [
+            {
+                "document_id": "doc_canonical",
+                "relative_path": "note.txt",
+                "relative_path_nfc": "note.txt",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "size": metadata.st_size,
+                "modified_ns": metadata.st_mtime_ns,
+                "changed_ns": metadata.st_ctime_ns,
+                "last_revision_sha256": "a" * 64,
+                "last_projection_id": "projection_canonical",
+                "needs_refresh": False,
+            }
+        ],
+    )
+
+    assert seeded == {"seeded": 1, "queued": 0}
+    with state.connect() as connection:
+        rows = connection.execute(
+            "SELECT document_id FROM documents WHERE connection_key = ?",
+            ("notes:main",),
+        ).fetchall()
+    assert [row["document_id"] for row in rows] == ["doc_canonical"]
+    assert state.due_changes() == []
+
+
 def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(
     tmp_path: Path,
 ) -> None:
