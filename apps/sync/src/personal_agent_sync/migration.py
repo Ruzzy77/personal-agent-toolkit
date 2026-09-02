@@ -994,6 +994,21 @@ class LocalCorpusMigration:
             for row in rows
         ]
 
+    def projection_unit_count(self, corpus_id: str, projection_id: str) -> int | None:
+        with closing(self._connect(self.corpus_path(corpus_id))) as connection:
+            row = connection.execute(
+                """
+                SELECT (
+                    SELECT COUNT(*) FROM source_units u
+                    WHERE u.projection_id = p.projection_id
+                ) AS unit_count
+                FROM extraction_projections p
+                WHERE p.projection_id = ?
+                """,
+                (projection_id,),
+            ).fetchone()
+        return None if row is None else int(row["unit_count"])
+
     def counts(self, corpus_id: str) -> dict[str, int]:
         with closing(self._connect(self.corpus_path(corpus_id))) as connection:
             return {
@@ -1173,6 +1188,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
             seeded = corpus.seed_documents(state, corpus_id)
             migrated = 0
             skipped = 0
+            retired = 0
             headers = corpus.projection_headers(corpus_id)
             for index, header in enumerate(headers, start=1):
                 projection_id = str(header["projection"]["projectionId"])
@@ -1192,6 +1208,9 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 )
                 units = corpus.projection_units(corpus_id, projection_id)
                 if len(units) != header["projection"]["declaredUnitCount"]:
+                    if corpus.projection_unit_count(corpus_id, projection_id) is None:
+                        retired += 1
+                        continue
                     raise SyncError(
                         "local_projection_changed",
                         "a Corpus projection changed while it was being migrated",
@@ -1211,6 +1230,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 "projection_count": len(headers),
                 "migrated_projections": migrated,
                 "resumed_projections": skipped,
+                "retired_during_migration": retired,
             }
         # Projection commits intentionally do not own Finder observation metadata.
         # Reapply inventories only after every durable projection is present; this
