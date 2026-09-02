@@ -1,0 +1,70 @@
+#!/bin/sh
+set -eu
+umask 077
+
+LABEL="com.ruzzy77.corpus-maintenance"
+UID_VALUE=$(id -u)
+DOMAIN="gui/$UID_VALUE"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DATA_ROOT="${CORPUS_DATA_DIR:-$HOME/Library/Application Support/Corpus}"
+BIN_DIR="$DATA_ROOT/bin"
+LOG_DIR="$DATA_ROOT/logs"
+RUNNER="$BIN_DIR/corpus-maintenance-bootstrap"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+case "${1:-install}" in
+  uninstall)
+    launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+    rm -f "$PLIST" "$RUNNER"
+    echo '{"state":"uninstalled","label":"com.ruzzy77.corpus-maintenance"}'
+    exit 0
+    ;;
+  status)
+    exec launchctl print "$DOMAIN/$LABEL"
+    ;;
+  install)
+    ;;
+  *)
+    echo "usage: install-maintenance [install|status|uninstall]" >&2
+    exit 64
+    ;;
+esac
+
+mkdir -p "$BIN_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
+chmod 700 "$DATA_ROOT" "$BIN_DIR" "$LOG_DIR"
+: > "$LOG_DIR/maintenance.log"
+: > "$LOG_DIR/maintenance-error.log"
+chmod 600 "$LOG_DIR/maintenance.log" "$LOG_DIR/maintenance-error.log"
+TEMP_RUNNER="$RUNNER.tmp.$$"
+cp "$SCRIPT_DIR/corpus-maintenance-bootstrap" "$TEMP_RUNNER"
+chmod 700 "$TEMP_RUNNER"
+mv -f "$TEMP_RUNNER" "$RUNNER"
+
+/usr/bin/python3 - "$PLIST" "$LABEL" "$RUNNER" "$LOG_DIR" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+label, runner, log_dir = sys.argv[2:]
+payload = {
+    "Label": label,
+    "ProgramArguments": [runner],
+    "RunAtLoad": True,
+    "KeepAlive": True,
+    "ProcessType": "Background",
+    "ThrottleInterval": 30,
+    "StandardOutPath": str(Path(log_dir) / "maintenance.log"),
+    "StandardErrorPath": str(Path(log_dir) / "maintenance-error.log"),
+}
+temporary = path.with_name(path.name + ".tmp")
+with temporary.open("wb") as stream:
+    plistlib.dump(payload, stream, sort_keys=True)
+temporary.chmod(0o600)
+temporary.replace(path)
+PY
+
+launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+launchctl bootstrap "$DOMAIN" "$PLIST"
+launchctl kickstart -k "$DOMAIN/$LABEL"
+echo '{"state":"installed","label":"com.ruzzy77.corpus-maintenance"}'

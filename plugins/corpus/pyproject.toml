@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "corpus"
-version = "0.20.2"
-description = "Connect saved questions and relationships to their exact current sources."
+version = "0.21.1"
+description = "Keep durable extracted knowledge connected to changing sources and local work."
 readme = "README.md"
 authors = [
   {name = "Ruzzy77"},
@@ -16,11 +16,13 @@ requires-python = ">=3.11"
 dependencies = [
   "mcp>=2,<3",
   "pydantic>=2.11,<3",
+  "watchdog>=6,<7",
 ]
 
 [project.scripts]
 corpus = "corpus.cli:main"
 corpus-mcp = "corpus.mcp_server:main"
+corpus-maintenance = "corpus.maintenance:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -9,6 +9,7 @@ import re
 import unicodedata
 import uuid
 from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .adapter_registry import AdapterRegistry, build_default_registry
@@ -34,6 +35,7 @@ from .context_skills import ContextSkillService
 from .contexts import ContextService, normalize_context_id
 from .database import (
     configure_corpus_source_scope,
+    context_read_connection,
     corpus_connection,
     corpus_read_connection,
     encode_json,
@@ -41,12 +43,14 @@ from .database import (
     list_corpora,
     rebind_corpus_source_root,
     register_corpus,
+    resolve_corpus_source_root,
     unregister_corpus,
     utc_now,
 )
 from .errors import (
     BudgetExceededError,
     ConfigurationError,
+    ContextNotFoundError,
     CorpusError,
     ExtractionError,
     InvalidRequestError,
@@ -57,6 +61,7 @@ from .errors import (
     WorkspaceConflictError,
 )
 from .locking import (
+    context_reader_lock,
     context_writer_lock,
     source_workspace_registry_lock,
     workspace_writer_lock,
@@ -114,6 +119,13 @@ CORPUS_READ_DEFAULT_CHARS = 30_000
 CORPUS_READ_MAX_CHARS = 200_000
 CORPUS_READ_MAX_SELECTED_UNITS = 500
 CORPUS_READ_MAX_SERIALIZED_BYTES = 2 * 1024 * 1024
+CORPUS_RETENTION_DEFAULTS = {
+    "managed": {"archive_days": 30, "trash_days": 180, "purge_days": 30},
+    "transient": {"archive_days": 7, "trash_days": 30, "purge_days": 7},
+}
+CORPUS_RETENTION_MAINTENANCE_LIMIT = 1_000
+CORPUS_CHANGE_QUEUE_MAX_ENTRIES = 2_048
+CORPUS_CHANGE_QUEUE_MAX_PATH_CHARS = 4_096
 _MAX_INGEST_FILES = 50
 _MAX_INGEST_BYTES = 500 * 1024 * 1024
 _MAX_INGEST_FILE_BYTES = 250 * 1024 * 1024
@@ -364,22 +376,23 @@ class CorpusService:
             context_skills=self.context_skills,
             workspaces=self.workspaces,
             source_state=self._space_source_state,
+            record_state=self._space_record_state,
         )
 
     def _space_source_state(self, corpus_id: str) -> str:
-        """Project current searchable coverage to one Chat-facing state."""
+        """Summarize source availability without deciding record usability."""
 
         try:
+            corpus = self._resolve_source_location(corpus_id)["corpus"]
             with corpus_read_connection(self.data_root, corpus_id) as connection:
                 latest_scan = connection.execute(
                     "SELECT status FROM scan_runs ORDER BY rowid DESC LIMIT 1"
                 ).fetchone()
                 summary = connection.execute(
                     """
-                    SELECT COUNT(*) AS supported_documents,
-                           COALESCE(SUM(CASE
-                               WHEN d.current_revision_id IS NULL OR p.projection_id IS NULL
-                               THEN 1 ELSE 0 END), 0) AS missing_projections,
+                    SELECT COUNT(*) AS documents,
+                           COALESCE(SUM(CASE WHEN d.deleted_at IS NOT NULL
+                               THEN 1 ELSE 0 END), 0) AS unavailable_documents,
                            COALESCE(SUM(CASE
                                WHEN d.current_revision_id IS NOT NULL AND (
                                    r.revision_id IS NULL
@@ -388,15 +401,52 @@ class CorpusService:
                                    OR r.source_changed_ns != d.changed_ns
                                    OR r.source_inode != d.inode
                                ) THEN 1 ELSE 0 END), 0) AS stale_projections,
+                           COALESCE(SUM(CASE WHEN d.is_dataless = 1
+                               THEN 1 ELSE 0 END), 0) AS remote_only_documents
+                    FROM documents d
+                    LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
+                    WHERE d.lifecycle_state = 'active'
+                    """
+                ).fetchone()
+        except (CorpusError, OSError):
+            return "unavailable"
+
+        if corpus.get("location_state") == "unavailable":
+            return "unavailable"
+        if latest_scan is None:
+            return "unknown"
+        if latest_scan["status"] != "complete":
+            return "unavailable"
+        if summary["documents"] == 0:
+            return "available"
+        if summary["unavailable_documents"] == summary["documents"]:
+            return "unavailable"
+        if summary["unavailable_documents"] or summary["remote_only_documents"]:
+            return "partially_available"
+        if summary["stale_projections"]:
+            return "changed"
+        return "available"
+
+    def _space_record_state(self, corpus_id: str) -> str:
+        """Summarize the durable extracted record independently of its source."""
+
+        try:
+            with corpus_read_connection(self.data_root, corpus_id) as connection:
+                summary = connection.execute(
+                    """
+                    SELECT COUNT(*) AS documents,
+                           COALESCE(SUM(CASE
+                               WHEN d.current_revision_id IS NULL OR p.projection_id IS NULL
+                               THEN 1 ELSE 0 END), 0) AS missing_projections,
                            COALESCE(SUM(CASE
                                WHEN p.projection_id IS NOT NULL
                                 AND p.completeness_state != 'complete'
                                THEN 1 ELSE 0 END), 0) AS partial_projections
                     FROM documents d
-                    LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                     LEFT JOIN extraction_projections p
                       ON p.revision_id = d.current_revision_id AND p.is_active = 1
-                    WHERE d.deleted_at IS NULL AND d.eligibility_state = 'supported'
+                    WHERE d.lifecycle_state = 'active'
+                      AND d.eligibility_state = 'supported'
                     """
                 ).fetchone()
                 adapter_rows = connection.execute(
@@ -405,16 +455,23 @@ class CorpusService:
                     FROM documents d
                     JOIN extraction_projections p
                       ON p.revision_id = d.current_revision_id AND p.is_active = 1
-                    WHERE d.deleted_at IS NULL AND d.eligibility_state = 'supported'
+                    WHERE d.lifecycle_state = 'active'
+                      AND d.eligibility_state = 'supported'
                     """
                 ).fetchall()
+                archived = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM documents WHERE lifecycle_state = 'archived'"
+                    ).fetchone()[0]
+                )
         except (CorpusError, OSError):
             return "unavailable"
 
-        if latest_scan is None:
-            return "needs_refresh"
-
-        if summary["stale_projections"] or any(
+        if summary["documents"] == 0:
+            return "archived" if archived else "empty"
+        if summary["missing_projections"]:
+            return "partial"
+        if any(
             not self._projection_uses_current_adapter(
                 row["extension"],
                 row["adapter_id"],
@@ -423,170 +480,283 @@ class CorpusService:
             )
             for row in adapter_rows
         ):
-            return "needs_refresh"
-
-        partial = (
-            latest_scan["status"] != "complete"
-            or bool(summary["missing_projections"])
-            or bool(summary["partial_projections"])
-        )
-        if partial:
+            return "extractor_outdated"
+        if summary["partial_projections"]:
             return "partial"
         return "ready"
 
+    def _linked_record_ids(self, corpus_id: str) -> dict[str, set[str]]:
+        """Return durable record identities referenced by retained Context items."""
+
+        linked = {
+            "documents": set(),
+            "revisions": set(),
+            "projections": set(),
+        }
+        if not (self.data_root / "contexts.sqlite3").exists():
+            return linked
+        try:
+            with context_read_connection(self.data_root) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT source.document_id, source.revision_id,
+                           source.projection_id
+                    FROM context_sources source
+                    JOIN context_items item ON item.item_id = source.item_id
+                    WHERE source.corpus_id = ?
+                      AND item.lifecycle_state = 'active'
+                    """,
+                    (corpus_id,),
+                ).fetchall()
+        except ContextNotFoundError:
+            return linked
+        for row in rows:
+            linked["documents"].add(str(row["document_id"]))
+            linked["revisions"].add(str(row["revision_id"]))
+            linked["projections"].add(str(row["projection_id"]))
+        return linked
+
     def _prune_corpus_history_locked(self, corpus_id: str) -> None:
-        """Keep only the current searchable projection and current failures."""
+        """Keep current records, Context-linked records, and recent failures."""
 
-        with corpus_connection(self.data_root, corpus_id) as connection:
-            legacy_tables = {
-                row["name"]
-                for row in connection.execute(
+        with context_reader_lock(self.data_root):
+            linked = self._linked_record_ids(corpus_id)
+            with corpus_connection(self.data_root, corpus_id) as connection:
+                connection.execute(
                     """
-                    SELECT name FROM sqlite_master
-                    WHERE type = 'table'
-                      AND name IN ('snapshot_documents', 'snapshots', 'events')
+                    CREATE TEMP TABLE retained_context_revisions(
+                        revision_id TEXT PRIMARY KEY
+                    ) WITHOUT ROWID
                     """
                 )
-            }
-            for table in ("snapshot_documents", "snapshots", "events"):
-                if table in legacy_tables:
-                    connection.execute(f"DELETE FROM {table}")
-            connection.execute(
-                """
-                UPDATE documents
-                SET current_revision_id = NULL
-                WHERE deleted_at IS NOT NULL OR eligibility_state != 'supported'
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM extraction_issues
-                WHERE lifecycle_state != 'active'
-                   OR (
-                       revision_id IS NOT NULL
-                       AND revision_id NOT IN (
-                           SELECT current_revision_id FROM documents
-                           WHERE current_revision_id IS NOT NULL
-                       )
-                   )
-                   OR (
-                       projection_id IS NOT NULL
-                       AND projection_id NOT IN (
-                           SELECT p.projection_id
-                           FROM documents d
-                           JOIN extraction_projections p
-                             ON p.revision_id = d.current_revision_id
-                            AND p.is_active = 1
-                           WHERE d.deleted_at IS NULL
-                             AND d.eligibility_state = 'supported'
-                       )
-                   )
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM extraction_attempts
-                WHERE revision_id NOT IN (
-                    SELECT current_revision_id FROM documents
-                    WHERE current_revision_id IS NOT NULL
+                connection.execute(
+                    """
+                    CREATE TEMP TABLE retained_context_projections(
+                        projection_id TEXT PRIMARY KEY
+                    ) WITHOUT ROWID
+                    """
                 )
-                   OR (
-                       projection_id IS NOT NULL
-                       AND projection_id NOT IN (
-                           SELECT p.projection_id
-                           FROM documents d
-                           JOIN extraction_projections p
-                             ON p.revision_id = d.current_revision_id
-                            AND p.is_active = 1
-                       )
-                   )
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM extraction_attempts
-                WHERE attempt_id IN (
-                    SELECT attempt_id FROM (
-                        SELECT attempt_id,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY revision_id, adapter_id,
-                                                adapter_version, config_hash
-                                   ORDER BY started_at DESC, attempt_id DESC
-                               ) AS attempt_rank
-                        FROM extraction_attempts
+                connection.executemany(
+                    "INSERT INTO retained_context_revisions(revision_id) VALUES (?)",
+                    [(value,) for value in sorted(linked["revisions"])],
+                )
+                connection.executemany(
+                    "INSERT INTO retained_context_projections(projection_id) VALUES (?)",
+                    [(value,) for value in sorted(linked["projections"])],
+                )
+                connection.execute(
+                    """
+                    DELETE FROM extraction_issues
+                    WHERE (
+                            lifecycle_state != 'active'
+                            OR (
+                                revision_id IS NOT NULL
+                                AND revision_id NOT IN (
+                                    SELECT current_revision_id FROM documents
+                                    WHERE current_revision_id IS NOT NULL
+                                    UNION
+                                    SELECT revision_id FROM extraction_attempts
+                                    WHERE state = 'failed'
+                                      AND completed_at IS NOT NULL
+                                      AND julianday(completed_at) >= julianday('now', '-7 days')
+                                )
+                            )
+                            OR (
+                                projection_id IS NOT NULL
+                                AND projection_id NOT IN (
+                                    SELECT p.projection_id
+                                    FROM documents d
+                                    JOIN extraction_projections p
+                                      ON p.revision_id = d.current_revision_id
+                                     AND p.is_active = 1
+                                )
+                            )
+                          )
+                      AND NOT (
+                          COALESCE(
+                              projection_id IN (
+                                  SELECT projection_id
+                                  FROM retained_context_projections
+                              ),
+                              0
+                          )
+                          OR (
+                              projection_id IS NULL
+                              AND attempt_id IS NULL
+                              AND COALESCE(
+                                  revision_id IN (
+                                      SELECT revision_id
+                                      FROM retained_context_revisions
+                                  ),
+                                  0
+                              )
+                          )
+                          OR COALESCE(
+                              attempt_id IN (
+                                  SELECT attempt_id
+                                  FROM extraction_attempts
+                                  WHERE projection_id IN (
+                                      SELECT projection_id
+                                      FROM retained_context_projections
+                                  )
+                              ),
+                              0
+                          )
+                      )
+                    """
+                )
+                connection.execute(
+                    """
+                    DELETE FROM extraction_attempts
+                    WHERE (
+                            revision_id NOT IN (
+                                SELECT current_revision_id FROM documents
+                                WHERE current_revision_id IS NOT NULL
+                                UNION
+                                SELECT revision_id FROM extraction_attempts
+                                WHERE state = 'failed'
+                                  AND completed_at IS NOT NULL
+                                  AND julianday(completed_at) >= julianday('now', '-7 days')
+                            )
+                            OR (
+                                projection_id IS NOT NULL
+                                AND projection_id NOT IN (
+                                    SELECT p.projection_id
+                                    FROM documents d
+                                    JOIN extraction_projections p
+                                      ON p.revision_id = d.current_revision_id
+                                     AND p.is_active = 1
+                                )
+                            )
+                          )
+                      AND NOT (
+                          COALESCE(
+                              projection_id IN (
+                                  SELECT projection_id
+                                  FROM retained_context_projections
+                              ),
+                              0
+                          )
+                          OR (
+                              projection_id IS NULL
+                              AND COALESCE(
+                                  revision_id IN (
+                                      SELECT revision_id
+                                      FROM retained_context_revisions
+                                  ),
+                                  0
+                              )
+                          )
+                      )
+                    """
+                )
+                connection.execute(
+                    """
+                    DELETE FROM extraction_attempts
+                    WHERE attempt_id IN (
+                        SELECT attempt_id FROM (
+                            SELECT attempt_id,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY revision_id, adapter_id,
+                                                    adapter_version, config_hash
+                                       ORDER BY started_at DESC, attempt_id DESC
+                                   ) AS attempt_rank
+                            FROM extraction_attempts
+                        )
+                        WHERE attempt_rank > 1
                     )
-                    WHERE attempt_rank > 1
+                      AND attempt_id NOT IN (
+                          SELECT attempt_id FROM extraction_issues
+                          WHERE lifecycle_state = 'active' AND attempt_id IS NOT NULL
+                      )
+                      AND (
+                          projection_id IS NULL
+                          OR projection_id NOT IN (
+                              SELECT projection_id FROM retained_context_projections
+                          )
+                      )
+                    """
                 )
-                  AND attempt_id NOT IN (
-                      SELECT attempt_id FROM extraction_issues
-                      WHERE lifecycle_state = 'active' AND attempt_id IS NOT NULL
-                  )
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM source_units
-                WHERE projection_id NOT IN (
-                    SELECT p.projection_id
-                    FROM documents d
-                    JOIN extraction_projections p
-                      ON p.revision_id = d.current_revision_id
-                     AND p.is_active = 1
-                    WHERE d.deleted_at IS NULL
-                      AND d.eligibility_state = 'supported'
+                connection.execute(
+                    """
+                    DELETE FROM source_units
+                    WHERE projection_id NOT IN (
+                        SELECT p.projection_id
+                        FROM documents d
+                        JOIN extraction_projections p
+                          ON p.revision_id = d.current_revision_id
+                         AND p.is_active = 1
+                        UNION
+                        SELECT projection_id FROM retained_context_projections
+                    )
+                    """
                 )
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM source_units_fts
-                WHERE unit_id NOT IN (SELECT unit_id FROM source_units)
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM extraction_projections
-                WHERE projection_id NOT IN (
-                    SELECT p.projection_id
-                    FROM documents d
-                    JOIN extraction_projections p
-                      ON p.revision_id = d.current_revision_id
-                     AND p.is_active = 1
-                    WHERE d.deleted_at IS NULL
-                      AND d.eligibility_state = 'supported'
+                connection.execute(
+                    """
+                    DELETE FROM source_units_fts
+                    WHERE unit_id NOT IN (SELECT unit_id FROM source_units)
+                    """
                 )
-                """
-            )
-            connection.execute("UPDATE revisions SET predecessor_revision_id = NULL")
-            connection.execute(
-                """
-                DELETE FROM revisions
-                WHERE revision_id NOT IN (
-                    SELECT current_revision_id FROM documents
-                    WHERE current_revision_id IS NOT NULL
+                connection.execute(
+                    """
+                    DELETE FROM extraction_projections
+                    WHERE projection_id NOT IN (
+                        SELECT p.projection_id
+                        FROM documents d
+                        JOIN extraction_projections p
+                          ON p.revision_id = d.current_revision_id
+                         AND p.is_active = 1
+                        UNION
+                        SELECT projection_id FROM retained_context_projections
+                    )
+                    """
                 )
-                """
-            )
-            connection.execute(
-                """
-                DELETE FROM scan_runs
-                WHERE scan_id NOT IN (
-                    SELECT last_seen_scan_id FROM documents
-                    UNION
-                    SELECT scan_id FROM extraction_issues WHERE scan_id IS NOT NULL
+                connection.execute(
+                    "UPDATE revisions SET predecessor_revision_id = NULL"
                 )
-                  AND scan_id != (
-                      SELECT scan_id FROM scan_runs ORDER BY rowid DESC LIMIT 1
-                  )
-                """
-            )
+                connection.execute(
+                    """
+                    DELETE FROM revisions
+                    WHERE revision_id NOT IN (
+                        SELECT current_revision_id FROM documents
+                        WHERE current_revision_id IS NOT NULL
+                        UNION
+                        SELECT revision_id FROM retained_context_revisions
+                        UNION
+                        SELECT revision_id FROM extraction_attempts
+                        WHERE state = 'failed'
+                          AND completed_at IS NOT NULL
+                          AND julianday(completed_at) >= julianday('now', '-7 days')
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    DELETE FROM scan_runs
+                    WHERE scan_id NOT IN (
+                        SELECT last_seen_scan_id FROM documents
+                        UNION
+                        SELECT scan_id FROM extraction_issues WHERE scan_id IS NOT NULL
+                    )
+                      AND scan_id != (
+                          SELECT scan_id FROM scan_runs ORDER BY rowid DESC LIMIT 1
+                      )
+                    """
+                )
 
-    def _require_source_outside_workspaces(self, source_root: Path) -> None:
+    def _require_source_outside_workspaces(
+        self,
+        source_root: Path,
+        *,
+        resolve_workspace_locations: bool = True,
+    ) -> None:
         # Let the existing source registration/rebind validation report a missing
         # or otherwise invalid root with its established domain error.  This
         # preflight only owns the editable-workspace overlap decision.
         requested = source_root.expanduser().resolve(strict=False)
-        for workspace_root in self.workspaces.roots():
+        for workspace_root in self.workspaces.roots(
+            resolve_locations=resolve_workspace_locations
+        ):
             connected = workspace_root.expanduser().resolve(strict=False)
             if requested == connected:
                 continue
@@ -610,6 +780,22 @@ class CorpusService:
             config_hash,
         )
 
+    def _resolve_source_location(self, corpus_id: str) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        self.workspaces.roots()
+        with source_workspace_registry_lock(self.data_root):
+            resolution = resolve_corpus_source_root(
+                data_root=self.data_root,
+                corpus_id=corpus_id,
+            )
+        if resolution["changed"]:
+            corpus = resolution["corpus"]
+            self._require_source_outside_workspaces(
+                Path(corpus["source_root"]),
+                resolve_workspace_locations=False,
+            )
+        return resolution
+
     def register(
         self,
         *,
@@ -621,7 +807,10 @@ class CorpusService:
     ) -> dict:
         self._require_source_outside_workspaces(source_root)
         with source_workspace_registry_lock(self.data_root):
-            self._require_source_outside_workspaces(source_root)
+            self._require_source_outside_workspaces(
+                source_root,
+                resolve_workspace_locations=False,
+            )
             return register_corpus(
                 data_root=self.data_root,
                 corpus_id=corpus_id,
@@ -658,16 +847,26 @@ class CorpusService:
         paths = self._paths(corpus_id)
         paths.ensure()
         with source_workspace_registry_lock(self.data_root):
-            self._require_source_outside_workspaces(source_root)
+            self._require_source_outside_workspaces(
+                source_root,
+                resolve_workspace_locations=False,
+            )
             with writer_lock(paths.corpus_root / "writer.lock"):
-                return rebind_corpus_source_root(
+                result = rebind_corpus_source_root(
                     data_root=self.data_root,
                     corpus_id=corpus_id,
                     source_root=source_root,
                     expected_source_root=expected_source_root,
                 )
+                return result
 
     def corpora(self) -> list[dict]:
+        corpora = list_corpora(self.data_root)
+        for corpus in corpora:
+            try:
+                self._resolve_source_location(str(corpus["corpus_id"]))
+            except (CorpusError, OSError):
+                continue
         return list_corpora(self.data_root)
 
     def unregister(
@@ -1006,6 +1205,9 @@ class CorpusService:
                             "untrusted_excerpt": candidate["untrusted_excerpt"],
                             "excerpt_truncated": candidate["excerpt_truncated"],
                             "completeness_state": candidate["completeness_state"],
+                            "captured_at": candidate["captured_at"],
+                            "record_state": candidate["record_state"],
+                            "source_state": candidate["source_state"],
                             "quality_flags": candidate["quality_flags"],
                             "derivation_method": candidate["derivation_method"],
                             "read_ref": encode_space_reference(
@@ -1784,12 +1986,15 @@ class CorpusService:
 
     def scan(self, corpus_id: str) -> dict:
         corpus_id = normalize_corpus_id(corpus_id)
+        location = self._resolve_source_location(corpus_id)
         paths = self._paths(corpus_id)
         paths.ensure()
         with writer_lock(paths.corpus_root / "writer.lock"):
             result = scan_corpus(self.data_root, corpus_id)
             self._prune_corpus_history_locked(corpus_id)
         self._reconcile_workspace_index_changes(corpus_id)
+        result["retention"] = self.maintain_retention(corpus_id)
+        result["location_resolution"] = location["resolution"]
         result["source_state"] = self._space_source_state(corpus_id)
         return result
 
@@ -1871,6 +2076,550 @@ class CorpusService:
     def _paths(self, corpus_id: str) -> RuntimePaths:
         corpus_id = normalize_corpus_id(corpus_id)
         return RuntimePaths(data_root=self.data_root, corpus_id=corpus_id)
+
+    def _touch_document_access(
+        self,
+        corpus_id: str,
+        document_ids: set[str],
+    ) -> None:
+        """Record retrieval use without making reads depend on source files."""
+
+        if not document_ids:
+            return
+        corpus_id = normalize_corpus_id(corpus_id)
+        paths = self._paths(corpus_id)
+        placeholders = ",".join("?" for _ in document_ids)
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            connection.execute(
+                f"""
+                UPDATE documents
+                SET last_user_access_at = ?
+                WHERE document_id IN ({placeholders})
+                """,
+                (utc_now(), *sorted(document_ids)),
+            )
+
+    def _linked_document_ids(self, corpus_id: str) -> set[str]:
+        """Return document identities retained by saved Context provenance."""
+
+        return self._linked_record_ids(corpus_id)["documents"]
+
+    @staticmethod
+    def _retention_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    @staticmethod
+    def _purge_document_locked(connection, document_id: str) -> dict[str, int]:
+        revision_rows = connection.execute(
+            "SELECT revision_id FROM revisions WHERE document_id = ?",
+            (document_id,),
+        ).fetchall()
+        revision_ids = [str(row["revision_id"]) for row in revision_rows]
+        counts = {
+            "documents": 0,
+            "revisions": len(revision_ids),
+            "source_units": 0,
+            "projections": 0,
+            "attempts": 0,
+            "issues": 0,
+        }
+        connection.execute(
+            "UPDATE documents SET current_revision_id = NULL WHERE document_id = ?",
+            (document_id,),
+        )
+        counts["issues"] = connection.execute(
+            "DELETE FROM extraction_issues WHERE document_id = ?",
+            (document_id,),
+        ).rowcount
+        counts["source_units"] = connection.execute(
+            """
+            DELETE FROM source_units_fts
+            WHERE document_id = ?
+            """,
+            (document_id,),
+        ).rowcount
+        if revision_ids:
+            placeholders = ",".join("?" for _ in revision_ids)
+            counts["source_units"] = connection.execute(
+                f"DELETE FROM source_units WHERE revision_id IN ({placeholders})",
+                revision_ids,
+            ).rowcount
+            counts["attempts"] = connection.execute(
+                f"DELETE FROM extraction_attempts WHERE revision_id IN ({placeholders})",
+                revision_ids,
+            ).rowcount
+            counts["projections"] = connection.execute(
+                f"DELETE FROM extraction_projections WHERE revision_id IN ({placeholders})",
+                revision_ids,
+            ).rowcount
+            connection.execute(
+                f"""
+                UPDATE revisions SET predecessor_revision_id = NULL
+                WHERE revision_id IN ({placeholders})
+                """,
+                revision_ids,
+            )
+        connection.execute(
+            "DELETE FROM large_document_approvals WHERE document_id = ?",
+            (document_id,),
+        )
+        if revision_ids:
+            placeholders = ",".join("?" for _ in revision_ids)
+            connection.execute(
+                f"DELETE FROM revisions WHERE revision_id IN ({placeholders})",
+                revision_ids,
+            )
+        counts["documents"] = connection.execute(
+            "DELETE FROM documents WHERE document_id = ?",
+            (document_id,),
+        ).rowcount
+        return counts
+
+    def maintain_retention(
+        self,
+        corpus_id: str,
+        *,
+        now: datetime | None = None,
+        dry_run: bool = False,
+        limit: int = CORPUS_RETENTION_MAINTENANCE_LIMIT,
+    ) -> dict:
+        """Apply deterministic retention without judging semantic importance."""
+
+        if type(dry_run) is not bool:
+            raise ConfigurationError("retention dry_run must be a boolean")
+        if not 1 <= limit <= CORPUS_RETENTION_MAINTENANCE_LIMIT:
+            raise BudgetExceededError(
+                "retention maintenance limit is outside the supported range",
+                details={
+                    "limit": limit,
+                    "maximum": CORPUS_RETENTION_MAINTENANCE_LIMIT,
+                },
+            )
+        corpus_id = normalize_corpus_id(corpus_id)
+        observed_at = now or datetime.now(UTC)
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        else:
+            observed_at = observed_at.astimezone(UTC)
+        observed_text = observed_at.isoformat()
+        paths = self._paths(corpus_id)
+        actions: list[dict[str, str]] = []
+        purged = {
+            "documents": 0,
+            "revisions": 0,
+            "source_units": 0,
+            "projections": 0,
+            "attempts": 0,
+            "issues": 0,
+        }
+        with context_reader_lock(self.data_root):
+            linked_document_ids = self._linked_document_ids(corpus_id)
+            corpus_lock = writer_lock(paths.corpus_root / "writer.lock")
+            with (
+                corpus_lock,
+                corpus_connection(self.data_root, corpus_id) as connection,
+            ):
+                rows = connection.execute(
+                    """
+                    SELECT document_id, relative_path_nfc, deleted_at,
+                           retention_class, lifecycle_state, last_user_access_at,
+                           archived_at, trashed_at
+                    FROM documents
+                    ORDER BY COALESCE(deleted_at, last_seen_at), document_id
+                    """
+                ).fetchall()
+                for row in rows:
+                    if len(actions) >= limit:
+                        break
+                    document_id = str(row["document_id"])
+                    protected = (
+                        row["retention_class"] == "protected"
+                        or document_id in linked_document_ids
+                    )
+                    if protected:
+                        if row["lifecycle_state"] != "active":
+                            actions.append(
+                                {
+                                    "document_id": document_id,
+                                    "relative_path": row["relative_path_nfc"],
+                                    "action": "restore_protected",
+                                }
+                            )
+                            if not dry_run:
+                                connection.execute(
+                                    """
+                                    UPDATE documents
+                                    SET lifecycle_state = 'active', archived_at = NULL,
+                                        trashed_at = NULL
+                                    WHERE document_id = ?
+                                    """,
+                                    (document_id,),
+                                )
+                        continue
+                    retention_class = str(row["retention_class"])
+                    policy = CORPUS_RETENTION_DEFAULTS.get(retention_class)
+                    if policy is None or row["deleted_at"] is None:
+                        continue
+                    last_access = self._retention_timestamp(row["last_user_access_at"])
+                    lifecycle_state = str(row["lifecycle_state"])
+                    action: str | None = None
+                    if lifecycle_state == "active":
+                        base = self._retention_timestamp(row["deleted_at"])
+                        if last_access is not None and (
+                            base is None or last_access > base
+                        ):
+                            base = last_access
+                        if base is not None and observed_at - base >= timedelta(
+                            days=policy["archive_days"]
+                        ):
+                            action = "archive"
+                    elif lifecycle_state == "archived":
+                        base = self._retention_timestamp(row["archived_at"])
+                        if last_access is not None and (
+                            base is None or last_access > base
+                        ):
+                            base = last_access
+                        if base is not None and observed_at - base >= timedelta(
+                            days=policy["trash_days"]
+                        ):
+                            action = "trash"
+                    elif lifecycle_state == "trash":
+                        base = self._retention_timestamp(row["trashed_at"])
+                        if base is not None and observed_at - base >= timedelta(
+                            days=policy["purge_days"]
+                        ):
+                            action = "purge"
+                    if action is None:
+                        continue
+                    actions.append(
+                        {
+                            "document_id": document_id,
+                            "relative_path": row["relative_path_nfc"],
+                            "action": action,
+                        }
+                    )
+                    if dry_run:
+                        continue
+                    if action == "archive":
+                        connection.execute(
+                            """
+                            UPDATE documents
+                            SET lifecycle_state = 'archived', archived_at = ?,
+                                trashed_at = NULL
+                            WHERE document_id = ?
+                            """,
+                            (observed_text, document_id),
+                        )
+                    elif action == "trash":
+                        connection.execute(
+                            """
+                            UPDATE documents
+                            SET lifecycle_state = 'trash', trashed_at = ?
+                            WHERE document_id = ?
+                            """,
+                            (observed_text, document_id),
+                        )
+                    else:
+                        removed = self._purge_document_locked(connection, document_id)
+                        for key, count in removed.items():
+                            purged[key] += count
+                lifecycle_counts = {
+                    str(row["lifecycle_state"]): int(row["count"])
+                    for row in connection.execute(
+                        """
+                        SELECT lifecycle_state, COUNT(*) AS count
+                        FROM documents GROUP BY lifecycle_state
+                        """
+                    ).fetchall()
+                }
+        return {
+            "corpus_id": corpus_id,
+            "observed_at": observed_text,
+            "dry_run": dry_run,
+            "policies": CORPUS_RETENTION_DEFAULTS,
+            "context_linked_documents": len(linked_document_ids),
+            "actions": actions,
+            "action_count": len(actions),
+            "limit_reached": len(actions) >= limit,
+            "purged": purged,
+            "lifecycle_counts": lifecycle_counts,
+        }
+
+    def set_document_retention(
+        self,
+        corpus_id: str,
+        *,
+        document_id: str,
+        retention_class: str,
+    ) -> dict:
+        if retention_class not in {"managed", "protected", "transient"}:
+            raise ConfigurationError(
+                "unsupported document retention class",
+                details={"retention_class": retention_class},
+            )
+        corpus_id = normalize_corpus_id(corpus_id)
+        paths = self._paths(corpus_id)
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            row = connection.execute(
+                "SELECT document_id FROM documents WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()
+            if row is None:
+                raise ConfigurationError(
+                    "document is not registered",
+                    details={"document_id": document_id},
+                )
+            connection.execute(
+                """
+                UPDATE documents
+                SET retention_class = ?,
+                    lifecycle_state = CASE
+                        WHEN ? = 'protected' THEN 'active'
+                        ELSE lifecycle_state END,
+                    archived_at = CASE
+                        WHEN ? = 'protected' THEN NULL ELSE archived_at END,
+                    trashed_at = CASE
+                        WHEN ? = 'protected' THEN NULL ELSE trashed_at END
+                WHERE document_id = ?
+                """,
+                (
+                    retention_class,
+                    retention_class,
+                    retention_class,
+                    retention_class,
+                    document_id,
+                ),
+            )
+        return {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "retention_class": retention_class,
+        }
+
+    def restore_document(self, corpus_id: str, *, document_id: str) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        paths = self._paths(corpus_id)
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            updated = connection.execute(
+                """
+                UPDATE documents
+                SET lifecycle_state = 'active', archived_at = NULL,
+                    trashed_at = NULL, last_user_access_at = ?
+                WHERE document_id = ?
+                """,
+                (utc_now(), document_id),
+            ).rowcount
+            if updated != 1:
+                raise ConfigurationError(
+                    "document is not registered",
+                    details={"document_id": document_id},
+                )
+        return {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "lifecycle_state": "active",
+        }
+
+    @staticmethod
+    def _normalize_change_path(relative_path: str) -> str:
+        if not isinstance(relative_path, str):
+            raise ConfigurationError("source change path must be a string")
+        normalized = unicodedata.normalize("NFC", relative_path.replace("\\", "/"))
+        if normalized == ".":
+            return normalized
+        parts = normalized.split("/")
+        if (
+            not normalized
+            or normalized.startswith("/")
+            or normalized.endswith("/")
+            or len(normalized) > CORPUS_CHANGE_QUEUE_MAX_PATH_CHARS
+            or any(part in {"", ".", ".."} for part in parts)
+            or "\x00" in normalized
+        ):
+            raise ConfigurationError(
+                "source change path must be a safe root-relative path",
+                details={"relative_path": relative_path},
+            )
+        return "/".join(parts)
+
+    def enqueue_source_changes(
+        self,
+        corpus_id: str,
+        relative_paths: list[str],
+        *,
+        event_kind: str = "changed",
+    ) -> dict:
+        if event_kind not in {"changed", "created", "deleted", "moved", "reconcile"}:
+            raise ConfigurationError(
+                "unsupported source change event",
+                details={"event_kind": event_kind},
+            )
+        normalized_paths = {
+            self._normalize_change_path(relative_path)
+            for relative_path in relative_paths
+        }
+        if not normalized_paths:
+            return self.source_change_queue_status(corpus_id)
+        corpus_id = normalize_corpus_id(corpus_id)
+        paths = self._paths(corpus_id)
+        now = utc_now()
+        overflowed = False
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            existing_root = connection.execute(
+                "SELECT 1 FROM source_change_queue WHERE relative_path_nfc = '.'"
+            ).fetchone()
+            if existing_root is not None and "." not in normalized_paths:
+                normalized_paths = {"."}
+                event_kind = "reconcile"
+            existing_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM source_change_queue"
+                ).fetchone()[0]
+            )
+            new_count = sum(
+                connection.execute(
+                    """
+                        SELECT 1 FROM source_change_queue
+                        WHERE relative_path_nfc = ?
+                        """,
+                    (relative_path,),
+                ).fetchone()
+                is None
+                for relative_path in normalized_paths
+            )
+            if (
+                "." in normalized_paths
+                or existing_count + new_count > CORPUS_CHANGE_QUEUE_MAX_ENTRIES
+            ):
+                overflowed = (
+                    existing_count + new_count > CORPUS_CHANGE_QUEUE_MAX_ENTRIES
+                )
+                connection.execute("DELETE FROM source_change_queue")
+                normalized_paths = {"."}
+                event_kind = "reconcile"
+            connection.executemany(
+                """
+                    INSERT INTO source_change_queue(
+                        relative_path_nfc, event_kind, first_seen_at, last_seen_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(relative_path_nfc) DO UPDATE SET
+                        event_kind = excluded.event_kind,
+                        last_seen_at = excluded.last_seen_at,
+                        last_error = NULL
+                    """,
+                [
+                    (relative_path, event_kind, now, now)
+                    for relative_path in sorted(normalized_paths)
+                ],
+            )
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM source_change_queue"
+                ).fetchone()[0]
+            )
+        return {
+            "corpus_id": corpus_id,
+            "pending_change_count": count,
+            "coalesced_to_full_reconcile": "." in normalized_paths,
+            "overflowed": overflowed,
+            "maximum_entries": CORPUS_CHANGE_QUEUE_MAX_ENTRIES,
+        }
+
+    def source_change_queue_status(self, corpus_id: str) -> dict:
+        corpus_id = normalize_corpus_id(corpus_id)
+        with corpus_read_connection(self.data_root, corpus_id) as connection:
+            rows = connection.execute(
+                """
+                SELECT relative_path_nfc, event_kind, first_seen_at,
+                       last_seen_at, attempt_count, last_error
+                FROM source_change_queue
+                ORDER BY last_seen_at, relative_path_nfc
+                LIMIT 101
+                """
+            ).fetchall()
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM source_change_queue"
+                ).fetchone()[0]
+            )
+        return {
+            "corpus_id": corpus_id,
+            "pending_change_count": count,
+            "items": [dict(row) for row in rows[:100]],
+            "items_truncated": count > 100,
+            "maximum_entries": CORPUS_CHANGE_QUEUE_MAX_ENTRIES,
+        }
+
+    def _record_source_change_failure(self, corpus_id: str, error: Exception) -> None:
+        corpus_id = normalize_corpus_id(corpus_id)
+        paths = self._paths(corpus_id)
+        message = f"{getattr(error, 'code', type(error).__name__)}: {error}"[:1000]
+        with (
+            writer_lock(paths.corpus_root / "writer.lock"),
+            corpus_connection(self.data_root, corpus_id) as connection,
+        ):
+            connection.execute(
+                """
+                UPDATE source_change_queue
+                SET attempt_count = attempt_count + 1, last_error = ?
+                """,
+                (message,),
+            )
+
+    def process_source_change_queue(self, corpus_id: str) -> dict:
+        before = self.source_change_queue_status(corpus_id)
+        if before["pending_change_count"] == 0:
+            return {
+                "corpus_id": normalize_corpus_id(corpus_id),
+                "state": "idle",
+                "pending_change_count": 0,
+            }
+        try:
+            result = self.sync(
+                corpus_id,
+                max_files=50,
+                max_bytes=500 * 1024 * 1024,
+                max_file_bytes=250 * 1024 * 1024,
+                timeout_seconds=600,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._record_source_change_failure(corpus_id, exc)
+            return {
+                "corpus_id": normalize_corpus_id(corpus_id),
+                "state": "failed",
+                "pending_change_count": before["pending_change_count"],
+                "error": {
+                    "code": getattr(exc, "code", "unexpected_error"),
+                    "message": str(exc),
+                },
+            }
+        after = self.source_change_queue_status(corpus_id)
+        return {
+            "corpus_id": normalize_corpus_id(corpus_id),
+            "state": "complete" if after["pending_change_count"] == 0 else "pending",
+            "pending_change_count": after["pending_change_count"],
+            "sync": result,
+        }
 
     def status(
         self,
@@ -1973,6 +2722,32 @@ class CorpusService:
                     """
                 )
             }
+            record_lifecycle = {
+                str(row["lifecycle_state"]): int(row["count"])
+                for row in connection.execute(
+                    """
+                    SELECT lifecycle_state, COUNT(*) AS count
+                    FROM documents GROUP BY lifecycle_state
+                    """
+                ).fetchall()
+            }
+            retention_classes = {
+                str(row["retention_class"]): int(row["count"])
+                for row in connection.execute(
+                    """
+                    SELECT retention_class, COUNT(*) AS count
+                    FROM documents GROUP BY retention_class
+                    """
+                ).fetchall()
+            }
+            detached_records = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM documents
+                    WHERE deleted_at IS NOT NULL AND current_revision_id IS NOT NULL
+                    """
+                ).fetchone()[0]
+            )
             active_projection_rows = connection.execute(
                 """
                 SELECT d.extension, p.adapter_id, p.adapter_version, p.config_hash,
@@ -2195,6 +2970,15 @@ class CorpusService:
             "extraction_projections": projections,
             "extraction_attempts": attempts,
             "source_state": self._space_source_state(corpus_id),
+            "record_retention": {
+                "lifecycle": record_lifecycle,
+                "classes": retention_classes,
+                "detached_records": detached_records,
+                "context_linked_documents": len(
+                    self._linked_document_ids(normalize_corpus_id(corpus_id))
+                ),
+                "policies": CORPUS_RETENTION_DEFAULTS,
+            },
             "coverage_gaps": coverage_gaps,
             "pending": pending_state,
             "partial_extraction": {
@@ -2337,6 +3121,8 @@ class CorpusService:
                        d.extension, d.media_type, d.logical_size, d.modified_ns,
                        d.residency_state, d.eligibility_state,
                        d.current_revision_id, d.device, d.inode, d.changed_ns,
+                       d.deleted_at, d.lifecycle_state, d.retention_class,
+                       d.last_user_access_at, r.captured_at,
                        r.source_size AS revision_source_size,
                        r.source_modified_ns AS revision_source_modified_ns,
                        r.source_changed_ns AS revision_source_changed_ns,
@@ -2351,7 +3137,7 @@ class CorpusService:
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
                   ON p.revision_id = d.current_revision_id AND p.is_active = 1
-                WHERE d.deleted_at IS NULL
+                WHERE d.lifecycle_state = 'active'
                 ORDER BY d.relative_path_nfc COLLATE BINARY, d.document_id
                 """
             ).fetchall()
@@ -2402,7 +3188,7 @@ class CorpusService:
             documents.append(
                 {
                     "document_id": document["document_id"],
-                    "relative_path": document["relative_path"],
+                    "relative_path": document["relative_path_nfc"],
                     "extension": document["extension"],
                     "media_type": document["media_type"],
                     "logical_size": document["logical_size"],
@@ -2412,6 +3198,24 @@ class CorpusService:
                     "current_revision_id": document["current_revision_id"],
                     "active_projection_id": document["active_projection_id"],
                     "projection_completeness": document["projection_completeness"],
+                    "captured_at": document["captured_at"],
+                    "record_state": (
+                        "current"
+                        if "outdated_adapter" not in refresh_reasons
+                        else "extractor_outdated"
+                    ),
+                    "source_state": (
+                        "unavailable"
+                        if document["deleted_at"] is not None
+                        else (
+                            "changed"
+                            if "source_observation_changed" in refresh_reasons
+                            else "available"
+                        )
+                    ),
+                    "lifecycle_state": document["lifecycle_state"],
+                    "retention_class": document["retention_class"],
+                    "last_user_access_at": document["last_user_access_at"],
                     "index_state": document_index_state,
                     "refresh_reasons": refresh_reasons,
                 }
@@ -2978,7 +3782,7 @@ class CorpusService:
         timeout_seconds: float = 120,
     ) -> dict:
         corpus_id = normalize_corpus_id(corpus_id)
-        corpus = get_corpus(self.data_root, corpus_id)
+        corpus = self._resolve_source_location(corpus_id)["corpus"]
         _validate_ingest_budgets(
             max_files=max_files,
             max_bytes=max_bytes,
@@ -3034,6 +3838,7 @@ class CorpusService:
             )
             self._prune_corpus_history_locked(corpus_id)
         self._reconcile_workspace_index_changes(corpus_id)
+        result["retention"] = self.maintain_retention(corpus_id)
         result["source_state"] = self._space_source_state(corpus_id)
         return {
             "corpus_id": corpus_id,
@@ -3251,7 +4056,8 @@ class CorpusService:
         timeout_seconds: float = _MAX_INGEST_TIMEOUT_SECONDS,
     ) -> dict:
         corpus_id = normalize_corpus_id(corpus_id)
-        corpus = get_corpus(self.data_root, corpus_id)
+        location = self._resolve_source_location(corpus_id)
+        corpus = location["corpus"]
         if not 1 <= max_files <= _MAX_INGEST_FILES:
             raise BudgetExceededError(
                 "approved large-document file limit must be between 1 and 50"
@@ -3444,7 +4250,8 @@ class CorpusService:
             exact_selection=False,
         )
         corpus_id = normalize_corpus_id(corpus_id)
-        corpus = get_corpus(self.data_root, corpus_id)
+        location = self._resolve_source_location(corpus_id)
+        corpus = location["corpus"]
         paths = self._validate_sync_boundary(corpus)
         paths.ensure()
         with writer_lock(paths.corpus_root / "writer.lock"):
@@ -3470,7 +4277,21 @@ class CorpusService:
                 observed_scan_id=observed_scan_id,
             )
             self._prune_corpus_history_locked(corpus_id)
+            remaining = int(pending_state["remaining"])
+            acknowledged_changes = 0
+            if inventory_complete and remaining == 0:
+                # Acknowledge while the same writer lock still covers the
+                # completed scan. Events queued after this point therefore
+                # remain pending instead of being cleared by a late delete.
+                with corpus_connection(
+                    self.data_root,
+                    corpus_id,
+                ) as connection:
+                    acknowledged_changes = connection.execute(
+                        "DELETE FROM source_change_queue"
+                    ).rowcount
         self._reconcile_workspace_index_changes(corpus_id)
+        retention = self.maintain_retention(corpus_id)
         scan.pop("source_root", None)
         change_counts = dict(scan.get("change_counts", {}))
         inventory = {
@@ -3499,7 +4320,6 @@ class CorpusService:
         pending_remote = int(pending_state["pending_remote"])
         too_large = int(pending_state["too_large"])
         coverage_gaps = int(pending_state["coverage_gaps"])
-        remaining = int(pending_state["remaining"])
         refresh_summary = ingested["summary"]
         failed = int(pending_state["failed"])
         if remaining:
@@ -3553,6 +4373,14 @@ class CorpusService:
                 "outdated": pending_state["outdated"],
             },
             "summary": summary,
+            "retention": retention,
+            "change_queue": {
+                "acknowledged": acknowledged_changes,
+                "pending": self.source_change_queue_status(corpus_id)[
+                    "pending_change_count"
+                ],
+            },
+            "location_resolution": location["resolution"],
             "source_state": self._space_source_state(corpus_id),
         }
 
@@ -3566,7 +4394,7 @@ class CorpusService:
         timeout_seconds: float,
     ) -> dict:
         source_root = Path(corpus["source_root"])
-        source = Path(document["absolute_path"])
+        source = source_root.joinpath(*Path(document["relative_path"]).parts)
         paths = self._paths(corpus["corpus_id"])
         scanned_key = (
             document["logical_size"],
@@ -3804,6 +4632,7 @@ class CorpusService:
         blob_ref: str,
         extraction_state: str,
         extractor_version: str,
+        make_current: bool = True,
     ) -> str | None:
         predecessor = document.get("current_revision_id")
         now = utc_now()
@@ -3855,7 +4684,8 @@ class CorpusService:
                 predecessor if predecessor != revision_id else None,
             ),
         )
-        self._set_document_current(connection, document, revision_id, captured)
+        if make_current:
+            self._set_document_current(connection, document, revision_id, captured)
         return predecessor
 
     def _record_failed_extraction(
@@ -3878,6 +4708,7 @@ class CorpusService:
                 blob_ref=blob_ref,
                 extraction_state="failed",
                 extractor_version=descriptor.adapter_version,
+                make_current=False,
             )
             now = utc_now()
             attempt_id = f"attempt_{uuid.uuid4().hex}"
@@ -4042,11 +4873,11 @@ class CorpusService:
                         "revision_id": revision_id,
                         "projection_id": projection_id,
                         "content_hash": captured.sha256,
-                        "canonical_locator": document["relative_path"],
-                        "absolute_path": document["absolute_path"],
+                        "canonical_locator": unicodedata.normalize(
+                            "NFC", document["relative_path"]
+                        ),
                         "structural_locator": structure,
                         "source_span": _source_span(structure),
-                        "surface_open_target": document["absolute_path"],
                     }
                     previous_unit_id = unit_ids[index - 1] if index > 0 else None
                     next_unit_id = (
@@ -4092,7 +4923,7 @@ class CorpusService:
                             (
                                 unit_id,
                                 document["document_id"],
-                                document["relative_path"],
+                                unicodedata.normalize("NFC", document["relative_path"]),
                                 json.dumps(structure, ensure_ascii=False),
                                 unit.content,
                             ),
@@ -4203,7 +5034,7 @@ class CorpusService:
                 "search query must contain at most 2000 characters",
                 details={"query_chars": len(query), "maximum": 2_000},
             )
-        normalized = query.strip()
+        normalized = unicodedata.normalize("NFC", query.strip())
         if not normalized:
             return {
                 "query": query,
@@ -4213,96 +5044,25 @@ class CorpusService:
                 "candidates": [],
                 "count": 0,
             }
+        source_location_unavailable = (
+            get_corpus(self.data_root, corpus_id).get("location_state") == "unavailable"
+        )
         fts_query = (
             '{normalized_content relative_path} : "'
             + normalized.replace('"', '""')
             + '"'
         )
         query_mode = "exact_phrase_fts"
-        guard = self.workspaces.promoted_source_guard(corpus_id)
-        workspace_context = nullcontext(None)
-        if guard is not None:
-            from . import workspace_access
-
-            workspace_context = workspace_access.opened_workspace_root(
-                guard["root"],
-                guard["identity"],
-            )
-        with (
-            workspace_context as workspace_root_descriptor,
-            corpus_read_connection(self.data_root, corpus_id) as connection,
-        ):
+        with corpus_read_connection(self.data_root, corpus_id) as connection:
             connection.create_function(
                 "corpus_projection_is_current",
                 4,
                 self._projection_uses_current_adapter,
                 deterministic=True,
             )
-            live_clause = ""
-            if guard is not None:
-                observation_cache: dict[str, object] = {}
-
-                def workspace_observation_is_current(
-                    relative_path: str,
-                    logical_size: int,
-                    modified_ns: int,
-                    changed_ns: int,
-                    device: int,
-                    inode: int,
-                    mode: int,
-                    flags: int,
-                    is_dataless: int,
-                ) -> int:
-                    canonical = unicodedata.normalize("NFC", relative_path)
-                    if canonical in guard["changes"]:
-                        return 0
-                    try:
-                        state = observation_cache.get(canonical)
-                        if state is None:
-                            state = workspace_access.workspace_file_state_from_root_descriptor(
-                                workspace_root_descriptor,
-                                canonical,
-                            )
-                            observation_cache[canonical] = state
-                        return int(
-                            self._workspace_state_matches_document(
-                                state,
-                                {
-                                    "logical_size": logical_size,
-                                    "modified_ns": modified_ns,
-                                    "changed_ns": changed_ns,
-                                    "device": device,
-                                    "inode": inode,
-                                    "mode": mode,
-                                    "flags": flags,
-                                    "is_dataless": is_dataless,
-                                },
-                            )
-                        )
-                    except (CorpusError, OSError, TypeError, ValueError):
-                        return 0
-
-                connection.create_function(
-                    "corpus_workspace_observation_is_current",
-                    9,
-                    workspace_observation_is_current,
-                    deterministic=False,
-                )
-                live_clause = """
-                  AND corpus_workspace_observation_is_current(
-                          d.relative_path,
-                          d.logical_size,
-                          d.modified_ns,
-                          d.changed_ns,
-                          d.device,
-                          d.inode,
-                          d.mode,
-                          d.flags,
-                          d.is_dataless
-                      ) = 1
-                """
-            search_sql = f"""
-                SELECT f.unit_id, f.document_id, f.relative_path, f.structure_path,
+            search_sql = """
+                SELECT f.unit_id, f.document_id,
+                       d.relative_path_nfc AS relative_path, f.structure_path,
                        instr(u.normalized_content, ?) AS literal_position,
                        LENGTH(CAST(u.normalized_content AS BLOB))
                            AS source_content_bytes,
@@ -4310,7 +5070,19 @@ class CorpusService:
                        u.revision_id, u.projection_id, u.unit_type,
                        u.derivation_method, u.confidence, u.quality_flags_json,
                        u.source_anchor_json, u.trust_lineage,
-                       p.completeness_state
+                       p.completeness_state, r.captured_at,
+                       d.deleted_at, d.extension,
+                       CASE WHEN
+                           d.deleted_at IS NOT NULL
+                       THEN 'unavailable'
+                       WHEN r.source_size = d.logical_size
+                        AND r.source_modified_ns = d.modified_ns
+                        AND r.source_changed_ns = d.changed_ns
+                        AND r.source_inode = d.inode
+                       THEN 'available' ELSE 'changed' END AS source_state,
+                       corpus_projection_is_current(
+                           d.extension, p.adapter_id, p.adapter_version, p.config_hash
+                       ) AS extraction_current
                 FROM source_units_fts f
                 JOIN source_units u ON u.unit_id = f.unit_id
                 JOIN extraction_projections p ON p.projection_id = u.projection_id
@@ -4319,19 +5091,7 @@ class CorpusService:
                 WHERE source_units_fts MATCH ?
                   AND d.current_revision_id = u.revision_id
                   AND p.is_active = 1
-                  AND d.deleted_at IS NULL
-                  AND d.eligibility_state = 'supported'
-                  AND corpus_projection_is_current(
-                          d.extension,
-                          p.adapter_id,
-                          p.adapter_version,
-                          p.config_hash
-                      ) = 1
-                  AND r.source_size = d.logical_size
-                  AND r.source_modified_ns = d.modified_ns
-                  AND r.source_changed_ns = d.changed_ns
-                  AND r.source_inode = d.inode
-                  {live_clause}
+                  AND d.lifecycle_state = 'active'
                 ORDER BY bm25(source_units_fts)
                 LIMIT ?
                 """
@@ -4399,6 +5159,10 @@ class CorpusService:
                     ),
                     "source_content_bytes": row["source_content_bytes"],
                 }
+        self._touch_document_access(
+            corpus_id,
+            {str(row["document_id"]) for row in rows},
+        )
         candidates = []
         truncated_excerpt_count = 0
         for row in rows:
@@ -4406,8 +5170,15 @@ class CorpusService:
             item["structure_path"] = json.loads(item["structure_path"])
             item["source_anchor"] = json.loads(item.pop("source_anchor_json"))
             item["quality_flags"] = json.loads(item.pop("quality_flags_json"))
+            item["record_state"] = (
+                "current" if item.pop("extraction_current") else "extractor_outdated"
+            )
+            if source_location_unavailable:
+                item["source_state"] = "unavailable"
             item.pop("literal_position")
             item.pop("source_content_bytes")
+            item.pop("deleted_at")
+            item.pop("extension")
             excerpt = excerpt_details[item["unit_id"]]
             excerpt_probe = excerpt["excerpt_probe"]
             excerpt_truncated = (
@@ -4434,7 +5205,7 @@ class CorpusService:
             "truncated_excerpt_count": truncated_excerpt_count,
             "notice": (
                 "Candidate excerpts may be truncated and require interpretation. "
-                "Use corpus_read for exact source content."
+                "Use corpus_read for the captured source record."
             ),
         }
         serialized_bytes = len(encode_json(response).encode())
@@ -4486,6 +5257,9 @@ class CorpusService:
             )
         if not unit_ids:
             return {"units": [], "count": 0}
+        source_location_unavailable = (
+            get_corpus(self.data_root, corpus_id).get("location_state") == "unavailable"
+        )
         requested_ids = list(dict.fromkeys(unit_ids))
         requested = set(requested_ids)
         with corpus_read_connection(self.data_root, corpus_id) as connection:
@@ -4503,7 +5277,7 @@ class CorpusService:
                 JOIN revisions r ON r.revision_id = u.revision_id
                 JOIN documents d ON d.document_id = r.document_id
                 WHERE u.unit_id IN ({placeholders})
-                  AND d.deleted_at IS NULL
+                  AND d.lifecycle_state != 'trash'
                 """,
                 requested_ids,
             ).fetchall()
@@ -4639,7 +5413,9 @@ class CorpusService:
 
             body_rows = connection.execute(
                 f"""
-                SELECT u.*, d.document_id, d.relative_path, d.current_revision_id,
+                SELECT u.*, d.document_id, d.relative_path_nfc AS relative_path,
+                       d.current_revision_id, d.deleted_at, d.lifecycle_state,
+                       r.captured_at,
                        active.projection_id AS active_projection_id,
                        projection.completeness_state,
                        projection.assurance_state,
@@ -4669,7 +5445,7 @@ class CorpusService:
                 LEFT JOIN extraction_projections active
                   ON active.revision_id = u.revision_id AND active.is_active = 1
                 WHERE u.unit_id IN ({selected_placeholders})
-                  AND d.deleted_at IS NULL
+                  AND d.lifecycle_state != 'trash'
                 """,
                 selected_ids,
             ).fetchall()
@@ -4677,6 +5453,10 @@ class CorpusService:
             rows = [
                 row_by_id[unit_id] for unit_id in selected_ids if unit_id in row_by_id
             ]
+        self._touch_document_access(
+            corpus_id,
+            {str(row["document_id"]) for row in rows},
+        )
         promoted_live_current: dict[str, bool] = {}
         guard = self.workspaces.promoted_source_guard(corpus_id)
         if guard is not None:
@@ -4756,9 +5536,20 @@ class CorpusService:
                 item["adapter_version"],
                 item.pop("projection_config_hash"),
             )
+            if source_location_unavailable or item["deleted_at"] is not None:
+                item["source_state"] = "unavailable"
+            elif not source_observation_current or not live_source_observation_current:
+                item["source_state"] = "changed"
+            else:
+                item["source_state"] = "available"
+            item["record_state"] = (
+                "current" if projection_current else "extractor_outdated"
+            )
             if item["revision_id"] != item["current_revision_id"]:
                 item["dependency_state"] = "stale_source_revision"
-            elif not source_observation_current or not live_source_observation_current:
+            elif item["source_state"] == "unavailable":
+                item["dependency_state"] = "source_unavailable"
+            elif item["source_state"] == "changed":
                 item["dependency_state"] = "stale_source_observation"
             elif item["projection_id"] != item["active_projection_id"]:
                 item["dependency_state"] = "stale_extraction_projection"

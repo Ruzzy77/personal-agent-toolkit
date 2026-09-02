@@ -1,9 +1,9 @@
 """SQLite schemas for the catalog and per-corpus source fabric."""
 
-CATALOG_SCHEMA_VERSION = 1
-CORPUS_SCHEMA_VERSION = 5
-EXTRACTION_SCHEMA_VERSION = 5
-CONTEXT_SCHEMA_VERSION = 5
+CATALOG_SCHEMA_VERSION = 2
+CORPUS_SCHEMA_VERSION = 6
+EXTRACTION_SCHEMA_VERSION = 6
+CONTEXT_SCHEMA_VERSION = 6
 WORKSPACE_SCHEMA_VERSION = 1
 
 PROVENANCE_GUARD_SCHEMA = """
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 1
+SELECT 2
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS corpora (
@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS corpora (
     provider_kind TEXT NOT NULL,
     source_scope_json TEXT NOT NULL
         DEFAULT '{"exclude_directory_names":[],"exclude_path_prefixes":[]}',
+    location_id TEXT NOT NULL UNIQUE,
+    root_device INTEGER,
+    root_inode INTEGER,
+    location_state TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (location_state IN ('available', 'unavailable', 'unknown')),
+    last_resolved_at TEXT,
+    last_resolution_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -92,7 +99,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 5
+SELECT 6
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS contexts (
@@ -110,7 +117,6 @@ CREATE TABLE IF NOT EXISTS context_corpora (
     context_id TEXT NOT NULL,
     corpus_id TEXT NOT NULL,
     last_checked_scan_id TEXT,
-    last_checked_snapshot_id TEXT,
     last_checked_inventory_hash TEXT,
     last_checked_at TEXT,
     PRIMARY KEY(context_id, corpus_id),
@@ -146,7 +152,6 @@ CREATE TABLE IF NOT EXISTS context_sources (
     source_ref_id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
     corpus_id TEXT NOT NULL,
-    snapshot_id TEXT NOT NULL,
     document_id TEXT NOT NULL,
     revision_id TEXT NOT NULL,
     projection_id TEXT NOT NULL,
@@ -302,7 +307,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 5
+SELECT 6
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -323,7 +328,6 @@ CREATE TABLE IF NOT EXISTS documents (
     document_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,
     relative_path_nfc TEXT NOT NULL,
-    absolute_path TEXT NOT NULL,
     extension TEXT NOT NULL,
     media_type TEXT,
     adapter TEXT,
@@ -345,6 +349,13 @@ CREATE TABLE IF NOT EXISTS documents (
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     deleted_at TEXT,
+    retention_class TEXT NOT NULL DEFAULT 'managed'
+        CHECK (retention_class IN ('managed', 'protected', 'transient')),
+    lifecycle_state TEXT NOT NULL DEFAULT 'active'
+        CHECK (lifecycle_state IN ('active', 'archived', 'trash')),
+    last_user_access_at TEXT,
+    archived_at TEXT,
+    trashed_at TEXT,
     FOREIGN KEY(last_seen_scan_id) REFERENCES scan_runs(scan_id),
     FOREIGN KEY(current_revision_id) REFERENCES revisions(revision_id),
     FOREIGN KEY(current_revision_id, document_id)
@@ -355,6 +366,20 @@ CREATE INDEX IF NOT EXISTS idx_documents_scan ON documents(last_seen_scan_id);
 CREATE INDEX IF NOT EXISTS idx_documents_ingest
     ON documents(eligibility_state, residency_state, logical_size);
 CREATE INDEX IF NOT EXISTS idx_documents_path_nfc ON documents(relative_path_nfc);
+CREATE INDEX IF NOT EXISTS idx_documents_retention
+    ON documents(lifecycle_state, retention_class, deleted_at, last_user_access_at);
+
+CREATE TABLE IF NOT EXISTS source_change_queue (
+    relative_path_nfc TEXT PRIMARY KEY,
+    event_kind TEXT NOT NULL
+        CHECK (event_kind IN ('changed', 'created', 'deleted', 'moved', 'reconcile')),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_source_change_queue_seen
+    ON source_change_queue(last_seen_at, relative_path_nfc);
 
 CREATE TABLE IF NOT EXISTS revisions (
     revision_id TEXT PRIMARY KEY,

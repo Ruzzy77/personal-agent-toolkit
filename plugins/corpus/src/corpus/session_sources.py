@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import BudgetExceededError, ContextValidationError
+from .source_access import resolve_source_root_identity_path
 
 SESSION_SOURCE_PROVIDERS = frozenset({"codex", "claude"})
 SESSION_SOURCE_ACTORS = frozenset({"all", "user_task", "subagent_task"})
@@ -111,8 +112,6 @@ def _record_from_turn(
     session_id: str,
     turn_id: str,
     completed_at: str,
-    cwd: str,
-    workspace: str,
     root_ref: str,
     relative_path: str,
     transcript: _Transcript,
@@ -124,8 +123,6 @@ def _record_from_turn(
         "provider_metadata": {
             "session_id": session_id,
             "turn_id": turn_id,
-            "cwd": cwd,
-            "workspace": workspace,
             "actor": actor,
             "task_kind": f"{provider}_turn",
         },
@@ -155,7 +152,13 @@ def normalize_session_selector(
         )
     if not isinstance(selector, dict):
         raise ContextValidationError("session source selector must be an object")
-    allowed = {"cwd_prefix", "actor", "lookback_days"}
+    allowed = {
+        "cwd_prefix",
+        "cwd_root_device",
+        "cwd_root_inode",
+        "actor",
+        "lookback_days",
+    }
     if provider == "codex":
         allowed.add("include_archived")
     if "cwd_prefix" not in selector or set(selector) - allowed:
@@ -196,11 +199,50 @@ def normalize_session_selector(
             "session source lookback_days is invalid",
             details={"maximum": SESSION_SOURCE_MAX_LOOKBACK_DAYS},
         )
+    resolved_prefix = os.path.realpath(os.path.expanduser(cwd_prefix.strip()))
+    raw_device = selector.get("cwd_root_device")
+    raw_inode = selector.get("cwd_root_inode")
+    if (raw_device is None) != (raw_inode is None) or any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (raw_device, raw_inode)
+        if value is not None
+    ):
+        raise ContextValidationError(
+            "session source cwd identity is invalid",
+            details={"fields": ["selector.cwd_root_device", "selector.cwd_root_inode"]},
+        )
+    if raw_device is not None and raw_inode is not None:
+        recovered = resolve_source_root_identity_path(raw_device, raw_inode)
+        if recovered is not None:
+            resolved_prefix = os.path.realpath(recovered)
+        else:
+            try:
+                metadata = os.stat(resolved_prefix)
+            except OSError:
+                metadata = None
+            if (
+                metadata is not None
+                and stat.S_ISDIR(metadata.st_mode)
+                and int(metadata.st_ino) == raw_inode
+            ):
+                raw_device = int(metadata.st_dev)
+    else:
+        try:
+            metadata = os.stat(resolved_prefix)
+        except OSError:
+            metadata = None
+        if metadata is not None and stat.S_ISDIR(metadata.st_mode):
+            raw_device = int(metadata.st_dev)
+            raw_inode = int(metadata.st_ino)
+
     normalized: dict[str, Any] = {
-        "cwd_prefix": os.path.realpath(os.path.expanduser(cwd_prefix.strip())),
+        "cwd_prefix": resolved_prefix,
         "actor": actor,
         "lookback_days": lookback_days,
     }
+    if raw_device is not None and raw_inode is not None:
+        normalized["cwd_root_device"] = raw_device
+        normalized["cwd_root_inode"] = raw_inode
     if provider == "codex":
         include_archived = selector.get("include_archived", True)
         if not isinstance(include_archived, bool):
@@ -451,8 +493,6 @@ def _codex_records(
                         session_id=session_id,
                         turn_id=turn_id,
                         completed_at=completed_at,
-                        cwd=cwd,
-                        workspace=selector["cwd_prefix"],
                         root_ref=root_ref,
                         relative_path=relative_path,
                         transcript=transcript,
@@ -527,8 +567,6 @@ def _claude_records(
                     session_id=session_id,
                     turn_id=active_turn,
                     completed_at=completed_at,
-                    cwd=cwd,
-                    workspace=selector["cwd_prefix"],
                     root_ref=root_ref,
                     relative_path=relative_path,
                     transcript=transcript,

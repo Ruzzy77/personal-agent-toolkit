@@ -51,7 +51,11 @@ from .filesystem_ops import (
     write_all,
 )
 from .locking import source_workspace_registry_lock, workspace_writer_lock
-from .source_access import opened_source_root, source_root_identity
+from .source_access import (
+    opened_source_root,
+    resolve_source_root_identity_path,
+    source_root_identity,
+)
 
 WORKSPACE_DEFAULT_FILE_LIMIT = 100
 WORKSPACE_MAX_FILE_LIMIT = 200
@@ -65,8 +69,8 @@ WORKSPACE_EXPECTED_ABSENT = "absent"
 WORKSPACE_VERSION_PREFIX = "v1:"
 WORKSPACE_MAX_ENCODED_CONTENT_CHARS = 3 * WORKSPACE_MAX_FILE_BYTES
 WORKSPACE_RECOVERY_ID_RE = re.compile(r"^wrec_[0-9a-f]{32}$")
-WORKSPACE_INDEX_CHANGE_JOURNAL = "index-changes.json"
-WORKSPACE_INDEX_CHANGE_JOURNAL_VERSION = 1
+WORKSPACE_INDEX_CHANGE_QUEUE = "index-changes.json"
+WORKSPACE_INDEX_CHANGE_QUEUE_VERSION = 1
 WORKSPACE_INDEX_CHANGE_MAX_ENTRIES = 2_048
 WORKSPACE_INDEX_CHANGE_MAX_BYTES = 1024 * 1024
 
@@ -124,9 +128,21 @@ def _matching_source_corpus_id(
     *,
     corpora: list[dict[str, Any]],
 ) -> str | None:
+    try:
+        root_device, root_inode = _root_identity(root)
+    except (WorkspaceBoundaryError, WorkspaceUnavailableError):
+        root_device = root_inode = None
     for corpus in corpora:
         source = Path(corpus["source_root"]).expanduser().resolve(strict=False)
-        if root == source:
+        stable_identity_matches = (
+            root_device is not None
+            and root_inode is not None
+            and corpus.get("root_device") is not None
+            and corpus.get("root_inode") is not None
+            and (root_device, root_inode)
+            == (int(corpus["root_device"]), int(corpus["root_inode"]))
+        )
+        if root == source or stable_identity_matches:
             return str(corpus["corpus_id"])
     return None
 
@@ -272,8 +288,158 @@ class WorkspaceService:
         except ContextNotFoundError:
             return "missing"
 
+    def _resolve_workspace_location(self, workspace_id: str) -> dict[str, Any] | None:
+        """Recover a moved Finder folder by its stable filesystem identity."""
+
+        workspace_id = normalize_workspace_id(workspace_id)
+        if not _workspace_database_exists(self.data_root):
+            return None
+        with (
+            source_workspace_registry_lock(self.data_root),
+            workspace_writer_lock(self.data_root),
+            workspace_connection(self.data_root) as connection,
+        ):
+            row = connection.execute(
+                "SELECT * FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            result = _workspace_row(row)
+            expected_identity = (
+                int(result["root_device"]),
+                int(result["root_inode"]),
+            )
+            try:
+                observed_identity = _root_identity(Path(result["root_path"]))
+            except (WorkspaceBoundaryError, WorkspaceUnavailableError):
+                observed_identity = None
+            if observed_identity == expected_identity:
+                return result
+            if (
+                observed_identity is not None
+                and observed_identity[1] == expected_identity[1]
+            ):
+                updated_at = utc_now()
+                connection.execute(
+                    """
+                    UPDATE workspaces
+                    SET root_device = ?, root_inode = ?, updated_at = ?
+                    WHERE workspace_id = ?
+                      AND root_device = ? AND root_inode = ?
+                    """,
+                    (
+                        *observed_identity,
+                        updated_at,
+                        workspace_id,
+                        *expected_identity,
+                    ),
+                )
+                return _workspace_row(
+                    connection.execute(
+                        "SELECT * FROM workspaces WHERE workspace_id = ?",
+                        (workspace_id,),
+                    ).fetchone()
+                )
+
+            recovered = resolve_source_root_identity_path(*expected_identity)
+            if recovered is None:
+                return result
+            try:
+                recovered = _normalize_root(recovered)
+            except (
+                WorkspaceBoundaryError,
+                WorkspaceUnavailableError,
+                WorkspaceValidationError,
+            ):
+                return result
+            recovered_nfc = unicodedata.normalize("NFC", str(recovered))
+            data_root = self.data_root.expanduser().resolve(strict=False)
+            if _paths_overlap(recovered, data_root):
+                return result
+
+            context_state = self._context_lifecycle_state(result)
+            if context_state not in {"active", "archived"}:
+                return result
+            context = self.contexts.read(
+                context_id=result["context_id"],
+                state=context_state,
+                limit=1,
+                offset=0,
+                audience="local_cli",
+            )
+            try:
+                self._require_safe_source_overlap(
+                    recovered,
+                    corpora=list_corpora(self.data_root),
+                    context_corpus_ids=set(context["context"]["corpus_ids"]),
+                )
+            except WorkspaceBoundaryError:
+                return result
+
+            conflict = connection.execute(
+                """
+                SELECT workspace_id FROM workspaces
+                WHERE workspace_id != ?
+                  AND (
+                      root_path_nfc = ?
+                      OR (root_device = ? AND root_inode = ?)
+                  )
+                LIMIT 1
+                """,
+                (workspace_id, recovered_nfc, *expected_identity),
+            ).fetchone()
+            if conflict is not None:
+                return result
+            for existing in connection.execute(
+                """
+                SELECT workspace_id, root_path FROM workspaces
+                WHERE workspace_id != ?
+                """,
+                (workspace_id,),
+            ).fetchall():
+                existing_root = Path(existing["root_path"]).resolve(strict=False)
+                if _paths_overlap(recovered, existing_root):
+                    return result
+
+            updated_at = utc_now()
+            connection.execute(
+                """
+                UPDATE workspaces
+                SET root_path = ?, root_path_nfc = ?, updated_at = ?
+                WHERE workspace_id = ?
+                  AND root_device = ? AND root_inode = ?
+                """,
+                (
+                    str(recovered),
+                    recovered_nfc,
+                    updated_at,
+                    workspace_id,
+                    *expected_identity,
+                ),
+            )
+            return _workspace_row(
+                connection.execute(
+                    "SELECT * FROM workspaces WHERE workspace_id = ?",
+                    (workspace_id,),
+                ).fetchone()
+            )
+
+    def _resolve_all_workspace_locations(self) -> None:
+        if not _workspace_database_exists(self.data_root):
+            return
+        with workspace_read_connection(self.data_root) as connection:
+            workspace_ids = [
+                str(row["workspace_id"])
+                for row in connection.execute(
+                    "SELECT workspace_id FROM workspaces ORDER BY workspace_id"
+                ).fetchall()
+            ]
+        for workspace_id in workspace_ids:
+            self._resolve_workspace_location(workspace_id)
+
     @staticmethod
-    def _read_index_change_journal(
+    def _read_index_change_queue(
         paths: WorkspaceRuntimePaths,
     ) -> dict[str, dict[str, Any]]:
         workspace_root = paths.open_workspace_root()
@@ -281,7 +447,7 @@ class WorkspaceService:
         try:
             try:
                 before = os.stat(
-                    WORKSPACE_INDEX_CHANGE_JOURNAL,
+                    WORKSPACE_INDEX_CHANGE_QUEUE,
                     dir_fd=root_descriptor,
                     follow_symlinks=False,
                 )
@@ -289,8 +455,8 @@ class WorkspaceService:
                 return {}
             except OSError as exc:
                 raise WorkspaceUnavailableError(
-                    "work folder index journal is unavailable",
-                    details={"reason": f"index_journal_stat_failed:{exc.errno}"},
+                    "work folder index change queue is unavailable",
+                    details={"reason": f"index_change_queue_stat_failed:{exc.errno}"},
                 ) from exc
             if (
                 not stat.S_ISREG(before.st_mode)
@@ -299,12 +465,12 @@ class WorkspaceService:
                 or before.st_size > WORKSPACE_INDEX_CHANGE_MAX_BYTES
             ):
                 raise WorkspaceBoundaryError(
-                    "work folder index journal is unsafe",
-                    details={"reason": "unsafe_index_journal"},
+                    "work folder index change queue is unsafe",
+                    details={"reason": "unsafe_index_queue"},
                 )
             try:
                 descriptor = os.open(
-                    WORKSPACE_INDEX_CHANGE_JOURNAL,
+                    WORKSPACE_INDEX_CHANGE_QUEUE,
                     os.O_RDONLY
                     | getattr(os, "O_CLOEXEC", 0)
                     | getattr(os, "O_NOFOLLOW", 0),
@@ -312,8 +478,8 @@ class WorkspaceService:
                 )
             except OSError as exc:
                 raise WorkspaceUnavailableError(
-                    "work folder index journal could not be opened",
-                    details={"reason": f"index_journal_open_failed:{exc.errno}"},
+                    "work folder index change queue could not be opened",
+                    details={"reason": f"index_change_queue_open_failed:{exc.errno}"},
                 ) from exc
             try:
                 opened = os.fstat(descriptor)
@@ -323,8 +489,8 @@ class WorkspaceService:
                     or opened.st_size != before.st_size
                 ):
                     raise WorkspaceConflictError(
-                        "work folder index journal changed while it was opened",
-                        details={"reason": "index_journal_changed"},
+                        "work folder index change queue changed while it was opened",
+                        details={"reason": "index_change_queue_changed"},
                     )
                 chunks: list[bytes] = []
                 observed = 0
@@ -345,8 +511,8 @@ class WorkspaceService:
                     observed += len(chunk)
                 if observed > WORKSPACE_INDEX_CHANGE_MAX_BYTES:
                     raise WorkspaceBoundaryError(
-                        "work folder index journal is too large",
-                        details={"reason": "index_journal_too_large"},
+                        "work folder index change queue is too large",
+                        details={"reason": "index_change_queue_too_large"},
                     )
                 after = os.fstat(descriptor)
                 if (
@@ -357,8 +523,8 @@ class WorkspaceService:
                     or after.st_ctime_ns != opened.st_ctime_ns
                 ):
                     raise WorkspaceConflictError(
-                        "work folder index journal changed while it was read",
-                        details={"reason": "index_journal_changed"},
+                        "work folder index change queue changed while it was read",
+                        details={"reason": "index_change_queue_changed"},
                     )
             finally:
                 os.close(descriptor)
@@ -369,18 +535,18 @@ class WorkspaceService:
             value = json.loads(b"".join(chunks))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise WorkspaceBoundaryError(
-                "work folder index journal is invalid",
-                details={"reason": "invalid_index_journal"},
+                "work folder index change queue is invalid",
+                details={"reason": "invalid_index_queue"},
             ) from exc
         if (
             not isinstance(value, dict)
-            or value.get("version") != WORKSPACE_INDEX_CHANGE_JOURNAL_VERSION
+            or value.get("version") != WORKSPACE_INDEX_CHANGE_QUEUE_VERSION
             or not isinstance(value.get("entries"), dict)
             or len(value["entries"]) > WORKSPACE_INDEX_CHANGE_MAX_ENTRIES
         ):
             raise WorkspaceBoundaryError(
-                "work folder index journal is invalid",
-                details={"reason": "invalid_index_journal"},
+                "work folder index change queue is invalid",
+                details={"reason": "invalid_index_queue"},
             )
         access = _workspace_access()
         entries: dict[str, dict[str, Any]] = {}
@@ -394,19 +560,19 @@ class WorkspaceService:
                 or not isinstance(entry.get("source_corpus_id"), str)
             ):
                 raise WorkspaceBoundaryError(
-                    "work folder index journal is invalid",
-                    details={"reason": "invalid_index_journal_entry"},
+                    "work folder index change queue is invalid",
+                    details={"reason": "invalid_index_change_queue_entry"},
                 )
             entries[relative_path] = dict(entry)
         return entries
 
     @staticmethod
-    def _write_index_change_journal(
+    def _write_index_change_queue(
         paths: WorkspaceRuntimePaths,
         entries: dict[str, dict[str, Any]],
     ) -> None:
         value = {
-            "version": WORKSPACE_INDEX_CHANGE_JOURNAL_VERSION,
+            "version": WORKSPACE_INDEX_CHANGE_QUEUE_VERSION,
             "entries": entries,
         }
         payload = encode_json(value).encode()
@@ -415,10 +581,10 @@ class WorkspaceService:
             or len(payload) > WORKSPACE_INDEX_CHANGE_MAX_BYTES
         ):
             raise WorkspaceUnavailableError(
-                "work folder index journal is full",
-                details={"reason": "index_journal_full"},
+                "work folder index change queue is full",
+                details={"reason": "index_change_queue_full"},
             )
-        temporary_name = f".{WORKSPACE_INDEX_CHANGE_JOURNAL}.{uuid.uuid4().hex}.tmp"
+        temporary_name = f".{WORKSPACE_INDEX_CHANGE_QUEUE}.{uuid.uuid4().hex}.tmp"
         with paths.open_workspace_root() as root_descriptor:
             descriptor: int | None = None
             try:
@@ -439,15 +605,15 @@ class WorkspaceService:
                 descriptor = None
                 os.rename(
                     temporary_name,
-                    WORKSPACE_INDEX_CHANGE_JOURNAL,
+                    WORKSPACE_INDEX_CHANGE_QUEUE,
                     src_dir_fd=root_descriptor,
                     dst_dir_fd=root_descriptor,
                 )
                 os.fsync(root_descriptor)
             except OSError as exc:
                 raise WorkspaceUnavailableError(
-                    "work folder index journal could not be updated",
-                    details={"reason": f"index_journal_write_failed:{exc.errno}"},
+                    "work folder index change queue could not be updated",
+                    details={"reason": f"index_change_queue_write_failed:{exc.errno}"},
                 ) from exc
             finally:
                 if descriptor is not None:
@@ -472,14 +638,14 @@ class WorkspaceService:
         expected_version: str,
         intended_sha256: str,
     ) -> None:
-        entries = self._read_index_change_journal(paths)
+        entries = self._read_index_change_queue(paths)
         existing = entries.get(relative_path)
         if existing is not None and existing.get("state") == "dirty":
             return
         if existing is None and len(entries) >= WORKSPACE_INDEX_CHANGE_MAX_ENTRIES:
             raise WorkspaceUnavailableError(
-                "work folder index journal is full",
-                details={"reason": "index_journal_full"},
+                "work folder index change queue is full",
+                details={"reason": "index_change_queue_full"},
             )
         entries[relative_path] = {
             "source_corpus_id": source_corpus_id,
@@ -490,7 +656,7 @@ class WorkspaceService:
             "intended_sha256": intended_sha256,
             "updated_at": utc_now(),
         }
-        self._write_index_change_journal(paths, entries)
+        self._write_index_change_queue(paths, entries)
 
     def _mark_index_change_dirty(
         self,
@@ -500,7 +666,7 @@ class WorkspaceService:
         relative_path: str,
         result_version: str,
     ) -> None:
-        entries = self._read_index_change_journal(paths)
+        entries = self._read_index_change_queue(paths)
         entry = dict(entries.get(relative_path, {}))
         entry.update(
             {
@@ -511,7 +677,7 @@ class WorkspaceService:
             }
         )
         entries[relative_path] = entry
-        self._write_index_change_journal(paths, entries)
+        self._write_index_change_queue(paths, entries)
 
     def _clear_prepared_index_change(
         self,
@@ -519,16 +685,14 @@ class WorkspaceService:
         paths: WorkspaceRuntimePaths,
         relative_path: str,
     ) -> None:
-        entries = self._read_index_change_journal(paths)
+        entries = self._read_index_change_queue(paths)
         entry = entries.get(relative_path)
         if entry is None or entry.get("state") != "prepared":
             return
         del entries[relative_path]
-        self._write_index_change_journal(paths, entries)
+        self._write_index_change_queue(paths, entries)
 
-    def promoted_source_guard(self, corpus_id: str) -> dict[str, Any] | None:
-        """Return private live-observation state for an exact promoted source."""
-
+    def _promoted_source_guard(self, corpus_id: str) -> dict[str, Any] | None:
         corpus = next(
             (
                 item
@@ -554,9 +718,15 @@ class WorkspaceService:
                 "workspace_id": row["workspace_id"],
                 "root": root,
                 "identity": self._identity(row),
-                "changes": self._read_index_change_journal(paths),
+                "changes": self._read_index_change_queue(paths),
             }
         return None
+
+    def promoted_source_guard(self, corpus_id: str) -> dict[str, Any] | None:
+        """Return private live-observation state for an exact promoted source."""
+
+        self._resolve_all_workspace_locations()
+        return self._promoted_source_guard(corpus_id)
 
     def clear_index_changes(
         self,
@@ -568,18 +738,19 @@ class WorkspaceService:
 
         if not relative_paths:
             return 0
+        self._resolve_all_workspace_locations()
         with workspace_writer_lock(self.data_root):
-            guard = self.promoted_source_guard(corpus_id)
+            guard = self._promoted_source_guard(corpus_id)
             if guard is None:
                 return 0
             paths = WorkspaceRuntimePaths(self.data_root, guard["workspace_id"])
-            entries = self._read_index_change_journal(paths)
+            entries = self._read_index_change_queue(paths)
             removed = 0
             for relative_path in relative_paths:
                 if entries.pop(relative_path, None) is not None:
                     removed += 1
             if removed:
-                self._write_index_change_journal(paths, entries)
+                self._write_index_change_queue(paths, entries)
             return removed
 
     def _connected_state(
@@ -703,9 +874,20 @@ class WorkspaceService:
         context_corpus_ids: set[str],
     ) -> str | None:
         promoted_source_corpus_id: str | None = None
+        try:
+            root_identity = _root_identity(root)
+        except (WorkspaceBoundaryError, WorkspaceUnavailableError):
+            root_identity = None
         for corpus in corpora:
             source = Path(corpus["source_root"]).expanduser().resolve(strict=False)
-            if root == source:
+            stable_identity_matches = (
+                root_identity is not None
+                and corpus.get("root_device") is not None
+                and corpus.get("root_inode") is not None
+                and root_identity
+                == (int(corpus["root_device"]), int(corpus["root_inode"]))
+            )
+            if root == source or stable_identity_matches:
                 corpus_id = str(corpus["corpus_id"])
                 if corpus_id not in context_corpus_ids:
                     raise WorkspaceBoundaryError(
@@ -858,6 +1040,7 @@ class WorkspaceService:
         workspace_id: str,
     ) -> dict[str, Any]:
         workspace_id = normalize_workspace_id(workspace_id)
+        self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             with workspace_connection(self.data_root) as connection:
                 row = self._load_row(
@@ -867,7 +1050,7 @@ class WorkspaceService:
                 )
                 source_corpus_id = self._source_corpus_id_for_row(row)
                 if source_corpus_id is not None:
-                    pending_changes = self._read_index_change_journal(
+                    pending_changes = self._read_index_change_queue(
                         WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
                     )
                     if pending_changes:
@@ -926,6 +1109,7 @@ class WorkspaceService:
         _validate_audience(audience)
         if not _workspace_database_exists(self.data_root):
             return {"work_folders": [], "returned_count": 0}
+        self._resolve_all_workspace_locations()
         with workspace_read_connection(self.data_root) as connection:
             rows = connection.execute(
                 "SELECT * FROM workspaces ORDER BY workspace_id"
@@ -951,10 +1135,13 @@ class WorkspaceService:
         workspace_id: str,
         audience: str = "local_cli",
     ) -> dict[str, Any]:
+        self._resolve_workspace_location(workspace_id)
         row = self._load_row(workspace_id, audience=audience)
         return {"work_folder": self._project(row, audience=audience)}
 
-    def roots(self) -> list[Path]:
+    def roots(self, *, resolve_locations: bool = True) -> list[Path]:
+        if resolve_locations:
+            self._resolve_all_workspace_locations()
         return list_workspace_roots(self.data_root)
 
     @staticmethod
@@ -1057,6 +1244,7 @@ class WorkspaceService:
                     "path_contains is outside the supported range",
                     details={"maximum_chars": WORKSPACE_MAX_PATH_FILTER_CHARS},
                 )
+        self._resolve_workspace_location(workspace_id)
         row = self._load_row(workspace_id, audience=audience)
         identity = self._require_connected(row)
         access = _workspace_access()
@@ -1126,6 +1314,7 @@ class WorkspaceService:
                 "unsupported work folder encoding",
                 details={"allowed": ["base64", "utf8"]},
             )
+        self._resolve_workspace_location(workspace_id)
         row = self._load_row(workspace_id, audience=audience)
         identity = self._require_connected(row)
         selected = relative_path or row["current_relative_path"]
@@ -1172,6 +1361,7 @@ class WorkspaceService:
     ) -> dict[str, Any]:
         access = _workspace_access()
         normalized_path = access.normalize_workspace_relative_path(relative_path)
+        self._resolve_workspace_location(workspace_id)
         with (
             workspace_writer_lock(self.data_root),
             workspace_connection(self.data_root) as connection,
@@ -1766,6 +1956,7 @@ class WorkspaceService:
     def maintain_recoveries(self, *, workspace_id: str) -> dict[str, int]:
         """Run bounded local maintenance without exposing a remote tool."""
 
+        self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience="local_cli")
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
@@ -1798,6 +1989,7 @@ class WorkspaceService:
             "create" if expected_version == WORKSPACE_EXPECTED_ABSENT else "replace"
         )
 
+        self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
             identity = self._require_connected(row)
@@ -2328,6 +2520,7 @@ class WorkspaceService:
 
         access = _workspace_access()
         canonical = access.normalize_workspace_relative_path(relative_path)
+        self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
             identity = self._require_connected(row)
@@ -2546,6 +2739,7 @@ class WorkspaceService:
         ):
             raise WorkspaceValidationError("recovery_id is invalid")
         access = _workspace_access()
+        self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
             identity = self._require_connected(row)

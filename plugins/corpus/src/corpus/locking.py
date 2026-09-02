@@ -107,7 +107,7 @@ def context_reader_lock(
 ) -> Iterator[None]:
     """Hold a shared tenant-state lock across a coherent remote read.
 
-    Source generation apply and remote deletion use the exclusive side of the
+    Source updates and remote deletion use the exclusive side of the
     same lock. Creating the private lock inode is coordination metadata only;
     no Corpus, context, source, or index content is changed by a reader.
     """
@@ -217,6 +217,44 @@ def source_workspace_registry_lock(
                                 "lock_path": str(lock_path),
                                 "timeout_seconds": timeout_seconds,
                             },
+                        ) from exc
+                    time.sleep(0.05)
+            yield
+        finally:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+
+
+@contextmanager
+def maintenance_worker_lock(
+    data_root: Path,
+    *,
+    timeout_seconds: float = 0,
+) -> Iterator[None]:
+    """Allow only one background maintenance worker per private data root."""
+
+    lock_path = data_root / "maintenance.worker.lock"
+    with private_directory(data_root, create=True) as parent_descriptor:
+        descriptor, _ = open_private_file_at(
+            parent_descriptor,
+            lock_path.name,
+            path=lock_path,
+            flags=os.O_RDWR,
+            create=True,
+        )
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while True:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise WriterBusyError(
+                            "another Corpus maintenance worker is active",
+                            details={"lock_path": str(lock_path)},
                         ) from exc
                     time.sleep(0.05)
             yield

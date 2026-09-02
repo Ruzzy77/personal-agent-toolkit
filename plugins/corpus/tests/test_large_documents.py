@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from corpus.config import RuntimePaths
@@ -25,7 +26,7 @@ class LargeDocumentApprovalTest(unittest.TestCase):
             )
             service.sync("migration")
             paths = RuntimePaths(data_root=base / "data", corpus_id="migration")
-            with sqlite3.connect(paths.corpus_db) as connection:
+            with closing(sqlite3.connect(paths.corpus_db)) as connection, connection:
                 unit_id = connection.execute(
                     "SELECT unit_id FROM source_units LIMIT 1"
                 ).fetchone()[0]
@@ -47,7 +48,7 @@ class LargeDocumentApprovalTest(unittest.TestCase):
             migrated = migrate_corpus_database(paths)
 
             self.assertTrue(migrated["migrated"])
-            with sqlite3.connect(paths.corpus_db) as connection:
+            with closing(sqlite3.connect(paths.corpus_db)) as connection:
                 projection_columns = {
                     row[1]
                     for row in connection.execute(

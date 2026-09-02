@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -135,12 +136,14 @@ class SpaceService:
         context_skills: Any,
         workspaces: Any,
         source_state: Callable[[str], str],
+        record_state: Callable[[str], str],
     ) -> None:
         self.data_root = data_root
         self.contexts = contexts
         self.context_skills = context_skills
         self.workspaces = workspaces
         self.source_state = source_state
+        self.record_state = record_state
 
     def _contexts(self, *, state: str) -> list[dict[str, Any]]:
         contexts: list[dict[str, Any]] = []
@@ -258,7 +261,7 @@ class SpaceService:
             current_file = work_folder["current_file"]
             generation = work_folder["generation"]
         else:
-            display_name = group["root"].name
+            display_name = unicodedata.normalize("NFC", group["root"].name)
             connection_state = "registered"
             connection_reason = None
             current_file = None
@@ -290,8 +293,9 @@ class SpaceService:
         }
         if sources:
             result["source_state"] = self._connection_source_state(sources)
+            result["record_state"] = self._connection_record_state(sources)
         if audience == "local_cli":
-            result["location"] = str(group["root"])
+            result["location"] = unicodedata.normalize("NFC", str(group["root"]))
         return result
 
     @staticmethod
@@ -301,11 +305,30 @@ class SpaceService:
         states = {str(source["_source_state"]) for source in sources}
         if len(states) == 1:
             return next(iter(states))
+        if "unavailable" in states or "partially_available" in states:
+            return "partially_available"
+        if "changed" in states:
+            return "changed"
+        if "available" in states:
+            return "available"
+        return "unknown"
+
+    @staticmethod
+    def _connection_record_state(sources: list[dict[str, Any]]) -> str | None:
+        if not sources:
+            return None
+        states = {str(source["_record_state"]) for source in sources}
+        if len(states) == 1:
+            return next(iter(states))
         if "unavailable" in states or "partial" in states:
             return "partial"
-        if "needs_refresh" in states:
-            return "needs_refresh"
-        return "ready"
+        if "extractor_outdated" in states:
+            return "extractor_outdated"
+        if "ready" in states:
+            return "partial"
+        if "archived" in states:
+            return "archived"
+        return "empty"
 
     @staticmethod
     def _context_access_scope(connections: list[dict[str, Any]]) -> str:
@@ -412,8 +435,19 @@ class SpaceService:
     def _spaces(self, *, audience: str) -> list[dict[str, Any]]:
         _validate_audience(audience)
         corpora = list_corpora(self.data_root)
+        source_states: dict[str, str] = {}
+        record_states: dict[str, str] = {}
         for corpus in corpora:
-            corpus["_source_state"] = self.source_state(corpus["corpus_id"])
+            corpus_id = str(corpus["corpus_id"])
+            source_states[corpus_id] = self.source_state(corpus_id)
+            record_states[corpus_id] = self.record_state(corpus_id)
+        # Source-state checks can repair moved root hints. Re-read the bounded
+        # catalog projection so this same response uses the recovered location.
+        corpora = list_corpora(self.data_root)
+        for corpus in corpora:
+            corpus_id = str(corpus["corpus_id"])
+            corpus["_source_state"] = source_states[corpus_id]
+            corpus["_record_state"] = record_states[corpus_id]
         corpora_by_id = {corpus["corpus_id"]: corpus for corpus in corpora}
         contexts = self._active_contexts()
         work_folders = self._work_folders()
