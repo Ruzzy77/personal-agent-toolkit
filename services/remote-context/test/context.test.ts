@@ -982,6 +982,70 @@ describe("remote personal context service", () => {
     });
   });
 
+  it("queues a bounded Work job while the Sync device is offline", async () => {
+    const now = "2026-09-02T00:00:00.000Z";
+    await runtime.STATE_DB.batch([
+      runtime.STATE_DB.prepare(
+        `INSERT INTO sync_devices(
+           owner_id, device_id, display_name, credential_id, status,
+           capabilities_json, last_seen_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'active', '[]', NULL, ?, ?)`,
+      ).bind(
+        "owner_test",
+        "offline-mac",
+        "Offline Mac",
+        "environment:offline-mac",
+        now,
+        now,
+      ),
+      runtime.STATE_DB.prepare(
+        `INSERT INTO corpus_spaces(
+           owner_id, space_id, display_name, state, access_scope,
+           primary_work_connection_id, updated_at
+         ) VALUES (?, ?, ?, 'active', 'remote_allowed', 'main', ?)`,
+      ).bind("owner_test", "offline-space", "Offline Space", now),
+      runtime.STATE_DB.prepare(
+        `INSERT INTO corpus_connections(
+           owner_id, space_id, connection_id, display_name, roles_json,
+           access_scope, permission, index_mode, corpus_id, device_id,
+           local_connection_key, generation, configuration_state, source_state,
+           record_state, captured_at, updated_at
+         ) VALUES (?, ?, 'main', 'Offline Work', '["work"]', 'remote_allowed',
+                   'read_write', 'not_indexed', NULL, 'offline-mac', 'offline-key',
+                   1, 'ready', NULL, NULL, NULL, ?)`,
+      ).bind("owner_test", "offline-space", now),
+    ]);
+
+    const service = new CorpusService(runtime, ownerPrincipal);
+    await expect(
+      service.fileList({
+        space_id: "offline-space",
+        connection_id: "main",
+        mode: "list_directory",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      pending: true,
+      state: "queued",
+      device_online: false,
+    });
+    const stored = await runtime.STATE_DB.prepare(
+      `SELECT operation, state, maximum_response_bytes
+       FROM sync_jobs WHERE owner_id = ? AND device_id = ?`,
+    )
+      .bind("owner_test", "offline-mac")
+      .first<{
+        operation: string;
+        state: string;
+        maximum_response_bytes: number;
+      }>();
+    expect(stored).toMatchObject({
+      operation: "work.file.list",
+      state: "queued",
+      maximum_response_bytes: 2 * 1024 * 1024,
+    });
+  });
+
   it("dispatches a bounded Work job over the outbound Sync WebSocket", async () => {
     const now = "2026-09-02T00:00:00.000Z";
     await runtime.STATE_DB.batch([
