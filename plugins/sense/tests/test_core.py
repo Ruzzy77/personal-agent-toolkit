@@ -218,6 +218,45 @@ def test_sensitive_guidance_needs_local_confirmation_and_stays_out_of_overview(
     assert "UPDATED-SECRET" not in str(overview)
 
 
+def test_guidance_overview_groups_current_sections_and_unknown_fallback() -> None:
+    document = ProfileDocument(
+        sections=[
+            section("questions-and-choices", "Question guidance."),
+            section("scope-and-checking", "Scope guidance."),
+            section("evidence-and-judgment", "Evidence guidance."),
+            section("explanation-and-output", "Output guidance."),
+            section("conversation-and-writing", "Writing guidance."),
+            section("visual-production", "Visual guidance."),
+            section("research-exploration", "Exploration guidance."),
+            section("research-review", "Review guidance."),
+            section("what-to-keep", "Memory guidance."),
+            section("future-section", "Future guidance."),
+        ]
+    )
+
+    overview = guidance_overview(
+        document,
+        updated_at="2026-09-02T00:00:00Z",
+    )
+
+    assert [group["title"] for group in overview["groups"]] == [
+        "질문과 답",
+        "자료와 표현",
+        "연구",
+        "장기 맥락",
+        "기타 지침",
+    ]
+    assert [
+        [item["title"] for item in group["sections"]] for group in overview["groups"]
+    ] == [
+        ["질문과 선택", "업무 범위"],
+        ["자료와 해석", "설명과 산출물 구성", "대화와 글", "시각 설계와 제작"],
+        ["연구 탐색", "연구 검토"],
+        ["기억 체계"],
+        ["기타 지침"],
+    ]
+
+
 def test_permanent_deletion_requires_confirmation(tmp_path: Path) -> None:
     store = SenseStore(tmp_path / "Sense")
     store.initialize(profile())
