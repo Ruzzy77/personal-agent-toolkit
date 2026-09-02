@@ -186,14 +186,6 @@ class SyncDaemon:
         )
         if root is None:
             raise SyncError("source_unavailable", "Connection root is unavailable")
-        if change.get("last_revision_sha256"):
-            await self.remote.update_source_state(
-                corpus_id,
-                change["document_id"],
-                "changed",
-                now_iso(),
-                change["relative_path_nfc"],
-            )
         with capture_snapshot(
             root,
             (int(change["root_device"]), int(change["root_inode"])),
@@ -201,6 +193,37 @@ class SyncDaemon:
             self.config.data_root / "staging",
             int(change["max_transfer_bytes"]),
         ) as snapshot:
+            if snapshot.sha256 == change.get("last_revision_sha256"):
+                previous_projection = change.get("last_projection_id")
+                if isinstance(previous_projection, str):
+                    await self.remote.update_source_state(
+                        corpus_id,
+                        change["document_id"],
+                        "available",
+                        now_iso(),
+                        change["relative_path_nfc"],
+                    )
+                    self.state.complete_change(
+                        change["connection_key"],
+                        change["document_id"],
+                        snapshot.sha256,
+                        previous_projection,
+                    )
+                else:
+                    self.state.complete_unsupported(
+                        change["connection_key"],
+                        change["document_id"],
+                        snapshot.sha256,
+                    )
+                return
+            if change.get("last_revision_sha256"):
+                await self.remote.update_source_state(
+                    corpus_id,
+                    change["document_id"],
+                    "changed",
+                    now_iso(),
+                    change["relative_path_nfc"],
+                )
             try:
                 selected_format = format_id(change["relative_path_nfc"])
                 result = await select_analyzer(

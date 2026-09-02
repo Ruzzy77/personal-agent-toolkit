@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -183,6 +184,48 @@ def test_unsupported_file_version_does_not_retry_until_it_changes(
     document.write_bytes(b"changed")
     assert reconcile_all(daemon.state)[0]["changed"] == 1
     assert len(daemon.state.due_changes()) == 1
+
+
+def test_metadata_only_change_reuses_the_committed_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "stable.txt"
+    document.write_text("same bytes", encoding="utf-8")
+    daemon = SyncDaemon(load_config(write_config(tmp_path, root)), "test-token")
+    reconcile_all(daemon.state)
+    initial = daemon.state.due_changes()[0]
+    digest = hashlib.sha256(b"same bytes").hexdigest()
+    daemon.state.complete_change(
+        initial["connection_key"],
+        initial["document_id"],
+        digest,
+        "projection_existing",
+    )
+    metadata = document.stat()
+    os.utime(document, ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 1_000_000))
+    reconcile_all(daemon.state)
+    change = daemon.state.due_changes()[0]
+    observed: list[tuple[object, ...]] = []
+
+    async def update(*args: object, **kwargs: object) -> dict[str, object]:
+        observed.append(args)
+        return {"changed": True}
+
+    async def should_not_analyze(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("unchanged bytes must not be analyzed again")
+
+    monkeypatch.setattr(daemon.remote, "update_source_state", update)
+    monkeypatch.setattr(daemon_module, "select_analyzer", should_not_analyze)
+
+    async def exercise() -> None:
+        await daemon._process_change(change)
+        await daemon.close()
+
+    asyncio.run(exercise())
+    assert observed and observed[0][2] == "available"
+    assert daemon.state.due_changes() == []
 
 
 def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(

@@ -1,5 +1,6 @@
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError, asContextError } from "./errors";
+import { ZodError } from "zod/v4";
 import {
   corpusDocumentsImportSchema,
   corpusExternalImportSchema,
@@ -2089,6 +2090,9 @@ export class CorpusShard {
         404,
       );
     } catch (error) {
+      if (!(error instanceof ContextError) && !(error instanceof ZodError)) {
+        console.error("Corpus shard request failed unexpectedly", error);
+      }
       return errorResponse(error);
     }
   }
