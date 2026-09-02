@@ -43,6 +43,7 @@ export interface Env {
   SENSE_RESOURCE: string;
   CORPUS_RESOURCE: string;
   HYPES_RESOURCE: string;
+  STRUCTURE_PATH_COMPACTION_WRITE_ENABLED?: string;
   SYNC_DEVICE_TOKEN?: string;
   SYNC_DEVICE_ID?: string;
   SYNC_DEVICE_TOKENS_JSON?: string;

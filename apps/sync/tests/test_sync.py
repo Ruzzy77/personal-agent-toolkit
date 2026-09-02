@@ -123,6 +123,8 @@ def test_remote_storage_report_and_conservative_maintenance(
                         "scanned_units": 3,
                         "rewritten_units": 2,
                         "compacted_units": 2,
+                        "structure_path_scanned_units": 3,
+                        "compacted_structure_path_units": 1,
                         "bytes_before": 120,
                         "bytes_after": 40,
                         "complete": True,
@@ -165,6 +167,8 @@ def test_remote_storage_report_and_conservative_maintenance(
     assert summary["pending_search_index_projections"] == 0
     assert summary["scanned_unit_metadata_rows"] == 3
     assert summary["compacted_source_anchor_rows"] == 2
+    assert summary["scanned_structure_path_rows"] == 3
+    assert summary["compacted_structure_path_rows"] == 1
     assert summary["unit_metadata_bytes_saved"] == 80
     assert summary["unit_metadata_complete"] is True
 

@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS staged_units_v2 (
   ordinal INTEGER NOT NULL,
   unit_type TEXT NOT NULL,
   structure_path_json TEXT NOT NULL,
+  stored_structure_path_json TEXT,
   source_anchor_json TEXT NOT NULL,
   normalized_content TEXT NOT NULL,
   content_sha256 TEXT NOT NULL,
@@ -355,12 +356,117 @@ function dependencyState(row: UnitRow): string {
 
 const COMPACT_SOURCE_ANCHOR_PREFIX = "compact-v1:";
 const FULL_SOURCE_ANCHOR_PREFIX = "full-v1:";
+const COMPACT_STRUCTURE_PATH_PREFIX = "compact-path-v1:";
 const SEARCH_INDEX_VERSION = 1;
 const SOURCE_ANCHOR_STORAGE_CURSOR = "source_anchor_storage_cursor_v1";
+const STRUCTURE_PATH_STORAGE_CURSOR = "structure_path_storage_cursor_v1";
+const STRUCTURE_PATH_STORAGE_VERSION_KEY = "structure_path_storage_version";
+const STRUCTURE_PATH_STORAGE_VERSION = 1;
 const UTF8_ENCODER = new TextEncoder();
+
+const TABLE_CELL_CONTAINER_KEYS = [
+  "cell",
+  "col",
+  "col_span",
+  "is_header",
+  "kind",
+  "list_record",
+  "object",
+  "owner_paragraph_record",
+  "row",
+  "row_span",
+  "table",
+] as const;
+
+const TABLE_CELL_TOP_LEVEL_KEYS = [
+  "cell",
+  "col",
+  "col_span",
+  "is_header",
+  "object",
+  "owner_paragraph_record",
+  "row",
+  "row_span",
+  "table",
+] as const;
 
 function hasSearchableText(expression: string): string {
   return `length(trim(${expression}, ' ' || char(9) || char(10) || char(13))) > 0`;
+}
+
+export function decodeStoredStructurePath(
+  stored: string,
+): Record<string, unknown> {
+  if (!stored.startsWith(COMPACT_STRUCTURE_PATH_PREFIX)) {
+    return objectValue(stored);
+  }
+  const compact = objectValue(
+    stored.slice(COMPACT_STRUCTURE_PATH_PREFIX.length),
+  );
+  const tuple = compact._container_v1;
+  if (!Array.isArray(tuple) || tuple.length !== TABLE_CELL_CONTAINER_KEYS.length) {
+    throw new ContextError(
+      "invalid_stored_structure_path",
+      "stored Corpus structure path is invalid",
+      500,
+    );
+  }
+  delete compact._container_v1;
+  const container = Object.fromEntries(
+    TABLE_CELL_CONTAINER_KEYS.map((key, index) => [key, tuple[index]]),
+  );
+  for (const key of TABLE_CELL_TOP_LEVEL_KEYS) compact[key] = container[key];
+  compact.container_kind = container.kind;
+  compact.container_path = [container];
+  return compact;
+}
+
+export function compactStoredStructurePath(stored: string): {
+  value: string;
+  compacted: boolean;
+} {
+  if (stored.startsWith(COMPACT_STRUCTURE_PATH_PREFIX)) {
+    return { value: stored, compacted: true };
+  }
+  const structurePath = objectValue(stored);
+  if ("_container_v1" in structurePath) {
+    return { value: stored, compacted: false };
+  }
+  const containerPath = structurePath.container_path;
+  if (
+    !Array.isArray(containerPath) ||
+    containerPath.length !== 1 ||
+    containerPath[0] === null ||
+    Array.isArray(containerPath[0]) ||
+    typeof containerPath[0] !== "object"
+  ) {
+    return { value: stored, compacted: false };
+  }
+  const container = containerPath[0] as Record<string, unknown>;
+  const keys = Object.keys(container).sort();
+  if (
+    keys.length !== TABLE_CELL_CONTAINER_KEYS.length ||
+    !TABLE_CELL_CONTAINER_KEYS.every((key, index) => key === keys[index]) ||
+    structurePath.container_kind !== container.kind ||
+    !TABLE_CELL_TOP_LEVEL_KEYS.every(
+      (key) =>
+        key in structurePath &&
+        canonicalJson(structurePath[key]) === canonicalJson(container[key]),
+    )
+  ) {
+    return { value: stored, compacted: false };
+  }
+  const compact = { ...structurePath };
+  for (const key of TABLE_CELL_TOP_LEVEL_KEYS) delete compact[key];
+  delete compact.container_kind;
+  delete compact.container_path;
+  compact._container_v1 = TABLE_CELL_CONTAINER_KEYS.map(
+    (key) => container[key],
+  );
+  return {
+    value: `${COMPACT_STRUCTURE_PATH_PREFIX}${canonicalJson(compact)}`,
+    compacted: true,
+  };
 }
 
 function storedSourceAnchor(
@@ -413,7 +519,7 @@ export function compactStoredSourceAnchor(
   const anchor = objectValue(stored);
   delete anchor.absolute_path;
   delete anchor.surface_open_target;
-  const structurePath = objectValue(structurePathJson);
+  const structurePath = decodeStoredStructurePath(structurePathJson);
   const normalizedPath = relativePath.normalize("NFC");
   const invariants: Array<[string, unknown]> = [
     ["content_hash", revisionSha256],
@@ -443,7 +549,7 @@ export function compactStoredSourceAnchor(
 }
 
 function unitResult(row: UnitRow): Record<string, unknown> {
-  const structurePath = objectValue(row.structure_path_json);
+  const structurePath = decodeStoredStructurePath(row.structure_path_json);
   const compact = row.source_anchor_json.startsWith(
     COMPACT_SOURCE_ANCHOR_PREFIX,
   );
@@ -500,6 +606,7 @@ export class CorpusShard {
   private readonly sql: DurableObjectStorage["sql"];
   private readonly documentColumns: Set<string>;
   private readonly projectionColumns: Set<string>;
+  private readonly stagedUnitColumns: Set<string>;
   private initialized: boolean;
 
   constructor(
@@ -525,6 +632,15 @@ export class CorpusShard {
       this.initialized
         ? [
             ...this.sql.exec<{ name: string }>("PRAGMA table_info(projections)"),
+          ].map((row) => row.name)
+        : [],
+    );
+    this.stagedUnitColumns = new Set(
+      this.initialized
+        ? [
+            ...this.sql.exec<{ name: string }>(
+              "PRAGMA table_info(staged_units_v2)",
+            ),
           ].map((row) => row.name)
         : [],
     );
@@ -567,6 +683,42 @@ export class CorpusShard {
         "ALTER TABLE projections ADD COLUMN search_index_version INTEGER NOT NULL DEFAULT 0",
       );
       this.projectionColumns.add("search_index_version");
+    }
+    for (const row of this.sql.exec<{ name: string }>(
+      "PRAGMA table_info(staged_units_v2)",
+    )) {
+      this.stagedUnitColumns.add(row.name);
+    }
+    if (!this.stagedUnitColumns.has("stored_structure_path_json")) {
+      this.sql.exec(
+        "ALTER TABLE staged_units_v2 ADD COLUMN stored_structure_path_json TEXT",
+      );
+      this.stagedUnitColumns.add("stored_structure_path_json");
+    }
+    const structurePathVersion = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = ?",
+      STRUCTURE_PATH_STORAGE_VERSION_KEY,
+    );
+    if (
+      this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true" &&
+      structurePathVersion === null
+    ) {
+      const hasSourceUnits =
+        this.one<{ found: number }>(
+          "SELECT 1 AS found FROM source_units LIMIT 1",
+        ) !== null;
+      const hasStagedUnits =
+        this.one<{ found: number }>(
+          "SELECT 1 AS found FROM staged_units_v2 LIMIT 1",
+        ) !== null;
+      if (!hasSourceUnits && !hasStagedUnits) {
+        this.sql.exec(
+          `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          STRUCTURE_PATH_STORAGE_VERSION_KEY,
+          String(STRUCTURE_PATH_STORAGE_VERSION),
+        );
+      }
     }
     // unit_id's primary key and the projection/ordinal uniqueness constraint
     // already cover current point and ordered projection reads. These two
@@ -728,6 +880,15 @@ export class CorpusShard {
         extraction_issues_logical_bytes: 0,
         geometry_logical_bytes: 0,
         quality_flags_logical_bytes: 0,
+        compacted_structure_path_count: 0,
+        structure_path_compaction_write_enabled:
+          this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true",
+        structure_path_storage_version:
+          this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true"
+            ? STRUCTURE_PATH_STORAGE_VERSION
+            : 0,
+        structure_path_storage_scan_complete:
+          this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true",
         legacy_redundant_index_count: 0,
         pending_source_anchor_compaction_count: 0,
         pending_source_anchor_logical_bytes: 0,
@@ -777,9 +938,15 @@ export class CorpusShard {
       geometry_bytes: 0,
       quality_flags_bytes: 0,
     };
+    const storedStagedStructurePathSize = this.stagedUnitColumns.has(
+      "stored_structure_path_json",
+    )
+      ? "length(CAST(COALESCE(stored_structure_path_json, '') AS BLOB)) +"
+      : "";
     const staged = this.one<{ count: number; logical_bytes: number }>(
       `SELECT COUNT(*) AS count,
               COALESCE(SUM(length(CAST(structure_path_json AS BLOB)) +
+                           ${storedStagedStructurePathSize}
                            length(CAST(source_anchor_json AS BLOB)) +
                            length(CAST(normalized_content AS BLOB)) +
                            length(CAST(extraction_issues_json AS BLOB)) +
@@ -806,6 +973,17 @@ export class CorpusShard {
                 AS pending_logical_bytes
        FROM source_units`,
     ) ?? { logical_bytes: 0, pending_count: 0, pending_logical_bytes: 0 };
+    const compactedStructurePathCount =
+      this.one<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM source_units
+         WHERE structure_path_json LIKE '${COMPACT_STRUCTURE_PATH_PREFIX}%'`,
+      )?.count ?? 0;
+    const structurePathStorageVersion = Number(
+      this.one<{ value: string }>(
+        "SELECT value FROM shard_meta WHERE key = ?",
+        STRUCTURE_PATH_STORAGE_VERSION_KEY,
+      )?.value ?? "0",
+    );
     const indexed =
       this.one<{ count: number }>(
         "SELECT COUNT(*) AS count FROM source_units_fts",
@@ -889,6 +1067,12 @@ export class CorpusShard {
       extraction_issues_logical_bytes: unitCounts.extraction_issues_bytes ?? 0,
       geometry_logical_bytes: unitCounts.geometry_bytes ?? 0,
       quality_flags_logical_bytes: unitCounts.quality_flags_bytes ?? 0,
+      compacted_structure_path_count: compactedStructurePathCount,
+      structure_path_compaction_write_enabled:
+        this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true",
+      structure_path_storage_version: structurePathStorageVersion,
+      structure_path_storage_scan_complete:
+        structurePathStorageVersion >= STRUCTURE_PATH_STORAGE_VERSION,
       legacy_redundant_index_count: legacyRedundantIndexes,
       pending_source_anchor_compaction_count: anchors.pending_count ?? 0,
       pending_source_anchor_logical_bytes: anchors.pending_logical_bytes ?? 0,
@@ -1090,12 +1274,16 @@ export class CorpusShard {
       pending_projections: 0,
     };
     const unitMetadata = {
-      version: 1,
+      version: 2,
       scanned_units: 0,
       rewritten_units: 0,
       compacted_units: 0,
+      structure_path_scanned_units: 0,
+      compacted_structure_path_units: 0,
       bytes_before: 0,
       bytes_after: 0,
+      source_anchor_complete: Number(compactUnitMetadataLimit) === 0,
+      structure_path_complete: Number(compactUnitMetadataLimit) === 0,
       complete: Number(compactUnitMetadataLimit) === 0,
     };
 
@@ -1375,6 +1563,90 @@ export class CorpusShard {
         }
         unitMetadata.complete =
           candidates.length < Number(compactUnitMetadataLimit);
+        unitMetadata.source_anchor_complete = unitMetadata.complete;
+
+        const storedStructurePathVersion = Number(
+          this.one<{ value: string }>(
+            "SELECT value FROM shard_meta WHERE key = ?",
+            STRUCTURE_PATH_STORAGE_VERSION_KEY,
+          )?.value ?? "0",
+        );
+        if (this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED !== "true") {
+          unitMetadata.structure_path_complete = true;
+        } else if (
+          storedStructurePathVersion >= STRUCTURE_PATH_STORAGE_VERSION
+        ) {
+          unitMetadata.structure_path_complete = true;
+        } else {
+          const structurePathCursor = Number(
+            this.one<{ value: string }>(
+              "SELECT value FROM shard_meta WHERE key = ?",
+              STRUCTURE_PATH_STORAGE_CURSOR,
+            )?.value ?? "0",
+          );
+          const structurePathCandidates = [
+            ...this.sql.exec<{
+              row_id: number;
+              unit_id: string;
+              structure_path_json: string;
+            }>(
+              `SELECT rowid AS row_id, unit_id, structure_path_json
+               FROM source_units WHERE rowid > ?
+               ORDER BY rowid LIMIT ?`,
+              Number.isFinite(structurePathCursor) ? structurePathCursor : 0,
+              Number(compactUnitMetadataLimit),
+            ),
+          ];
+          for (const candidate of structurePathCandidates) {
+            unitMetadata.scanned_units += 1;
+            unitMetadata.structure_path_scanned_units += 1;
+            const compacted = compactStoredStructurePath(
+              candidate.structure_path_json,
+            );
+            if (compacted.value !== candidate.structure_path_json) {
+              this.sql.exec(
+                "UPDATE source_units SET structure_path_json = ? WHERE unit_id = ?",
+                compacted.value,
+                candidate.unit_id,
+              );
+              unitMetadata.rewritten_units += 1;
+              if (compacted.compacted)
+                unitMetadata.compacted_structure_path_units += 1;
+              unitMetadata.bytes_before += UTF8_ENCODER.encode(
+                candidate.structure_path_json,
+              ).byteLength;
+              unitMetadata.bytes_after += UTF8_ENCODER.encode(
+                compacted.value,
+              ).byteLength;
+            }
+          }
+          const nextStructurePathCursor =
+            structurePathCandidates.at(-1)?.row_id ?? structurePathCursor;
+          unitMetadata.structure_path_complete =
+            structurePathCandidates.length < Number(compactUnitMetadataLimit);
+          if (unitMetadata.structure_path_complete) {
+            this.sql.exec(
+              `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+              STRUCTURE_PATH_STORAGE_VERSION_KEY,
+              String(STRUCTURE_PATH_STORAGE_VERSION),
+            );
+            this.sql.exec(
+              "DELETE FROM shard_meta WHERE key = ?",
+              STRUCTURE_PATH_STORAGE_CURSOR,
+            );
+          } else {
+            this.sql.exec(
+              `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+              STRUCTURE_PATH_STORAGE_CURSOR,
+              String(nextStructurePathCursor),
+            );
+          }
+        }
+        unitMetadata.complete =
+          unitMetadata.source_anchor_complete &&
+          unitMetadata.structure_path_complete;
       }
     });
     return {
@@ -1509,8 +1781,17 @@ export class CorpusShard {
     }
     this.state.storage.transactionSync(() => {
       for (const { unit, serialized, digest } of validated) {
-        const existing = this.one<{ unit_json: string }>(
-          "SELECT unit_json FROM staged_units_v2 WHERE upload_id = ? AND unit_id = ?",
+        const rawStructurePath = canonicalJson(unit.structurePath);
+        const storedStructurePath =
+          this.env.STRUCTURE_PATH_COMPACTION_WRITE_ENABLED === "true"
+            ? compactStoredStructurePath(rawStructurePath)
+            : { value: rawStructurePath, compacted: false };
+        const existing = this.one<{
+          unit_json: string;
+          stored_structure_path_json: string | null;
+        }>(
+          `SELECT unit_json, stored_structure_path_json
+           FROM staged_units_v2 WHERE upload_id = ? AND unit_id = ?`,
           input.uploadId,
           unit.unitId,
         );
@@ -1526,21 +1807,31 @@ export class CorpusShard {
               { unitId: unit.unitId },
             );
           }
+          if (existing.stored_structure_path_json === null) {
+            this.sql.exec(
+              `UPDATE staged_units_v2 SET stored_structure_path_json = ?
+               WHERE upload_id = ? AND unit_id = ?`,
+              storedStructurePath.value,
+              input.uploadId,
+              unit.unitId,
+            );
+          }
           continue;
         }
         this.sql.exec(
           `INSERT INTO staged_units_v2(
              upload_id, unit_id, ordinal, unit_type, structure_path_json,
-             source_anchor_json, normalized_content, content_sha256,
+             stored_structure_path_json, source_anchor_json, normalized_content, content_sha256,
              previous_unit_id, next_unit_id, extraction_issues_json,
              derivation_method, geometry_json, confidence, ocr,
              quality_flags_json, unit_json
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           input.uploadId,
           unit.unitId,
           unit.ordinal,
           unit.unitType,
-          canonicalJson(unit.structurePath),
+          rawStructurePath,
+          storedStructurePath.value,
           storedSourceAnchor(unit.sourceAnchor, unit.structurePath, header),
           unit.content,
           unit.contentSha256,
@@ -2096,7 +2387,8 @@ export class CorpusShard {
            extraction_issues_json, derivation_method, geometry_json,
            confidence, ocr, quality_flags_json
          )
-         SELECT unit_id, ?, ?, ordinal, unit_type, structure_path_json,
+         SELECT unit_id, ?, ?, ordinal, unit_type,
+                COALESCE(stored_structure_path_json, structure_path_json),
                 source_anchor_json, normalized_content, content_sha256,
                 previous_unit_id, next_unit_id, extraction_issues_json,
                 derivation_method, geometry_json, confidence, ocr,

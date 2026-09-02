@@ -1,11 +1,15 @@
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import corpusPlugin from "../../../plugins/corpus/.claude-plugin/plugin.json";
 import hypesPlugin from "../../../plugins/hypes/.claude-plugin/plugin.json";
 import sensePlugin from "../../../plugins/sense/.claude-plugin/plugin.json";
 import { contentSha256, sha256Hex } from "../src/canonical";
-import { compactStoredSourceAnchor } from "../src/corpus-shard";
+import {
+  compactStoredSourceAnchor,
+  compactStoredStructurePath,
+  decodeStoredStructurePath,
+} from "../src/corpus-shard";
 import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
@@ -44,6 +48,46 @@ it("losslessly compacts legacy Source-anchor invariants", () => {
   expect(compacted.value).toBe(
     'compact-v1:{"source_span":{"paragraph":2}}',
   );
+});
+
+it("losslessly compacts repeated table-cell structure", () => {
+  const structure = {
+    cell: "r16",
+    col: 0,
+    col_span: 24,
+    container_kind: "table_cell",
+    container_path: [
+      {
+        cell: "r16",
+        col: 0,
+        col_span: 24,
+        is_header: false,
+        kind: "table_cell",
+        list_record: 16,
+        object: "r14",
+        owner_paragraph_record: 1,
+        row: 0,
+        row_span: 2,
+        table: "r14",
+      },
+    ],
+    head_type: "none",
+    is_header: false,
+    object: "r14",
+    owner_paragraph_record: 1,
+    paragraph: 2,
+    row: 0,
+    row_span: 2,
+    section: 1,
+    section_stream: "Section0",
+    table: "r14",
+  };
+  const original = JSON.stringify(structure);
+  const compacted = compactStoredStructurePath(original);
+  expect(compacted.compacted).toBe(true);
+  expect(compacted.value.length).toBeLessThan(original.length);
+  expect(decodeStoredStructurePath(compacted.value)).toEqual(structure);
+  expect(compactStoredStructurePath(compacted.value)).toEqual(compacted);
 });
 
 async function body(response: Response): Promise<Record<string, unknown>> {
@@ -624,8 +668,35 @@ describe("remote personal context service", () => {
       {
         unitId: "unit_search_storage_structure",
         ordinal: 2,
-        unitType: "table",
-        structurePath: { table: 1, structural_only: true },
+        unitType: "table_cell",
+        structurePath: {
+          cell: "r16",
+          col: 0,
+          col_span: 2,
+          container_kind: "table_cell",
+          container_path: [
+            {
+              cell: "r16",
+              col: 0,
+              col_span: 2,
+              is_header: false,
+              kind: "table_cell",
+              list_record: 16,
+              object: "r14",
+              owner_paragraph_record: 1,
+              row: 0,
+              row_span: 1,
+              table: "r14",
+            },
+          ],
+          is_header: false,
+          object: "r14",
+          owner_paragraph_record: 1,
+          row: 0,
+          row_span: 1,
+          structural_only: true,
+          table: "r14",
+        },
         sourceAnchor: { relative_path: "notes/storage.txt" },
         content: " \n\t",
         contentSha256: await sha256Hex(" \n\t"),
@@ -689,6 +760,10 @@ describe("remote personal context service", () => {
           structure_path_logical_bytes: expect.any(Number),
           source_anchor_logical_bytes: expect.any(Number),
           normalized_content_logical_bytes: expect.any(Number),
+          compacted_structure_path_count: 1,
+          structure_path_compaction_write_enabled: true,
+          structure_path_storage_version: 1,
+          structure_path_storage_scan_complete: true,
           legacy_redundant_index_count: 0,
           pending_source_anchor_compaction_count: 0,
           hotspots: [
@@ -699,6 +774,32 @@ describe("remote personal context service", () => {
           ],
         },
       },
+    });
+
+    const shard = runtime.CORPUS_SHARDS.get(
+      runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),
+    );
+    const restored = await shard.fetch("https://internal/units/read", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
+      body: JSON.stringify({ unitIds: ["unit_search_storage_structure"] }),
+    });
+    expect(await body(restored)).toMatchObject({
+      result: { units: [{ structure_path: units[1]!.structurePath }] },
+    });
+
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE source_units SET structure_path_json = ? WHERE unit_id = ?",
+        JSON.stringify(units[1]!.structurePath),
+        "unit_search_storage_structure",
+      );
+      state.storage.sql.exec(
+        "DELETE FROM shard_meta WHERE key = 'structure_path_storage_version'",
+      );
     });
 
     const compacted = await syncPost(
@@ -715,9 +816,34 @@ describe("remote personal context service", () => {
     expect(await body(compacted)).toMatchObject({
       result: {
         unit_metadata: {
+          scanned_units: 2,
+          rewritten_units: 1,
+          compacted_units: 0,
+          structure_path_scanned_units: 2,
+          compacted_structure_path_units: 1,
+          source_anchor_complete: true,
+          structure_path_complete: true,
+          complete: true,
+        },
+      },
+    });
+
+    const repeatedCompaction = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      {
+        corpusId,
+        removeProjectionIds: [],
+        removeDocumentIds: [],
+        removeUploadIds: [],
+        compactUnitMetadataLimit: 10,
+      },
+    );
+    expect(await body(repeatedCompaction)).toMatchObject({
+      result: {
+        unit_metadata: {
           scanned_units: 0,
           rewritten_units: 0,
-          compacted_units: 0,
+          compacted_structure_path_units: 0,
           complete: true,
         },
       },

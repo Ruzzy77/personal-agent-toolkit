@@ -102,6 +102,16 @@ Committed units retain the complete logical Source anchor returned to clients,
 but the shard stores document, revision, projection, path, and structural-locator
 values only once when they match the projection header. Reads reconstruct those
 invariants, avoiding per-unit metadata amplification without weakening provenance.
+For common table-cell units, the structure row also stores one compact container
+tuple instead of repeating the same cell coordinates and table identity at both
+the top level and inside `container_path`. This representation is used only when
+the two forms match exactly. Reads restore both forms, and FTS keeps the original
+uncompressed structure text so search behavior does not change. A versioned
+cursor scans older units once and rewrites only rows that pass that equality
+check.
+The reader is deployed with compact writes disabled before the write flag is
+enabled. This makes the immediately preceding deployment a safe rollback target
+after compact rows exist.
 
 ## Sync behavior
 

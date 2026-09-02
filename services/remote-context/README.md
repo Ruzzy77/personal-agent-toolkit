@@ -57,5 +57,13 @@ Legacy Source-unit anchors can be rewritten in bounded batches to remove fields
 that are already guaranteed by their document, revision, projection, or
 structure row. Reads reconstruct the complete public anchor, so this reduces
 stored bytes without dropping extracted structure or provenance.
+Repeated table-cell container data in structure paths uses the same lossless
+approach. The canonical Source-unit read reconstructs the original object,
+while the search index retains its unmodified structural text. Existing shards
+are scanned once in bounded batches; new uploads write the compact storage form
+before commit.
+Deploy the reader first with `STRUCTURE_PATH_COMPACTION_WRITE_ENABLED=false`.
+After read and migration verification, deploy the same reader with the flag set
+to `true` and retain the reader-compatible deployment as the rollback floor.
 Redundant legacy Source-unit indexes are removed during maintenance; the
 remaining primary and uniqueness indexes already cover the live read paths.

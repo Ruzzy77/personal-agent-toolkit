@@ -225,6 +225,8 @@ async def maintain_remote_storage(
             scanned_metadata_units = 0
             rewritten_metadata_units = 0
             compacted_anchor_units = 0
+            scanned_structure_path_units = 0
+            compacted_structure_path_units = 0
             metadata_bytes_before = 0
             metadata_bytes_after = 0
             metadata_complete = maximum_unit_metadata_batches_per_corpus == 0
@@ -253,6 +255,14 @@ async def maintain_remote_storage(
                 compacted_anchor_units += _integer(
                     metadata.get("compacted_units"),
                     "compacted Source-anchor count",
+                )
+                scanned_structure_path_units += _integer(
+                    metadata.get("structure_path_scanned_units", 0),
+                    "scanned structure-path count",
+                )
+                compacted_structure_path_units += _integer(
+                    metadata.get("compacted_structure_path_units", 0),
+                    "compacted structure-path count",
                 )
                 metadata_bytes_before += _integer(
                     metadata.get("bytes_before"),
@@ -289,6 +299,8 @@ async def maintain_remote_storage(
                     "scanned_unit_metadata_rows": scanned_metadata_units,
                     "rewritten_unit_metadata_rows": rewritten_metadata_units,
                     "compacted_source_anchor_rows": compacted_anchor_units,
+                    "scanned_structure_path_rows": scanned_structure_path_units,
+                    "compacted_structure_path_rows": (compacted_structure_path_units),
                     "unit_metadata_bytes_before": metadata_bytes_before,
                     "unit_metadata_bytes_after": metadata_bytes_after,
                     "unit_metadata_bytes_saved": (

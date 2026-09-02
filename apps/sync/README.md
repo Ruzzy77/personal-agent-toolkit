@@ -93,7 +93,9 @@ record counts, derived-index state, and largest logical projections. It is an
 explicit diagnostic rather than a scheduled scan. `personal-agent-sync
 storage-maintain` removes staged uploads older than 24 hours by default,
 compacts legacy structural-only search rows, and losslessly rewrites one bounded
-batch of legacy Source-anchor metadata. Larger one-time compaction is explicit
+batch of legacy Source-anchor metadata and repeated table-cell structure paths.
+The remote read contract and structural search text stay unchanged. Larger
+one-time compaction is explicit
 through `--unit-metadata-batches`; new uploads use the compact representation
 immediately. It never chooses
 canonical records for deletion by size; exact record removal remains part of a

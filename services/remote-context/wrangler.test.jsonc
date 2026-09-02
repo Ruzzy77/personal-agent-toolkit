@@ -29,6 +29,7 @@
     "SENSE_RESOURCE": "https://context.test/sense/mcp",
     "CORPUS_RESOURCE": "https://context.test/corpus/mcp",
     "HYPES_RESOURCE": "https://context.test/hypes/mcp",
+    "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "true",
     "SYNC_DEVICE_TOKEN": "test-device-token",
     "SYNC_DEVICE_ID": "test-mac",
     "SYNC_DEVICE_TOKENS_JSON": "{\"test-mac\":\"test-device-token\",\"socket-mac\":\"test-device-token\",\"backlog-mac\":\"test-device-token\"}",
