@@ -829,6 +829,26 @@ class SyncState:
         value = json.loads(row["result_json"])
         return value if isinstance(value, dict) else None
 
+    def migration_checkpoint(
+        self, product: str, item_key: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return the exact payload digest and receipt used by a completed migration."""
+
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT source_digest, result_json FROM migration_progress
+                WHERE product = ? AND item_key = ?
+                """,
+                (product, item_key),
+            ).fetchone()
+        if row is None:
+            return None
+        value = json.loads(row["result_json"])
+        if not isinstance(value, dict):
+            return None
+        return str(row["source_digest"]), value
+
     def remember_migration(
         self,
         product: str,

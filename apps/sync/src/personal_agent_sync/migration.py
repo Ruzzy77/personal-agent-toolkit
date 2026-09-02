@@ -1313,7 +1313,13 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
         sense = export_sense()
         hypes = export_hypes()
         corpus = LocalCorpusMigration(config)
-        metadata = corpus.metadata_payload()
+        state = SyncState(config)
+        metadata_checkpoint = state.migration_checkpoint("corpus-metadata", "complete")
+        if metadata_checkpoint is None:
+            raise _verification_error(
+                "Corpus metadata migration has no local checkpoint"
+            )
+        metadata_digest, metadata_result = metadata_checkpoint
         summary = await remote.verification_summary()
         remote_surfaces = summary.get("mcp_surfaces")
         if remote_surfaces != EXPECTED_REMOTE_MCP_SURFACES:
@@ -1344,9 +1350,12 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             raise _verification_error("Hypes graph digest does not match")
         if (
             not isinstance(remote_metadata, dict)
-            or remote_metadata.get("source_digest") != metadata["sourceDigest"]
+            or remote_metadata.get("source_digest") != metadata_digest
+            or remote_metadata.get("counts") != metadata_result.get("counts")
         ):
-            raise _verification_error("Corpus metadata digest does not match")
+            raise _verification_error(
+                "Corpus metadata migration receipt does not match"
+            )
 
         verified: dict[str, Any] = {}
         for corpus_id in corpus.corpus_ids():
