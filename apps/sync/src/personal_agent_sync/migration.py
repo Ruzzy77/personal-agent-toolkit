@@ -1037,16 +1037,6 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
 
         corpus_summaries: dict[str, Any] = {}
         for corpus_id in corpus.corpus_ids():
-            documents = corpus.documents(corpus_id)
-            document_digest = _digest(documents)
-            document_result = state.migration_result(
-                "corpus-documents", corpus_id, document_digest
-            )
-            if document_result is None:
-                document_result = await remote.import_documents(corpus_id, documents)
-                state.remember_migration(
-                    "corpus-documents", corpus_id, document_digest, document_result
-                )
             external = corpus.external_state(corpus_id)
             external_digest = _digest(external)
             external_result = state.migration_result(
@@ -1092,7 +1082,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 )
                 migrated += 1
             corpus_summaries[corpus_id] = {
-                "documents": document_result,
+                "documents": {"pending_final_import": True},
                 "external": external_result,
                 "seed": seeded,
                 "projection_count": len(headers),
@@ -1105,9 +1095,12 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
         # observation timestamps during projection import.
         for corpus_id in corpus.corpus_ids():
             documents = corpus.documents(corpus_id)
-            corpus_summaries[corpus_id]["documents"] = await remote.import_documents(
-                corpus_id, documents
+            document_digest = _digest(documents)
+            document_result = await remote.import_documents(corpus_id, documents)
+            state.remember_migration(
+                "corpus-documents", corpus_id, document_digest, document_result
             )
+            corpus_summaries[corpus_id]["documents"] = document_result
         summary["corpora"] = corpus_summaries
         return summary
     finally:

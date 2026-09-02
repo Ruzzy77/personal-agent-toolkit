@@ -358,7 +358,12 @@ export class CorpusShard {
   ) {
     void this.env;
     this.sql = state.storage.sql;
-    this.sql.exec(SHARD_SCHEMA);
+    const initialized = [
+      ...this.sql.exec<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'staged_units_v2'",
+      ),
+    ].length;
+    if (initialized === 0) this.sql.exec(SHARD_SCHEMA);
     this.ensureSchema();
   }
 
@@ -563,6 +568,41 @@ export class CorpusShard {
         409,
       );
     }
+    const changedDocuments = input.documents.filter((document) => {
+      const current = this.one<Record<string, unknown>>(
+        `SELECT document_id, relative_path, extension, source_state, media_type,
+                logical_size, modified_ns, residency_state, eligibility_state,
+                current_revision_id, first_seen_at, last_seen_at, deleted_at,
+                lifecycle_state, retention_class, last_user_access_at
+         FROM documents WHERE document_id = ?`,
+        document.documentId,
+      );
+      return (
+        current === null ||
+        current.relative_path !== document.relativePath.normalize("NFC") ||
+        current.extension !== document.extension ||
+        current.source_state !== document.sourceState ||
+        current.media_type !== document.mediaType ||
+        current.logical_size !== document.logicalSize ||
+        current.modified_ns !== document.modifiedNs ||
+        current.residency_state !== document.residencyState ||
+        current.eligibility_state !== document.eligibilityState ||
+        current.current_revision_id !== document.currentRevisionId ||
+        current.first_seen_at !== document.firstSeenAt ||
+        current.last_seen_at !== document.lastSeenAt ||
+        current.deleted_at !== document.deletedAt ||
+        current.lifecycle_state !== document.lifecycleState ||
+        current.retention_class !== document.retentionClass ||
+        current.last_user_access_at !== document.lastUserAccessAt
+      );
+    });
+    if (changedDocuments.length === 0) {
+      return {
+        corpusId: input.corpusId,
+        importedDocumentCount: input.documents.length,
+        changedDocumentCount: 0,
+      };
+    }
     this.state.storage.transactionSync(() => {
       this.sql.exec(
         "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('owner_id', ?)",
@@ -572,7 +612,7 @@ export class CorpusShard {
         "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('corpus_id', ?)",
         input.corpusId,
       );
-      for (const document of input.documents) {
+      for (const document of changedDocuments) {
         this.sql.exec(
           `INSERT INTO documents(
              document_id, relative_path, extension, source_state, media_type,
@@ -590,6 +630,7 @@ export class CorpusShard {
              residency_state = excluded.residency_state,
              eligibility_state = excluded.eligibility_state,
              current_revision_id = excluded.current_revision_id,
+             first_seen_at = excluded.first_seen_at,
              last_seen_at = excluded.last_seen_at,
              deleted_at = excluded.deleted_at,
              lifecycle_state = excluded.lifecycle_state,
@@ -604,6 +645,7 @@ export class CorpusShard {
               OR documents.residency_state IS NOT excluded.residency_state
               OR documents.eligibility_state IS NOT excluded.eligibility_state
               OR documents.current_revision_id IS NOT excluded.current_revision_id
+              OR documents.first_seen_at IS NOT excluded.first_seen_at
               OR documents.last_seen_at IS NOT excluded.last_seen_at
               OR documents.deleted_at IS NOT excluded.deleted_at
               OR documents.lifecycle_state IS NOT excluded.lifecycle_state
@@ -631,6 +673,7 @@ export class CorpusShard {
     return {
       corpusId: input.corpusId,
       importedDocumentCount: input.documents.length,
+      changedDocumentCount: changedDocuments.length,
     };
   }
 
