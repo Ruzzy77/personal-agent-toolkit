@@ -22,6 +22,8 @@ interface ExecuteInput {
   job: SyncJobRequest;
 }
 
+const MAX_IN_FLIGHT_JOBS = 20;
+
 function response(value: unknown, status = 200): Response {
   return Response.json(value, { status });
 }
@@ -143,7 +145,7 @@ export class SyncBroker {
       .run();
   }
 
-  private async dispatchQueued(socket: WebSocket, ownerId: string, deviceId: string) {
+  private async expireQueued(ownerId: string, deviceId: string): Promise<void> {
     const now = nowIso();
     await this.env.STATE_DB.prepare(
       `UPDATE sync_jobs SET state = 'expired', updated_at = ?
@@ -152,15 +154,28 @@ export class SyncBroker {
     )
       .bind(now, ownerId, deviceId, now)
       .run();
+  }
+
+  private async dispatchQueued(
+    socket: WebSocket,
+    ownerId: string,
+    deviceId: string,
+    replayDispatched: boolean,
+    limit = MAX_IN_FLIGHT_JOBS,
+  ): Promise<void> {
+    const now = nowIso();
+    const states = replayDispatched
+      ? "state IN ('queued', 'dispatched')"
+      : "state = 'queued'";
     const queued = await this.env.STATE_DB.prepare(
       `SELECT job_id, operation, scope_json, request_json,
               maximum_response_bytes, expires_at
        FROM sync_jobs
-       WHERE owner_id = ? AND device_id = ? AND state IN ('queued', 'dispatched')
+       WHERE owner_id = ? AND device_id = ? AND ${states}
          AND expires_at > ?
-       ORDER BY created_at LIMIT 20`,
+       ORDER BY created_at LIMIT ?`,
     )
-      .bind(ownerId, deviceId, now)
+      .bind(ownerId, deviceId, now, limit)
       .all<{
         job_id: string;
         operation: string;
@@ -330,7 +345,13 @@ export class SyncBroker {
           serverTime: nowIso(),
         }),
       );
-      await this.dispatchQueued(socket, metadata.ownerId, metadata.deviceId);
+      await this.expireQueued(metadata.ownerId, metadata.deviceId);
+      await this.dispatchQueued(
+        socket,
+        metadata.ownerId,
+        metadata.deviceId,
+        true,
+      );
       return;
     }
 
@@ -361,6 +382,13 @@ export class SyncBroker {
       );
     }
     socket.send(canonicalJson({ type: "job_ack", jobId: result.jobId, accepted: true }));
+    await this.dispatchQueued(
+      socket,
+      metadata.ownerId,
+      metadata.deviceId,
+      false,
+      1,
+    );
   }
 
   private async completeJob(

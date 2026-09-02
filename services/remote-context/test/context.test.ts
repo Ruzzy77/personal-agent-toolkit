@@ -48,6 +48,27 @@ function nextSocketMessage(
   });
 }
 
+function nextSocketMessages(
+  socket: WebSocket,
+  count: number,
+): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    const values: Array<Record<string, unknown>> = [];
+    const timeout = setTimeout(() => {
+      socket.removeEventListener("message", onMessage);
+      reject(new Error("WebSocket messages timed out"));
+    }, 3_000);
+    const onMessage = (event: MessageEvent) => {
+      values.push(JSON.parse(String(event.data)) as Record<string, unknown>);
+      if (values.length !== count) return;
+      clearTimeout(timeout);
+      socket.removeEventListener("message", onMessage);
+      resolve(values);
+    };
+    socket.addEventListener("message", onMessage);
+  });
+}
+
 const ownerPrincipal: Principal = {
   ownerId: "owner_test",
   scopes: new Set([
@@ -1050,6 +1071,98 @@ describe("remote personal context service", () => {
       state: "queued",
       maximum_response_bytes: 2 * 1024 * 1024,
     });
+  });
+
+  it("drains an offline Work backlog without exceeding the in-flight bound", async () => {
+    const now = "2026-09-02T00:00:00.000Z";
+    await runtime.STATE_DB.batch([
+      runtime.STATE_DB.prepare(
+        `INSERT INTO sync_devices(
+           owner_id, device_id, display_name, credential_id, status,
+           capabilities_json, last_seen_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'active', '[]', NULL, ?, ?)`,
+      ).bind(
+        "owner_test",
+        "backlog-mac",
+        "Backlog Mac",
+        "environment:backlog-mac",
+        now,
+        now,
+      ),
+      runtime.STATE_DB.prepare(
+        `INSERT INTO corpus_spaces(
+           owner_id, space_id, display_name, state, access_scope,
+           primary_work_connection_id, updated_at
+         ) VALUES (?, ?, ?, 'active', 'remote_allowed', 'main', ?)`,
+      ).bind("owner_test", "backlog-space", "Backlog Space", now),
+      runtime.STATE_DB.prepare(
+        `INSERT INTO corpus_connections(
+           owner_id, space_id, connection_id, display_name, roles_json,
+           access_scope, permission, index_mode, corpus_id, device_id,
+           local_connection_key, generation, configuration_state, source_state,
+           record_state, captured_at, updated_at
+         ) VALUES (?, ?, 'main', 'Backlog Work', '["work"]', 'remote_allowed',
+                   'read_write', 'not_indexed', NULL, 'backlog-mac', 'backlog-key',
+                   1, 'ready', NULL, NULL, NULL, ?)`,
+      ).bind("owner_test", "backlog-space", now),
+    ]);
+
+    const service = new CorpusService(runtime, ownerPrincipal);
+    for (let index = 0; index < 21; index += 1) {
+      await service.fileList({
+        space_id: "backlog-space",
+        connection_id: "main",
+        mode: "list_directory",
+        relative_path: `folder-${index}`,
+        limit: 1,
+      });
+    }
+
+    const connected = await SELF.fetch("https://context.test/sync/v1/connect", {
+      headers: {
+        Authorization: "Bearer test-device-token",
+        "X-Personal-Agent-Device": "backlog-mac",
+        Upgrade: "websocket",
+      },
+    });
+    expect(connected.status).toBe(101);
+    const socket = connected.webSocket!;
+    socket.accept();
+    const initialMessages = nextSocketMessages(socket, 21);
+    socket.send(
+      JSON.stringify({
+        type: "hello",
+        protocolVersion: 1,
+        displayName: "Backlog Mac",
+        capabilities: ["work.file.list"],
+      }),
+    );
+    const initial = await initialMessages;
+    expect(initial[0]).toMatchObject({ type: "hello_ack" });
+    const initialJobs = initial.slice(1);
+    expect(initialJobs).toHaveLength(20);
+    expect(initialJobs.every((message) => message.type === "job")).toBe(true);
+
+    const completionMessages = nextSocketMessages(socket, 2);
+    socket.send(
+      JSON.stringify({
+        type: "job_result",
+        jobId: initialJobs[0]!.jobId,
+        ok: true,
+        result: { entries: [] },
+      }),
+    );
+    const [ack, nextJob] = await completionMessages;
+    expect(ack).toMatchObject({
+      type: "job_ack",
+      jobId: initialJobs[0]!.jobId,
+      accepted: true,
+    });
+    expect(nextJob).toMatchObject({ type: "job" });
+    expect(initialJobs.map((message) => message.jobId)).not.toContain(
+      nextJob!.jobId,
+    );
+    socket.close(1000, "test complete");
   });
 
   it("dispatches a bounded Work job over the outbound Sync WebSocket", async () => {

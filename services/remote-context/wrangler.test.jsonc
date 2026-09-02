@@ -31,7 +31,7 @@
     "HYPES_RESOURCE": "https://context.test/hypes/mcp",
     "SYNC_DEVICE_TOKEN": "test-device-token",
     "SYNC_DEVICE_ID": "test-mac",
-    "SYNC_DEVICE_TOKENS_JSON": "{\"test-mac\":\"test-device-token\",\"socket-mac\":\"test-device-token\"}",
+    "SYNC_DEVICE_TOKENS_JSON": "{\"test-mac\":\"test-device-token\",\"socket-mac\":\"test-device-token\",\"backlog-mac\":\"test-device-token\"}",
     "SYNC_OWNER_ID": "owner_test"
   }
 }
