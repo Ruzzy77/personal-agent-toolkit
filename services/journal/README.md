@@ -1,6 +1,6 @@
 # Personal Agent Journal service
 
-Journal의 D1 데이터, HTTP API와 remote MCP를 제공하는 Cloudflare Worker입니다. Site와 Daily Monitoring은 같은 항목·이벤트·주간 마감 기록을 사용합니다.
+Journal의 D1 데이터, HTTP API와 remote MCP를 제공하는 Cloudflare Worker입니다. `sites/journal`의 화면과 Daily Monitoring은 같은 항목·이벤트·주간 마감 기록을 사용합니다.
 
 ## 로컬 검사
 

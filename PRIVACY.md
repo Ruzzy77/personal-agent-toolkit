@@ -168,11 +168,11 @@ The release repository must not contain:
   files.
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
-build-time copy of runtime data or maintainer credentials. `services/journal` contains only the
-deployable schema and service source; D1 identifiers, account configuration, and secrets stay in
-ignored runtime configuration. Public resource and Site endpoints may appear in the plugin
-manifest. The optional gateway remains a separate package and follows the same repository-content
-boundary.
+build-time copy of runtime data or maintainer credentials. `services/journal` contains the
+deployable schema and service source, and `sites/journal` contains the owner-only Sites frontend;
+runtime values and secrets stay in ignored configuration or the hosting environment. Public
+resource and Site endpoints may appear in the plugin manifest. The optional gateway remains a
+separate package and follows the same repository-content boundary.
 
 The authentication template and Journal service record their resolved JavaScript dependencies in
 `auth/package-lock.json` and `services/journal/package-lock.json`.

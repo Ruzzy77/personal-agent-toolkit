@@ -3,7 +3,7 @@
 ## 소스와 실행 경계
 
 - 저장소 루트와 변경 대상 제품의 `README.md`, `DESIGN.md`와 manifest를 파일과 구성의 역할을 정하는 기준으로 삼는다.
-- `plugins/sense`, `plugins/corpus`, `plugins/hypes`와 `gateway`는 로컬 제품의 소스이자 설치·실행 경로로 다룬다. `plugins/journal`은 원격 Journal 연결과 운영 Skill, `services/journal`은 D1 기반 서비스, `auth`는 공통 소유자 인증 구성으로 다룬다.
+- `plugins/sense`, `plugins/corpus`, `plugins/hypes`와 `gateway`는 로컬 제품의 소스이자 설치·실행 경로로 다룬다. `plugins/journal`은 원격 Journal 연결과 운영 Skill, `services/journal`은 D1 기반 서비스, `sites/journal`은 소유자 전용 화면, `auth`는 공통 소유자 인증 구성으로 다룬다.
 - 제품 기능과 manifest는 해당 소스 폴더에서 수정한다. 설치본, plugin cache, 생성된 배포 복사본과 임시 환경을 원본처럼 수정하지 않는다.
 - 사용자 데이터, 자격 증명, runtime database와 운영 설정은 private runtime이나 배포 환경에 두고 공개 저장소에 넣지 않는다.
 - Python 소스, 스크립트와 테스트는 루트 `ruff.toml`을 따른다. 변경 뒤 `uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes gateway`와 같은 범위의 `ruff check`를 통과시킨다.
