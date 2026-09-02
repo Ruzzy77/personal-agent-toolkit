@@ -1285,9 +1285,12 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             "profile_sha256"
         ) != _digest(sense["profile"]):
             raise _verification_error("Sense profile digest does not match")
-        if remote_sense.get("skill_count") != len(sense["skills"]):
+        ordered_sense_skills = sorted(
+            sense["skills"], key=lambda skill: str(skill["section_id"])
+        )
+        if remote_sense.get("skill_count") != len(ordered_sense_skills):
             raise _verification_error("Sense Skill count does not match")
-        if remote_sense.get("skills_sha256") != _digest(sense["skills"]):
+        if remote_sense.get("skills_sha256") != _digest(ordered_sense_skills):
             raise _verification_error("Sense Skill digest does not match")
         if not isinstance(remote_hypes, dict) or (
             remote_hypes.get("node_count"),
