@@ -1107,6 +1107,21 @@ export class CorpusService {
       }>();
     if (!row)
       throw new ContextError("job_not_found", "Sync job was not found", 404);
+    if (
+      (row.state === "queued" || row.state === "dispatched") &&
+      Date.parse(row.expires_at) <= Date.now()
+    ) {
+      const expiredAt = nowIso();
+      await this.env.STATE_DB.prepare(
+        `UPDATE sync_jobs SET state = 'expired', updated_at = ?
+         WHERE owner_id = ? AND job_id = ?
+           AND state IN ('queued', 'dispatched') AND expires_at <= ?`,
+      )
+        .bind(expiredAt, this.principal.ownerId, jobId, expiredAt)
+        .run();
+      row.state = "expired";
+      row.updated_at = expiredAt;
+    }
     return {
       job_id: row.job_id,
       operation: row.operation,

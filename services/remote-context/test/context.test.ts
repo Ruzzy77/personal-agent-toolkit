@@ -1057,11 +1057,12 @@ describe("remote personal context service", () => {
       device_online: false,
     });
     const stored = await runtime.STATE_DB.prepare(
-      `SELECT operation, state, maximum_response_bytes
+      `SELECT job_id, operation, state, maximum_response_bytes
        FROM sync_jobs WHERE owner_id = ? AND device_id = ?`,
     )
       .bind("owner_test", "offline-mac")
       .first<{
+        job_id: string;
         operation: string;
         state: string;
         maximum_response_bytes: number;
@@ -1070,6 +1071,15 @@ describe("remote personal context service", () => {
       operation: "work.file.list",
       state: "queued",
       maximum_response_bytes: 2 * 1024 * 1024,
+    });
+    await runtime.STATE_DB.prepare(
+      "UPDATE sync_jobs SET expires_at = ? WHERE owner_id = ? AND job_id = ?",
+    )
+      .bind("2020-01-01T00:00:00.000Z", "owner_test", stored!.job_id)
+      .run();
+    await expect(service.jobStatus(stored!.job_id)).resolves.toMatchObject({
+      state: "expired",
+      expires_at: "2020-01-01T00:00:00.000Z",
     });
   });
 
