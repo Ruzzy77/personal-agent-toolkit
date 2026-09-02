@@ -56,7 +56,7 @@ def _candidate_executables() -> tuple[Path, ...]:
     if cache_root.is_dir():
         candidates.extend(
             sorted(
-                cache_root.glob("*/document-files/*/bin/document-files"),
+                cache_root.glob("*/document-files/*/launchers/document-files"),
                 reverse=True,
             )
         )
