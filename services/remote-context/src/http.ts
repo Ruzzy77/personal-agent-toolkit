@@ -9,6 +9,7 @@ import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import { importCorpusMetadata } from "./imports";
 import { SenseService } from "./sense";
+import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 
 const JSON_BODY_LIMIT = 16 * 1024 * 1024;
@@ -190,6 +191,7 @@ async function verificationSummary(
       }>(),
   ]);
   return {
+    mcp_surfaces: MCP_SURFACES,
     sense,
     hypes,
     corpus_metadata: receipt

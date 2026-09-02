@@ -69,6 +69,8 @@ deployed analyzer binding; it does not reimplement document parsing.
    state, and extraction metadata. Continuously advancing observation fields
    such as last-seen, last-accessed, and repeated-capture timestamps are not
    treated as content-identity mismatches while the local authority is live.
+   It also checks the deployed Sense, Corpus, and Hypes server versions and
+   exact public tool-name sets before comparing durable records.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.

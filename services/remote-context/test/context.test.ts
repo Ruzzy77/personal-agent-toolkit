@@ -9,6 +9,7 @@ import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
 import { SenseService } from "../src/sense";
+import { MCP_SURFACES } from "../src/surfaces";
 import type { Env, Principal } from "../src/types";
 
 const runtime = env as unknown as Env;
@@ -122,30 +123,6 @@ describe("remote personal context service", () => {
   });
 
   it("advertises stable, object-rooted MCP schemas for all three products", async () => {
-    const expected = {
-      sense: [
-        "sense_read",
-        "sense_overview",
-        "sense_revise",
-        "sense_skill_revise",
-      ],
-      hypes: ["hypes_read", "hypes_rewrite"],
-      corpus: [
-        "corpus_space_list",
-        "corpus_space_get",
-        "corpus_context_items_revise",
-        "corpus_context_skill_revise",
-        "corpus_space_search",
-        "corpus_source_refresh",
-        "corpus_job_status",
-        "corpus_file_list",
-        "corpus_file_read",
-        "corpus_file_write",
-        "corpus_file_delete",
-        "corpus_file_select_current",
-        "corpus_file_restore",
-      ],
-    } as const;
     for (const kind of ["sense", "hypes", "corpus"] as const) {
       const response = await handleMcp(
         new Request(`https://context.test/${kind}/mcp`, {
@@ -165,7 +142,9 @@ describe("remote personal context service", () => {
       const result = payload.result as {
         tools: Array<{ name: string; inputSchema: object }>;
       };
-      expect(result.tools.map((tool) => tool.name)).toEqual(expected[kind]);
+      expect(result.tools.map((tool) => tool.name)).toEqual(
+        MCP_SURFACES[kind].tools,
+      );
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
       }
@@ -179,6 +158,7 @@ describe("remote personal context service", () => {
       hypes: `${hypesPlugin.version}-remote.1`,
     } as const;
     for (const kind of ["sense", "corpus", "hypes"] as const) {
+      expect(MCP_SURFACES[kind].version).toBe(expectedVersions[kind]);
       const response = await handleMcp(
         new Request(`https://context.test/${kind}/mcp`, {
           method: "POST",
@@ -1047,7 +1027,23 @@ describe("remote personal context service", () => {
     );
     expect(verification.status, await verification.clone().text()).toBe(200);
     expect(await body(verification)).toMatchObject({
-      result: { corpus_metadata: { source_digest: "a".repeat(64) } },
+      result: {
+        mcp_surfaces: {
+          sense: {
+            version: "0.3.4-remote.1",
+            tools: expect.arrayContaining(["sense_read"]),
+          },
+          corpus: {
+            version: "0.21.3-remote.1",
+            tools: expect.arrayContaining([
+              "corpus_source_refresh",
+              "corpus_job_status",
+            ]),
+          },
+          hypes: { version: "0.9.4-remote.1", tools: ["hypes_read", "hypes_rewrite"] },
+        },
+        corpus_metadata: { source_digest: "a".repeat(64) },
+      },
     });
   });
 

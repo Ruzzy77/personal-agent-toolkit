@@ -39,6 +39,11 @@ current local Connection role, generation, source availability, and analyzer
 policy before reading bytes. A successful job reports the committed revision
 and projection; a queued response is not completion.
 
+The Sync-only verification summary reports the deployed Sense, Corpus, and
+Hypes server versions and public tool-name sets. Migration verification compares
+that manifest before record parity, so a healthy endpoint running an older MCP
+surface is not mistaken for a completed rollout.
+
 ## Storage operations
 
 The Sync operator interface provides an explicit storage report and a

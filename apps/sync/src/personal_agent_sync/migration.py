@@ -19,6 +19,43 @@ from .errors import SyncError
 from .remote import RemoteClient
 from .state import SyncState, canonical
 
+EXPECTED_REMOTE_MCP_SURFACES = {
+    "sense": {
+        "name": "Sense",
+        "version": "0.3.4-remote.1",
+        "tools": [
+            "sense_read",
+            "sense_overview",
+            "sense_revise",
+            "sense_skill_revise",
+        ],
+    },
+    "corpus": {
+        "name": "Corpus",
+        "version": "0.21.3-remote.1",
+        "tools": [
+            "corpus_space_list",
+            "corpus_space_get",
+            "corpus_context_items_revise",
+            "corpus_context_skill_revise",
+            "corpus_space_search",
+            "corpus_source_refresh",
+            "corpus_job_status",
+            "corpus_file_list",
+            "corpus_file_read",
+            "corpus_file_write",
+            "corpus_file_delete",
+            "corpus_file_select_current",
+            "corpus_file_restore",
+        ],
+    },
+    "hypes": {
+        "name": "Hypes",
+        "version": "0.9.4-remote.1",
+        "tools": ["hypes_read", "hypes_rewrite"],
+    },
+}
+
 
 def _json(value: str | None, fallback: object) -> Any:
     if value is None:
@@ -1278,6 +1315,11 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
         corpus = LocalCorpusMigration(config)
         metadata = corpus.metadata_payload()
         summary = await remote.verification_summary()
+        remote_surfaces = summary.get("mcp_surfaces")
+        if remote_surfaces != EXPECTED_REMOTE_MCP_SURFACES:
+            raise _verification_error(
+                "remote MCP surfaces do not match this Sync build"
+            )
         remote_sense = summary.get("sense")
         remote_hypes = summary.get("hypes")
         remote_metadata = summary.get("corpus_metadata")
@@ -1430,6 +1472,7 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             }
         return {
             "verified": True,
+            "mcp_surfaces": remote_surfaces,
             "sense_sections": len(sense["profile"]["sections"]),
             "sense_skills": len(sense["skills"]),
             "hypes": {

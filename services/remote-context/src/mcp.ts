@@ -24,6 +24,7 @@ import {
   senseSkillReviseSchema,
 } from "./schemas";
 import { SenseService } from "./sense";
+import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 
 function requireScope(principal: Principal, scope: string): void {
@@ -68,7 +69,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 function senseServer(env: Env, principal: Principal): McpServer {
   const service = new SenseService(env.STATE_DB, principal.ownerId);
   const server = new McpServer(
-    { name: "Sense", version: "0.3.4-remote.1" },
+    { name: MCP_SURFACES.sense.name, version: MCP_SURFACES.sense.version },
     {
       instructions:
         "Sense supplies durable user guidance for important choices. Current requests and sources " +
@@ -142,7 +143,7 @@ function senseServer(env: Env, principal: Principal): McpServer {
 function hypesServer(env: Env, principal: Principal): McpServer {
   const service = new HypesService(env.STATE_DB, principal.ownerId);
   const server = new McpServer(
-    { name: "Hypes", version: "0.9.4-remote.1" },
+    { name: MCP_SURFACES.hypes.name, version: MCP_SURFACES.hypes.version },
     {
       instructions:
         "Hypes is the assistant's private, revisable relationship model of the user. Current input " +
@@ -186,7 +187,7 @@ function hypesServer(env: Env, principal: Principal): McpServer {
 function corpusServer(env: Env, principal: Principal): McpServer {
   const service = new CorpusService(env, principal);
   const server = new McpServer(
-    { name: "Corpus", version: "0.21.3-remote.1" },
+    { name: MCP_SURFACES.corpus.name, version: MCP_SURFACES.corpus.version },
     {
       instructions:
         "Corpus organizes durable Context, indexed Source records, and locally authorized Work " +
