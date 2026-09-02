@@ -20,7 +20,7 @@
     {
       "name": "document-files",
       "source": "./plugins/document-files",
-      "description": "Read, extract, convert, render, create, edit, and verify local document files.",
+      "description": "Read, extract structure and values, convert, render, create, edit, and verify local document files.",
       "category": "productivity"
     },
     {
