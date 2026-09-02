@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import sys
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import personal_agent_sync.state as state_module
 import pytest
-from personal_agent_sync.analysis import build_projection
+from personal_agent_sync.analysis import build_projection, select_analyzer
 from personal_agent_sync.config import load_config
 from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
@@ -263,3 +264,68 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
             scope,
             {"space_id": "another-space", "connection_id": "main"},
         )
+
+
+def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    source = root / "note.txt"
+    source.write_text("private draft", encoding="utf-8")
+    config = load_config(write_config(tmp_path, root, route="approval_required"))
+    state = SyncState(config)
+    reconcile_all(state)
+    change = state.due_changes()[0]
+    content = source.read_bytes()
+    snapshot = Snapshot(
+        path=source,
+        byte_size=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        modified_ns=source.stat().st_mtime_ns,
+        changed_ns=source.stat().st_ctime_ns,
+        device=source.stat().st_dev,
+        inode=source.stat().st_ino,
+    )
+
+    class RemoteAnalyzer:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def analyze_remote(self, **kwargs: object) -> dict[str, object]:
+            self.calls.append(kwargs)
+            return {"accepted": True}
+
+    remote = RemoteAnalyzer()
+    with pytest.raises(PolicyDenied, match="requires owner approval"):
+        asyncio.run(select_analyzer(state, remote, change, snapshot, "txt"))  # type: ignore[arg-type]
+    assert remote.calls == []
+
+    state.approve_remote(
+        change["connection_key"],
+        change["document_id"],
+        snapshot.sha256,
+        snapshot.byte_size,
+    )
+    assert asyncio.run(  # type: ignore[arg-type]
+        select_analyzer(state, remote, change, snapshot, "txt")
+    ) == {"accepted": True}
+    assert remote.calls[0]["sha256"] == snapshot.sha256
+
+    too_large = Snapshot(
+        path=source,
+        byte_size=change["max_transfer_bytes"] + 1,
+        sha256="f" * 64,
+        modified_ns=snapshot.modified_ns,
+        changed_ns=snapshot.changed_ns,
+        device=snapshot.device,
+        inode=snapshot.inode,
+    )
+    state.approve_remote(
+        change["connection_key"],
+        change["document_id"],
+        too_large.sha256,
+        too_large.byte_size,
+    )
+    with pytest.raises(PolicyDenied, match="transfer limit"):
+        asyncio.run(select_analyzer(state, remote, change, too_large, "txt"))  # type: ignore[arg-type]
