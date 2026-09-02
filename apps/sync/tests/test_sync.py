@@ -5,13 +5,15 @@ import json
 import sys
 from pathlib import Path
 
+import personal_agent_sync.state as state_module
 import pytest
 from personal_agent_sync.analysis import build_projection
 from personal_agent_sync.config import load_config
-from personal_agent_sync.errors import SyncError
+from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
+from personal_agent_sync.work import WorkExecutor
 
 
 def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
@@ -187,3 +189,77 @@ def test_configuration_rejects_http_and_root_rebind(tmp_path: Path) -> None:
     root.mkdir()
     state = SyncState(load_config(config_path))
     assert state.connection_row("notes:main")["location_state"] == "unavailable"
+
+
+def test_completed_job_replay_is_identity_checked_and_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    monkeypatch.setattr(state_module, "MAX_COMPLETED_JOBS", 3)
+
+    for index in range(4):
+        request = {"operation": "work.file.list", "sequence": index}
+        response = {"ok": True, "result": {"sequence": index}}
+        state.remember_job(f"job_{index}", request, response)
+
+    with state.connect() as connection:
+        assert (
+            connection.execute("SELECT COUNT(*) FROM completed_jobs").fetchone()[0] == 3
+        )
+    assert state.completed_job(
+        "job_3", {"operation": "work.file.list", "sequence": 3}
+    ) == {"ok": True, "result": {"sequence": 3}}
+    with pytest.raises(SyncError, match="different request"):
+        state.completed_job("job_3", {"operation": "work.file.list", "sequence": 99})
+
+
+def test_work_jobs_recheck_scope_generation_and_write_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config_path = write_config(tmp_path, root)
+    config_path.write_text(
+        config_path.read_text().replace(
+            'permission = "read_write"', 'permission = "read_only"'
+        )
+    )
+    config = load_config(config_path)
+    executor = WorkExecutor(config, SyncState(config))
+    monkeypatch.setattr(
+        executor,
+        "_invoke",
+        lambda operation, space_id, connection_id, request: {
+            "operation": operation,
+            "space_id": space_id,
+            "connection_id": connection_id,
+        },
+    )
+
+    scope = {"spaceId": "notes", "connectionId": "main", "generation": 3}
+    assert (
+        executor.execute(
+            "work.file.list", scope, {"space_id": "notes", "connection_id": "main"}
+        )["operation"]
+        == "work.file.list"
+    )
+    with pytest.raises(PolicyDenied, match="read-only"):
+        executor.execute(
+            "work.file.write",
+            scope,
+            {"space_id": "notes", "connection_id": "main"},
+        )
+    with pytest.raises(SyncError, match="binding changed"):
+        executor.execute(
+            "work.file.list",
+            {**scope, "generation": 2},
+            {"space_id": "notes", "connection_id": "main"},
+        )
+    with pytest.raises(SyncError, match="escaped"):
+        executor.execute(
+            "work.file.list",
+            scope,
+            {"space_id": "another-space", "connection_id": "main"},
+        )

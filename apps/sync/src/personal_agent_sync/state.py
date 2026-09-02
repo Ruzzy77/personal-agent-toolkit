@@ -19,6 +19,7 @@ from .errors import SyncError
 from .paths import resolve_moved_root
 
 MAX_PENDING_CHANGES = 10_000
+MAX_COMPLETED_JOBS = 2_048
 
 
 def now_iso() -> str:
@@ -644,6 +645,17 @@ class SyncState:
                 ON CONFLICT(job_id) DO NOTHING
                 """,
                 (job_id, self.request_digest(request), canonical(response), now_iso()),
+            )
+            connection.execute(
+                """
+                DELETE FROM completed_jobs
+                WHERE job_id IN (
+                    SELECT job_id FROM completed_jobs
+                    ORDER BY completed_at DESC, job_id DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """,
+                (MAX_COMPLETED_JOBS,),
             )
 
     def migration_result(
