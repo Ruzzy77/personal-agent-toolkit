@@ -685,7 +685,10 @@ describe("remote personal context service", () => {
           indexed_unit_count: 1,
           searchable_unit_count: 1,
           structural_only_unit_count: 1,
+          source_unit_payload_logical_bytes: expect.any(Number),
+          structure_path_logical_bytes: expect.any(Number),
           source_anchor_logical_bytes: expect.any(Number),
+          normalized_content_logical_bytes: expect.any(Number),
           pending_source_anchor_compaction_count: 0,
           hotspots: [
             {
@@ -711,7 +714,7 @@ describe("remote personal context service", () => {
     expect(await body(compacted)).toMatchObject({
       result: {
         unit_metadata: {
-          scanned_units: 2,
+          scanned_units: 0,
           rewritten_units: 0,
           compacted_units: 0,
           complete: true,

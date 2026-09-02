@@ -720,7 +720,13 @@ export class CorpusShard {
         indexed_unit_count: 0,
         searchable_unit_count: 0,
         structural_only_unit_count: 0,
+        source_unit_payload_logical_bytes: 0,
+        structure_path_logical_bytes: 0,
         source_anchor_logical_bytes: 0,
+        normalized_content_logical_bytes: 0,
+        extraction_issues_logical_bytes: 0,
+        geometry_logical_bytes: 0,
+        quality_flags_logical_bytes: 0,
         pending_source_anchor_compaction_count: 0,
         pending_source_anchor_logical_bytes: 0,
         staged_unit_count: 0,
@@ -735,12 +741,40 @@ export class CorpusShard {
       total: number;
       searchable: number;
       structural_only: number;
+      structure_path_bytes: number;
+      source_anchor_bytes: number;
+      normalized_content_bytes: number;
+      extraction_issues_bytes: number;
+      geometry_bytes: number;
+      quality_flags_bytes: number;
     }>(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN ${searchable} THEN 1 ELSE 0 END) AS searchable,
-              SUM(CASE WHEN ${searchable} THEN 0 ELSE 1 END) AS structural_only
+              SUM(CASE WHEN ${searchable} THEN 0 ELSE 1 END) AS structural_only,
+              COALESCE(SUM(length(CAST(structure_path_json AS BLOB))), 0)
+                AS structure_path_bytes,
+              COALESCE(SUM(length(CAST(source_anchor_json AS BLOB))), 0)
+                AS source_anchor_bytes,
+              COALESCE(SUM(length(CAST(normalized_content AS BLOB))), 0)
+                AS normalized_content_bytes,
+              COALESCE(SUM(length(CAST(extraction_issues_json AS BLOB))), 0)
+                AS extraction_issues_bytes,
+              COALESCE(SUM(length(CAST(geometry_json AS BLOB))), 0)
+                AS geometry_bytes,
+              COALESCE(SUM(length(CAST(quality_flags_json AS BLOB))), 0)
+                AS quality_flags_bytes
        FROM source_units`,
-    ) ?? { total: 0, searchable: 0, structural_only: 0 };
+    ) ?? {
+      total: 0,
+      searchable: 0,
+      structural_only: 0,
+      structure_path_bytes: 0,
+      source_anchor_bytes: 0,
+      normalized_content_bytes: 0,
+      extraction_issues_bytes: 0,
+      geometry_bytes: 0,
+      quality_flags_bytes: 0,
+    };
     const staged = this.one<{ count: number; logical_bytes: number }>(
       `SELECT COUNT(*) AS count,
               COALESCE(SUM(length(CAST(structure_path_json AS BLOB)) +
@@ -835,7 +869,19 @@ export class CorpusShard {
       indexed_unit_count: indexed,
       searchable_unit_count: unitCounts.searchable ?? 0,
       structural_only_unit_count: unitCounts.structural_only ?? 0,
+      source_unit_payload_logical_bytes:
+        (unitCounts.structure_path_bytes ?? 0) +
+        (unitCounts.source_anchor_bytes ?? 0) +
+        (unitCounts.normalized_content_bytes ?? 0) +
+        (unitCounts.extraction_issues_bytes ?? 0) +
+        (unitCounts.geometry_bytes ?? 0) +
+        (unitCounts.quality_flags_bytes ?? 0),
+      structure_path_logical_bytes: unitCounts.structure_path_bytes ?? 0,
       source_anchor_logical_bytes: anchors.logical_bytes ?? 0,
+      normalized_content_logical_bytes: unitCounts.normalized_content_bytes ?? 0,
+      extraction_issues_logical_bytes: unitCounts.extraction_issues_bytes ?? 0,
+      geometry_logical_bytes: unitCounts.geometry_bytes ?? 0,
+      quality_flags_logical_bytes: unitCounts.quality_flags_bytes ?? 0,
       pending_source_anchor_compaction_count: anchors.pending_count ?? 0,
       pending_source_anchor_logical_bytes: anchors.pending_logical_bytes ?? 0,
       staged_unit_count: staged.count,
@@ -1276,6 +1322,8 @@ export class CorpusShard {
              JOIN documents AS document
                ON document.document_id = revision.document_id
              WHERE unit.rowid > ?
+               AND unit.source_anchor_json NOT LIKE '${COMPACT_SOURCE_ANCHOR_PREFIX}%'
+               AND unit.source_anchor_json NOT LIKE '${FULL_SOURCE_ANCHOR_PREFIX}%'
              ORDER BY unit.rowid LIMIT ?`,
             Number.isFinite(cursor) ? cursor : 0,
             Number(compactUnitMetadataLimit),
