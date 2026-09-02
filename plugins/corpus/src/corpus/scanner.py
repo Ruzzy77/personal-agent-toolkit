@@ -31,6 +31,7 @@ from .source_access import (
 SF_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
 _INVENTORY_CHANGE_TYPE_ORDER = (
     "added",
+    "moved",
     "reappeared",
     "metadata_changed",
     "residency_changed",
@@ -110,12 +111,10 @@ class ScanSummary:
         }
 
 
-def stable_document_id(corpus_id: str, relative_path_nfc: str) -> str:
-    digest = hashlib.sha256(
-        # The legacy domain is part of persisted document IDs.
-        f"work-corpus-document-v1\0{corpus_id}\0{relative_path_nfc}".encode()
-    ).hexdigest()
-    return f"doc_{digest[:32]}"
+def new_document_id() -> str:
+    """Create a path-independent identity for a newly observed document."""
+
+    return f"doc_{uuid.uuid4().hex}"
 
 
 def _scan_issue_locator(path: Path, source_root: Path) -> dict[str, str]:
@@ -266,7 +265,6 @@ def _record_regular_file(
     entry_name: str,
     entry_stat: os.stat_result,
     relative_path: str,
-    entry_path: Path,
 ) -> None:
     relative_path_nfc = unicodedata.normalize("NFC", relative_path)
     extension, media_type, adapter, eligibility = classify(entry_name)
@@ -276,20 +274,61 @@ def _record_regular_file(
     allocated_size = int(getattr(entry_stat, "st_blocks", 0) * 512)
     now = utc_now()
 
-    previous = connection.execute(
+    previous_rows = connection.execute(
         """
-        SELECT document_id, logical_size, modified_ns, changed_ns, device, inode,
-               current_revision_id, deleted_at, residency_state,
-               eligibility_state
-        FROM documents WHERE relative_path = ?
+        SELECT document_id, relative_path, logical_size, modified_ns, changed_ns,
+               device, inode, current_revision_id, deleted_at, residency_state,
+               eligibility_state, lifecycle_state, last_seen_scan_id
+        FROM documents WHERE relative_path_nfc = ?
         """,
-        (relative_path,),
-    ).fetchone()
-    document_id = (
-        previous["document_id"]
-        if previous is not None
-        else stable_document_id(corpus_id, relative_path_nfc)
-    )
+        (relative_path_nfc,),
+    ).fetchall()
+    if len(previous_rows) > 1:
+        raise CorpusError(
+            "canonically equivalent source paths collide",
+            details={"relative_path_nfc": relative_path_nfc},
+        )
+    previous = previous_rows[0] if previous_rows else None
+    if (
+        previous is not None
+        and previous["relative_path"] != relative_path
+        and previous["last_seen_scan_id"] == scan_id
+    ):
+        raise CorpusError(
+            "canonically equivalent source paths collide",
+            details={
+                "first_path": previous["relative_path"],
+                "second_path": relative_path,
+                "relative_path_nfc": relative_path_nfc,
+            },
+        )
+    moved = False
+    if previous is None:
+        identity_candidates = connection.execute(
+            """
+            SELECT document_id, relative_path, logical_size, modified_ns, changed_ns,
+                   device, inode, current_revision_id, deleted_at, residency_state,
+                   eligibility_state, lifecycle_state, last_seen_scan_id
+            FROM documents
+            WHERE device = ? AND inode = ?
+              AND logical_size = ? AND modified_ns = ?
+              AND last_seen_scan_id != ?
+              AND lifecycle_state != 'trash'
+            ORDER BY last_seen_at DESC, document_id
+            LIMIT 2
+            """,
+            (
+                entry_stat.st_dev,
+                entry_stat.st_ino,
+                entry_stat.st_size,
+                entry_stat.st_mtime_ns,
+                scan_id,
+            ),
+        ).fetchall()
+        if len(identity_candidates) == 1:
+            previous = identity_candidates[0]
+            moved = previous["relative_path"] != relative_path
+    document_id = previous["document_id"] if previous is not None else new_document_id()
     metadata_changed = bool(
         previous
         and (
@@ -303,6 +342,8 @@ def _record_regular_file(
     if previous is None:
         change_types.add("added")
     else:
+        if moved:
+            change_types.add("moved")
         if previous["deleted_at"] is not None:
             change_types.add("reappeared")
         if metadata_changed:
@@ -316,16 +357,15 @@ def _record_regular_file(
     connection.execute(
         """
         INSERT INTO documents(
-            document_id, relative_path, relative_path_nfc, absolute_path,
-            extension, media_type, adapter, logical_size, allocated_size,
+            document_id, relative_path, relative_path_nfc, extension,
+            media_type, adapter, logical_size, allocated_size,
             modified_ns, changed_ns, device, inode, mode, flags, is_dataless,
             residency_state, eligibility_state, last_seen_scan_id,
             first_seen_at, last_seen_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         ON CONFLICT(document_id) DO UPDATE SET
             relative_path = excluded.relative_path,
             relative_path_nfc = excluded.relative_path_nfc,
-            absolute_path = excluded.absolute_path,
             extension = excluded.extension,
             media_type = excluded.media_type,
             adapter = excluded.adapter,
@@ -342,13 +382,15 @@ def _record_regular_file(
             eligibility_state = excluded.eligibility_state,
             last_seen_scan_id = excluded.last_seen_scan_id,
             last_seen_at = excluded.last_seen_at,
-            deleted_at = NULL
+            deleted_at = NULL,
+            lifecycle_state = 'active',
+            archived_at = NULL,
+            trashed_at = NULL
         """,
         (
             document_id,
             relative_path,
             relative_path_nfc,
-            str(entry_path),
             extension,
             media_type,
             adapter,
@@ -368,6 +410,13 @@ def _record_regular_file(
             now,
         ),
     )
+    if moved:
+        # Search paths are a rebuildable projection. Keep them aligned with the
+        # document's stable identity without rebuilding extracted content.
+        connection.execute(
+            "UPDATE source_units_fts SET relative_path = ? WHERE document_id = ?",
+            (relative_path_nfc, document_id),
+        )
 
     summary.files += 1
     summary.logical_bytes += entry_stat.st_size
@@ -673,7 +722,6 @@ def scan_corpus(data_root: Path, corpus_id: str) -> dict:
                         entry_name=entry.name,
                         entry_stat=entry_stat,
                         relative_path=relative_path,
-                        entry_path=entry_path,
                     )
 
         source_root_error: OSError | CorpusError | None = None

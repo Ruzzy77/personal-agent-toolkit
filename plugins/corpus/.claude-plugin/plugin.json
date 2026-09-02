@@ -1,7 +1,7 @@
 {
   "name": "corpus",
-  "version": "0.20.2",
-  "description": "Connect saved questions and relationships to their exact current sources.",
+  "version": "0.21.0",
+  "description": "Keep durable extracted knowledge connected to changing sources and local work.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

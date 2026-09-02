@@ -1,12 +1,12 @@
 interface:
   display_name: "Read with Corpus"
   short_description: "Use saved context and only the sources still needed"
-  default_prompt: "Use $investigate-corpus to start from the relevant Corpus context and read only any current source text the request still needs."
+  default_prompt: "Use $investigate-corpus to start from the relevant durable Corpus context, then read only the captured records or current sources the request still needs."
 dependencies:
   tools:
     - type: "mcp"
       value: "corpus"
-      description: "Find saved contexts and read exact files, provider records, and earlier conversations"
+      description: "Find durable contexts and read captured files, provider records, and earlier conversations"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

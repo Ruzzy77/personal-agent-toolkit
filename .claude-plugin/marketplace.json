@@ -14,7 +14,7 @@
     {
       "name": "corpus",
       "source": "./plugins/corpus",
-      "description": "Connect saved questions and relationships to their exact current sources.",
+      "description": "Keep durable extracted knowledge connected to changing sources and local work.",
       "category": "productivity"
     },
     {

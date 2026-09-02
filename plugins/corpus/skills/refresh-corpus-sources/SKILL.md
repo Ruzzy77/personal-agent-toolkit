@@ -5,7 +5,7 @@ description: Refresh registered local Corpus Source indexes after source files c
 
 # Refresh Corpus Sources
 
-Treat each registered source folder as canonical and its Corpus index as a derived projection. Run the bundled refresher rather than reconstructing the synchronization loop:
+Treat each registered source folder as an update input, its extracted Corpus record as durable, and FTS as a rebuildable projection. Run the bundled refresher rather than reconstructing the synchronization loop:
 
 ## One-time refresh
 
@@ -41,14 +41,14 @@ Do not reset the baseline merely to hide an unresolved warning.
 
 ## Boundaries
 
-The script scans every selected registration, refreshes locally available pending documents in bounded batches, and stops after at most four passes per source. It never enables remote hydration.
+The script scans every selected registration, refreshes locally available pending documents in bounded batches, and stops after at most four passes per source. It never enables remote hydration. A failed new extraction must leave the last successful record active.
 
 Previously approved large documents are refreshed one at a time after the ordinary bounded passes. Approval remains an explicit local user action. If the source identity changed, leave it skipped until the user approves the current file again; do not raise the global file limit or approve a replacement automatically.
 
-Do not modify source files, source scope, registration roots, or registrations. If a registered root is unavailable, report it; do not rebind, unregister, delete, or substitute another path.
+Do not modify source files, source scope, or registrations. Corpus may update a registered root automatically only when macOS proves that a same-volume Finder move retained the saved filesystem identity. If identity resolution fails, report the root as unavailable; do not guess a replacement, unregister it, or discard its durable records.
 
 ## Result
 
 Use the script's final JSON and exit status as the result. A source is successfully refreshed when its scan completes and no locally refreshable work or unexplained outdated projection remains. An outdated projection is a warning only when the script can attribute every such projection to an oversized file, an unavailable remote file, or a current extraction failure. `partial` projections and these non-actionable gaps may remain; report them as warnings rather than repeatedly retrying them.
 
-Report how many sources were checked, which documents changed or were indexed, and any unresolved errors. In a one-time refresh, summarize current warnings. In a monitored refresh, follow the warning delta instead of restating the complete warning inventory. Distinguish a completed refresh from a fully covered source.
+Report how many sources were checked, which documents changed or were indexed, and any unresolved errors. Report `record_state` separately from `source_state`; an unavailable source does not imply that its saved record is unusable. In a one-time refresh, summarize current warnings. In a monitored refresh, follow the warning delta instead of restating the complete warning inventory. Distinguish a completed refresh from a fully covered source.

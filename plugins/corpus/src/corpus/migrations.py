@@ -281,6 +281,67 @@ def _assert_v5_structure(connection: sqlite3.Connection) -> None:
         )
 
 
+def _assert_v6_structure(connection: sqlite3.Connection) -> None:
+    _assert_v5_structure(connection)
+    document_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+    }
+    required_document_columns = {
+        "retention_class",
+        "lifecycle_state",
+        "last_user_access_at",
+        "archived_at",
+        "trashed_at",
+    }
+    missing = sorted(required_document_columns - document_columns)
+    obsolete_document_columns = sorted({"absolute_path"} & document_columns)
+    retention_index = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+        ("idx_documents_retention",),
+    ).fetchone()
+    queue_table = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ("source_change_queue",),
+    ).fetchone()
+    legacy_tables = [
+        str(row["name"])
+        for row in connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('events', 'snapshots', 'snapshot_documents')
+            ORDER BY name
+            """
+        ).fetchall()
+    ]
+    if (
+        missing
+        or obsolete_document_columns
+        or retention_index is None
+        or queue_table is None
+        or legacy_tables
+    ):
+        raise MigrationError(
+            "corpus database does not satisfy the v6 schema contract",
+            details={
+                "missing_columns": {"documents": missing} if missing else {},
+                "obsolete_columns": (
+                    {"documents": obsolete_document_columns}
+                    if obsolete_document_columns
+                    else {}
+                ),
+                "missing_indexes": (
+                    ["idx_documents_retention"] if retention_index is None else []
+                ),
+                "missing_tables": (
+                    ["source_change_queue"] if queue_table is None else []
+                ),
+                "legacy_tables": legacy_tables,
+            },
+        )
+
+
 def inspect_schema(path: Path) -> SchemaState:
     if not _require_corpus_database(path):
         return SchemaState(CORPUS_SCHEMA_VERSION, CORPUS_SCHEMA_VERSION)
@@ -288,7 +349,7 @@ def inspect_schema(path: Path) -> SchemaState:
     try:
         version = _schema_version(connection)
         user_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version in {2, 3, 4, CORPUS_SCHEMA_VERSION}:
+        if version in {2, 3, 4, 5, CORPUS_SCHEMA_VERSION}:
             if user_version != version:
                 raise MigrationError(
                     "schema_info and PRAGMA user_version disagree",
@@ -304,8 +365,10 @@ def inspect_schema(path: Path) -> SchemaState:
                 _assert_v3_structure(connection)
             elif version == 4:
                 _assert_v4_structure(connection)
-            else:
+            elif version == 5:
                 _assert_v5_structure(connection)
+            else:
+                _assert_v6_structure(connection)
     finally:
         connection.close()
     if version is None:
@@ -1003,6 +1066,93 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA user_version = 5")
 
 
+def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+    }
+    additions = {
+        "retention_class": (
+            "ALTER TABLE documents ADD COLUMN retention_class TEXT NOT NULL "
+            "DEFAULT 'managed' CHECK (retention_class IN "
+            "('managed', 'protected', 'transient'))"
+        ),
+        "lifecycle_state": (
+            "ALTER TABLE documents ADD COLUMN lifecycle_state TEXT NOT NULL "
+            "DEFAULT 'active' CHECK (lifecycle_state IN ('active', 'archived', 'trash'))"
+        ),
+        "last_user_access_at": (
+            "ALTER TABLE documents ADD COLUMN last_user_access_at TEXT"
+        ),
+        "archived_at": "ALTER TABLE documents ADD COLUMN archived_at TEXT",
+        "trashed_at": "ALTER TABLE documents ADD COLUMN trashed_at TEXT",
+    }
+    for name, statement in additions.items():
+        if name not in columns:
+            connection.execute(statement)
+    if "absolute_path" in columns:
+        connection.execute("ALTER TABLE documents DROP COLUMN absolute_path")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_documents_retention
+        ON documents(lifecycle_state, retention_class, deleted_at, last_user_access_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_change_queue (
+            relative_path_nfc TEXT PRIMARY KEY,
+            event_kind TEXT NOT NULL CHECK (
+                event_kind IN ('changed', 'created', 'deleted', 'moved', 'reconcile')
+            ),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+            last_error TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_source_change_queue_seen
+        ON source_change_queue(last_seen_at, relative_path_nfc)
+        """
+    )
+    # Absolute source locations are operational hints, not durable provenance.
+    # Remove them from previously extracted anchors while retaining the stable
+    # document/revision identity and root-relative locator.
+    connection.execute(
+        """
+        UPDATE source_units
+        SET source_anchor_json = json_remove(
+            source_anchor_json,
+            '$.absolute_path',
+            '$.surface_open_target'
+        )
+        WHERE json_valid(source_anchor_json)
+        """
+    )
+    connection.execute(
+        """
+        UPDATE source_units_fts
+        SET relative_path = (
+            SELECT d.relative_path_nfc
+            FROM documents d
+            WHERE d.document_id = source_units_fts.document_id
+        )
+        WHERE EXISTS (
+            SELECT 1 FROM documents d
+            WHERE d.document_id = source_units_fts.document_id
+        )
+        """
+    )
+    connection.execute("DROP TABLE IF EXISTS snapshot_documents")
+    connection.execute("DROP TABLE IF EXISTS snapshots")
+    connection.execute("DROP TABLE IF EXISTS events")
+    connection.execute("UPDATE schema_info SET version = 6")
+    connection.execute("PRAGMA user_version = 6")
+
+
 BACKUP_COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -1188,7 +1338,7 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             "from_version": state.current_version,
             "to_version": state.target_version,
         }
-    if state.current_version not in {1, 2, 3, 4} or state.target_version != 5:
+    if state.current_version not in {1, 2, 3, 4, 5} or state.target_version != 6:
         raise UnsupportedSchemaError(
             "no migration path is available",
             details={
@@ -1218,6 +1368,10 @@ def migrate_corpus_database(paths: RuntimePaths) -> dict:
             if migrated_version == 4:
                 _migrate_v4_to_v5(connection)
                 _assert_v5_structure(connection)
+                migrated_version = 5
+            if migrated_version == 5:
+                _migrate_v5_to_v6(connection)
+                _assert_v6_structure(connection)
             foreign_key_issues = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

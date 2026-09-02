@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -130,6 +131,40 @@ def source_root_identity(descriptor: int) -> tuple[int, int]:
             reason="not_directory",
         )
     return (metadata.st_dev, metadata.st_ino)
+
+
+def resolve_source_root_identity_path(device: int, inode: int) -> Path | None:
+    """Resolve a moved directory by filesystem identity on macOS.
+
+    APFS exposes stable file identities through ``/.vol``. F_GETPATH then
+    returns the current user-visible path after a Finder rename or move on the
+    same volume. Other platforms deliberately fall back to explicit rebind.
+    """
+
+    if sys.platform != "darwin" or device < 0 or inode < 0:
+        return None
+    try:
+        import fcntl
+
+        descriptor = os.open(
+            f"/.vol/{device}/{inode}",
+            _DIRECTORY_FLAGS,
+        )
+    except (ImportError, OSError):
+        return None
+    try:
+        if source_root_identity(descriptor) != (device, inode):
+            return None
+        try:
+            encoded = fcntl.fcntl(descriptor, 50, b"\0" * 1024)
+            current_path = encoded.split(b"\0", 1)[0].decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
+            return None
+        if not current_path or not current_path.startswith("/"):
+            return None
+        return Path(current_path)
+    finally:
+        os.close(descriptor)
 
 
 @contextmanager

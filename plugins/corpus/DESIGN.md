@@ -1,14 +1,14 @@
 # Corpus 설계
 
-## 제품 경계
+## 제품 목적과 경계
 
-Corpus는 다음 세 가지를 맡습니다.
+Corpus는 원자료를 매번 다시 찾거나 읽지 않아도 작업에 필요한 맥락과 추출 근거를 재사용할 수 있게 하는 내구성 있는 지식 저장층입니다.
 
-1. 등록한 Source의 현재 파일 목록과 추출 본문을 비공개로 색인합니다.
-2. 반복해서 사용할 Context를 원문 위치와 연결합니다.
+1. 등록한 Source에서 본문과 구조를 추출해 지속 가능한 record로 보관합니다.
+2. 원자료와 사용자 판단을 미리 정리한 Context를 여러 클라이언트가 함께 읽게 합니다.
 3. 사용자가 연결한 Work 폴더의 파일을 읽고 충돌 없이 교체하거나 삭제합니다.
 
-원본 문서의 정본성, 문서 형식별 고급 편집과 에이전트의 최종 해석은 Corpus가 맡지 않습니다. 원본은 계속 등록 폴더에 있고, Corpus의 검색 결과와 Context는 답을 만들기 위한 보조 자료입니다.
+원자료는 새 내용을 받아들이는 입력이지만 Corpus record의 생존 조건은 아닙니다. 원자료가 이동·삭제되거나 일시적으로 연결되지 않아도 마지막 정상 record와 Context는 계속 사용할 수 있습니다. 다만 Corpus는 원본 파일 백업 제품이 아니므로 원본 바이트, 서식의 완전한 재현과 현재 원문 일치는 보장하지 않습니다. 문서 형식별 고급 편집과 에이전트의 최종 해석도 Corpus의 책임이 아닙니다.
 
 ## 런타임 구성
 
@@ -19,79 +19,84 @@ CorpusService
     ├── ContextService
     ├── WorkspaceService
     ├── SpaceService
-    └── Source scan / capture / projection / search
+    └── Source scan / capture / durable record / search projection
              │
              └── document-files process
 ```
 
-`CorpusService`가 CLI와 MCP의 공통 진입점입니다. 각 서비스는 같은 private data root를 사용하고 Source 원본과 Work 파일은 등록 폴더에서 읽습니다.
+`CorpusService`가 CLI와 MCP의 공통 진입점입니다. Codex, Claude와 웹 ChatGPT용 private tunnel이 같은 private data root와 같은 MCP 구현을 사용하므로 별도 클라이언트별 복사본을 만들지 않습니다.
 
 ### Private storage
 
-- `catalog.sqlite`: Source 등록
-- `corpora/<id>/corpus.sqlite`: 현재 파일 목록, revision, extraction projection과 Source unit
+- `catalog.sqlite`: Source의 논리 ID, 현재 위치 힌트와 파일시스템 정체성
+- `corpora/<id>/corpus.sqlite`: 문서·revision·extraction projection·Source unit과 제한된 변경 대기열
 - `contexts.sqlite3`: Context, item과 출처 연결
 - `workspaces.sqlite3`: Work Connection, Current File과 recovery 기록
 - `workspace-runtime/<id>`: 교체용 staging과 recovery copy
 
-Space는 별도 데이터베이스에 저장하지 않습니다. Context, Source 등록과 Work Connection을 읽어 동적으로 만듭니다.
+Space는 별도 데이터베이스나 고정된 색인 세대로 저장하지 않습니다. Context, Source 등록과 Work Connection의 현재 정본을 읽어 동적으로 만듭니다.
 
-## Space projection
+## 정체성과 경로 이동
 
-활성 Context 하나가 같은 ID의 Space가 됩니다. Context에 연결되지 않은 Source도 독립 Space로 보일 수 있습니다. 같은 실제 root를 사용하는 Source와 Work 등록은 하나의 Connection으로 합칩니다.
+Corpus의 논리 정체성과 물리 위치는 분리합니다.
 
-Connection의 공개 속성은 다음과 같습니다.
+- Source 등록은 불변 `location_id`와 현재 `source_root`를 함께 가집니다.
+- 문서는 경로 해시가 아닌 불변 UUID `document_id`를 가집니다.
+- revision은 캡처한 내용과 당시 관측값을 식별합니다.
+- extraction projection은 추출기와 설정을 식별합니다.
+- 검색 FTS는 위 record에서 다시 만들 수 있는 파생 투영입니다.
 
-- `roles`: `source`, `work`
-- `access_scope`: `local_only`, `remote_allowed`
-- `permission`: `read_only`, `read_write`
-- `index_mode`: `indexed`, `not_indexed`
-- `source_state`: `ready`, `needs_refresh`, `partial`, `unavailable`
-- `connection_state`, `current_file`, `generation`
+`source_root`와 문서의 절대 경로는 현재 파일에 접근하기 위한 운영 정보일 뿐, 지식 record의 ID나 출처 anchor가 아닙니다. 같은 볼륨에서 Finder로 Source 또는 Work 폴더를 옮기면 저장된 device·inode를 macOS 파일시스템에 질의해 현재 경로를 찾고 등록값을 원자적으로 고칩니다. 다른 볼륨으로 옮겨 정체성이 바뀌었거나 운영체제가 이 조회를 지원하지 않으면 명시적 rebind가 필요합니다.
 
-`external_mcp` 보기에서는 `remote_allowed` Connection만 남습니다. 로컬 root와 내부 registry ID는 공개 응답에 포함하지 않습니다. 별도 canonical Space registry나 migration receipt는 사용하지 않습니다.
+경로 비교와 외부 표시는 NFC로 정규화합니다. 실제 디스크 이름은 바꾸지 않으며, 같은 위치에서 NFC로 같아지는 서로 다른 이름이 관측되면 임의로 합치지 않고 충돌로 중단합니다. Codex·Claude provider record에는 세션 식별에 필요하지 않은 `cwd`와 `workspace` 절대 경로를 저장하지 않습니다. 세션 Source의 범위 선택자는 현재 경로와 디렉터리 정체성을 분리해 저장하므로, 선택한 작업 폴더가 같은 볼륨에서 이동해도 다음 갱신에서 현재 경로를 복구합니다.
 
-## Source index
+## Source record와 검색
 
-`scan`은 파일을 열지 않고 메타데이터와 residency를 기록합니다. `ingest`는 bounded capture로 선택한 파일을 읽고 형식별 adapter가 Source unit을 만듭니다. 각 unit은 revision과 extraction projection에 연결됩니다.
+`scan`은 파일을 열지 않고 메타데이터와 residency를 기록합니다. `ingest`는 제한된 임시 capture로 선택한 파일을 읽고 형식별 adapter가 Source unit을 만듭니다. 성공한 unit은 revision과 active extraction projection에 연결되어 내구성 있는 record가 됩니다.
 
-검색은 입력 문구와 같은 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가
-들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며, 내용은 선택한 unit에서 읽습니다. Source가 바뀌면 revision identity와 현재 projection을 비교해 오래된 결과를
-제외합니다. 상세 색인 진단은 Chat에 펼치지 않고 Connection의 `source_state`로 계산합니다.
+새 원자료 추출이 실패하면 실패 시도와 문제만 기록하고 기존의 마지막 정상 projection을 유지합니다. 파일이 사라지거나 내용이 달라져도 해당 record를 검색 결과에서 즉시 버리지 않습니다. 결과에는 다음 상태와 시간이 함께 나갑니다.
 
-Corpus는 현재 파일과 현재 활성 projection을 색인의 단일 기준으로 삼습니다. 불완전한 scan에서도 확인한 파일은 갱신하고 `partial`로 표시합니다. 처리할 수 없는 파일은 coverage gap으로 남기지만, 다른 파일의 갱신을 막지 않습니다. snapshot, event history와 모델이 만든 claim의 semantic cache는 유지하지 않습니다. 재사용할 해석은 사용자가 선택한 Context에만 둡니다.
+- `source_state`: `unknown`, `available`, `changed`, `partially_available`, `unavailable`
+- `record_state`: `empty`, `ready`, `partial`, `extractor_outdated`, `archived`, `unavailable`
+- `captured_at`: record가 원자료에서 캡처된 시점
 
-형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는
-해당 결과가 선언한 unit type, geometry, confidence, OCR 여부와 품질 표지를 검증한 뒤
-revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는
-제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장하며 기존 응답
-제한을 적용합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고, 원문에 없는 제목·번호나
-배치를 추측해 Source unit에 덧붙이지 않습니다.
+검색은 입력 문구와 같은 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가 들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며 내용은 선택한 unit에서 읽습니다. 원자료가 없어도 active record는 검색·조회할 수 있습니다. 최신 정보나 현재 원문 인용에는 `source_state`, `captured_at`과 필요 시 갱신 결과를 함께 확인합니다.
 
-Corpus는 `document-files process --describe`에서 형식별 adapter identity와 capability를
-읽습니다. identity가 바뀌면 같은 revision도 새 projection 대상으로 분류합니다. 입력은
-private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID, revision ID,
-anchor와 authority는 전달하지 않습니다. Document Files는 형식별 bounded continuation을 한
-프로세스 안에서 완료한 뒤 결과를 반환합니다. Corpus는 형식별 cursor나 issue를 해석하지 않고,
-실패한 새 시도는 기록하되 기존 active projection을 보존합니다. Document Files를 사용할 수
-없으면 Corpus가 자체 parser, OCR이나 renderer로 대체하지 않습니다.
+형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는 unit type, geometry, confidence, OCR 여부와 품질 표지를 검증한 뒤 revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고 원문에 없는 제목·번호나 배치를 Source unit에 덧붙이지 않습니다.
+
+Corpus는 `document-files process --describe`에서 adapter identity와 capability를 읽습니다. identity가 바뀌면 같은 revision도 새 projection 대상으로 분류합니다. 입력은 private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID와 권한 정보는 전달하지 않습니다. 처리 후 원본 바이트 사본은 지우고 구조화된 record를 남깁니다. Document Files를 사용할 수 없으면 자체 parser, OCR이나 renderer로 대체하지 않습니다.
+
+## 자동 갱신과 변경 대기열
+
+파일 감시 이벤트는 곧바로 장기 이력이 되지 않습니다. 같은 경로의 이벤트를 잠시 모아 하나로 합치고, private `source_change_queue`에 최대 2,048개만 둡니다. 한도를 넘거나 root 수준 변화가 생기면 전체 대조 항목 하나로 축약합니다. 성공한 전체 scan과 필요한 extraction이 끝난 뒤 대기열을 비웁니다. 실패 항목은 재시도를 위해 오류와 횟수만 갱신하며, 완료된 이벤트 기록을 누적하지 않습니다.
+
+maintenance worker는 시작 시와 기본 15분 간격으로 전체 대조합니다. 따라서 파일 감시가 누락되거나 Source root 자체가 이동해도 다음 대조에서 복구합니다. 동시에 여러 클라이언트가 실행해도 private worker lock을 얻은 한 프로세스만 갱신합니다. 별도 전역 색인 세대나 클라이언트별 동기화 상태는 두지 않습니다.
 
 ## Context
 
-Context에는 제목, 목적, 범위, 연결 Source와 item이 들어갑니다. Item은 질문, 관계, 판단 또는 gap을 표현하며 Source unit이나 연결 provider record를 가리킬 수 있습니다.
+Context는 Source 원문을 매번 다시 읽지 않아도 쓸 수 있는, 미리 분석·정리된 재사용 맥락입니다. 제목, 목적, 범위, 연결 Source와 질문·관계·판단·gap item을 저장합니다. Context item 본문은 durable representation이고 Source unit 또는 provider record 연결은 근거와 갱신 판단을 위한 provenance입니다.
 
-Context는 Source 원문을 대체하지 않습니다. 변경 가능성이 있는 사실이나 원문 인용이 필요하면 연결된 현재 Source를 다시 읽습니다. Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. Context Skill은 private Corpus 저장소에서 선택한 Space와 함께 읽으며, plugin이나 marketplace 배포본에 복사하지 않습니다.
+파일 Source의 추출 record는 원자료 없이도 읽을 수 있습니다. Codex·Claude 세션 같은 provider 자료는 원문 전체를 중복 보관하지 않고, 선택해 저장한 Context item을 내구성 있는 지식으로 삼습니다. provider 원문을 정확히 다시 읽는 기능은 제공자 자료가 남아 있을 때만 가능하지만, 그 부재가 Context item을 없애지는 않습니다.
 
-사용자가 명시적으로 선택한 기존 Context 항목은 현재 Context version과 대조해 종류, 본문과 `attributes.status`를 한 transaction으로 교체할 수 있습니다. 이 교체는 나머지 속성과 기존 Source 연결을 보존하며, 출처를 새로 만들거나 현재성을 주장하지 않습니다. 항목 추가·삭제, 출처 연결 변경과 Context 자체의 생성·보관은 로컬 작업으로 남깁니다.
+Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. 선택한 Space와 함께 private Corpus 저장소에서 읽고 plugin 배포본에 복사하지 않습니다. 기존 Context 항목이나 Skill을 Chat에서 바꿀 때는 현재 Context version과 완전한 교체값을 요구하며 한 transaction으로 적용합니다.
 
-이전 Source unit이 정리된 뒤에도 등록 문서의 현재 상태로 출처 변경 원인을 구분합니다.
-문서 삭제, 원본 revision 변경과 추출 projection 변경은 같은 접근 불가 상태로 뭉뚱그리지
-않습니다. 이 진단은 오래된 출처를 현재 본문으로 자동 연결하지 않으며, Context 출처
-수정에는 현재 원문 검토와 version 확인이 계속 필요합니다.
+Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료가 바뀌어도 오래된 출처를 새 원문으로 자동 연결하지 않으며, Context 출처를 고치려면 현재 자료 검토와 version 확인이 필요합니다.
+
+## record 보존과 정리
+
+검색 노출과 물리 보존은 분리합니다. document record에는 다음 보존 등급이 있습니다.
+
+- `protected`: 자동 보관·삭제하지 않음
+- `managed`: 일반적인 장기 재사용 자료
+- `transient`: 짧게 쓰는 임시 자료
+
+원자료에서 분리된 record만 고정된 기간과 마지막 사용자 조회 시점에 따라 `active → archived → trash → purge`로 이동합니다. 기본값은 managed가 분리 30일 후 보관, 보관 180일 후 휴지통, 휴지통 30일 후 완전 삭제이며 transient는 각각 7일·30일·7일입니다. Context가 참조하거나 `protected`로 지정한 record는 이 전환에서 제외하고, 잘못 보관된 보호 record는 active로 복원합니다.
+
+이 정책은 파일 내용의 의미·중요도·품질을 모델이 판단하지 않습니다. 수동 복원과 보존 등급 변경을 제공하며, purge만 revision·projection·unit과 검색 투영을 실제로 삭제합니다.
 
 ## Work 파일
 
-Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다. 경로는 root 기준 상대 경로로 정규화하며, symlink와 root 밖 이동을 허용하지 않습니다. 연결 이후에는 canonical root 경로와 디렉터리 inode로 root 교체를 감지합니다. 운영체제가 재마운트하면서 바꿀 수 있는 장치 번호는 Work Connection이나 Source revision의 영구 identity로 사용하지 않으며, 각 파일 작업에서는 현재 descriptor의 identity를 고정합니다.
+Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다. 경로는 root 기준 상대 경로로 정규화하며 symlink와 root 밖 이동을 허용하지 않습니다. 연결 이후에는 디렉터리 inode로 root 교체를 감지하고, 같은 볼륨에서 위치만 바뀐 경우 자동으로 새 경로를 등록합니다. 각 파일 작업에서는 현재 descriptor의 identity를 고정합니다.
 
 ### 읽기
 
@@ -101,19 +106,14 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ### 쓰기
 
-새 파일은 `expected_version=absent`를 요구합니다. 기존 파일은 두 방식 중 하나로 교체합니다.
+새 파일은 `expected_version=absent`를 요구합니다. 기존 파일은 편집 직전의 version token 또는 한 번씩만 나타나는 두 marker로 교체합니다. 파일 identity와 digest를 다시 확인하고 같은 디렉터리의 임시 파일로 원자 교환합니다. Work 경로마다 직전 파일 하나를 private recovery로 보존하며 소유자, 권한과 ACL을 보존하지 못하면 중단합니다.
 
-- 전체 교체: 편집 직전의 version token 사용
-- 구간 교체: 현재 파일에서 한 번씩만 나타나는 두 marker 사이를 교체
+삭제도 최신 version token과 사용자의 명시적 확인을 요구합니다. 복원은 recovery record와 현재 result version이 모두 일치할 때만 수행합니다. Source로도 등록된 Work 폴더의 변경은 제한된 변경 대기열에 넣고 정상 갱신 후 지웁니다.
 
-교체 직전 파일 identity와 digest를 대조합니다. 임시 파일을 같은 디렉터리에 기록한 뒤 원자적으로 교환하고, Work 경로마다 직전 파일 하나를 private recovery로 보존합니다. 소유자, 권한과 ACL을 보존하지 못하면 중단합니다.
+## MCP 표면과 클라이언트 일관성
 
-삭제도 최신 version token을 다시 확인하며, 사용자가 명시적으로 확인한 경우에만 수행합니다. 복원은 교체 recovery record와 현재 result version이 모두 일치할 때만 수행합니다.
+기본 MCP 서버는 Space·File 조회/편집과 version 보호된 Context 항목·Context Skill 교체를 제공합니다. Source 등록·해제, scan, ingest, 보존 정책 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source Connection은 읽기 전용입니다.
 
-## MCP 표면
+stdio와 private tunnel은 같은 서버, private data root와 도구 schema를 사용합니다. Codex, Claude와 웹 ChatGPT에 별도 Context 복제본이나 별도 색인 세대를 만들지 않습니다. 중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.
 
-기본 MCP 서버에는 Space/File 도구 아홉 개, 기존 Context 항목 일괄 교체 도구 하나와 Context Skill 교체 도구 하나가 있습니다. 항목 교체는 사용자의 명시적 요청, 현재 Context version과 대상별 종류·본문·상태 완전값이 있을 때에만 한 transaction으로 저장합니다. 대상이 없거나 version이 충돌하면 현재 항목을 모두 보존하고, 지정하지 않은 속성과 Source 연결도 바꾸지 않습니다. Context Skill도 명시적 요청, 현재 `version`과 전체 교체안이 모두 있을 때에만 저장하며 충돌하면 기존 Skill을 보존합니다. Source Connection은 계속 읽기 전용입니다. 등록·등록 해제, scan, ingest, Context와 항목의 생성·삭제·출처 변경, Work Connection 변경은 로컬 CLI가 맡습니다. 등록 해제는 현재 경로의 명시적 확인을 요구하며 Context나 Work Connection이 남아 있으면 중단합니다. 다른 정본으로 옮겨진 보관 Context가 유일한 연결이면 Context ID와 version을 지정해 Corpus 내부 연결 기록까지 정리할 수 있으며, 이때 등록부와 Context 데이터베이스의 비공개 사본을 먼저 남깁니다. 비공개 색인과 원래 제공자의 세션 파일은 자동으로 지우지 않습니다. Source revision과 inventory가 변해도 Context item을 읽을 수 있습니다. 출처 연결은 생성 당시의 식별자를 남기지만 과거 추출본을 보존하지 않습니다. 현재 자료가 필요하면 현재 Source를 다시 읽습니다. 이 분리는 Chat이 원본 범위나 로컬 연결을 임의로 넓히지 못하게 합니다.
-
-stdio와 private tunnel은 같은 서버와 도구 schema를 사용합니다. Context 항목 배열과 Context Skill 객체처럼 중첩된 입력도 각 필드가 도구 schema 안에 직접 나타나며, 클라이언트의 `$ref` 해석에 의존하지 않습니다. 원격 배포만을 위한 별도 MCP 도구군, source 동기화 transaction이나 삭제 ticket 계층은 두지 않습니다. 도구 schema 확인을 위해 Work 폴더에 probe 파일을 만들지 않습니다.
-
-응답은 로컬 절대 경로를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.
+외부 응답에서는 로컬 절대 경로와 내부 registry ID를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.

@@ -41,7 +41,7 @@ def register_workspace(data_root: Path, workspace_id: str, root: Path) -> None:
 class CLILauncherTest(unittest.TestCase):
     def test_runtime_environment_cannot_overlap_a_work_folder(self) -> None:
         project = Path(__file__).resolve().parents[1]
-        for launcher_name in ("corpus", "corpus-mcp"):
+        for launcher_name in ("corpus", "corpus-mcp", "corpus-maintenance"):
             with (
                 self.subTest(launcher=launcher_name),
                 tempfile.TemporaryDirectory() as temporary,
