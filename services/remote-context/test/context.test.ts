@@ -384,6 +384,20 @@ describe("remote personal context service", () => {
         alreadyCommitted: true,
       },
     });
+    const refreshedInventory = await syncPost(
+      `/sync/v1/corpora/${corpusId}/inventory`,
+      { documentOffset: 0, projectionOffset: 0, limit: 10 },
+    );
+    expect(await body(refreshedInventory)).toMatchObject({
+      result: {
+        projections: [
+          {
+            projection_id: "projection_first",
+            captured_at: "2026-09-02T00:00:01.000Z",
+          },
+        ],
+      },
+    });
 
     const shard = runtime.CORPUS_SHARDS.get(
       runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),

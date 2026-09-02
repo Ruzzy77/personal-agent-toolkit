@@ -67,6 +67,7 @@ interface CommittedProjectionRow {
   last_user_access_at: string | null;
   sha256: string;
   source_size: number;
+  revision_captured_at: string;
   predecessor_revision_id: string | null;
   adapter_id: string;
   adapter_version: string;
@@ -510,7 +511,9 @@ export class CorpusShard {
               d.current_revision_id, d.deleted_at, d.lifecycle_state,
               ${this.documentField("d", "retention_class", "'managed'")},
               ${this.documentField("d", "last_user_access_at", "NULL")},
-              r.sha256, r.source_size, r.predecessor_revision_id,
+              r.sha256, r.source_size,
+              r.captured_at AS revision_captured_at,
+              r.predecessor_revision_id,
               p.adapter_id, p.adapter_version, p.config_hash,
               p.result_manifest_hash, p.completeness_state, p.coverage_json,
               p.capability_manifest_json, p.issues_json, p.assurance_state,
@@ -582,6 +585,14 @@ export class CorpusShard {
         row.current_revision_id === header.revision.revisionId) &&
       row.is_active === (header.projection.activate ? 1 : 0);
     if (!sameDocumentState) return null;
+
+    if (row.revision_captured_at !== header.revision.capturedAt) {
+      this.sql.exec(
+        "UPDATE revisions SET captured_at = ? WHERE revision_id = ?",
+        header.revision.capturedAt,
+        header.revision.revisionId,
+      );
+    }
 
     return {
       corpusId: header.corpusId,
@@ -1565,7 +1576,9 @@ export class CorpusShard {
            revision_id, document_id, sha256, source_size, captured_at,
            predecessor_revision_id, created_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(revision_id) DO NOTHING`,
+         ON CONFLICT(revision_id) DO UPDATE SET
+           captured_at = excluded.captured_at
+         WHERE revisions.captured_at IS NOT excluded.captured_at`,
         header.revision.revisionId,
         header.document.documentId,
         header.revision.sha256,
