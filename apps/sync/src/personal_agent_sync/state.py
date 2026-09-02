@@ -576,6 +576,25 @@ class SyncState:
                 (key, document_id),
             )
 
+    def complete_unsupported(
+        self, key: str, document_id: str, revision_sha256: str
+    ) -> None:
+        """Remember an unsupported byte version without retrying it forever."""
+
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE documents SET
+                    last_revision_sha256 = ?, last_projection_id = NULL
+                WHERE connection_key = ? AND document_id = ?
+                """,
+                (revision_sha256, key, document_id),
+            )
+            connection.execute(
+                "DELETE FROM change_queue WHERE connection_key = ? AND document_id = ?",
+                (key, document_id),
+            )
+
     def complete_missing(self, key: str, document_id: str) -> None:
         with self.connect() as connection:
             connection.execute(

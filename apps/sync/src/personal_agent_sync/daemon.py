@@ -194,7 +194,6 @@ class SyncDaemon:
                 now_iso(),
                 change["relative_path_nfc"],
             )
-        selected_format = format_id(change["relative_path_nfc"])
         with capture_snapshot(
             root,
             (int(change["root_device"]), int(change["root_inode"])),
@@ -202,9 +201,18 @@ class SyncDaemon:
             self.config.data_root / "staging",
             int(change["max_transfer_bytes"]),
         ) as snapshot:
-            result = await select_analyzer(
-                self.state, self.remote, change, snapshot, selected_format
-            )
+            try:
+                selected_format = format_id(change["relative_path_nfc"])
+                result = await select_analyzer(
+                    self.state, self.remote, change, snapshot, selected_format
+                )
+            except SyncError as error:
+                if error.code != "unsupported_format":
+                    raise
+                self.state.complete_unsupported(
+                    change["connection_key"], change["document_id"], snapshot.sha256
+                )
+                return
             header, units = build_projection(
                 change=change,
                 snapshot=snapshot,

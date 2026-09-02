@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import personal_agent_sync.daemon as daemon_module
 import personal_agent_sync.state as state_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
@@ -153,6 +154,35 @@ def test_deleted_unknown_remote_document_completes_idempotently(
 
     asyncio.run(exercise())
     assert daemon.state.due_changes() == []
+
+
+def test_unsupported_file_version_does_not_retry_until_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "opaque.bin"
+    document.write_bytes(b"opaque")
+    daemon = SyncDaemon(load_config(write_config(tmp_path, root)), "test-token")
+    reconcile_all(daemon.state)
+    change = daemon.state.due_changes()[0]
+
+    async def unsupported(*args: object, **kwargs: object) -> dict[str, object]:
+        raise SyncError("unsupported_format", "format is not supported")
+
+    monkeypatch.setattr(daemon_module, "select_analyzer", unsupported)
+
+    async def exercise() -> None:
+        await daemon._process_change(change)
+        await daemon.close()
+
+    asyncio.run(exercise())
+    assert daemon.state.due_changes() == []
+    assert reconcile_all(daemon.state)[0]["changed"] == 0
+
+    document.write_bytes(b"changed")
+    assert reconcile_all(daemon.state)[0]["changed"] == 1
+    assert len(daemon.state.due_changes()) == 1
 
 
 def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(
