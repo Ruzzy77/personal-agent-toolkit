@@ -372,18 +372,23 @@ function storedSourceAnchor(
   const anchor = { ...sourceAnchor };
   delete anchor.absolute_path;
   delete anchor.surface_open_target;
-  const canCompact =
-    anchor.content_hash === header.revision.sha256 &&
-    anchor.document_id === header.document.documentId &&
-    anchor.revision_id === header.revision.revisionId &&
-    anchor.projection_id === header.projection.projectionId &&
-    canonicalJson(anchor.structural_locator) === canonicalJson(structurePath);
+  const relativePath = header.document.relativePath.normalize("NFC");
+  const invariants: Array<[string, unknown]> = [
+    ["content_hash", header.revision.sha256],
+    ["document_id", header.document.documentId],
+    ["revision_id", header.revision.revisionId],
+    ["projection_id", header.projection.projectionId],
+    ["canonical_locator", relativePath],
+    ["relative_path", relativePath],
+    ["structural_locator", structurePath],
+    ["structure_path", structurePath],
+  ];
+  const canCompact = invariants.every(
+    ([key, expected]) =>
+      !(key in anchor) || canonicalJson(anchor[key]) === canonicalJson(expected),
+  );
   if (!canCompact) return canonicalJson(anchor);
-  delete anchor.content_hash;
-  delete anchor.document_id;
-  delete anchor.revision_id;
-  delete anchor.projection_id;
-  delete anchor.structural_locator;
+  for (const [key] of invariants) delete anchor[key];
   return `${COMPACT_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`;
 }
 
@@ -398,6 +403,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
       : row.source_anchor_json,
   );
   if (compact) {
+    anchor.canonical_locator = row.relative_path;
     anchor.content_hash = row.revision_sha256;
     anchor.document_id = row.document_id;
     anchor.revision_id = row.revision_id;

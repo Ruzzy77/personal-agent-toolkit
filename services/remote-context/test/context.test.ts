@@ -331,9 +331,11 @@ describe("remote personal context service", () => {
         document_id: documentId,
         extraction_schema_version: 5,
         projection_id: begin.projection.projectionId,
+        relative_path: "folder/한글.txt",
         revision_id: begin.revision.revisionId,
         schema_version: 2,
         source_span: { paragraph: 1 },
+        structure_path: { paragraph: 1 },
         structural_locator: { paragraph: 1 },
       },
       content: firstContent,
@@ -477,7 +479,8 @@ describe("remote personal context service", () => {
       },
       body: JSON.stringify({ unitIds: ["unit_first"] }),
     });
-    expect(await body(read)).toMatchObject({
+    const readBody = await body(read);
+    expect(readBody).toMatchObject({
       result: {
         units: [
           {
@@ -494,6 +497,9 @@ describe("remote personal context service", () => {
         ],
       },
     });
+    expect(readBody).not.toHaveProperty(
+      "result.units.0.source_anchor.structure_path",
+    );
   });
 
   it("keeps structural-only units out of the derived search index", async () => {
