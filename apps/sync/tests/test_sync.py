@@ -19,7 +19,7 @@ from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
 from personal_agent_sync.storage import maintain_remote_storage, remote_storage_report
-from personal_agent_sync.work import WORK_OPERATIONS, WorkExecutor
+from personal_agent_sync.work import SYNC_OPERATIONS, WORK_OPERATIONS, WorkExecutor
 
 
 def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
@@ -324,10 +324,105 @@ def test_metadata_only_change_reuses_the_committed_projection(
 
     async def exercise() -> None:
         await daemon._process_change(change)
-        await daemon.close()
 
     asyncio.run(exercise())
     assert observed and observed[0][2] == "available"
+    assert daemon.state.due_changes() == []
+
+    analysis_calls: list[str] = []
+    maintenance_calls: list[dict[str, object]] = []
+
+    async def analyze(
+        _state: object,
+        _remote: object,
+        _change: dict[str, object],
+        snapshot: Snapshot,
+        selected_format: str,
+    ) -> dict[str, object]:
+        analysis_calls.append(snapshot.sha256)
+        descriptor = {
+            "adapter_id": "document-files.text",
+            "adapter_version": "2",
+            "config_hash": "a" * 64,
+            "capabilities": {"format_ids": ["txt"], "supports_ocr": False},
+        }
+        return {
+            "input": {
+                "format_id": selected_format,
+                "byte_size": snapshot.byte_size,
+                "sha256": snapshot.sha256,
+            },
+            "analyzer": descriptor,
+            "extraction": {
+                "descriptor": descriptor,
+                "completeness": "complete",
+                "coverage": {"text_content": "complete"},
+                "units": [
+                    {
+                        "unit_type": "paragraph",
+                        "structure_path": {"paragraph": 1},
+                        "content": "same bytes",
+                        "derivation_method": "native_text",
+                        "geometry": {},
+                        "confidence": 1,
+                        "quality_flags": [],
+                        "issues": [],
+                    }
+                ],
+                "issues": [],
+                "manifest_hash": "b" * 64,
+            },
+        }
+
+    async def upload(
+        _corpus_id: str, header: dict[str, object], _units: list[dict[str, object]]
+    ) -> dict[str, object]:
+        projection = header["projection"]
+        assert isinstance(projection, dict)
+        return {"projectionId": projection["projectionId"]}
+
+    async def maintain(_corpus_id: str, **options: object) -> dict[str, object]:
+        maintenance_calls.append(options)
+        return {"removed": {"projections": 1}}
+
+    monkeypatch.setattr(daemon_module, "select_analyzer", analyze)
+    monkeypatch.setattr(daemon.remote, "upload_projection", upload)
+    monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain)
+
+    job = {
+        "jobId": f"job_{'d' * 32}",
+        "operation": "source.refresh",
+        "scope": {"spaceId": "notes", "connectionId": "main", "generation": 3},
+        "request": {
+            "space_id": "notes",
+            "connection_id": "main",
+            "document_id": initial["document_id"],
+            "expected_revision_sha256": digest,
+        },
+        "maximumResponseBytes": 1024 * 1024,
+        "expiresAt": "2099-01-01T00:00:00+00:00",
+    }
+
+    async def refresh() -> dict[str, object]:
+        response = await daemon._execute_job(job)
+        await daemon.close()
+        return response
+
+    response = asyncio.run(refresh())
+    assert response["ok"] is True
+    result = response["result"]
+    assert isinstance(result, dict)
+    assert result["completed"] is True
+    assert result["revision_sha256"] == digest
+    assert result["projection_id"] != "projection_existing"
+    assert analysis_calls == [digest]
+    assert maintenance_calls == [
+        {
+            "remove_projection_ids": ["projection_existing"],
+            "remove_document_ids": [],
+            "remove_upload_ids": [],
+        }
+    ]
     assert daemon.state.due_changes() == []
 
 
@@ -472,6 +567,8 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
 ) -> None:
     root = tmp_path / "source"
     root.mkdir()
+    source = root / "note.txt"
+    source.write_text("source", encoding="utf-8")
     config_path = write_config(tmp_path, root)
     config_path.write_text(
         config_path.read_text().replace(
@@ -479,7 +576,17 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
         )
     )
     config = load_config(config_path)
-    executor = WorkExecutor(config, SyncState(config))
+    state = SyncState(config)
+    reconcile_all(state)
+    source_change = state.due_changes()[0]
+    digest = hashlib.sha256(b"source").hexdigest()
+    state.complete_change(
+        source_change["connection_key"],
+        source_change["document_id"],
+        digest,
+        "projection_source",
+    )
+    executor = WorkExecutor(config, state)
     monkeypatch.setattr(
         executor,
         "_invoke",
@@ -515,9 +622,21 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
             scope,
             {"space_id": "another-space", "connection_id": "main"},
         )
+    refreshed = executor.execute(
+        "source.refresh",
+        scope,
+        {
+            "space_id": "notes",
+            "connection_id": "main",
+            "document_id": source_change["document_id"],
+            "expected_revision_sha256": digest,
+        },
+    )
+    assert refreshed["requested"] is True
+    assert state.due_changes()[0]["event_kind"] == "refresh"
 
 
-def test_broker_advertises_only_executable_work_operations() -> None:
+def test_broker_advertises_only_executable_local_operations() -> None:
     assert WORK_OPERATIONS == (
         "work.file.list",
         "work.file.read",
@@ -527,6 +646,7 @@ def test_broker_advertises_only_executable_work_operations() -> None:
         "work.file.restore",
     )
     assert all(operation.startswith("work.file.") for operation in WORK_OPERATIONS)
+    assert SYNC_OPERATIONS == (*WORK_OPERATIONS, "source.refresh")
 
 
 def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(

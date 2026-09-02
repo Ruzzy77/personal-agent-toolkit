@@ -21,7 +21,7 @@ from .paths import capture_snapshot, resolve_moved_root
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState, canonical, now_iso
-from .work import WORK_OPERATIONS, WorkExecutor
+from .work import SYNC_OPERATIONS, WorkExecutor
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ class SyncDaemon:
         self.state = SyncState(config)
         self.remote = RemoteClient(config, token)
         self.work = WorkExecutor(config, self.state)
+        self.source_change_lock = asyncio.Lock()
         self.stopping = asyncio.Event()
 
     async def close(self) -> None:
@@ -127,21 +128,32 @@ class SyncDaemon:
         for change in self.state.due_changes(limit=20):
             if self.stopping.is_set():
                 return
-            try:
-                await self._process_change(change)
-            except SyncError as error:
-                self.state.fail_change(
-                    change["connection_key"], change["document_id"], error.code
-                )
-            except Exception:
-                LOGGER.exception("Unexpected failure while processing a Source change")
-                self.state.fail_change(
-                    change["connection_key"],
+            async with self.source_change_lock:
+                current = self.state.queued_change(
+                    change["space_id"],
+                    change["connection_id"],
                     change["document_id"],
-                    "unexpected_local_failure",
                 )
+                if current is None:
+                    continue
+                try:
+                    await self._process_change(current)
+                except SyncError as error:
+                    self.state.fail_change(
+                        current["connection_key"], current["document_id"], error.code
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Unexpected failure while processing a Source change"
+                    )
+                    self.state.fail_change(
+                        current["connection_key"],
+                        current["document_id"],
+                        "unexpected_local_failure",
+                    )
 
     async def _process_change(self, change: dict[str, Any]) -> None:
+        force_refresh = change["event_kind"] == "refresh"
         corpus_id = change.get("corpus_id")
         if not isinstance(corpus_id, str) or change["access_scope"] != "remote_allowed":
             # A local-only Source remains entirely local and does not block the bounded queue.
@@ -193,7 +205,9 @@ class SyncDaemon:
             self.config.data_root / "staging",
             int(change["max_transfer_bytes"]),
         ) as snapshot:
-            if snapshot.sha256 == change.get("last_revision_sha256"):
+            if not force_refresh and snapshot.sha256 == change.get(
+                "last_revision_sha256"
+            ):
                 previous_projection = change.get("last_projection_id")
                 if isinstance(previous_projection, str):
                     await self.remote.update_source_state(
@@ -216,7 +230,9 @@ class SyncDaemon:
                         snapshot.sha256,
                     )
                 return
-            if change.get("last_revision_sha256"):
+            if change.get("last_revision_sha256") and snapshot.sha256 != change.get(
+                "last_revision_sha256"
+            ):
                 await self.remote.update_source_state(
                     corpus_id,
                     change["document_id"],
@@ -231,6 +247,22 @@ class SyncDaemon:
                 )
             except SyncError as error:
                 if error.code != "unsupported_format":
+                    raise
+                previous_projection = change.get("last_projection_id")
+                if force_refresh:
+                    if isinstance(previous_projection, str):
+                        self.state.complete_change(
+                            change["connection_key"],
+                            change["document_id"],
+                            snapshot.sha256,
+                            previous_projection,
+                        )
+                    else:
+                        self.state.complete_unsupported(
+                            change["connection_key"],
+                            change["document_id"],
+                            snapshot.sha256,
+                        )
                     raise
                 self.state.complete_unsupported(
                     change["connection_key"], change["document_id"], snapshot.sha256
@@ -247,6 +279,18 @@ class SyncDaemon:
         if not isinstance(projection_id, str):
             raise SyncError(
                 "remote_protocol_error", "projection commit identity is missing"
+            )
+        previous_projection = change.get("last_projection_id")
+        if (
+            force_refresh
+            and isinstance(previous_projection, str)
+            and previous_projection != projection_id
+        ):
+            await self.remote.maintain_corpus(
+                corpus_id,
+                remove_projection_ids=[previous_projection],
+                remove_document_ids=[],
+                remove_upload_ids=[],
             )
         self.state.complete_change(
             change["connection_key"],
@@ -290,7 +334,7 @@ class SyncDaemon:
                         "type": "hello",
                         "protocolVersion": 1,
                         "displayName": self.config.display_name,
-                        "capabilities": list(WORK_OPERATIONS),
+                        "capabilities": list(SYNC_OPERATIONS),
                     }
                 )
             )
@@ -334,9 +378,47 @@ class SyncDaemon:
             expires = datetime.fromisoformat(str(job["expiresAt"]))
             if expires <= datetime.now(UTC):
                 raise SyncError("job_expired", "job deadline has passed")
-            result = await asyncio.to_thread(
-                self.work.execute, job["operation"], job["scope"], job["request"]
-            )
+            if job["operation"] == "source.refresh":
+                scope = job["scope"]
+                request = job["request"]
+                if not isinstance(scope, dict) or not isinstance(request, dict):
+                    raise SyncError("invalid_job", "job Source request is invalid")
+                async with self.source_change_lock:
+                    result = await asyncio.to_thread(
+                        self.work.execute, job["operation"], scope, request
+                    )
+                    space_id = scope.get("spaceId")
+                    connection_id = scope.get("connectionId")
+                    document_id = request.get("document_id")
+                    if not all(
+                        isinstance(value, str)
+                        for value in (space_id, connection_id, document_id)
+                    ):
+                        raise SyncError("invalid_job", "job Source request is invalid")
+                    change = self.state.queued_change(
+                        space_id, connection_id, document_id
+                    )
+                    if change is None:
+                        raise SyncError(
+                            "refresh_not_queued", "Source refresh was not queued"
+                        )
+                    try:
+                        await self._process_change(change)
+                    except SyncError as error:
+                        self.state.fail_change(
+                            change["connection_key"], document_id, error.code
+                        )
+                        raise
+                    result = {
+                        **result,
+                        **self.state.refresh_result(
+                            space_id, connection_id, document_id
+                        ),
+                    }
+            else:
+                result = await asyncio.to_thread(
+                    self.work.execute, job["operation"], job["scope"], job["request"]
+                )
             response: dict[str, Any] = {"ok": True, "result": result}
         except SyncError as error:
             response = {

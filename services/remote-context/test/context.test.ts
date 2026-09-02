@@ -136,6 +136,8 @@ describe("remote personal context service", () => {
         "corpus_context_items_revise",
         "corpus_context_skill_revise",
         "corpus_space_search",
+        "corpus_source_refresh",
+        "corpus_job_status",
         "corpus_file_list",
         "corpus_file_read",
         "corpus_file_write",
@@ -1049,7 +1051,7 @@ describe("remote personal context service", () => {
     });
   });
 
-  it("queues a bounded Work job while the Sync device is offline", async () => {
+  it("queues bounded Work and Source jobs while the Sync device is offline", async () => {
     const now = "2026-09-02T00:00:00.000Z";
     await runtime.STATE_DB.batch([
       runtime.STATE_DB.prepare(
@@ -1077,10 +1079,11 @@ describe("remote personal context service", () => {
            access_scope, permission, index_mode, corpus_id, device_id,
            local_connection_key, generation, configuration_state, source_state,
            record_state, captured_at, updated_at
-         ) VALUES (?, ?, 'main', 'Offline Work', '["work"]', 'remote_allowed',
-                   'read_write', 'not_indexed', NULL, 'offline-mac', 'offline-key',
-                   1, 'ready', NULL, NULL, NULL, ?)`,
-      ).bind("owner_test", "offline-space", now),
+         ) VALUES (?, ?, 'main', 'Offline Source and Work', '["source","work"]',
+                   'remote_allowed', 'read_write', 'indexed', 'offline-corpus',
+                   'offline-mac', 'offline-key', 1, 'ready', 'available',
+                   'committed', ?, ?)`,
+      ).bind("owner_test", "offline-space", now, now),
     ]);
 
     const service = new CorpusService(runtime, ownerPrincipal);
@@ -1098,9 +1101,9 @@ describe("remote personal context service", () => {
     });
     const stored = await runtime.STATE_DB.prepare(
       `SELECT job_id, operation, state, maximum_response_bytes
-       FROM sync_jobs WHERE owner_id = ? AND device_id = ?`,
+       FROM sync_jobs WHERE owner_id = ? AND device_id = ? AND operation = ?`,
     )
-      .bind("owner_test", "offline-mac")
+      .bind("owner_test", "offline-mac", "work.file.list")
       .first<{
         job_id: string;
         operation: string;
@@ -1117,10 +1120,51 @@ describe("remote personal context service", () => {
     )
       .bind("2020-01-01T00:00:00.000Z", "owner_test", stored!.job_id)
       .run();
-    await expect(service.jobStatus(stored!.job_id)).resolves.toMatchObject({
+    await expect(
+      service.jobStatus({ job_id: stored!.job_id }),
+    ).resolves.toMatchObject({
       state: "expired",
       expires_at: "2020-01-01T00:00:00.000Z",
     });
+
+    const documentId = `doc_${"b".repeat(32)}`;
+    await expect(
+      service.sourceRefresh({
+        space_id: "offline-space",
+        connection_id: "main",
+        document_id: documentId,
+        expected_revision_sha256: "c".repeat(64),
+      }),
+    ).resolves.toMatchObject({
+      pending: true,
+      state: "queued",
+      device_online: false,
+    });
+    const refresh = await runtime.STATE_DB.prepare(
+      `SELECT job_id, operation, state, request_json, expires_at, created_at
+       FROM sync_jobs WHERE owner_id = ? AND device_id = ? AND operation = ?`,
+    )
+      .bind("owner_test", "offline-mac", "source.refresh")
+      .first<{
+        job_id: string;
+        operation: string;
+        state: string;
+        request_json: string;
+        expires_at: string;
+        created_at: string;
+      }>();
+    expect(refresh).toMatchObject({ operation: "source.refresh", state: "queued" });
+    expect(JSON.parse(refresh!.request_json)).toMatchObject({
+      document_id: documentId,
+      expected_revision_sha256: "c".repeat(64),
+    });
+    const refreshTtl =
+      Date.parse(refresh!.expires_at) - Date.parse(refresh!.created_at);
+    expect(refreshTtl).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(refreshTtl).toBeLessThan(30 * 60_000 + 1000);
+    await expect(
+      service.jobStatus({ job_id: refresh!.job_id }),
+    ).resolves.toMatchObject({ operation: "source.refresh", state: "queued" });
   });
 
   it("drains an offline Work backlog without exceeding the in-flight bound", async () => {

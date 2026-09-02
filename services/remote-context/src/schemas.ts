@@ -496,6 +496,21 @@ export const corpusSpaceSearchSchema = z
   })
   .strict();
 
+export const corpusSourceRefreshSchema = z
+  .object({
+    space_id: spaceId,
+    connection_id: connectionId.nullable().optional(),
+    document_id: z.string().regex(/^doc_[0-9a-f]{32}$/),
+    expected_revision_sha256: sha256.nullable().optional(),
+  })
+  .strict();
+
+export const corpusJobStatusSchema = z
+  .object({
+    job_id: z.string().regex(/^job_[0-9a-f]{32}$/),
+  })
+  .strict();
+
 export const corpusFileListSchema = z
   .object({
     space_id: spaceId,

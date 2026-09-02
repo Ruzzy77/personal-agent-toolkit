@@ -20,6 +20,9 @@ on a local port and does not expose the Mac through a tunnel.
   Corpus snapshot, while preserving current and Context-linked records;
 - receive bounded Work jobs, recheck current Connection policy and generation,
   and delegate actual file operations to the installed local Corpus authority;
+- receive exact Source refresh jobs, recheck local Source access and analyzer
+  policy, and keep the remote job open until the requested projection is
+  committed or the attempt fails;
 - store the device secret in Keychain and cache completed job responses so a
   reconnect can safely replay a job ID.
 
@@ -72,6 +75,12 @@ deployed analyzer binding; it does not reimplement document parsing.
 
 `personal-agent-sync status` shows only opaque Connection and document IDs,
 queue state, and stable error codes. It does not print local roots.
+
+Remote clients request an on-demand refresh with the exact Space, Connection,
+and document IDs. The request can include the last known revision digest. Sync
+re-analyzes unchanged bytes when explicitly requested, atomically activates the
+new projection, and removes only an unprotected superseded extractor projection.
+Ordinary metadata-only filesystem changes still reuse the committed projection.
 
 `personal-agent-sync storage-report` reads the current remote shard sizes,
 record counts, derived-index state, and largest logical projections. It is an

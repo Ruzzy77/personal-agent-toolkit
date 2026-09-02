@@ -33,6 +33,12 @@ filesystem identities remain in the Sync app. A path appearing literally in
 source-derived or user-authored text is stored only as untrusted content and is
 never interpreted as remote filesystem authority.
 
+The Corpus MCP can enqueue one exact `source.refresh` job for a registered
+document and expose its bounded job status. The outbound Sync app rechecks the
+current local Connection role, generation, source availability, and analyzer
+policy before reading bytes. A successful job reports the committed revision
+and projection; a queued response is not completion.
+
 ## Storage operations
 
 The Sync operator interface provides an explicit storage report and a

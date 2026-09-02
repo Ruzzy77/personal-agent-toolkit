@@ -19,6 +19,8 @@ Source Connection은 갱신 입력을 제공하고, Corpus record는 마지막�
 | `corpus_context_items_revise` | 선택한 Context 항목의 종류·본문·상태를 현재 Context 버전과 대조해 일괄 교체 |
 | `corpus_context_skill_revise` | Context Skill 전체를 최신 버전과 대조해 교체 |
 | `corpus_space_search` | Source 검색 |
+| `corpus_source_refresh` | 지정한 Source 문서를 Sync 앱에서 다시 읽고 projection 갱신 요청 |
+| `corpus_job_status` | 대기 중이거나 완료된 Source·Work 작업 상태 확인 |
 | `corpus_file_list` | Work 파일 목록·검색 |
 | `corpus_file_read` | Work 파일 또는 Source unit 읽기 |
 | `corpus_file_write` | 파일 생성·전체 교체·구간 교체 |
@@ -89,6 +91,13 @@ CORPUS_MCP_PORT=8000 \
 
 원자료가 삭제되거나 일시적으로 연결되지 않아도 마지막 정상 record는 검색하고 읽을 수 있습니다. 새 추출이 실패해도 정상 record를 실패 결과로 교체하지 않습니다. `source_state`는 원자료의 이용 가능성과 변경 여부를, `record_state`는 저장된 추출 결과의 이용 가능성과 추출기 현재성을 각각 나타냅니다. 따라서 원자료가 `unavailable`이어도 record가 `ready`일 수 있습니다.
 
+현재 원문 확인이나 추출기 갱신이 필요한 문서는 `corpus_source_refresh`로 정확한
+`document_id`를 지정합니다. 원격 Corpus는 작업을 Sync 앱에 전달하고, Sync 앱이 현재
+Connection 역할·세대·로컬 접근 가능성·전송 정책을 다시 확인한 뒤 원자료를 캡처합니다. 짧은
+문서는 갱신 결과가 바로 반환될 수 있으며, 오래 걸리는 분석은 `job_id`를
+`corpus_job_status`로 확인합니다. 작업 완료 응답에 새 revision과 projection이 확인되기 전에는
+갱신이 끝났다고 판단하지 않습니다.
+
 문서 형식별 파싱, OCR, 구조 단위와 추출 범위 판정은 Document Files가 담당합니다. Corpus는 등록된 원본을 읽기 전용 임시 사본으로 캡처하고, Document Files의 검증된 결과에 revision·projection·Source unit ID와 anchor를 부여해 검색에 연결합니다. Corpus에는 PDF·Office·HWP/HWPX 파서나 해당 라이브러리를 포함하지 않습니다.
 
 Document Files는 큰 PDF의 페이지 구간과 Office 계열 문서의 그림 구간을 한 추출 프로세스 안에서 이어 처리한 뒤 결과를 반환합니다. Corpus는 형식별 후속 처리나 별도 OCR을 예약하지 않습니다. `status`와 갱신 스크립트의 최종 JSON에는 부분 추출 문서의 형식별·문제별 집계가 포함되며, 실제 추출 실패, 처리 한도, 미지원 형식, 미해결 구조와 읽기 순서 미확인을 구분합니다. 분류별 수치는 같은 문서를 중복 집계할 수 있습니다.
@@ -113,8 +122,10 @@ HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Doc
 ### 자동 갱신과 변경 대기열
 
 운영 구성에서는 Personal Agent Sync가 Finder 변경을 대조하고 제한된 로컬 대기열을 처리하므로
-별도 예약 작업이나 공개 터널이 필요하지 않습니다. 로컬 Corpus만 단독 시험하는 경우에는 아래
-`corpus-maintenance`를 사용할 수 있습니다.
+별도 예약 작업이나 공개 터널이 필요하지 않습니다. 파일 내용이 그대로여도 추출기가 바뀌었거나
+현재 원문을 다시 확인해야 하면 원격 MCP가 한 문서의 재분석을 요청할 수 있습니다. Sync 앱이
+원자료에 접근하지 못하거나 현재 정책상 원격 분석 승인이 필요할 때에만 사용자 조치가 필요합니다.
+로컬 Corpus만 단독 시험하는 경우에는 아래 `corpus-maintenance`를 사용할 수 있습니다.
 
 `corpus-maintenance`는 파일 변경을 잠시 모아 중복을 합친 뒤 갱신합니다. 대기열은 최대 2,048개이며 넘치면 항목을 계속 쌓지 않고 전체 대조 한 건으로 합칩니다. 성공한 대조 뒤 항목을 지우므로 장기 변경 이력처럼 커지지 않습니다. 파일 감시가 끊겨도 기본 15분마다 전체 대조하고, 프로세스 시작 시에도 한 번 대조합니다.
 

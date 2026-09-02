@@ -362,6 +362,61 @@ class SyncState:
     def connection_for_scope(self, space_id: str, connection_id: str) -> sqlite3.Row:
         return self.connection_row(f"{space_id}:{connection_id}")
 
+    def request_refresh(
+        self,
+        space_id: str,
+        connection_id: str,
+        document_id: str,
+        expected_revision_sha256: str | None,
+    ) -> dict[str, object]:
+        key = f"{space_id}:{connection_id}"
+        now = now_iso()
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT d.document_id, d.relative_path_nfc,
+                       d.last_revision_sha256, d.last_projection_id,
+                       d.missing_since, c.location_state
+                FROM documents d
+                JOIN connections c USING(connection_key)
+                WHERE d.connection_key = ? AND d.document_id = ?
+                """,
+                (key, document_id),
+            ).fetchone()
+            if row is None:
+                raise SyncError(
+                    "document_not_found",
+                    "the requested Source document is not registered locally",
+                )
+            if row["missing_since"] is not None or row["location_state"] != "available":
+                raise SyncError(
+                    "source_unavailable",
+                    "the requested Source document is not currently available",
+                )
+            current_revision = row["last_revision_sha256"]
+            if (
+                expected_revision_sha256 is not None
+                and current_revision != expected_revision_sha256
+            ):
+                raise SyncError(
+                    "revision_conflict",
+                    "the local Source revision changed before refresh",
+                )
+            self._enqueue(
+                connection,
+                key,
+                document_id,
+                "refresh",
+                row["relative_path_nfc"],
+                now,
+            )
+        return {
+            "requested": True,
+            "document_id": document_id,
+            "previous_revision_sha256": current_revision,
+            "previous_projection_id": row["last_projection_id"],
+        }
+
     def update_root_path(self, key: str, root: Path) -> None:
         metadata = root.stat()
         with self.connect() as connection:
@@ -507,9 +562,17 @@ class SyncState:
                 first_seen_at, last_seen_at, attempt_count, next_attempt_at
             ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)
             ON CONFLICT(connection_key, document_id) DO UPDATE SET
-                event_kind=excluded.event_kind,
+                event_kind=CASE
+                    WHEN excluded.event_kind = 'deleted' THEN 'deleted'
+                    WHEN change_queue.event_kind = 'refresh' THEN 'refresh'
+                    ELSE excluded.event_kind
+                END,
                 relative_path_nfc=excluded.relative_path_nfc,
                 last_seen_at=excluded.last_seen_at,
+                attempt_count=CASE
+                    WHEN excluded.event_kind = 'refresh' THEN 0
+                    ELSE change_queue.attempt_count
+                END,
                 next_attempt_at=excluded.next_attempt_at,
                 last_error_code=NULL
             """,
@@ -546,7 +609,8 @@ class SyncState:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT q.*, d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
+                SELECT q.*, c.space_id, c.connection_id,
+                       d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
                        d.last_revision_sha256, d.last_projection_id,
                        c.root_path, c.root_device, c.root_inode, c.corpus_id,
                        c.analyzer_route, c.max_transfer_bytes, c.access_scope
@@ -559,6 +623,57 @@ class SyncState:
                 (now_iso(), limit),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def queued_change(
+        self, space_id: str, connection_id: str, document_id: str
+    ) -> dict[str, Any] | None:
+        key = f"{space_id}:{connection_id}"
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT q.*, c.space_id, c.connection_id,
+                       d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
+                       d.last_revision_sha256, d.last_projection_id,
+                       c.root_path, c.root_device, c.root_inode, c.corpus_id,
+                       c.analyzer_route, c.max_transfer_bytes, c.access_scope
+                FROM change_queue q
+                JOIN documents d USING(connection_key, document_id)
+                JOIN connections c USING(connection_key)
+                WHERE q.connection_key = ? AND q.document_id = ?
+                """,
+                (key, document_id),
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def refresh_result(
+        self, space_id: str, connection_id: str, document_id: str
+    ) -> dict[str, object]:
+        key = f"{space_id}:{connection_id}"
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT last_revision_sha256, last_projection_id, missing_since
+                FROM documents
+                WHERE connection_key = ? AND document_id = ?
+                """,
+                (key, document_id),
+            ).fetchone()
+        if row is None:
+            raise SyncError(
+                "document_not_found",
+                "the requested Source document is not registered locally",
+            )
+        if row["missing_since"] is not None:
+            raise SyncError(
+                "source_unavailable",
+                "the requested Source document is not currently available",
+            )
+        return {
+            "completed": True,
+            "document_id": document_id,
+            "revision_sha256": row["last_revision_sha256"],
+            "projection_id": row["last_projection_id"],
+        }
 
     def complete_change(
         self, key: str, document_id: str, revision: str, projection: str

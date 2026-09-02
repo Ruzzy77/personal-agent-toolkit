@@ -13,18 +13,19 @@ Corpus는 원자료를 매번 다시 찾거나 읽지 않아도 작업에 필요
 ## 런타임 구성
 
 ```text
-CLI / MCP
-    │
-CorpusService
-    ├── ContextService
-    ├── WorkspaceService
-    ├── SpaceService
-    └── Source scan / capture / durable record / search projection
-             │
-             └── document-files process
+AI clients ── owner-authenticated remote MCP ── durable Context / Source records
+                         │
+                         └── Sync job broker
+                                  │ outbound connection
+Local CLI / Finder ── Personal Agent Sync ── capture / Work authority
+                                  │
+                                  └── Document Files analysis
 ```
 
-`CorpusService`가 CLI와 MCP의 공통 진입점입니다. Codex, Claude와 웹 ChatGPT용 private tunnel이 같은 private data root와 같은 MCP 구현을 사용하므로 별도 클라이언트별 복사본을 만들지 않습니다.
+원격 `CorpusService`가 Codex, Claude와 웹 ChatGPT에 같은 Context, Source record와 확정
+revision을 제공합니다. 로컬 Personal Agent Sync만 Finder 위치와 권한을 가지며, 원격에서 받은
+작업도 현재 Connection 정책을 다시 확인한 뒤 수행합니다. 로컬 개발·이관용 Corpus 구현은 같은
+데이터 계약을 사용하지만 클라이언트별 Context 복사본이나 별도 색인 세대를 만들지 않습니다.
 
 ### Private storage
 
@@ -72,6 +73,11 @@ Corpus는 `document-files process --describe`에서 adapter identity와 capabili
 
 maintenance worker는 시작 시와 기본 15분 간격으로 전체 대조합니다. 따라서 파일 감시가 누락되거나 Source root 자체가 이동해도 다음 대조에서 복구합니다. 동시에 여러 클라이언트가 실행해도 private worker lock을 얻은 한 프로세스만 갱신합니다. 별도 전역 색인 세대나 클라이언트별 동기화 상태는 두지 않습니다.
 
+원격 MCP는 정확한 `document_id`에 대해 `source.refresh` 작업을 보낼 수 있습니다. Sync 앱은
+파일 내용이 이전 revision과 같더라도 Document Files를 다시 실행하므로 추출기 변경을 반영할 수
+있습니다. 새 projection을 먼저 확정하고 활성 포인터를 전환한 뒤, Context가 보호하지 않는 이전
+추출기 projection만 정리합니다. 분석이 오래 걸리면 원격 작업 상태로 완료 여부를 확인합니다.
+
 worker 상태는 `maintenance-state.json` 단일 스냅샷으로 원자적으로 교체합니다. 변경 이벤트와 보존 전환의 상세 목록을 장기 실행 기록으로 남기지 않습니다.
 
 ## Context
@@ -114,8 +120,13 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면과 클라이언트 일관성
 
-기본 MCP 서버는 Space·File 조회/편집과 version 보호된 Context 항목·Context Skill 교체를 제공합니다. Source 등록·해제, scan, ingest, 보존 정책 변경과 Work Connection 변경은 로컬 CLI가 맡습니다. Source Connection은 읽기 전용입니다.
+원격 MCP 서버는 Space·File 조회/편집, version 보호된 Context 항목·Context Skill 교체,
+정확한 Source 문서 갱신 요청과 Sync 작업 상태 확인을 제공합니다. Source 등록·해제, 보존 정책과
+Connection 변경은 로컬 구성이 맡습니다. Source Connection은 원자료를 수정하지 않으며,
+갱신 요청도 새 추출 record를 만드는 작업으로만 해석합니다.
 
-stdio와 private tunnel은 같은 서버, private data root와 도구 schema를 사용합니다. Codex, Claude와 웹 ChatGPT에 별도 Context 복제본이나 별도 색인 세대를 만들지 않습니다. 중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.
+Codex, Claude와 웹 ChatGPT는 소유자 인증형 원격 MCP에서 같은 데이터와 도구 schema를
+사용합니다. Finder 권한은 outbound-only Sync 앱에 남고 private tunnel은 이관 확인 뒤 제거합니다.
+중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.
 
 외부 응답에서는 로컬 절대 경로와 내부 registry ID를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.

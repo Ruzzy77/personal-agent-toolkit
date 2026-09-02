@@ -9,6 +9,8 @@ import {
   corpusFileRestoreSchema,
   corpusFileSelectSchema,
   corpusFileWriteSchema,
+  corpusJobStatusSchema,
+  corpusSourceRefreshSchema,
   corpusSpaceGetSchema,
   corpusSpaceListSchema,
   corpusSpaceSearchSchema,
@@ -366,11 +368,12 @@ export class CorpusService {
       has_more: hasMore,
       next_offset: hasMore ? input.offset + spaces.length : null,
       spaces,
-      surface_revision: "space-v7-remote1",
+      surface_revision: "space-v8-remote1",
       capabilities: {
         context: ["read", "revise_items"],
         context_skill: ["read", "revise"],
-        indexed_source: ["search", "read_ref"],
+        indexed_source: ["search", "read_ref", "refresh"],
+        sync_job: ["status"],
         work_file: [
           "list",
           "read",
@@ -695,6 +698,30 @@ export class CorpusService {
     return selected;
   }
 
+  private async sourceConnection(
+    spaceId: string,
+    connectionId?: string | null,
+  ): Promise<ConnectionRow> {
+    const rows = await this.sourceConnections(spaceId, connectionId);
+    if (rows.length !== 1) {
+      throw new ContextError(
+        "source_connection_selection_required",
+        "one Source Connection must be selected",
+        409,
+        { available_connection_ids: rows.map((row) => row.connection_id) },
+      );
+    }
+    const selected = rows[0]!;
+    if (!selected.device_id) {
+      throw new ContextError(
+        "source_sync_unavailable",
+        "the selected Source Connection has no registered Sync device",
+        409,
+      );
+    }
+    return selected;
+  }
+
   async spaceSearch(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusSpaceSearchSchema.parse(raw);
     const connections = await this.sourceConnections(
@@ -740,6 +767,24 @@ export class CorpusService {
     return { query: input.query, count: selected.length, candidates: selected };
   }
 
+  async sourceRefresh(raw: unknown): Promise<Record<string, unknown>> {
+    const input = corpusSourceRefreshSchema.parse(raw);
+    const connection = await this.sourceConnection(
+      input.space_id,
+      input.connection_id,
+    );
+    return this.unwrapJob(
+      await this.runJob(
+        connection,
+        "source.refresh",
+        input as Record<string, unknown>,
+        1024 * 1024,
+        20_000,
+        30 * 60_000,
+      ),
+    );
+  }
+
   private async workConnection(
     spaceId: string,
     connectionId?: string | null,
@@ -778,10 +823,11 @@ export class CorpusService {
     request: Record<string, unknown>,
     maximumResponseBytes: number,
     waitMs = 20_000,
+    ttlMs = 5 * 60_000,
   ): Promise<BrokerResult> {
     const jobId = `job_${crypto.randomUUID().replaceAll("-", "")}`;
     const createdAt = nowIso();
-    const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
     const scope = {
       spaceId: connection.space_id,
       connectionId: connection.connection_id,
@@ -869,7 +915,7 @@ export class CorpusService {
       state: result.state,
       device_online: result.deviceOnline,
       message:
-        "The Work operation is queued for the owner's Sync app. Retry or inspect the job after it reconnects.",
+        "The Sync operation is queued for the owner's app. Inspect the job after it reconnects or finishes.",
     };
   }
 
@@ -1085,10 +1131,8 @@ export class CorpusService {
       .run();
   }
 
-  async jobStatus(jobId: string): Promise<Record<string, unknown>> {
-    if (!/^job_[0-9a-f]{32}$/.test(jobId)) {
-      throw new ContextError("invalid_job", "Sync job id is invalid");
-    }
+  async jobStatus(raw: unknown): Promise<Record<string, unknown>> {
+    const { job_id: jobId } = corpusJobStatusSchema.parse(raw);
     const row = await this.env.STATE_DB.prepare(
       `SELECT job_id, operation, state, response_json, expires_at,
               created_at, updated_at, completed_at

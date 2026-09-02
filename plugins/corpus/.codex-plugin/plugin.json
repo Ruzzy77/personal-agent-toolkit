@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.21.2+codex.20260902183000",
+  "version": "0.21.3+codex.20260902165808",
   "description": "Keep durable extracted knowledge connected to changing sources and local work.",
   "author": {
     "name": "Ruzzy77",
@@ -36,6 +36,8 @@
       "Version-checked Context Skill replacement",
       "Remote-safe Connection projection",
       "Durable Source record search and captured reading",
+      "Exact on-demand Source refresh through the local Sync app",
+      "Queued Source and Work job status",
       "Path-independent Source and Work folder identity",
       "Bounded local Source index refresh",
       "Local-only Source separation",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from typing import Any
 
@@ -19,6 +20,8 @@ WORK_OPERATIONS = (
     "work.file.select_current",
     "work.file.restore",
 )
+SOURCE_OPERATIONS = ("source.refresh",)
+SYNC_OPERATIONS = WORK_OPERATIONS + SOURCE_OPERATIONS
 _WORK_HELPER = r"""
 import json
 import sys
@@ -223,7 +226,9 @@ class WorkExecutor:
         roles = json.loads(row["roles_json"])
         if operation.startswith("work.file.") and "work" not in set(roles):
             raise PolicyDenied("the selected Connection has no Work role")
-        if operation not in WORK_OPERATIONS:
+        if operation.startswith("source.") and "source" not in set(roles):
+            raise PolicyDenied("the selected Connection has no Source role")
+        if operation not in SYNC_OPERATIONS:
             raise SyncError(
                 "unsupported_job", "Sync app does not support this job operation"
             )
@@ -238,4 +243,22 @@ class WorkExecutor:
             and row["permission"] != "read_write"
         ):
             raise PolicyDenied("the selected Connection is read-only")
+        if operation == "source.refresh":
+            document_id = request.get("document_id")
+            expected_revision = request.get("expected_revision_sha256")
+            if not isinstance(document_id, str) or not re.fullmatch(
+                r"doc_[0-9a-f]{32}", document_id
+            ):
+                raise SyncError("invalid_job", "Source document identity is invalid")
+            if expected_revision is not None and (
+                not isinstance(expected_revision, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_revision)
+            ):
+                raise SyncError("invalid_job", "expected Source revision is invalid")
+            return self.state.request_refresh(
+                space_id,
+                connection_id,
+                document_id,
+                expected_revision,
+            )
         return self._invoke(operation, space_id, connection_id, request)

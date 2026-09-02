@@ -404,7 +404,9 @@ export async function handleHttp(
       const principal = await authenticateMcp(request, env, "corpus", [
         "corpus.read",
       ]);
-      const result = await new CorpusService(env, principal).jobStatus(job[1]!);
+      const result = await new CorpusService(env, principal).jobStatus({
+        job_id: job[1]!,
+      });
       return json({ ok: true, result });
     }
     return json(
