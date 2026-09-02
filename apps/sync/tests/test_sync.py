@@ -19,7 +19,7 @@ from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
 from personal_agent_sync.storage import maintain_remote_storage, remote_storage_report
-from personal_agent_sync.work import WorkExecutor
+from personal_agent_sync.work import WORK_OPERATIONS, WorkExecutor
 
 
 def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
@@ -515,6 +515,18 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
             scope,
             {"space_id": "another-space", "connection_id": "main"},
         )
+
+
+def test_broker_advertises_only_executable_work_operations() -> None:
+    assert WORK_OPERATIONS == (
+        "work.file.list",
+        "work.file.read",
+        "work.file.write",
+        "work.file.delete",
+        "work.file.select_current",
+        "work.file.restore",
+    )
+    assert all(operation.startswith("work.file.") for operation in WORK_OPERATIONS)
 
 
 def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(

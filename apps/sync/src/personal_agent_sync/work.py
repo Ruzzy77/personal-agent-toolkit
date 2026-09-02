@@ -11,6 +11,14 @@ from .errors import PolicyDenied, SyncError
 from .state import SyncState, canonical
 
 _MAX_HELPER_OUTPUT = 18 * 1024 * 1024
+WORK_OPERATIONS = (
+    "work.file.list",
+    "work.file.read",
+    "work.file.write",
+    "work.file.delete",
+    "work.file.select_current",
+    "work.file.restore",
+)
 _WORK_HELPER = r"""
 import json
 import sys
@@ -215,14 +223,7 @@ class WorkExecutor:
         roles = json.loads(row["roles_json"])
         if operation.startswith("work.file.") and "work" not in set(roles):
             raise PolicyDenied("the selected Connection has no Work role")
-        if operation not in {
-            "work.file.list",
-            "work.file.read",
-            "work.file.write",
-            "work.file.delete",
-            "work.file.select_current",
-            "work.file.restore",
-        }:
+        if operation not in WORK_OPERATIONS:
             raise SyncError(
                 "unsupported_job", "Sync app does not support this job operation"
             )

@@ -21,7 +21,7 @@ from .paths import capture_snapshot, resolve_moved_root
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState, canonical, now_iso
-from .work import WorkExecutor
+from .work import WORK_OPERATIONS, WorkExecutor
 
 LOGGER = logging.getLogger(__name__)
 
@@ -290,17 +290,7 @@ class SyncDaemon:
                         "type": "hello",
                         "protocolVersion": 1,
                         "displayName": self.config.display_name,
-                        "capabilities": [
-                            "work.file.list",
-                            "work.file.read",
-                            "work.file.write",
-                            "work.file.delete",
-                            "work.file.select_current",
-                            "work.file.restore",
-                            "source.reconcile",
-                            "document.analyze.local",
-                            "document.analyze.remote",
-                        ],
+                        "capabilities": list(WORK_OPERATIONS),
                     }
                 )
             )
