@@ -136,8 +136,9 @@ configuration only after:
 
 1. Sense, Hypes, Corpus Context, Source search/read, and Work operations pass
    contract tests against the remote endpoints;
-2. migrated counts, IDs, hashes, and selected exact reads match the local
-   stores;
+2. migrated counts, IDs, hashes, durable metadata, and selected exact reads
+   match the local stores; liveness timestamps that may advance during the
+   comparison are checked operationally rather than as content identity;
 3. the Sync app reconnects after restart and sleep, processes a changed Source,
    and preserves the last good revision on failure;
 4. Codex, Claude Desktop, Claude Code, claude.ai, and web ChatGPT expose the

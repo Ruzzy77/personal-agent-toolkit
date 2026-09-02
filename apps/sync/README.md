@@ -62,6 +62,10 @@ deployed analyzer binding; it does not reimplement document parsing.
    projection boundaries after interruption. When a complete Corpus has been
    copied, it removes only exact remote-minus-local record IDs in bounded
    batches and reports the resulting shard size.
+   `verify-migration` compares durable identities, content hashes, lifecycle
+   state, and extraction metadata. Continuously advancing observation fields
+   such as last-seen, last-accessed, and repeated-capture timestamps are not
+   treated as content-identity mismatches while the local authority is live.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.

@@ -1321,11 +1321,9 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     "eligibility_state": document["eligibilityState"],
                     "current_revision_id": document["currentRevisionId"],
                     "first_seen_at": document["firstSeenAt"],
-                    "last_seen_at": document["lastSeenAt"],
                     "deleted_at": document["deletedAt"],
                     "lifecycle_state": document["lifecycleState"],
                     "retention_class": document["retentionClass"],
-                    "last_user_access_at": document["lastUserAccessAt"],
                 }
                 for document in corpus.documents(corpus_id)
             }
@@ -1337,7 +1335,6 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     "document_id": header["document"]["documentId"],
                     "sha256": header["revision"]["sha256"],
                     "source_size": header["revision"]["sourceSize"],
-                    "captured_at": header["revision"]["capturedAt"],
                     "predecessor_revision_id": header["revision"][
                         "predecessorRevisionId"
                     ],
