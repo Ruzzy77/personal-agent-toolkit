@@ -385,6 +385,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
 export class CorpusShard {
   private readonly sql: DurableObjectStorage["sql"];
   private readonly documentColumns: Set<string>;
+  private initialized: boolean;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -392,20 +393,29 @@ export class CorpusShard {
   ) {
     void this.env;
     this.sql = state.storage.sql;
-    const initialized = [
+    const documentTable = [
       ...this.sql.exec<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'staged_units_v2'",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'documents'",
       ),
-    ].length;
-    if (initialized === 0) this.sql.exec(SHARD_SCHEMA);
+    ];
+    this.initialized = documentTable.length > 0;
     this.documentColumns = new Set(
-      [...this.sql.exec<{ name: string }>("PRAGMA table_info(documents)")].map(
-        (row) => row.name,
-      ),
+      this.initialized
+        ? [
+            ...this.sql.exec<{ name: string }>("PRAGMA table_info(documents)"),
+          ].map((row) => row.name)
+        : [],
     );
   }
 
   private ensureSchema(): void {
+    this.sql.exec(SHARD_SCHEMA);
+    this.initialized = true;
+    for (const row of this.sql.exec<{ name: string }>(
+      "PRAGMA table_info(documents)",
+    )) {
+      this.documentColumns.add(row.name);
+    }
     const additions: Array<[string, string]> = [
       ["media_type", "TEXT"],
       ["logical_size", "INTEGER"],
@@ -540,6 +550,7 @@ export class CorpusShard {
 
   private begin(ownerId: string, raw: unknown): Record<string, unknown> {
     const input = projectionBeginSchema.parse(raw);
+    this.ensureSchema();
     const storedOwner = this.one<{ value: string }>(
       "SELECT value FROM shard_meta WHERE key = 'owner_id'",
     );
@@ -622,6 +633,7 @@ export class CorpusShard {
 
   private async addUnits(raw: unknown): Promise<Record<string, unknown>> {
     const input = projectionUnitsSchema.parse(raw);
+    this.ensureSchema();
     const upload = this.one<UploadRow>(
       "SELECT header_json, created_at FROM staged_uploads WHERE upload_id = ?",
       input.uploadId,
@@ -839,6 +851,7 @@ export class CorpusShard {
     raw: unknown,
   ): Promise<Record<string, unknown>> {
     const input = corpusExternalImportSchema.parse(raw);
+    this.ensureSchema();
     const storedOwner = this.one<{ value: string }>(
       "SELECT value FROM shard_meta WHERE key = 'owner_id'",
     );
@@ -1275,6 +1288,13 @@ export class CorpusShard {
 
   private sourceState(raw: unknown): Record<string, unknown> {
     const input = sourceStateSchema.parse(raw);
+    if (!this.initialized) {
+      throw new ContextError(
+        "document_not_found",
+        "document was not found",
+        404,
+      );
+    }
     const corpus = this.one<{ value: string }>(
       "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
     );
@@ -1356,6 +1376,7 @@ export class CorpusShard {
         "Corpus search parameters are invalid",
       );
     }
+    if (!this.initialized) return { query, count: 0, candidates: [] };
     const expression = searchExpression(query);
     const rows = [
       ...this.sql.exec<{
@@ -1428,6 +1449,13 @@ export class CorpusShard {
         "neighborSpan must be between 0 and 10",
       );
     }
+    if (!this.initialized) {
+      return {
+        count: 0,
+        units: [],
+        missing_unit_ids: [...new Set(value.unitIds as string[])],
+      };
+    }
     const results: Record<string, unknown>[] = [];
     const missing: string[] = [];
     const selectedRows = new Map<string, UnitRow>();
@@ -1497,6 +1525,19 @@ export class CorpusShard {
         "invalid_inventory_request",
         "inventory pagination is invalid",
       );
+    }
+    if (!this.initialized) {
+      return {
+        counts: { documents: 0, revisions: 0, projections: 0, units: 0 },
+        documents: [],
+        document_offset: documentOffset,
+        document_has_more: false,
+        projections: [],
+        projection_offset: projectionOffset,
+        projection_has_more: false,
+        staged_upload_count: 0,
+        external: { binding_count: 0, run_count: 0, record_count: 0 },
+      };
     }
     const documents = [
       ...this.sql.exec(
