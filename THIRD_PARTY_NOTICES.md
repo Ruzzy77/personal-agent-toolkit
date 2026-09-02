@@ -9,6 +9,7 @@ Direct runtime dependencies:
 | Dependency | Used by | License |
 | --- | --- | --- |
 | `@cloudflare/workers-oauth-provider` | Optional Personal Agent Auth | MIT |
+| `@modelcontextprotocol/server` | Journal remote MCP | MIT |
 | `defusedxml` | Corpus | Python Software Foundation License |
 | `httpx` | Optional personal gateway | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
@@ -22,11 +23,12 @@ Direct runtime dependencies:
 | `rhwp` 0.8.2 (optionally provisioned command-line backend) | Corpus | MIT |
 | `starlette` | Optional personal gateway | BSD-3-Clause |
 | `uvicorn` | Optional personal gateway | BSD-3-Clause |
+| `zod` | Journal request validation | MIT |
 
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
 `plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/hypes/uv.lock`, and
 `gateway/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
-`auth/package-lock.json`.
+`auth/package-lock.json` and `services/journal/package-lock.json`.
 
 This file is informational and does not replace the license text supplied by any dependency.

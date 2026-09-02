@@ -13,6 +13,18 @@
       "resource": "https://corpus.example.com/mcp",
       "scopes": ["corpus.read", "corpus.write"],
       "baselineScopes": ["corpus.read"]
+    },
+    {
+      "id": "journal",
+      "name": "Journal",
+      "resource": "https://journal.example.com/mcp",
+      "scopes": [
+        "journal.read",
+        "journal.write",
+        "journal.ingest",
+        "journal.close"
+      ],
+      "baselineScopes": ["journal.read"]
     }
   ]
 }
