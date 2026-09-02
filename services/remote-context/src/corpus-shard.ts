@@ -704,17 +704,17 @@ export class CorpusShard {
     const projectionIds = CorpusShard.maintenanceIds(
       value,
       "removeProjectionIds",
-      500,
+      50,
     );
     const documentIds = CorpusShard.maintenanceIds(
       value,
       "removeDocumentIds",
-      500,
+      50,
     );
     const uploadIds = CorpusShard.maintenanceIds(
       value,
       "removeUploadIds",
-      500,
+      50,
     );
     if (
       Object.keys(value).some(

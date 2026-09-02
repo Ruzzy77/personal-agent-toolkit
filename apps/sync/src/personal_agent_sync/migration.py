@@ -1111,18 +1111,25 @@ async def _maintain_remote_corpus(
         "uploads": 0,
     }
     protected = {"documents": 0, "projections": 0}
-    batches = max((len(values) + 499) // 500 for values in removals.values())
+    # Durable Object maintenance deletes FTS rows as well as canonical rows.
+    # Keep each request deliberately small so a stale-history cleanup cannot
+    # consume the whole request CPU budget even when projections are large.
+    maintenance_batch_size = 10
+    batches = max(
+        (len(values) + maintenance_batch_size - 1) // maintenance_batch_size
+        for values in removals.values()
+    )
     for index in range(batches):
         result = await remote.maintain_corpus(
             corpus_id,
             remove_projection_ids=removals["remove_projection_ids"][
-                index * 500 : (index + 1) * 500
+                index * maintenance_batch_size : (index + 1) * maintenance_batch_size
             ],
             remove_document_ids=removals["remove_document_ids"][
-                index * 500 : (index + 1) * 500
+                index * maintenance_batch_size : (index + 1) * maintenance_batch_size
             ],
             remove_upload_ids=removals["remove_upload_ids"][
-                index * 500 : (index + 1) * 500
+                index * maintenance_batch_size : (index + 1) * maintenance_batch_size
             ],
         )
         for key, value in result.get("removed", {}).items():
