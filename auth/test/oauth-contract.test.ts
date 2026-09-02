@@ -130,6 +130,24 @@ function exchangeAuthorizationCode(
   });
 }
 
+function refreshAccessToken(
+  clientId: string,
+  refreshToken: string,
+  resource: string,
+): Promise<Response> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: clientId,
+    refresh_token: refreshToken,
+    resource,
+  });
+  return exports.default.fetch(`${ISSUER}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+}
+
 describe("OAuth provider contract", () => {
   let clientId: string;
 
@@ -154,6 +172,37 @@ describe("OAuth provider contract", () => {
     expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
     expect(metadata.client_id_metadata_document_supported).toBe(true);
     expect(metadata.grant_types_supported).toContain("authorization_code");
+    expect(metadata.grant_types_supported).toContain("refresh_token");
+  });
+
+  it("renews an owner grant without changing its resource or scopes", async ({
+    expect,
+  }) => {
+    const issued = await authorizeAndExchange(
+      clientId,
+      CORPUS,
+      "corpus.read",
+      expect,
+    );
+    expect(issued.refresh_token).toBeTypeOf("string");
+
+    const response = await refreshAccessToken(
+      clientId,
+      issued.refresh_token ?? "",
+      CORPUS,
+    );
+    expect(response.status).toBe(200);
+    const renewed = await response.json<TokenResponse>();
+    expect(renewed.access_token).not.toBe(issued.access_token);
+    expect(renewed.resource).toBe(CORPUS);
+    expect(renewed.scope).toBe("corpus.read");
+    expect(renewed.refresh_token).toBeTypeOf("string");
+
+    await expect(
+      authService.validateAccessToken(renewed.access_token, CORPUS, [
+        "corpus.read",
+      ]),
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it("issues a Library token and validates it through the private RPC entrypoint", async ({
