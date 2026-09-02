@@ -179,15 +179,21 @@ class RemoteClient:
         document_offset: int = 0,
         projection_offset: int = 0,
         limit: int = 500,
+        include_storage_details: bool = False,
+        hotspot_limit: int = 0,
     ) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "documentOffset": document_offset,
+            "projectionOffset": projection_offset,
+            "limit": limit,
+        }
+        if include_storage_details:
+            request["includeStorageDetails"] = True
+            request["hotspotLimit"] = hotspot_limit
         return await self._json(
             "POST",
             f"/sync/v1/corpora/{corpus_id}/inventory",
-            {
-                "documentOffset": document_offset,
-                "projectionOffset": projection_offset,
-                "limit": limit,
-            },
+            request,
         )
 
     async def maintain_corpus(
@@ -197,16 +203,20 @@ class RemoteClient:
         remove_projection_ids: list[str],
         remove_document_ids: list[str],
         remove_upload_ids: list[str],
+        compact_search_index_limit: int = 0,
     ) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "corpusId": corpus_id,
+            "removeProjectionIds": remove_projection_ids,
+            "removeDocumentIds": remove_document_ids,
+            "removeUploadIds": remove_upload_ids,
+        }
+        if compact_search_index_limit:
+            request["compactSearchIndexLimit"] = compact_search_index_limit
         return await self._json(
             "POST",
             f"/sync/v1/corpora/{corpus_id}/maintenance",
-            {
-                "corpusId": corpus_id,
-                "removeProjectionIds": remove_projection_ids,
-                "removeDocumentIds": remove_document_ids,
-                "removeUploadIds": remove_upload_ids,
-            },
+            request,
         )
 
     async def verification_summary(self) -> dict[str, Any]:

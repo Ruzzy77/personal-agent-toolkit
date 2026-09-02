@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS projections (
   issues_json TEXT NOT NULL DEFAULT '[]',
   assurance_state TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+  search_index_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   FOREIGN KEY(revision_id) REFERENCES revisions(revision_id)
 );
@@ -357,6 +358,11 @@ function dependencyState(row: UnitRow): string {
 }
 
 const COMPACT_SOURCE_ANCHOR_PREFIX = "compact-v1:";
+const SEARCH_INDEX_VERSION = 1;
+
+function hasSearchableText(expression: string): string {
+  return `length(trim(${expression}, ' ' || char(9) || char(10) || char(13))) > 0`;
+}
 
 function storedSourceAnchor(
   sourceAnchor: Record<string, unknown>,
@@ -434,6 +440,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
 export class CorpusShard {
   private readonly sql: DurableObjectStorage["sql"];
   private readonly documentColumns: Set<string>;
+  private readonly projectionColumns: Set<string>;
   private initialized: boolean;
 
   constructor(
@@ -452,6 +459,13 @@ export class CorpusShard {
       this.initialized
         ? [
             ...this.sql.exec<{ name: string }>("PRAGMA table_info(documents)"),
+          ].map((row) => row.name)
+        : [],
+    );
+    this.projectionColumns = new Set(
+      this.initialized
+        ? [
+            ...this.sql.exec<{ name: string }>("PRAGMA table_info(projections)"),
           ].map((row) => row.name)
         : [],
     );
@@ -481,6 +495,19 @@ export class CorpusShard {
         );
         this.documentColumns.add(name);
       }
+    }
+    for (const row of this.sql.exec<{ name: string }>(
+      "PRAGMA table_info(projections)",
+    )) {
+      this.projectionColumns.add(row.name);
+    }
+    if (!this.projectionColumns.has("search_index_version")) {
+      // Existing shards indexed structural-only units. Version zero marks only
+      // those pre-change projections for one bounded derived-index cleanup.
+      this.sql.exec(
+        "ALTER TABLE projections ADD COLUMN search_index_version INTEGER NOT NULL DEFAULT 0",
+      );
+      this.projectionColumns.add("search_index_version");
     }
   }
 
@@ -608,8 +635,124 @@ export class CorpusShard {
   }
 
   private storageSummary(): Record<string, number> {
+    const pendingSearchIndexProjections = this.initialized
+      ? (this.one<{ count: number }>(
+          this.projectionColumns.has("search_index_version")
+            ? "SELECT COUNT(*) AS count FROM projections WHERE search_index_version < ?"
+            : "SELECT COUNT(*) AS count FROM projections",
+          ...(this.projectionColumns.has("search_index_version")
+            ? [SEARCH_INDEX_VERSION]
+            : []),
+        )?.count ?? 0)
+      : 0;
     return {
       database_size_bytes: this.sql.databaseSize,
+      search_index_pending_projections: pendingSearchIndexProjections,
+    };
+  }
+
+  private storageDetails(hotspotLimit: number): Record<string, unknown> {
+    if (!this.initialized) {
+      return {
+        indexed_unit_count: 0,
+        searchable_unit_count: 0,
+        structural_only_unit_count: 0,
+        staged_unit_count: 0,
+        staged_logical_bytes: 0,
+        lifecycle_counts: {},
+        retention_counts: {},
+        hotspots: [],
+      };
+    }
+    const searchable = hasSearchableText("normalized_content");
+    const unitCounts = this.one<{
+      total: number;
+      searchable: number;
+      structural_only: number;
+    }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN ${searchable} THEN 1 ELSE 0 END) AS searchable,
+              SUM(CASE WHEN ${searchable} THEN 0 ELSE 1 END) AS structural_only
+       FROM source_units`,
+    ) ?? { total: 0, searchable: 0, structural_only: 0 };
+    const staged = this.one<{ count: number; logical_bytes: number }>(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(length(structure_path_json) +
+                           length(source_anchor_json) +
+                           length(normalized_content) +
+                           length(extraction_issues_json) +
+                           length(geometry_json) +
+                           length(quality_flags_json)), 0) AS logical_bytes
+       FROM staged_units_v2`,
+    ) ?? { count: 0, logical_bytes: 0 };
+    const indexed =
+      this.one<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM source_units_fts",
+      )?.count ?? 0;
+    const lifecycleCounts = Object.fromEntries(
+      [
+        ...this.sql.exec<{ lifecycle_state: string; count: number }>(
+          `SELECT lifecycle_state, COUNT(*) AS count
+           FROM documents GROUP BY lifecycle_state ORDER BY lifecycle_state`,
+        ),
+      ].map((row) => [row.lifecycle_state, row.count]),
+    );
+    const retentionCounts = Object.fromEntries(
+      [
+        ...this.sql.exec<{ retention_class: string; count: number }>(
+          `SELECT retention_class, COUNT(*) AS count
+           FROM documents GROUP BY retention_class ORDER BY retention_class`,
+        ),
+      ].map((row) => [row.retention_class, row.count]),
+    );
+    const hotspotCandidates =
+      hotspotLimit === 0
+        ? []
+        : [
+            ...this.sql.exec<{
+              projection_id: string;
+              document_id: string;
+              relative_path: string;
+              unit_count: number;
+            }>(
+              `SELECT p.projection_id, r.document_id, d.relative_path,
+                      (SELECT COUNT(*) FROM source_units AS unit
+                       WHERE unit.projection_id = p.projection_id) AS unit_count
+               FROM projections AS p
+               JOIN revisions AS r ON r.revision_id = p.revision_id
+               JOIN documents AS d ON d.document_id = r.document_id
+               ORDER BY unit_count DESC, p.projection_id
+               LIMIT ?`,
+              hotspotLimit,
+            ),
+          ];
+    const hotspots = hotspotCandidates.map((candidate) => {
+      const sizes = this.one<{
+        content_bytes: number;
+        record_bytes: number;
+      }>(
+        `SELECT COALESCE(SUM(length(normalized_content)), 0) AS content_bytes,
+                COALESCE(SUM(length(structure_path_json) +
+                             length(source_anchor_json) +
+                             length(normalized_content) +
+                             length(extraction_issues_json) +
+                             length(geometry_json) +
+                             length(quality_flags_json)), 0) AS record_bytes
+         FROM source_units WHERE projection_id = ?`,
+        candidate.projection_id,
+      ) ?? { content_bytes: 0, record_bytes: 0 };
+      return { ...candidate, ...sizes };
+    });
+    return {
+      unit_count: unitCounts.total ?? 0,
+      indexed_unit_count: indexed,
+      searchable_unit_count: unitCounts.searchable ?? 0,
+      structural_only_unit_count: unitCounts.structural_only ?? 0,
+      staged_unit_count: staged.count,
+      staged_logical_bytes: staged.logical_bytes,
+      lifecycle_counts: lifecycleCounts,
+      retention_counts: retentionCounts,
+      hotspots,
     };
   }
 
@@ -728,6 +871,20 @@ export class CorpusShard {
       "removeUploadIds",
       50,
     );
+    const compactSearchIndexLimit =
+      value.compactSearchIndexLimit === undefined
+        ? 0
+        : value.compactSearchIndexLimit;
+    if (
+      !Number.isInteger(compactSearchIndexLimit) ||
+      Number(compactSearchIndexLimit) < 0 ||
+      Number(compactSearchIndexLimit) > 10
+    ) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus search-index maintenance limit is invalid",
+      );
+    }
     if (
       Object.keys(value).some(
         (key) =>
@@ -736,6 +893,7 @@ export class CorpusShard {
             "removeProjectionIds",
             "removeDocumentIds",
             "removeUploadIds",
+            "compactSearchIndexLimit",
           ].includes(key),
       )
     ) {
@@ -755,10 +913,23 @@ export class CorpusShard {
         409,
       );
     }
-    const protectedIds = await this.protectedRecordIds(ownerId, corpusId);
+    const protectedIds =
+      projectionIds.length > 0 || documentIds.length > 0
+        ? await this.protectedRecordIds(ownerId, corpusId)
+        : {
+            documents: new Set<string>(),
+            revisions: new Set<string>(),
+            projections: new Set<string>(),
+          };
     const removed = { documents: 0, revisions: 0, projections: 0, units: 0, uploads: 0 };
     const protectedCounts = { documents: 0, projections: 0 };
     const candidateRevisionIds = new Set<string>();
+    const searchIndex = {
+      version: SEARCH_INDEX_VERSION,
+      processed_projections: 0,
+      removed_structural_only_rows: 0,
+      pending_projections: 0,
+    };
 
     this.state.storage.transactionSync(() => {
       for (const projectionId of projectionIds) {
@@ -920,11 +1091,53 @@ export class CorpusShard {
         this.sql.exec("DELETE FROM staged_uploads WHERE upload_id = ?", uploadId);
         removed.uploads += count;
       }
+
+      const pendingProjections = [
+        ...this.sql.exec<{ projection_id: string }>(
+          `SELECT projection_id FROM projections
+           WHERE search_index_version < ?
+           ORDER BY projection_id LIMIT ?`,
+          SEARCH_INDEX_VERSION,
+          Number(compactSearchIndexLimit),
+        ),
+      ];
+      for (const projection of pendingProjections) {
+        const structuralOnlyCount =
+          this.one<{ count: number }>(
+            `SELECT COUNT(*) AS count FROM source_units
+             WHERE projection_id = ? AND NOT (${hasSearchableText("normalized_content")})`,
+            projection.projection_id,
+          )?.count ?? 0;
+        if (structuralOnlyCount > 0) {
+          this.sql.exec(
+            `DELETE FROM source_units_fts WHERE unit_id IN (
+               SELECT unit_id FROM source_units
+               WHERE projection_id = ? AND NOT (${hasSearchableText("normalized_content")})
+             )`,
+            projection.projection_id,
+          );
+        }
+        this.sql.exec(
+          `UPDATE projections SET search_index_version = ?
+           WHERE projection_id = ?`,
+          SEARCH_INDEX_VERSION,
+          projection.projection_id,
+        );
+        searchIndex.processed_projections += 1;
+        searchIndex.removed_structural_only_rows += structuralOnlyCount;
+      }
+      searchIndex.pending_projections =
+        this.one<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM projections
+           WHERE search_index_version < ?`,
+          SEARCH_INDEX_VERSION,
+        )?.count ?? 0;
     });
     return {
       corpusId,
       removed,
       protected: protectedCounts,
+      search_index: searchIndex,
       storage: this.storageSummary(),
     };
   }
@@ -1612,8 +1825,9 @@ export class CorpusShard {
         `INSERT INTO projections(
            projection_id, revision_id, adapter_id, adapter_version, config_hash,
            result_manifest_hash, completeness_state, coverage_json,
-           capability_manifest_json, issues_json, assurance_state, is_active, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           capability_manifest_json, issues_json, assurance_state, is_active,
+           search_index_version, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         header.projection.projectionId,
         header.revision.revisionId,
         header.projection.adapterId,
@@ -1626,6 +1840,7 @@ export class CorpusShard {
         canonicalJson(header.projection.issues),
         header.projection.assuranceState,
         header.projection.activate ? 1 : 0,
+        SEARCH_INDEX_VERSION,
         header.projection.createdAt ?? committedAt,
       );
       this.sql.exec(
@@ -1652,7 +1867,9 @@ export class CorpusShard {
            structure_path, normalized_content
          )
          SELECT unit_id, ?, ?, ?, structure_path_json, normalized_content
-         FROM staged_units_v2 WHERE upload_id = ? ORDER BY ordinal`,
+         FROM staged_units_v2
+         WHERE upload_id = ? AND ${hasSearchableText("normalized_content")}
+         ORDER BY ordinal`,
         header.projection.projectionId,
         header.document.documentId,
         header.document.relativePath.normalize("NFC"),
@@ -1906,6 +2123,12 @@ export class CorpusShard {
   }
 
   private inventory(raw: unknown): Record<string, unknown> {
+    if (raw === null || Array.isArray(raw) || typeof raw !== "object") {
+      throw new ContextError(
+        "invalid_inventory_request",
+        "inventory request is invalid",
+      );
+    }
     const value = raw as Record<string, unknown>;
     const documentOffset = Number.isInteger(value.documentOffset)
       ? Number(value.documentOffset)
@@ -1914,11 +2137,28 @@ export class CorpusShard {
       ? Number(value.projectionOffset)
       : 0;
     const limit = Number.isInteger(value.limit) ? Number(value.limit) : 500;
+    const includeStorageDetails = value.includeStorageDetails ?? false;
+    const hotspotLimit = Number.isInteger(value.hotspotLimit)
+      ? Number(value.hotspotLimit)
+      : 0;
     if (
       documentOffset < 0 ||
       projectionOffset < 0 ||
       limit < 1 ||
-      limit > 500
+      limit > 500 ||
+      typeof includeStorageDetails !== "boolean" ||
+      hotspotLimit < 0 ||
+      hotspotLimit > 20 ||
+      Object.keys(value).some(
+        (key) =>
+          ![
+            "documentOffset",
+            "projectionOffset",
+            "limit",
+            "includeStorageDetails",
+            "hotspotLimit",
+          ].includes(key),
+      )
     ) {
       throw new ContextError(
         "invalid_inventory_request",
@@ -1926,7 +2166,7 @@ export class CorpusShard {
       );
     }
     if (!this.initialized) {
-      return {
+      const empty: Record<string, unknown> = {
         counts: { documents: 0, revisions: 0, projections: 0, units: 0 },
         documents: [],
         document_offset: documentOffset,
@@ -1940,6 +2180,10 @@ export class CorpusShard {
         external: { binding_count: 0, run_count: 0, record_count: 0 },
         storage: this.storageSummary(),
       };
+      if (includeStorageDetails) {
+        empty.storage_details = this.storageDetails(hotspotLimit);
+      }
+      return empty;
     }
     const documents = [
       ...this.sql.exec(
@@ -2024,7 +2268,7 @@ export class CorpusShard {
           "SELECT COUNT(*) AS count FROM external_records",
         )?.count ?? 0,
     };
-    return {
+    const result: Record<string, unknown> = {
       counts,
       documents: documents.slice(0, limit),
       document_offset: documentOffset,
@@ -2038,6 +2282,10 @@ export class CorpusShard {
       external,
       storage: this.storageSummary(),
     };
+    if (includeStorageDetails) {
+      result.storage_details = this.storageDetails(hotspotLimit);
+    }
+    return result;
   }
 
   async fetch(request: Request): Promise<Response> {

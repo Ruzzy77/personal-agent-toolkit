@@ -73,6 +73,15 @@ deployed analyzer binding; it does not reimplement document parsing.
 `personal-agent-sync status` shows only opaque Connection and document IDs,
 queue state, and stable error codes. It does not print local roots.
 
+`personal-agent-sync storage-report` reads the current remote shard sizes,
+record counts, derived-index state, and largest logical projections. It is an
+explicit diagnostic rather than a scheduled scan. `personal-agent-sync
+storage-maintain` removes staged uploads older than 24 hours by default and
+compacts legacy structural-only search rows in bounded batches. It never chooses
+canonical records for deletion by size; exact record removal remains part of a
+completed local-snapshot reconciliation and preserves active or Context-linked
+records.
+
 Prepared migration payloads can still be uploaded with `personal-agent-sync
 import`. Remote storage contains no operational Finder locator. Source-derived
 text or user-authored Context content may contain a literal path when that text

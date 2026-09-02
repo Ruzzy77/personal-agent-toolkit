@@ -496,6 +496,130 @@ describe("remote personal context service", () => {
     });
   });
 
+  it("keeps structural-only units out of the derived search index", async () => {
+    const corpusId = "search-storage-test";
+    const content = "searchable storage marker";
+    const header = {
+      uploadId: "upload_ffffffffffffffffffffffffffffffff",
+      corpusId,
+      document: {
+        documentId: "doc_search_storage",
+        relativePath: "notes/storage.txt",
+        extension: ".txt",
+        sourceState: "available",
+      },
+      revision: {
+        revisionId: "rev_search_storage",
+        sha256: "c".repeat(64),
+        sourceSize: content.length,
+        capturedAt: "2026-09-02T00:00:00.000Z",
+      },
+      projection: {
+        projectionId: "projection_search_storage",
+        adapterId: "document-files.text",
+        adapterVersion: "2",
+        configHash: "d".repeat(64),
+        resultManifestHash: "e".repeat(64),
+        completenessState: "complete",
+        coverage: { text_content: "complete", structure: "complete" },
+        capabilityManifest: { text: true, structure: true },
+        assuranceState: "declared",
+        declaredUnitCount: 2,
+      },
+    };
+    const units = [
+      {
+        unitId: "unit_search_storage_text",
+        ordinal: 1,
+        unitType: "paragraph",
+        structurePath: { paragraph: 1 },
+        sourceAnchor: { relative_path: "notes/storage.txt" },
+        content,
+        contentSha256: await sha256Hex(content),
+        previousUnitId: null,
+        nextUnitId: "unit_search_storage_structure",
+        extractionIssues: [],
+        derivationMethod: "native_text",
+        geometry: {},
+        confidence: 1,
+        ocr: false,
+        qualityFlags: [],
+      },
+      {
+        unitId: "unit_search_storage_structure",
+        ordinal: 2,
+        unitType: "table",
+        structurePath: { table: 1, structural_only: true },
+        sourceAnchor: { relative_path: "notes/storage.txt" },
+        content: " \n\t",
+        contentSha256: await sha256Hex(" \n\t"),
+        previousUnitId: "unit_search_storage_text",
+        nextUnitId: null,
+        extractionIssues: [],
+        derivationMethod: "native_text",
+        geometry: {},
+        confidence: 1,
+        ocr: false,
+        qualityFlags: [],
+      },
+    ];
+    expect(
+      (
+        await syncPost(
+          `/sync/v1/corpora/${corpusId}/projections:begin`,
+          header,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await syncPost(
+          `/sync/v1/corpora/${corpusId}/projection-units:append`,
+          { uploadId: header.uploadId, units },
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await syncPost(`/sync/v1/corpora/${corpusId}/projections:commit`, {
+          uploadId: header.uploadId,
+          expectedUnitCount: 2,
+          expectedManifestHash: header.projection.resultManifestHash,
+        })
+      ).status,
+    ).toBe(200);
+
+    const inventory = await syncPost(
+      `/sync/v1/corpora/${corpusId}/inventory`,
+      {
+        documentOffset: 0,
+        projectionOffset: 0,
+        limit: 10,
+        includeStorageDetails: true,
+        hotspotLimit: 1,
+      },
+    );
+    expect(inventory.status, await inventory.clone().text()).toBe(200);
+    expect(await body(inventory)).toMatchObject({
+      result: {
+        counts: { units: 2 },
+        storage: { search_index_pending_projections: 0 },
+        storage_details: {
+          unit_count: 2,
+          indexed_unit_count: 1,
+          searchable_unit_count: 1,
+          structural_only_unit_count: 1,
+          hotspots: [
+            {
+              projection_id: "projection_search_storage",
+              unit_count: 2,
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("imports durable document metadata without activating historical projections", async () => {
     const corpusId = "history-test";
     const documentId = "doc_history_test";

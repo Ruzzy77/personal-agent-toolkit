@@ -9,6 +9,7 @@ from pathlib import Path
 
 import personal_agent_sync.daemon as daemon_module
 import personal_agent_sync.state as state_module
+import personal_agent_sync.storage as storage_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
 from personal_agent_sync.config import load_config
@@ -17,6 +18,7 @@ from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
+from personal_agent_sync.storage import maintain_remote_storage, remote_storage_report
 from personal_agent_sync.work import WorkExecutor
 
 
@@ -49,6 +51,107 @@ def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
         encoding="utf-8",
     )
     return config
+
+
+def test_remote_storage_report_and_conservative_maintenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+    calls: list[dict[str, object]] = []
+
+    class FakeCorpus:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def corpus_ids(self) -> list[str]:
+            return ["notes"]
+
+    class FakeRemote:
+        def __init__(self, _config: object, _token: str) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        async def inventory(self, corpus_id: str, **options: object) -> dict:
+            calls.append({"operation": "inventory", "corpus_id": corpus_id, **options})
+            detailed = bool(options.get("include_storage_details"))
+            return {
+                "counts": {
+                    "documents": 1,
+                    "revisions": 1,
+                    "projections": 2,
+                    "units": 3,
+                },
+                "external": {"binding_count": 0, "run_count": 0, "record_count": 0},
+                "staged_upload_count": 1 if not detailed else 0,
+                "staged_uploads": (
+                    [
+                        {
+                            "upload_id": "upload_old",
+                            "created_at": "2026-09-01T00:00:00Z",
+                        }
+                    ]
+                    if not detailed
+                    else []
+                ),
+                "storage": {
+                    "database_size_bytes": 42,
+                    "search_index_pending_projections": 0 if detailed else 2,
+                },
+                "storage_details": (
+                    {
+                        "indexed_unit_count": 2,
+                        "searchable_unit_count": 2,
+                        "structural_only_unit_count": 1,
+                        "hotspots": [],
+                    }
+                    if detailed
+                    else None
+                ),
+            }
+
+        async def maintain_corpus(self, corpus_id: str, **options: object) -> dict:
+            calls.append({"operation": "maintain", "corpus_id": corpus_id, **options})
+            if options.get("remove_upload_ids"):
+                return {"removed": {"uploads": 1}}
+            compact_calls = sum(
+                1
+                for call in calls
+                if call.get("operation") == "maintain"
+                and call.get("compact_search_index_limit")
+            )
+            return {
+                "search_index": {
+                    "processed_projections": 1,
+                    "removed_structural_only_rows": 1,
+                    "pending_projections": max(0, 2 - compact_calls),
+                }
+            }
+
+    monkeypatch.setattr(storage_module, "LocalCorpusMigration", FakeCorpus)
+    monkeypatch.setattr(storage_module, "RemoteClient", FakeRemote)
+    monkeypatch.setattr(storage_module, "read_token", lambda _device_id: "token")
+
+    report = asyncio.run(remote_storage_report(config, hotspot_limit=3))
+    assert report["database_size_bytes"] == 42
+    assert report["corpora"][0]["corpus_id"] == "notes"
+
+    maintained = asyncio.run(
+        maintain_remote_storage(
+            config,
+            staged_min_age_hours=0,
+            maximum_batches_per_corpus=3,
+        )
+    )
+    summary = maintained["corpora"][0]
+    assert maintained["canonical_records_removed"] == 0
+    assert summary["removed_staged_uploads"] == 1
+    assert summary["processed_search_index_projections"] == 2
+    assert summary["removed_structural_only_index_rows"] == 2
+    assert summary["pending_search_index_projections"] == 0
 
 
 def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(

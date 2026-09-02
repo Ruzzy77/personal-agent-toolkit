@@ -19,6 +19,7 @@ from .migration import migrate_local, verify_local, write_discovered_config
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState
+from .storage import maintain_remote_storage, remote_storage_report
 
 LAUNCH_AGENT_LABEL = "dev.personal-agent.sync"
 
@@ -31,6 +32,17 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("validate", help="validate local configuration and storage")
     commands.add_parser("reconcile", help="run one local Source reconciliation")
     commands.add_parser("status", help="show local queue and Connection status")
+    storage_report = commands.add_parser(
+        "storage-report", help="show current remote Corpus storage use"
+    )
+    storage_report.add_argument("--hotspot-limit", type=int, default=10)
+    storage_maintain = commands.add_parser(
+        "storage-maintain",
+        help="clean abandoned staging and compact the derived search index",
+    )
+    storage_maintain.add_argument("--staged-min-age-hours", type=float, default=24)
+    storage_maintain.add_argument("--skip-search-index", action="store_true")
+    storage_maintain.add_argument("--maximum-batches", type=int, default=1000)
     initialize = commands.add_parser(
         "init-from-corpus",
         help="create a private configuration from remote-visible local Corpus Spaces",
@@ -221,6 +233,22 @@ def main() -> None:
             result = {"connections": reconcile_all(SyncState(config))}
         elif arguments.command == "status":
             result = _status(SyncState(config))
+        elif arguments.command == "storage-report":
+            result = asyncio.run(
+                remote_storage_report(
+                    config,
+                    hotspot_limit=arguments.hotspot_limit,
+                )
+            )
+        elif arguments.command == "storage-maintain":
+            result = asyncio.run(
+                maintain_remote_storage(
+                    config,
+                    staged_min_age_hours=arguments.staged_min_age_hours,
+                    compact_search_index=not arguments.skip_search_index,
+                    maximum_batches_per_corpus=arguments.maximum_batches,
+                )
+            )
         elif arguments.command == "approve-remote":
             state = SyncState(config)
             state.approve_remote(

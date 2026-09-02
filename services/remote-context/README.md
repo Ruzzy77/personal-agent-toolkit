@@ -32,3 +32,12 @@ accept resource-specific owner OAuth tokens. Operational Finder locators and
 filesystem identities remain in the Sync app. A path appearing literally in
 source-derived or user-authored text is stored only as untrusted content and is
 never interpreted as remote filesystem authority.
+
+## Storage operations
+
+The Sync operator interface provides an explicit storage report and a
+conservative maintenance command. The report scans logical unit sizes only when
+requested, so normal Source reads and uploads do not pay for per-unit accounting
+writes. Maintenance removes sufficiently old abandoned staging data and
+compacts only the derived search index. Canonical Corpus records continue to
+follow local retention and Context protection.
