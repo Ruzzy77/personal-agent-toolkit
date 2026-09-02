@@ -44,6 +44,7 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
 2. `PATH`의 `document-files`
 3. 같은 marketplace source의 `plugins/document-files/launchers/document-files`
 4. Codex 플러그인 캐시의 설치된 `document-files`
+5. Claude 플러그인 캐시의 설치된 `document-files`
 
 찾지 못하면 Corpus는 자체 파서로 대체하지 않고 설정 오류를 반환합니다.
 

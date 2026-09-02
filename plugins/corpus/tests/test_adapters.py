@@ -5,8 +5,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from corpus.adapter_registry import build_default_registry
+from corpus.adapter_registry import _candidate_executables, build_default_registry
 from corpus.adapters import (
     RESULT_SCHEMA_VERSION,
     AdapterBudgets,
@@ -182,6 +183,19 @@ class ExternalAdapterBoundaryTest(unittest.TestCase):
 
 
 class DocumentFilesIntegrationTest(unittest.TestCase):
+    def test_claude_plugin_cache_is_a_document_files_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            executable = (
+                home
+                / ".claude/plugins/cache/personal-agent-toolkit/document-files/1.1.2"
+                / "launchers/document-files"
+            )
+            executable.parent.mkdir(parents=True)
+            executable.touch(mode=0o755)
+            with patch("corpus.adapter_registry.Path.home", return_value=home):
+                self.assertIn(executable.resolve(), _candidate_executables())
+
     def test_default_registry_uses_only_document_files_process_routes(self) -> None:
         registry = build_default_registry()
         for format_id in (

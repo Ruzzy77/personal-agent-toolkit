@@ -50,16 +50,22 @@ def _candidate_executables() -> tuple[Path, ...]:
         candidates.append(Path(resolved))
 
     package_root = Path(__file__).resolve().parents[2]
-    candidates.append(package_root.parent / "document-files" / "bin" / "document-files")
+    candidates.append(
+        package_root.parent / "document-files" / "launchers" / "document-files"
+    )
 
-    cache_root = Path.home() / ".codex" / "plugins" / "cache"
-    if cache_root.is_dir():
-        candidates.extend(
-            sorted(
-                cache_root.glob("*/document-files/*/launchers/document-files"),
-                reverse=True,
+    cache_roots = (
+        Path.home() / ".codex" / "plugins" / "cache",
+        Path.home() / ".claude" / "plugins" / "cache",
+    )
+    for cache_root in cache_roots:
+        if cache_root.is_dir():
+            candidates.extend(
+                sorted(
+                    cache_root.glob("*/document-files/*/launchers/document-files"),
+                    reverse=True,
+                )
             )
-        )
     unique: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
