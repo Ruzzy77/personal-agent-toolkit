@@ -9,8 +9,10 @@ on a local port and does not expose the Mac through a tunnel.
 - retain absolute folder locators, filesystem identities, and transfer approvals
   only in the private local database;
 - recover same-volume Finder renames and moves by directory identity on macOS;
-- reconcile Source changes into a bounded, coalescing queue and retry after
-  network or analyzer failures;
+- wake reconciliation from filesystem events, coalesce short event bursts, and
+  retain a slower full scan for startup, recovered roots, and missed events;
+- keep Source changes in a bounded queue and retry network or analyzer failures
+  without rescanning every connected tree;
 - analyze an immutable capture through the shared Document Files job contract;
 - stage and atomically commit extracted Corpus projections while leaving the
   last good remote revision readable on failure;
@@ -67,3 +69,8 @@ Prepared migration payloads can still be uploaded with `personal-agent-sync
 import`. Remote storage contains no operational Finder locator. Source-derived
 text or user-authored Context content may contain a literal path when that text
 was part of the record; it is treated as content, never as filesystem authority.
+
+`reconcile_seconds` controls queue retry and root-recovery checks. Filesystem
+events are coalesced for `event_debounce_seconds`; `full_reconcile_seconds`
+controls the missed-event safety scan. The defaults are 15 seconds, 2 seconds,
+and 15 minutes respectively.

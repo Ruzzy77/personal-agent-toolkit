@@ -48,6 +48,8 @@ class SyncConfig:
     corpus_python: Path | None
     document_files_python: Path | None
     reconcile_seconds: float
+    full_reconcile_seconds: float
+    event_debounce_seconds: float
     connections: tuple[ConnectionConfig, ...]
 
     @property
@@ -167,6 +169,26 @@ def load_config(path: Path | None = None) -> SyncConfig:
     ):
         raise SyncError(
             "invalid_configuration", "reconcile_seconds must be between 2 and 3600"
+        )
+    full_reconcile_seconds = raw.get("full_reconcile_seconds", 900.0)
+    if (
+        isinstance(full_reconcile_seconds, bool)
+        or not isinstance(full_reconcile_seconds, (int, float))
+        or not 60 <= float(full_reconcile_seconds) <= 86_400
+    ):
+        raise SyncError(
+            "invalid_configuration",
+            "full_reconcile_seconds must be between 60 and 86400",
+        )
+    event_debounce_seconds = raw.get("event_debounce_seconds", 2.0)
+    if (
+        isinstance(event_debounce_seconds, bool)
+        or not isinstance(event_debounce_seconds, (int, float))
+        or not 0.25 <= float(event_debounce_seconds) <= 30
+    ):
+        raise SyncError(
+            "invalid_configuration",
+            "event_debounce_seconds must be between 0.25 and 30",
         )
 
     raw_connections = raw.get("connections", [])
@@ -320,6 +342,8 @@ def load_config(path: Path | None = None) -> SyncConfig:
         corpus_python=corpus_python,
         document_files_python=document_files_python,
         reconcile_seconds=float(reconcile_seconds),
+        full_reconcile_seconds=float(full_reconcile_seconds),
+        event_debounce_seconds=float(event_debounce_seconds),
         connections=tuple(connections),
     )
 

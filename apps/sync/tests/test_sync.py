@@ -53,6 +53,8 @@ def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(
     document = root / "note.txt"
     document.write_text("first", encoding="utf-8")
     config = load_config(write_config(tmp_path, root))
+    assert config.full_reconcile_seconds == 900
+    assert config.event_debounce_seconds == 2
     state = SyncState(config)
 
     first = reconcile_all(state)

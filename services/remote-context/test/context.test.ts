@@ -355,6 +355,26 @@ describe("remote personal context service", () => {
       ).status,
     ).toBe(200);
 
+    const repeatedBegin = await syncPost(
+      `/sync/v1/corpora/${corpusId}/projections:begin`,
+      {
+        ...begin,
+        uploadId: "upload_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        revision: {
+          ...begin.revision,
+          capturedAt: "2026-09-02T00:00:01.000Z",
+        },
+      },
+    );
+    expect(repeatedBegin.status, await repeatedBegin.clone().text()).toBe(200);
+    expect(await body(repeatedBegin)).toMatchObject({
+      result: {
+        projectionId: "projection_first",
+        unitCount: 1,
+        alreadyCommitted: true,
+      },
+    });
+
     const shard = runtime.CORPUS_SHARDS.get(
       runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),
     );
@@ -413,6 +433,18 @@ describe("remote personal context service", () => {
       },
     );
     expect(stateResponse.status).toBe(200);
+    const repeatedStateResponse = await syncPost(
+      `/sync/v1/corpora/${corpusId}/documents/${documentId}/source-state`,
+      {
+        corpusId,
+        documentId,
+        sourceState: "unavailable",
+        observedAt: "2026-09-02T01:00:01.000Z",
+      },
+    );
+    expect(await body(repeatedStateResponse)).toMatchObject({
+      result: { changed: false },
+    });
     const read = await shard.fetch("https://internal/units/read", {
       method: "POST",
       headers: {
@@ -554,59 +586,71 @@ describe("remote personal context service", () => {
 
     await upload("old", false, false);
     await upload("new", true, true);
+    const externalPayload = {
+      corpusId,
+      bindings: [
+        {
+          bindingId: "binding_history",
+          providerKind: "gmail",
+          selector: { label: "research" },
+          state: "active",
+          lastCompleteRunId: "run_history",
+          lastCompleteAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      runs: [
+        {
+          runId: "run_history",
+          bindingId: "binding_history",
+          baseCompleteRunId: null,
+          status: "complete",
+          startedAt: now,
+          completedAt: now,
+          supersededAt: null,
+        },
+      ],
+      records: [
+        {
+          sourceRecordId: "record_history",
+          bindingId: "binding_history",
+          externalId: "message-1",
+          parentExternalId: null,
+          occurredAt: now,
+          title: "Source-linked message",
+          participants: ["owner@example.test"],
+          labelIds: ["research"],
+          attachments: [],
+          providerMetadata: { thread: "thread-1" },
+          locator: { message_id: "message-1" },
+          freshnessIdentity: "message-1:v1",
+          metadataSha256: "b".repeat(64),
+          membershipState: "active",
+          lastSeenRunId: "run_history",
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+      ],
+    };
     const externalImport = await syncPost(
       `/sync/v1/corpora/${corpusId}/external:import`,
-      {
-        corpusId,
-        bindings: [
-          {
-            bindingId: "binding_history",
-            providerKind: "gmail",
-            selector: { label: "research" },
-            state: "active",
-            lastCompleteRunId: "run_history",
-            lastCompleteAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-        runs: [
-          {
-            runId: "run_history",
-            bindingId: "binding_history",
-            baseCompleteRunId: null,
-            status: "complete",
-            startedAt: now,
-            completedAt: now,
-            supersededAt: null,
-          },
-        ],
-        records: [
-          {
-            sourceRecordId: "record_history",
-            bindingId: "binding_history",
-            externalId: "message-1",
-            parentExternalId: null,
-            occurredAt: now,
-            title: "Source-linked message",
-            participants: ["owner@example.test"],
-            labelIds: ["research"],
-            attachments: [],
-            providerMetadata: { thread: "thread-1" },
-            locator: { message_id: "message-1" },
-            freshnessIdentity: "message-1:v1",
-            metadataSha256: "b".repeat(64),
-            membershipState: "active",
-            lastSeenRunId: "run_history",
-            firstSeenAt: now,
-            lastSeenAt: now,
-          },
-        ],
-      },
+      externalPayload,
     );
     expect(externalImport.status, await externalImport.clone().text()).toBe(
       200,
     );
+    const repeatedExternalImport = await syncPost(
+      `/sync/v1/corpora/${corpusId}/external:import`,
+      externalPayload,
+    );
+    expect(
+      repeatedExternalImport.status,
+      await repeatedExternalImport.clone().text(),
+    ).toBe(200);
+    expect(await body(repeatedExternalImport)).toMatchObject({
+      result: { changed: false, importedRecordCount: 1 },
+    });
     const shard = runtime.CORPUS_SHARDS.get(
       runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),
     );

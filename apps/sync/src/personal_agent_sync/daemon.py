@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed
 from .analysis import build_projection, format_id, select_analyzer
 from .config import SyncConfig
 from .errors import SyncError
+from .events import SourceEventMonitor
 from .paths import capture_snapshot, resolve_moved_root
 from .reconcile import reconcile_all
 from .remote import RemoteClient
@@ -39,7 +40,6 @@ class SyncDaemon:
         await self.remote.close()
 
     async def run(self) -> None:
-        reconcile_all(self.state)
         source_task = asyncio.create_task(self._source_loop(), name="source-reconcile")
         broker_task = asyncio.create_task(self._broker_loop(), name="remote-broker")
         try:
@@ -59,22 +59,69 @@ class SyncDaemon:
             await self.remote.close()
 
     async def _source_loop(self) -> None:
-        while not self.stopping.is_set():
-            try:
-                await asyncio.to_thread(reconcile_all, self.state)
+        changed = asyncio.Event()
+        monitor = SourceEventMonitor(asyncio.get_running_loop(), changed)
+        next_full_reconcile = 0.0
+        try:
+            while not self.stopping.is_set():
+                now = asyncio.get_running_loop().time()
+                try:
+                    roots_changed = await asyncio.to_thread(monitor.refresh, self.state)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    roots_changed = False
+                    LOGGER.exception("Source event monitor could not be refreshed")
+                if roots_changed:
+                    next_full_reconcile = 0.0
+                if now >= next_full_reconcile:
+                    try:
+                        await asyncio.to_thread(reconcile_all, self.state)
+                        await asyncio.to_thread(monitor.refresh, self.state)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        LOGGER.exception("Source reconciliation failed; retrying later")
+                    next_full_reconcile = (
+                        asyncio.get_running_loop().time()
+                        + self.config.full_reconcile_seconds
+                    )
+
                 await self._process_changes()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Individual queue entries keep their own retry state; a broad scan
-                # failure is retried after the normal reconciliation interval.
-                LOGGER.exception("Source reconciliation failed; retrying later")
-            try:
-                await asyncio.wait_for(
-                    self.stopping.wait(), self.config.reconcile_seconds
+                timeout = min(
+                    self.config.reconcile_seconds,
+                    max(
+                        0.1,
+                        next_full_reconcile - asyncio.get_running_loop().time(),
+                    ),
                 )
-            except TimeoutError:
-                pass
+                try:
+                    await asyncio.wait_for(changed.wait(), timeout)
+                except TimeoutError:
+                    continue
+
+                changed.clear()
+                try:
+                    await asyncio.wait_for(
+                        self.stopping.wait(), self.config.event_debounce_seconds
+                    )
+                    continue
+                except TimeoutError:
+                    pass
+                changed.clear()
+                try:
+                    await asyncio.to_thread(reconcile_all, self.state)
+                    await asyncio.to_thread(monitor.refresh, self.state)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    LOGGER.exception("Source reconciliation failed; retrying later")
+                next_full_reconcile = (
+                    asyncio.get_running_loop().time()
+                    + self.config.full_reconcile_seconds
+                )
+        finally:
+            await asyncio.to_thread(monitor.close)
 
     async def _process_changes(self) -> None:
         for change in self.state.due_changes(limit=20):

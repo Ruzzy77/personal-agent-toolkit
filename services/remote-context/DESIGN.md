@@ -66,14 +66,19 @@ A projection upload is staged under an `upload_id`. The existing active
 projection remains visible while units arrive. Commit verifies the declared
 unit count and manifest hash, then changes the active revision in one SQLite
 transaction. Failed and abandoned uploads never replace the last good record.
-Original document bytes are not retained.
+Original document bytes are not retained. A repeated upload whose revision,
+projection manifest, metadata, and unit count already match the committed state
+returns the existing receipt without rewriting Source units or the FTS index.
+Identical external-provider snapshots are likewise recognized by digest.
 
 ## Sync behavior
 
 The Sync app connects outward to the SyncBroker. There is no inbound listener
 or public tunnel on the Mac.
 
-1. Filesystem events and start/resume reconciliation update local state.
+1. Filesystem events wake a coalesced reconciliation. Startup, recovered roots,
+   and a slower periodic scan cover missed events without repeatedly traversing
+   every Source tree.
 2. A rename or same-volume move updates the local locator without creating a
    new content revision.
 3. A content change is captured and analyzed automatically when the Connection

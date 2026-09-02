@@ -73,6 +73,24 @@ class RemoteClient:
         begun = await self._json(
             "POST", f"/sync/v1/corpora/{corpus_id}/projections:begin", header
         )
+        already_committed = begun.get("alreadyCommitted", False)
+        if type(already_committed) is not bool:
+            raise SyncError(
+                "remote_protocol_error", "remote projection state is invalid"
+            )
+        if already_committed:
+            if (
+                begun.get("projectionId") != header["projection"]["projectionId"]
+                or begun.get("revisionId") != header["revision"]["revisionId"]
+                or begun.get("resultManifestHash")
+                != header["projection"]["resultManifestHash"]
+                or begun.get("unitCount") != len(units)
+            ):
+                raise SyncError(
+                    "remote_protocol_error",
+                    "remote committed projection identity is invalid",
+                )
+            return begun
         staged = begun.get("stagedUnitCount", 0)
         if (
             isinstance(staged, bool)

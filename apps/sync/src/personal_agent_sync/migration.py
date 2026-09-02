@@ -330,6 +330,8 @@ def write_discovered_config(
         "document_files_python = "
         + json.dumps(str(document_files_python), ensure_ascii=False),
         "reconcile_seconds = 15",
+        "full_reconcile_seconds = 900",
+        "event_debounce_seconds = 2",
         "",
     ]
     for value in values:
@@ -1096,10 +1098,14 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
         for corpus_id in corpus.corpus_ids():
             documents = corpus.documents(corpus_id)
             document_digest = _digest(documents)
-            document_result = await remote.import_documents(corpus_id, documents)
-            state.remember_migration(
-                "corpus-documents", corpus_id, document_digest, document_result
+            document_result = state.migration_result(
+                "corpus-documents", corpus_id, document_digest
             )
+            if document_result is None:
+                document_result = await remote.import_documents(corpus_id, documents)
+                state.remember_migration(
+                    "corpus-documents", corpus_id, document_digest, document_result
+                )
             corpus_summaries[corpus_id]["documents"] = document_result
         summary["corpora"] = corpus_summaries
         return summary
