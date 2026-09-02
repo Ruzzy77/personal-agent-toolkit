@@ -53,7 +53,7 @@ def _request(path: str, *, method: str = "GET", body: Any | None = None) -> Any:
         method=method,
         headers={
             "Authorization": f"Bearer {_token()}",
-            "User-Agent": "PersonalAgentJournal/0.1",
+            "User-Agent": "PersonalAgentJournal/0.2",
             **({"Content-Type": "application/json"} if payload is not None else {}),
         },
     )
@@ -101,7 +101,7 @@ def main() -> int:
     if args.command == "health":
         url = os.environ.get("JOURNAL_SERVICE_URL", DEFAULT_SERVICE_URL).rstrip("/")
         request = urllib.request.Request(
-            f"{url}/health", headers={"User-Agent": "PersonalAgentJournal/0.1"}
+            f"{url}/health", headers={"User-Agent": "PersonalAgentJournal/0.2"}
         )
         with urllib.request.urlopen(request, timeout=15) as response:
             result = json.load(response)

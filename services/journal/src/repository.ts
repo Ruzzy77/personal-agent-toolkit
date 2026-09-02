@@ -2,8 +2,11 @@ import { JournalError } from "./errors";
 import { addDays } from "./time";
 import type {
   CorpusCandidate,
+  ItemSearchInput,
   ItemRecord,
   Lane,
+  PeriodKind,
+  PeriodSummaryVersion,
   PromotionReceiptInput,
   Resolution,
   WeekClosureSummary,
@@ -35,6 +38,7 @@ interface ItemRow {
   summary: string;
   lane: Lane;
   resolution: Resolution;
+  responsibility: "user" | "counterparty" | "system";
   due_at: string | null;
   durable_outcome: string | null;
   corpus_target_space: string | null;
@@ -70,6 +74,27 @@ interface ClosureRow {
   closed_at: string;
 }
 
+export interface PromotionReceiptRow {
+  item_id: string | null;
+  target_space: string;
+  content_hash: string;
+  status: "applied" | "skipped" | "failed";
+}
+
+interface PeriodSummaryRow {
+  id: string;
+  period_kind: PeriodKind;
+  anchor: string;
+  starts_on: string;
+  ends_on: string;
+  body: string;
+  version: number;
+  source_event_ids_json: string;
+  created_by: string;
+  idempotency_key: string;
+  created_at: string;
+}
+
 export function toWeek(row: WeekRow): WeekRecord {
   return {
     id: row.id,
@@ -98,12 +123,39 @@ export function toItem(row: ItemRow): ItemRecord {
     summary: row.summary,
     lane: row.lane,
     resolution: row.resolution,
+    responsibility: row.responsibility,
     dueAt: row.due_at,
     durableOutcome: row.durable_outcome,
     corpusTargetSpace: row.corpus_target_space,
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function toPeriodSummary(row: PeriodSummaryRow): PeriodSummaryVersion {
+  let sourceEventIds: string[] = [];
+  try {
+    const parsed = JSON.parse(row.source_event_ids_json) as unknown;
+    if (Array.isArray(parsed)) {
+      sourceEventIds = parsed.filter(
+        (value): value is string => typeof value === "string",
+      );
+    }
+  } catch {
+    sourceEventIds = [];
+  }
+  return {
+    id: row.id,
+    kind: row.period_kind,
+    anchor: row.anchor,
+    startsOn: row.starts_on,
+    endsOn: row.ends_on,
+    body: row.body,
+    version: row.version,
+    sourceEventIds,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
   };
 }
 
@@ -217,6 +269,114 @@ export class JournalRepository {
     return row ? toItem(row) : null;
   }
 
+  async findItems(input: ItemSearchInput): Promise<{
+    items: ItemRecord[];
+    count: number;
+  }> {
+    const clauses: string[] = [];
+    const bindings: unknown[] = [];
+    if (input.weekId) {
+      clauses.push("i.week_id = ?");
+      bindings.push(input.weekId);
+    } else if (input.startsOn && input.endsOn) {
+      clauses.push("w.starts_on <= ? AND w.ends_on >= ?");
+      bindings.push(input.endsOn, input.startsOn);
+    }
+    if (input.query) {
+      clauses.push(
+        "(i.title LIKE ? OR i.summary LIKE ? OR i.project_key LIKE ? OR i.source_ref LIKE ?)",
+      );
+      const pattern = `%${input.query}%`;
+      bindings.push(pattern, pattern, pattern, pattern);
+    }
+    if (input.projectKey) {
+      clauses.push("i.project_key = ?");
+      bindings.push(input.projectKey);
+    }
+    if (input.lane) {
+      clauses.push("i.lane = ?");
+      bindings.push(input.lane);
+    }
+    if (input.resolution) {
+      clauses.push("i.resolution = ?");
+      bindings.push(input.resolution);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const [rows, total] = await Promise.all([
+      this.db
+        .prepare(
+          `SELECT i.* FROM items i
+           JOIN weeks w ON w.id = i.week_id
+           ${where}
+           ORDER BY i.week_id DESC, i.updated_at DESC, i.id
+           LIMIT ?`,
+        )
+        .bind(...bindings, input.limit)
+        .all<ItemRow>(),
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM items i
+           JOIN weeks w ON w.id = i.week_id
+           ${where}`,
+        )
+        .bind(...bindings)
+        .first<{ count: number }>(),
+    ]);
+    return {
+      items: rows.results.map(toItem),
+      count: Number(total?.count ?? 0),
+    };
+  }
+
+  async listItemsByLogicalId(logicalItemId: string): Promise<ItemRecord[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT * FROM items
+         WHERE logical_item_id = ?
+         ORDER BY week_id ASC, created_at ASC, id ASC`,
+      )
+      .bind(logicalItemId)
+      .all<ItemRow>();
+    return rows.results.map(toItem);
+  }
+
+  async listEventsByLogicalId(
+    logicalItemId: string,
+    limit = 500,
+  ): Promise<EventRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT e.*, i.title AS item_title
+         FROM journal_events e
+         JOIN items i ON i.id = e.item_id
+         WHERE i.logical_item_id = ?
+         ORDER BY e.occurred_at ASC, e.id ASC
+         LIMIT ?`,
+      )
+      .bind(logicalItemId, limit)
+      .all<EventRow>();
+    return rows.results;
+  }
+
+  async listCorrectionsForLogicalItem(
+    logicalItemId: string,
+    limit = 100,
+  ): Promise<EventRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT e.*, i.title AS item_title
+         FROM journal_events e
+         JOIN items i ON i.id = e.item_id
+         WHERE e.event_type = 'correction_added'
+           AND i.logical_item_id = ?
+         ORDER BY e.occurred_at ASC, e.id ASC
+         LIMIT ?`,
+      )
+      .bind(logicalItemId, limit)
+      .all<EventRow>();
+    return rows.results;
+  }
+
   async getReceipt(idempotencyKey: string): Promise<ReceiptRow | null> {
     return this.db
       .prepare(
@@ -292,7 +452,8 @@ export class JournalRepository {
           `UPDATE items SET
             week_id = ?, source_ref = ?, source_version = ?, project_key = ?,
             title = ?, summary = ?, lane = ?, due_at = ?, durable_outcome = ?,
-            corpus_target_space = ?, version = version + 1, updated_at = ?
+            responsibility = ?, corpus_target_space = ?,
+            version = version + 1, updated_at = ?
            WHERE id = ? AND version = ?`,
         )
         .bind(
@@ -305,6 +466,7 @@ export class JournalRepository {
           item.lane,
           item.dueAt,
           item.durableOutcome,
+          item.responsibility,
           item.corpusTargetSpace,
           item.updatedAt,
           item.id,
@@ -424,15 +586,36 @@ export class JournalRepository {
     closedAt: string,
     event: EventRow,
     rolloverItems: Array<{ item: ItemRecord; event: EventRow }>,
+    expectedItems: Array<{ id: string; version: number }>,
   ): Promise<void> {
+    const versionGuards = expectedItems
+      .map(
+        () =>
+          "AND EXISTS (SELECT 1 FROM items expected WHERE expected.id = ? AND expected.version = ? AND expected.week_id = ?)",
+      )
+      .join("\n");
+    const expectedBindings = expectedItems.flatMap((item) => [
+      item.id,
+      item.version,
+      weekId,
+    ]);
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
           `UPDATE weeks
            SET status = 'closed', closed_at = ?, updated_at = ?, revision = revision + 1
-           WHERE id = ? AND status = 'open'`,
+           WHERE id = ? AND status = 'open'
+             AND (SELECT COUNT(*) FROM items current WHERE current.week_id = ?) = ?
+             ${versionGuards}`,
         )
-        .bind(closedAt, closedAt, weekId),
+        .bind(
+          closedAt,
+          closedAt,
+          weekId,
+          weekId,
+          expectedItems.length,
+          ...expectedBindings,
+        ),
       this.db
         .prepare(
           `INSERT INTO week_closures
@@ -454,20 +637,26 @@ export class JournalRepository {
     ];
     for (const rollover of rolloverItems) {
       statements.push(
-        this.insertItemStatement(rollover.item, true),
-        this.insertEventForItemVersionStatement(
+        this.insertRolloverItemStatement(
+          rollover.item,
+          weekId,
+          closedAt,
+        ),
+        this.insertRolloverEventStatement(
           rollover.event,
           rollover.item.id,
           rollover.item.version,
           rollover.item.updatedAt,
+          weekId,
+          closedAt,
         ),
       );
     }
     const results = await this.db.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1) {
       throw new JournalError(
-        "week_already_closed",
-        "the week was already closed",
+        "week_changed_during_close",
+        "the week changed after the close preparation",
         409,
       );
     }
@@ -506,6 +695,93 @@ export class JournalRepository {
     return rows.results.map(toItem);
   }
 
+  async listEventsInWeeks(weekIds: string[]): Promise<EventRow[]> {
+    if (weekIds.length === 0) return [];
+    const placeholders = weekIds.map(() => "?").join(", ");
+    const rows = await this.db
+      .prepare(
+        `SELECT e.*, i.title AS item_title
+         FROM journal_events e
+         LEFT JOIN items i ON i.id = e.item_id
+         WHERE e.week_id IN (${placeholders})
+         ORDER BY e.occurred_at ASC, e.id ASC`,
+      )
+      .bind(...weekIds)
+      .all<EventRow>();
+    return rows.results;
+  }
+
+  async listPeriodSummaries(
+    kind: PeriodKind,
+    anchor: string,
+  ): Promise<PeriodSummaryVersion[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT * FROM period_summary_versions
+         WHERE period_kind = ? AND anchor = ?
+         ORDER BY version ASC`,
+      )
+      .bind(kind, anchor)
+      .all<PeriodSummaryRow>();
+    return rows.results.map(toPeriodSummary);
+  }
+
+  async getPeriodSummaryByIdempotency(
+    idempotencyKey: string,
+  ): Promise<PeriodSummaryVersion | null> {
+    const row = await this.db
+      .prepare(
+        "SELECT * FROM period_summary_versions WHERE idempotency_key = ?",
+      )
+      .bind(idempotencyKey)
+      .first<PeriodSummaryRow>();
+    return row ? toPeriodSummary(row) : null;
+  }
+
+  async insertPeriodSummary(
+    summary: PeriodSummaryVersion,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<void> {
+    const result = await this.db
+      .prepare(
+        `INSERT INTO period_summary_versions (
+          id, period_kind, anchor, starts_on, ends_on, body, version,
+          source_event_ids_json, created_by, idempotency_key, created_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE (
+          SELECT COALESCE(MAX(version), 0)
+          FROM period_summary_versions
+          WHERE period_kind = ? AND anchor = ?
+        ) = ?`,
+      )
+      .bind(
+        summary.id,
+        summary.kind,
+        summary.anchor,
+        summary.startsOn,
+        summary.endsOn,
+        summary.body,
+        summary.version,
+        JSON.stringify(summary.sourceEventIds),
+        summary.createdBy,
+        idempotencyKey,
+        summary.createdAt,
+        summary.kind,
+        summary.anchor,
+        expectedVersion,
+      )
+      .run();
+    if ((result.meta.changes ?? 0) !== 1) {
+      throw new JournalError(
+        "version_conflict",
+        "the period summary changed after it was shown",
+        409,
+      );
+    }
+  }
+
   async findPromotionReceipt(input: PromotionReceiptInput): Promise<boolean> {
     const row = await this.db
       .prepare(
@@ -515,6 +791,21 @@ export class JournalRepository {
       .bind(input.weekId, input.itemId, input.targetSpace, input.contentHash)
       .first<{ found: number }>();
     return row?.found === 1;
+  }
+
+  async listPromotionReceipts(
+    weekId: string,
+  ): Promise<PromotionReceiptRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT item_id, target_space, content_hash, status
+         FROM corpus_promotion_receipts
+         WHERE week_id = ?
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .bind(weekId)
+      .all<PromotionReceiptRow>();
+    return rows.results;
   }
 
   async insertPromotionReceipt(
@@ -578,8 +869,9 @@ export class JournalRepository {
         `${insert} INTO items (
           id, logical_item_id, week_id, source_kind, source_key, source_ref, source_version,
           project_key, title, summary, lane, resolution, due_at,
-          durable_outcome, corpus_target_space, version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          responsibility, durable_outcome, corpus_target_space,
+          version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         item.id,
@@ -595,11 +887,95 @@ export class JournalRepository {
         item.lane,
         item.resolution,
         item.dueAt,
+        item.responsibility,
         item.durableOutcome,
         item.corpusTargetSpace,
         item.version,
         item.createdAt,
         item.updatedAt,
+      );
+  }
+
+  private insertRolloverItemStatement(
+    item: ItemRecord,
+    sourceWeekId: string,
+    sourceClosedAt: string,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT OR IGNORE INTO items (
+          id, logical_item_id, week_id, source_kind, source_key, source_ref, source_version,
+          project_key, title, summary, lane, resolution, due_at,
+          responsibility, durable_outcome, corpus_target_space,
+          version, created_at, updated_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        FROM weeks
+        WHERE id = ? AND status = 'closed' AND closed_at = ?`,
+      )
+      .bind(
+        item.id,
+        item.logicalItemId,
+        item.weekId,
+        item.sourceKind,
+        item.sourceKey,
+        item.sourceRef,
+        item.sourceVersion,
+        item.projectKey,
+        item.title,
+        item.summary,
+        item.lane,
+        item.resolution,
+        item.dueAt,
+        item.responsibility,
+        item.durableOutcome,
+        item.corpusTargetSpace,
+        item.version,
+        item.createdAt,
+        item.updatedAt,
+        sourceWeekId,
+        sourceClosedAt,
+      );
+  }
+
+  private insertRolloverEventStatement(
+    event: EventRow,
+    itemId: string,
+    version: number,
+    updatedAt: string,
+    sourceWeekId: string,
+    sourceClosedAt: string,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO journal_events (
+          id, week_id, item_id, event_type, actor_kind, actor_ref,
+          payload_json, idempotency_key, occurred_at, created_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        FROM items
+        WHERE id = ? AND version = ? AND updated_at = ?
+          AND EXISTS (
+            SELECT 1 FROM weeks
+            WHERE id = ? AND status = 'closed' AND closed_at = ?
+          )`,
+      )
+      .bind(
+        event.id,
+        event.week_id,
+        event.item_id,
+        event.event_type,
+        event.actor_kind,
+        event.actor_ref,
+        event.payload_json,
+        event.idempotency_key,
+        event.occurred_at,
+        event.created_at,
+        itemId,
+        version,
+        updatedAt,
+        sourceWeekId,
+        sourceClosedAt,
       );
   }
 

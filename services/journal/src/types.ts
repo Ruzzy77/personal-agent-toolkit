@@ -3,6 +3,7 @@ export type Resolution = "active" | "held" | "completed" | "canceled";
 export type WeekStatus = "open" | "closed";
 export type ActorKind = "owner" | "automation" | "source";
 export type PeriodKind = "day" | "week" | "month" | "quarter" | "year";
+export type Responsibility = "user" | "counterparty" | "system";
 
 export interface AuthenticatedOwner {
   userId: string;
@@ -79,6 +80,7 @@ export interface ItemRecord {
   summary: string;
   lane: Lane;
   resolution: Resolution;
+  responsibility: Responsibility;
   dueAt: string | null;
   durableOutcome: string | null;
   corpusTargetSpace: string | null;
@@ -126,6 +128,7 @@ export interface IngestItemInput {
   title: string;
   summary: string;
   lane: Lane;
+  responsibility: Responsibility | null;
   dueAt: string | null;
   durableOutcome: string | null;
   corpusTargetSpace: string | null;
@@ -160,6 +163,7 @@ export interface CorpusCandidate {
   projectKey: string;
   targetSpace: string;
   durableOutcome: string;
+  contentHash: string;
   sourceRef: string | null;
 }
 
@@ -168,6 +172,55 @@ export interface WeekClosure {
   summary: WeekClosureSummary;
   corpusCandidates: CorpusCandidate[];
   alreadyClosed: boolean;
+}
+
+export interface WeekClosePreparation {
+  week: WeekRecord;
+  summary: WeekClosureSummary;
+  corpusCandidates: CorpusCandidate[];
+  rolloverItems: Array<{
+    itemId: string;
+    title: string;
+    resolution: Resolution;
+  }>;
+  preparationVersion: string;
+  reflectedCandidateIds: string[];
+}
+
+export interface JournalEventRecord {
+  id: string;
+  weekId: string;
+  itemId: string | null;
+  eventType: string;
+  actorKind: string;
+  actorRef: string | null;
+  payload: Record<string, unknown>;
+  label: string;
+  occurredAt: string;
+  createdAt: string;
+}
+
+export interface ItemSearchInput {
+  weekId: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  query: string | null;
+  projectKey: string | null;
+  lane: Lane | null;
+  resolution: Resolution | null;
+  limit: number;
+}
+
+export interface ItemSearchResult {
+  items: ItemRecord[];
+  count: number;
+}
+
+export interface ItemDetailResult {
+  item: ItemRecord;
+  relatedItems: ItemRecord[];
+  history: JournalEventRecord[];
+  corrections: JournalEventRecord[];
 }
 
 export interface PeriodResult {
@@ -184,6 +237,45 @@ export interface PeriodResult {
     completed: number;
     active: number;
   }>;
+  highlights: Array<{
+    itemId: string;
+    weekId: string;
+    title: string;
+    projectKey: string | null;
+    resolution: Resolution;
+    durableOutcome: string | null;
+  }>;
+  longRunning: Array<{
+    logicalItemId: string;
+    title: string;
+    projectKey: string | null;
+    weekCount: number;
+    latestWeekId: string;
+    resolution: Resolution;
+  }>;
+  currentSummary: PeriodSummaryVersion | null;
+  summaryVersions: PeriodSummaryVersion[];
+}
+
+export interface PeriodSummaryVersion {
+  id: string;
+  kind: PeriodKind;
+  anchor: string;
+  startsOn: string;
+  endsOn: string;
+  body: string;
+  version: number;
+  sourceEventIds: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface SavePeriodSummaryInput {
+  kind: PeriodKind;
+  anchor: string;
+  body: string;
+  expectedVersion: number | null;
+  idempotencyKey: string;
 }
 
 export interface PromotionReceiptInput {
@@ -199,6 +291,7 @@ export interface PromotionReceiptInput {
 }
 
 export interface CorrectionInput {
+  itemId: string | null;
   note: string;
   sourceRef: string | null;
   idempotencyKey: string;

@@ -15,6 +15,7 @@ Journal은 Personal Agent Toolkit 안에서 Sense, Corpus, Hypes와 나란히 �
 
 - `lane`: `today`, `direct`, `waiting`, `attention`
 - `resolution`: `active`, `held`, `completed`, `canceled`
+- `responsibility`: `user`, `counterparty`, `system`
 
 자동 수집은 제목, 현재 상태, 분류와 출처 참조를 갱신할 수 있습니다. `held`, `completed`, `canceled` 판정은 소유자 확인 또는 명시적인 정본 근거가 있을 때만 바뀝니다. 첫 구현에서는 Sites와 OAuth MCP에서 실행한 처리를 소유자 확인으로 보고, 수집 토큰은 처리 결과를 바꾸지 못하게 합니다.
 
@@ -27,6 +28,8 @@ Journal은 Personal Agent Toolkit 안에서 Sense, Corpus, Hypes와 나란히 �
 - 주간 마감 시 `active`와 `held` 항목은 다음 주로 이월하고, 완료·취소 항목은 마감 주에만 남깁니다. 이월 인스턴스는 지난주의 확정 결과를 복사하지 않습니다.
 - 모든 중요한 변경은 `journal_events`에 멱등 키와 함께 추가합니다.
 - 마감 시점의 요약과 Corpus 반영 후보는 `week_closures`에 고정합니다.
+- 주간 마감은 준비와 확정을 분리합니다. 준비 버전 이후 항목이 바뀌면 확정을 거부하고, 모든 Corpus 후보가 적용 또는 명시적으로 건너뛴 영수증을 가져야 주를 닫습니다.
+- 사용자가 고친 월·분기·연 요약은 이전 본문을 덮어쓰지 않고 `period_summary_versions`에 추가합니다. 각 버전은 작성 당시 기간의 Event ID를 보존해 원 기록으로 되짚을 수 있습니다.
 
 ## 데이터 최소화
 

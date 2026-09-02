@@ -25,6 +25,33 @@ async function mcpJson(response: Response): Promise<Record<string, unknown>> {
   >;
 }
 
+async function prepareWeek(weekId: string): Promise<Record<string, unknown>> {
+  const response = await SELF.fetch(
+    `${ORIGIN}/api/v1/weeks/${weekId}:prepare-close`,
+    { method: "POST", headers: SITE_AUTH },
+  );
+  expect(response.status, await response.clone().text()).toBe(200);
+  const body = await json(response);
+  return body.result as Record<string, unknown>;
+}
+
+async function confirmWeek(
+  weekId: string,
+  preparationVersion: string,
+  idempotencyKey: string,
+  occurredAt: string,
+): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/v1/weeks/${weekId}:confirm-close`, {
+    method: "POST",
+    headers: { ...SITE_AUTH, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      preparationVersion,
+      idempotencyKey,
+      occurredAt,
+    }),
+  });
+}
+
 describe("Journal API and MCP spike", () => {
   it("allows only the configured browser origin and MCP host", async () => {
     const allowed = await SELF.fetch(`${ORIGIN}/api/v1/board`, {
@@ -83,12 +110,13 @@ describe("Journal API and MCP spike", () => {
     expect(createdResponse.status).toBe(200);
     const createdBody = await json(createdResponse);
     const createdResult = createdBody.result as Array<{
-      item: { id: string; version: number };
+      item: { id: string; version: number; responsibility: string };
       created: boolean;
     }>;
     const itemId = createdResult[0]?.item.id ?? "";
     expect(itemId).toMatch(/^[0-9a-f-]{36}$/);
     expect(createdResult[0]?.created).toBe(true);
+    expect(createdResult[0]?.item.responsibility).toBe("counterparty");
 
     const refresh = structuredClone(initial);
     refresh.items[0]!.idempotencyKey = "test:gmail:agreement:2";
@@ -194,6 +222,31 @@ describe("Journal API and MCP spike", () => {
       duplicate: true,
     });
 
+    const afterOwnerRefresh = structuredClone(refresh);
+    afterOwnerRefresh.items[0]!.idempotencyKey = "test:gmail:agreement:3";
+    afterOwnerRefresh.items[0]!.sourceRef = "gmail:message-3";
+    afterOwnerRefresh.items[0]!.sourceVersion = "message-3";
+    afterOwnerRefresh.items[0]!.summary = "완료 상태 재확인";
+    const afterOwnerResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/items:ingest`,
+      {
+        method: "POST",
+        headers: { ...INGEST_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify(afterOwnerRefresh),
+      },
+    );
+    const afterOwnerBody = await json(afterOwnerResponse);
+    expect(afterOwnerBody.result).toMatchObject([
+      {
+        item: {
+          id: itemId,
+          resolution: "completed",
+          responsibility: "counterparty",
+          version: 4,
+        },
+      },
+    ]);
+
     const toolsResponse = await SELF.fetch(`${ORIGIN}/mcp`, {
       method: "POST",
       headers: {
@@ -207,6 +260,8 @@ describe("Journal API and MCP spike", () => {
     expect(toolsResponse.status, await toolsResponse.clone().text()).toBe(200);
     const tools = await mcpJson(toolsResponse);
     expect(JSON.stringify(tools)).toContain("journal_get_board");
+    expect(JSON.stringify(tools)).toContain("journal_find_items");
+    expect(JSON.stringify(tools)).toContain("journal_get_item_history");
     expect(JSON.stringify(tools)).toContain("journal_set_resolution");
 
     const mcpBoardResponse = await SELF.fetch(`${ORIGIN}/mcp`, {
@@ -230,6 +285,26 @@ describe("Journal API and MCP spike", () => {
     const mcpBoard = await mcpJson(mcpBoardResponse);
     expect(JSON.stringify(mcpBoard)).toContain(itemId);
     expect(JSON.stringify(mcpBoard)).toContain("completed");
+
+    const foundResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/items?week=2026-08-31&project=industrial-ai&query=%EA%B3%B5%EB%AC%B8`,
+      { headers: SITE_AUTH },
+    );
+    const foundBody = await json(foundResponse);
+    expect(foundBody.result).toMatchObject({
+      count: 1,
+      items: [{ id: itemId, responsibility: "counterparty" }],
+    });
+
+    const detailResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/items/${itemId}`,
+      { headers: SITE_AUTH },
+    );
+    const detailBody = await json(detailResponse);
+    expect(detailBody.result).toMatchObject({
+      item: { id: itemId, sourceRef: "gmail:message-3" },
+    });
+    expect(JSON.stringify(detailBody.result)).toContain("resolution_changed");
   });
 
   it("starts a new weekly instance for the same source after close", async () => {
@@ -266,16 +341,12 @@ describe("Journal API and MCP spike", () => {
       created: boolean;
     }>;
 
-    const closeResponse = await SELF.fetch(
-      `${ORIGIN}/api/v1/weeks/2026-08-17:close`,
-      {
-        method: "POST",
-        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idempotencyKey: "test:weekly-source:close",
-          occurredAt: "2026-08-23T12:00:00.000Z",
-        }),
-      },
+    const preparation = await prepareWeek("2026-08-17");
+    const closeResponse = await confirmWeek(
+      "2026-08-17",
+      preparation.preparationVersion as string,
+      "test:weekly-source:close",
+      "2026-08-23T12:00:00.000Z",
     );
     expect(closeResponse.status).toBe(200);
     const closeBody = await json(closeResponse);
@@ -351,17 +422,77 @@ describe("Journal API and MCP spike", () => {
     expect(carried[0]?.item.id).not.toBe(first[0]?.item.id);
   });
 
-  it("freezes a week, accepts only correction events, and returns period totals", async () => {
-    const closeResponse = await SELF.fetch(
-      `${ORIGIN}/api/v1/weeks/2026-08-31:close`,
+  it("rejects a stale close preparation without rolling items forward", async () => {
+    const ingestResponse = await SELF.fetch(`${ORIGIN}/api/v1/items:ingest`, {
+      method: "POST",
+      headers: { ...INGEST_AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          {
+            idempotencyKey: "test:stale-close:ingest",
+            sourceKind: "codex",
+            sourceKey: "stale-close-item",
+            sourceRef: "codex:stale-close-item",
+            sourceVersion: "1",
+            weekId: "2026-09-14",
+            projectKey: "journal-test",
+            title: "마감 충돌 시험",
+            summary: "진행 중",
+            lane: "direct",
+            dueAt: null,
+            durableOutcome: null,
+            corpusTargetSpace: null,
+            occurredAt: "2026-09-15T00:00:00.000Z",
+          },
+        ],
+      }),
+    });
+    const ingested = (await json(ingestResponse)).result as Array<{
+      item: { id: string; version: number };
+    }>;
+    const itemId = ingested[0]?.item.id ?? "";
+    const preparation = await prepareWeek("2026-09-14");
+
+    const holdResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/items/${itemId}/resolution`,
       {
-        method: "POST",
+        method: "PATCH",
         headers: { ...SITE_AUTH, "Content-Type": "application/json" },
         body: JSON.stringify({
-          idempotencyKey: "test:close:2026-08-31",
-          occurredAt: "2026-09-06T12:00:00.000Z",
+          resolution: "held",
+          idempotencyKey: "test:stale-close:hold",
+          expectedVersion: 1,
+          occurredAt: "2026-09-15T01:00:00.000Z",
         }),
       },
+    );
+    expect(holdResponse.status).toBe(200);
+
+    const staleClose = await confirmWeek(
+      "2026-09-14",
+      preparation.preparationVersion as string,
+      "test:stale-close:confirm",
+      "2026-09-20T12:00:00.000Z",
+    );
+    expect(staleClose.status).toBe(409);
+    expect(await json(staleClose)).toMatchObject({
+      error: { code: "close_preparation_stale" },
+    });
+
+    const nextBoard = await SELF.fetch(
+      `${ORIGIN}/api/v1/board?week=2026-09-21&include_resolved=true`,
+      { headers: SITE_AUTH },
+    );
+    expect((await json(nextBoard)).result).toMatchObject({ items: [] });
+  });
+
+  it("freezes a week, accepts only correction events, and returns period totals", async () => {
+    const preparation = await prepareWeek("2026-08-31");
+    const closeResponse = await confirmWeek(
+      "2026-08-31",
+      preparation.preparationVersion as string,
+      "test:close:2026-08-31",
+      "2026-09-06T12:00:00.000Z",
     );
     expect(closeResponse.status).toBe(200);
     const closeBody = await json(closeResponse);
@@ -426,6 +557,68 @@ describe("Journal API and MCP spike", () => {
       endsOn: "2026-09-30",
       totals: { completed: 1 },
     });
+
+    const firstSummaryPayload = {
+      kind: "quarter",
+      anchor: "2026-09-02",
+      body: "협약변경 공문 처리를 마쳤다.",
+      expectedVersion: null,
+      idempotencyKey: "test:period-summary:quarter:v1",
+    };
+    const rejectedSummary = await SELF.fetch(
+      `${ORIGIN}/api/v1/period-summaries`,
+      {
+        method: "POST",
+        headers: { ...INGEST_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify(firstSummaryPayload),
+      },
+    );
+    expect(rejectedSummary.status).toBe(403);
+
+    const firstSummary = await SELF.fetch(
+      `${ORIGIN}/api/v1/period-summaries`,
+      {
+        method: "POST",
+        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify(firstSummaryPayload),
+      },
+    );
+    expect(await json(firstSummary)).toMatchObject({
+      result: {
+        summary: { version: 1, body: "협약변경 공문 처리를 마쳤다." },
+        duplicate: false,
+      },
+    });
+
+    const secondSummary = await SELF.fetch(
+      `${ORIGIN}/api/v1/period-summaries`,
+      {
+        method: "POST",
+        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...firstSummaryPayload,
+          body: "협약변경 공문 처리와 후속 정정을 기록했다.",
+          expectedVersion: 1,
+          idempotencyKey: "test:period-summary:quarter:v2",
+        }),
+      },
+    );
+    expect(await json(secondSummary)).toMatchObject({
+      result: { summary: { version: 2 }, duplicate: false },
+    });
+
+    const summaryPeriod = await SELF.fetch(
+      `${ORIGIN}/api/v1/period?kind=quarter&anchor=2026-09-02`,
+      { headers: SITE_AUTH },
+    );
+    const summaryPeriodBody = await json(summaryPeriod);
+    expect(summaryPeriodBody.result).toMatchObject({
+      currentSummary: {
+        version: 2,
+        body: "협약변경 공문 처리와 후속 정정을 기록했다.",
+      },
+      summaryVersions: [{ version: 1 }, { version: 2 }],
+    });
   });
 
   it("returns explicit Corpus candidates and de-duplicates promotion receipts", async () => {
@@ -474,19 +667,8 @@ describe("Journal API and MCP spike", () => {
     );
     expect(resolveResponse.status).toBe(200);
 
-    const closeResponse = await SELF.fetch(
-      `${ORIGIN}/api/v1/weeks/2026-10-05:close`,
-      {
-        method: "POST",
-        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idempotencyKey: "test:corpus-candidate:close",
-          occurredAt: "2026-10-11T12:00:00.000Z",
-        }),
-      },
-    );
-    const closeBody = await json(closeResponse);
-    expect(closeBody.result).toMatchObject({
+    const preparation = await prepareWeek("2026-10-05");
+    expect(preparation).toMatchObject({
       summary: { rolloverCount: 0 },
       corpusCandidates: [
         {
@@ -497,19 +679,35 @@ describe("Journal API and MCP spike", () => {
         },
       ],
     });
+    const candidates = preparation.corpusCandidates as Array<{
+      itemId: string;
+      contentHash: string;
+    }>;
+    const candidateHash = candidates[0]?.contentHash ?? "";
+
+    const prematureClose = await confirmWeek(
+      "2026-10-05",
+      preparation.preparationVersion as string,
+      "test:corpus-candidate:premature-close",
+      "2026-10-11T11:00:00.000Z",
+    );
+    expect(prematureClose.status).toBe(409);
+    expect(await json(prematureClose)).toMatchObject({
+      error: { code: "corpus_reflection_pending" },
+    });
 
     const receipt = {
       weekId: "2026-10-05",
       itemId,
       targetSpace: "toolkit-project",
       sourcePath: "docs/journal-release.md",
-      contentHash: "sha256:journal-release-v1",
+      contentHash: candidateHash,
       status: "applied",
       details: "verified",
       idempotencyKey: "test:corpus-candidate:receipt:1",
       occurredAt: "2026-10-12T00:00:00.000Z",
     };
-    const receiptResponse = await SELF.fetch(
+    const rejectedReceipt = await SELF.fetch(
       `${ORIGIN}/api/v1/corpus-promotions`,
       {
         method: "POST",
@@ -517,14 +715,36 @@ describe("Journal API and MCP spike", () => {
         body: JSON.stringify(receipt),
       },
     );
+    expect(rejectedReceipt.status).toBe(403);
+
+    const receiptResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/corpus-promotions`,
+      {
+        method: "POST",
+        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify(receipt),
+      },
+    );
     const receiptBody = await json(receiptResponse);
     expect(receiptBody.result).toMatchObject({ duplicate: false });
+
+    const closeResponse = await confirmWeek(
+      "2026-10-05",
+      preparation.preparationVersion as string,
+      "test:corpus-candidate:close",
+      "2026-10-11T12:00:00.000Z",
+    );
+    const closeBody = await json(closeResponse);
+    expect(closeBody.result).toMatchObject({
+      week: { status: "closed" },
+      corpusCandidates: [{ itemId, contentHash: candidateHash }],
+    });
 
     const duplicateResponse = await SELF.fetch(
       `${ORIGIN}/api/v1/corpus-promotions`,
       {
         method: "POST",
-        headers: { ...INGEST_AUTH, "Content-Type": "application/json" },
+        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
         body: JSON.stringify({
           ...receipt,
           idempotencyKey: "test:corpus-candidate:receipt:2",

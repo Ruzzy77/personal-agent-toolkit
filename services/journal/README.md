@@ -15,9 +15,12 @@ npm run check
 - stable source identity와 ingest idempotency
 - 주차별 인스턴스와 여러 주에 걸친 logical item identity
 - 관찰 갱신과 사용자 resolution 분리
+- 담당 주체와 분류의 독립 보존
 - 자동화 토큰의 resolution 거부
-- 주간 마감 뒤 항목 변경 거부, 진행·보류 항목 이월과 correction 허용
+- 조건별 검색과 여러 주에 걸친 항목 이력
+- 주간 마감 준비 버전 충돌 거부, 진행·보류 항목 이월과 correction 허용
 - 명시적인 Corpus 후보와 promotion receipt 중복 방지
+- 기간별 주요 결과·장기 이월과 사용자 편집 요약 버전 보존
 - HTTP, MCP, CORS, Host와 OAuth Service Binding 경계
 
 ## 운영 배포
@@ -55,3 +58,5 @@ npx wrangler deploy
 ## 데이터 경계
 
 Journal은 원문 이메일이나 문서 bytes를 저장하지 않습니다. 항목 title, 짧은 summary, source reference, lane, resolution, append-only event, week closure와 Corpus promotion receipt만 보관합니다. 닫힌 주는 correction event 외에는 수정하지 않습니다.
+
+보존, 삭제, 장애 대응과 배포 전후 확인은 [OPERATIONS.md](./OPERATIONS.md)를 따릅니다.

@@ -4,10 +4,14 @@ import { JournalError, asJournalError } from "./errors";
 import {
   closeWeekToolSchema,
   correctionRequestSchema,
+  findItemsSchema,
   getBoardToolSchema,
+  getItemHistorySchema,
   ingestRequestSchema,
   periodToolSchema,
   promotionRequestSchema,
+  prepareWeekCloseSchema,
+  savePeriodSummarySchema,
   setResolutionToolSchema,
 } from "./schemas";
 import { JournalService } from "./service";
@@ -56,7 +60,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 function buildServer(env: Env, principal: Principal): McpServer {
   const service = new JournalService(env.DB);
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.1.0" },
+    { name: "Personal Agent Journal", version: "0.2.0" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -99,6 +103,38 @@ function buildServer(env: Env, principal: Principal): McpServer {
   );
 
   server.registerTool(
+    "journal_find_items",
+    {
+      title: "Find Journal Items",
+      description:
+        "Find Journal items by week or date range, text, project, lane, and resolution.",
+      inputSchema: findItemsSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async (input) =>
+      safeTool(async () => {
+        requireAnyScope(principal, ["journal.read"]);
+        return service.findItems(input);
+      }),
+  );
+
+  server.registerTool(
+    "journal_get_item_history",
+    {
+      title: "Read Journal Item History",
+      description:
+        "Read one item, its weekly instances, source references, state history, and corrections.",
+      inputSchema: getItemHistorySchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ itemId }) =>
+      safeTool(async () => {
+        requireAnyScope(principal, ["journal.read"]);
+        return service.getItemDetail(itemId);
+      }),
+  );
+
+  server.registerTool(
     "journal_set_resolution",
     {
       title: "Confirm Journal Item Resolution",
@@ -115,19 +151,36 @@ function buildServer(env: Env, principal: Principal): McpServer {
   );
 
   server.registerTool(
-    "journal_close_week",
+    "journal_prepare_week_close",
     {
-      title: "Close Journal Week",
+      title: "Prepare Journal Week Close",
       description:
-        "Freeze the current state of a KST week and return only explicit Corpus reflection candidates.",
+        "Preview the frozen summary, rollover items, and explicit Corpus reflection candidates without closing the week.",
+      inputSchema: prepareWeekCloseSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ weekId }) =>
+      safeTool(async () => {
+        requireAnyScope(principal, ["journal.close"]);
+        return service.prepareWeekClose(weekId, principal);
+      }),
+  );
+
+  server.registerTool(
+    "journal_confirm_week_close",
+    {
+      title: "Confirm Journal Week Close",
+      description:
+        "Close the prepared KST week after every Corpus reflection candidate is applied or explicitly skipped.",
       inputSchema: closeWeekToolSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async ({ weekId, idempotencyKey, occurredAt }) =>
+    async ({ weekId, preparationVersion, idempotencyKey, occurredAt }) =>
       safeTool(async () => {
         requireAnyScope(principal, ["journal.close"]);
-        return service.closeWeek(
+        return service.confirmWeekClose(
           weekId,
+          preparationVersion,
           idempotencyKey,
           occurredAt,
           principal,
@@ -184,8 +237,24 @@ function buildServer(env: Env, principal: Principal): McpServer {
     },
     async (input) =>
       safeTool(async () => {
-        requireAnyScope(principal, ["journal.ingest", "journal.write"]);
+        requireAnyScope(principal, ["journal.write"]);
         return service.recordPromotion(input, principal);
+      }),
+  );
+
+  server.registerTool(
+    "journal_save_period_summary",
+    {
+      title: "Save Journal Period Summary",
+      description:
+        "Append an owner-edited summary version for a day, week, month, quarter, or year while preserving links to source events.",
+      inputSchema: savePeriodSummarySchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (input) =>
+      safeTool(async () => {
+        requireAnyScope(principal, ["journal.write"]);
+        return service.savePeriodSummary(input, principal);
       }),
   );
 

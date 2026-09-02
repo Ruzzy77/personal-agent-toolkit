@@ -1,13 +1,13 @@
 export class JournalError extends Error {
   readonly code: string;
   readonly status: number;
-  readonly details: Record<string, string | number | boolean | null>;
+  readonly details: Record<string, unknown>;
 
   constructor(
     code: string,
     message: string,
     status = 400,
-    details: Record<string, string | number | boolean | null> = {},
+    details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "JournalError";

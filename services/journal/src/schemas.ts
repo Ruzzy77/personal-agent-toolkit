@@ -7,6 +7,11 @@ export const resolutionSchema = z.enum([
   "completed",
   "canceled",
 ]);
+export const responsibilitySchema = z.enum([
+  "user",
+  "counterparty",
+  "system",
+]);
 export const periodKindSchema = z.enum([
   "day",
   "week",
@@ -33,6 +38,7 @@ export const ingestItemSchema = z.object({
   title: z.string().trim().min(1).max(240),
   summary: z.string().trim().min(1).max(1000),
   lane: laneSchema,
+  responsibility: responsibilitySchema.nullable().default(null),
   dueAt: nullableText(48),
   durableOutcome: nullableText(1000),
   corpusTargetSpace: nullableText(120),
@@ -52,10 +58,12 @@ export const resolutionRequestSchema = z.object({
 
 export const closeWeekRequestSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(240),
+  preparationVersion: z.string().trim().min(16).max(160),
   occurredAt: nullableText(48),
 });
 
 export const correctionRequestSchema = z.object({
+  itemId: z.string().uuid().nullable().default(null),
   note: z.string().trim().min(1).max(2000),
   sourceRef: nullableText(1000),
   idempotencyKey: z.string().trim().min(8).max(240),
@@ -84,6 +92,41 @@ export const getBoardToolSchema = z.object({
   includeResolved: z.boolean().default(false),
 });
 
+export const findItemsSchema = z.object({
+  weekId: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+  startsOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+  endsOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+  query: nullableText(240),
+  projectKey: nullableText(120),
+  lane: laneSchema.nullable().default(null),
+  resolution: resolutionSchema.nullable().default(null),
+  limit: z.number().int().min(1).max(200).default(50),
+});
+
+export const getItemHistorySchema = z.object({
+  itemId: z.string().uuid(),
+});
+
+export const prepareWeekCloseSchema = z.object({
+  weekId: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+});
+
 export const setResolutionToolSchema = z.object({
   itemId: z.string().uuid(),
   resolution: resolutionSchema,
@@ -99,6 +142,7 @@ export const closeWeekToolSchema = z.object({
     .nullable()
     .default(null),
   idempotencyKey: z.string().trim().min(8).max(240),
+  preparationVersion: z.string().trim().min(16).max(160),
   occurredAt: nullableText(48),
 });
 
@@ -109,4 +153,12 @@ export const periodToolSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable()
     .default(null),
+});
+
+export const savePeriodSummarySchema = z.object({
+  kind: periodKindSchema,
+  anchor: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  body: z.string().trim().min(1).max(5000),
+  expectedVersion: z.number().int().min(1).nullable().default(null),
+  idempotencyKey: z.string().trim().min(8).max(240),
 });

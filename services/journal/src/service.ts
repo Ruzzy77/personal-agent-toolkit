@@ -17,14 +17,22 @@ import type {
   CorrectionInput,
   IngestItemInput,
   IngestResult,
+  ItemDetailResult,
   ItemRecord,
+  ItemSearchInput,
+  ItemSearchResult,
+  JournalEventRecord,
   Lane,
   PeriodKind,
   PeriodResult,
+  PeriodSummaryVersion,
   Principal,
   PromotionReceiptInput,
   Resolution,
   ResolutionInput,
+  Responsibility,
+  SavePeriodSummaryInput,
+  WeekClosePreparation,
   WeekClosure,
   WeekClosureSummary,
   WeekFlowEntry,
@@ -84,6 +92,43 @@ function actorRef(principal: Principal): string {
   return `${principal.auth}:${principal.id}`;
 }
 
+function defaultResponsibility(lane: Lane): Responsibility {
+  return lane === "waiting" ? "counterparty" : "user";
+}
+
+function eventRecord(event: EventRow): JournalEventRecord {
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(event.payload_json) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      payload = parsed as Record<string, unknown>;
+    }
+  } catch {
+    payload = {};
+  }
+  return {
+    id: event.id,
+    weekId: event.week_id,
+    itemId: event.item_id,
+    eventType: event.event_type,
+    actorKind: event.actor_kind,
+    actorRef: event.actor_ref,
+    payload,
+    label: eventLabel(event),
+    occurredAt: event.occurred_at,
+    createdAt: event.created_at,
+  };
+}
+
+async function contentHash(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `sha256:${hex}`;
+}
+
 export class JournalService {
   private readonly repository: JournalRepository;
 
@@ -136,6 +181,41 @@ export class JournalService {
       events: entries,
     }));
     return { week, summary, items, flow };
+  }
+
+  async findItems(input: ItemSearchInput): Promise<ItemSearchResult> {
+    if ((input.startsOn && !input.endsOn) || (!input.startsOn && input.endsOn)) {
+      throw new JournalError(
+        "invalid_request",
+        "startsOn and endsOn must be provided together",
+      );
+    }
+    if (input.weekId) validateWeekId(input.weekId);
+    if (input.startsOn && input.endsOn && input.startsOn > input.endsOn) {
+      throw new JournalError(
+        "invalid_request",
+        "startsOn must not be after endsOn",
+      );
+    }
+    return this.repository.findItems(input);
+  }
+
+  async getItemDetail(itemId: string): Promise<ItemDetailResult> {
+    const item = await this.repository.getItem(itemId);
+    if (!item) {
+      throw new JournalError("item_not_found", "item was not found", 404);
+    }
+    const [relatedItems, history, corrections] = await Promise.all([
+      this.repository.listItemsByLogicalId(item.logicalItemId),
+      this.repository.listEventsByLogicalId(item.logicalItemId),
+      this.repository.listCorrectionsForLogicalItem(item.logicalItemId),
+    ]);
+    return {
+      item,
+      relatedItems,
+      history: history.map(eventRecord),
+      corrections: corrections.map(eventRecord),
+    };
   }
 
   async ingestItems(
@@ -207,6 +287,8 @@ export class JournalService {
         summary: input.summary,
         lane: input.lane,
         resolution: "active",
+        responsibility:
+          input.responsibility ?? defaultResponsibility(input.lane),
         dueAt: input.dueAt,
         durableOutcome: input.durableOutcome,
         corpusTargetSpace: input.corpusTargetSpace,
@@ -223,6 +305,7 @@ export class JournalService {
           title: item.title,
           summary: item.summary,
           lane: item.lane,
+          responsibility: item.responsibility,
           sourceRef: item.sourceRef,
         },
         idempotencyKey: input.idempotencyKey,
@@ -248,6 +331,7 @@ export class JournalService {
       title: input.title,
       summary: input.summary,
       lane: input.lane,
+      responsibility: input.responsibility ?? existing.responsibility,
       dueAt: input.dueAt,
       durableOutcome: input.durableOutcome,
       corpusTargetSpace: input.corpusTargetSpace,
@@ -263,6 +347,7 @@ export class JournalService {
         title: updated.title,
         summary: updated.summary,
         lane: updated.lane,
+        responsibility: updated.responsibility,
         sourceRef: updated.sourceRef,
         resolutionUnchanged: updated.resolution,
       },
@@ -350,8 +435,118 @@ export class JournalService {
     return { item: updated, duplicate: false };
   }
 
-  async closeWeek(
+  async prepareWeekClose(
     weekId: string | null,
+    principal: Principal,
+  ): Promise<WeekClosePreparation> {
+    if (principal.kind !== "owner") {
+      throw new JournalError(
+        "owner_confirmation_required",
+        "preparing a week close requires owner confirmation",
+        403,
+      );
+    }
+    const now = this.clock();
+    const nowIso = now.toISOString();
+    const selected = validateWeekId(weekId ?? currentWeekId(now));
+    const storedWeek = await this.repository.getWeek(selected);
+    const week = storedWeek ?? this.repository.virtualWeek(selected, nowIso);
+    if (week.status === "closed") {
+      throw new JournalError(
+        "week_already_closed",
+        "the week is already closed",
+        409,
+      );
+    }
+    const items = storedWeek
+      ? await this.repository.listAllItems(selected)
+      : [];
+    const rolloverSources = items.filter((item) =>
+      ["active", "held"].includes(item.resolution),
+    );
+    const nextWeekId = addDays(selected, 7);
+    const nextWeek = await this.repository.getWeek(nextWeekId);
+    if (rolloverSources.length > 0 && nextWeek?.status === "closed") {
+      throw new JournalError(
+        "rollover_week_closed",
+        "the next week is already closed and cannot accept rollover items",
+        409,
+      );
+    }
+    const nextWeekPresence: Array<{ itemId: string; present: boolean }> = [];
+    if (rolloverSources.length > 0) {
+      for (const source of rolloverSources) {
+        const alreadyPresent = await this.repository.getItemBySource(
+          nextWeekId,
+          source.sourceKind,
+          source.sourceKey,
+        );
+        nextWeekPresence.push({
+          itemId: source.id,
+          present: Boolean(alreadyPresent),
+        });
+      }
+    }
+    const summary = this.closureSummary(selected, items, rolloverSources);
+    const candidateItems = items.filter(
+      (item) => item.projectKey && item.durableOutcome && item.corpusTargetSpace,
+    );
+    const corpusCandidates = await Promise.all(
+      candidateItems.map<Promise<CorpusCandidate>>(async (item) => ({
+        itemId: item.id,
+        projectKey: item.projectKey ?? "",
+        targetSpace: item.corpusTargetSpace ?? "",
+        durableOutcome: item.durableOutcome ?? "",
+        contentHash: await contentHash(item.durableOutcome ?? ""),
+        sourceRef: item.sourceRef,
+      })),
+    );
+    const receipts = storedWeek
+      ? await this.repository.listPromotionReceipts(selected)
+      : [];
+    const reflectedCandidateIds = corpusCandidates
+      .filter((candidate) =>
+        receipts.some(
+          (receipt) =>
+            receipt.item_id === candidate.itemId &&
+            receipt.target_space === candidate.targetSpace &&
+            receipt.content_hash === candidate.contentHash &&
+            ["applied", "skipped"].includes(receipt.status),
+        ),
+      )
+      .map((candidate) => candidate.itemId);
+    const preparationVersion = await contentHash(
+      JSON.stringify({
+        weekId: selected,
+        weekRevision: week.revision,
+        items: items
+          .map((item) => ({ id: item.id, version: item.version }))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        nextWeek: nextWeek
+          ? { id: nextWeek.id, status: nextWeek.status, revision: nextWeek.revision }
+          : null,
+        nextWeekPresence: nextWeekPresence.sort((left, right) =>
+          left.itemId.localeCompare(right.itemId),
+        ),
+      }),
+    );
+    return {
+      week,
+      summary,
+      corpusCandidates,
+      rolloverItems: rolloverSources.map((item) => ({
+        itemId: item.id,
+        title: item.title,
+        resolution: item.resolution,
+      })),
+      preparationVersion,
+      reflectedCandidateIds,
+    };
+  }
+
+  async confirmWeekClose(
+    weekId: string | null,
+    preparationVersion: string,
     idempotencyKey: string,
     occurredAtInput: string | null,
     principal: Principal,
@@ -367,21 +562,52 @@ export class JournalService {
     const nowIso = now.toISOString();
     const occurredAt = normalizeTimestamp(occurredAtInput, now);
     const selected = validateWeekId(weekId ?? currentWeekId(now));
-    const week = await this.repository.ensureWeek(selected, nowIso);
     const existingClosure = await this.repository.getClosure(selected);
     if (existingClosure) {
+      const closedWeek = await this.repository.getWeek(selected);
+      if (!closedWeek) {
+        throw new JournalError("storage_error", "closed week was not found", 500);
+      }
       return {
-        week: (await this.repository.getWeek(selected)) ?? week,
+        week: closedWeek,
         summary: existingClosure.summary,
         corpusCandidates: existingClosure.corpusCandidates,
         alreadyClosed: true,
       };
     }
+    const preparation = await this.prepareWeekClose(selected, principal);
+    if (preparation.preparationVersion !== preparationVersion) {
+      throw new JournalError(
+        "close_preparation_stale",
+        "the week changed after the close preparation",
+        409,
+        { preparationVersion: preparation.preparationVersion },
+      );
+    }
+    const reflected = new Set(preparation.reflectedCandidateIds);
+    const pendingCandidates = preparation.corpusCandidates.filter(
+      (candidate) => !reflected.has(candidate.itemId),
+    );
+    if (pendingCandidates.length > 0) {
+      throw new JournalError(
+        "corpus_reflection_pending",
+        "Corpus reflection candidates must be applied or skipped before closing",
+        409,
+        {
+          candidates: pendingCandidates.map((candidate) => ({
+            itemId: candidate.itemId,
+            targetSpace: candidate.targetSpace,
+            contentHash: candidate.contentHash,
+          })),
+        },
+      );
+    }
+    const week = await this.repository.ensureWeek(selected, nowIso);
     if (week.status === "closed") {
       throw new JournalError(
-        "closure_missing",
-        "the closed week has no closure snapshot",
-        500,
+        "week_already_closed",
+        "the week is already closed",
+        409,
       );
     }
     const items = await this.repository.listAllItems(selected);
@@ -411,6 +637,7 @@ export class JournalService {
           id: crypto.randomUUID(),
           weekId: nextWeekId,
           durableOutcome: null,
+          corpusTargetSpace: null,
           version: 1,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -433,19 +660,8 @@ export class JournalService {
         rolloverItems.push({ item: rollover, event: rolloverEvent });
       }
     }
-    const summary = this.closureSummary(selected, items, rolloverSources);
-    const corpusCandidates = items
-      .filter(
-        (item) =>
-          item.projectKey && item.durableOutcome && item.corpusTargetSpace,
-      )
-      .map<CorpusCandidate>((item) => ({
-        itemId: item.id,
-        projectKey: item.projectKey ?? "",
-        targetSpace: item.corpusTargetSpace ?? "",
-        durableOutcome: item.durableOutcome ?? "",
-        sourceRef: item.sourceRef,
-      }));
+    const summary = preparation.summary;
+    const corpusCandidates = preparation.corpusCandidates;
     const event = this.event({
       weekId: selected,
       itemId: null,
@@ -468,6 +684,7 @@ export class JournalService {
       occurredAt,
       event,
       rolloverItems,
+      items.map((item) => ({ id: item.id, version: item.version })),
     );
     const closedWeek = await this.repository.getWeek(selected);
     if (!closedWeek) {
@@ -505,13 +722,27 @@ export class JournalService {
     if (await this.repository.eventExists(input.idempotencyKey)) {
       return { eventId: input.idempotencyKey, duplicate: true };
     }
+    if (input.itemId) {
+      const item = await this.repository.getItem(input.itemId);
+      if (!item || item.weekId !== selected) {
+        throw new JournalError(
+          "item_not_found",
+          "the correction item was not found in this week",
+          404,
+        );
+      }
+    }
     const now = this.clock();
     const event = this.event({
       weekId: selected,
-      itemId: null,
+      itemId: input.itemId,
       eventType: "correction_added",
       principal,
-      payload: { note: input.note, sourceRef: input.sourceRef },
+      payload: {
+        itemId: input.itemId,
+        note: input.note,
+        sourceRef: input.sourceRef,
+      },
       idempotencyKey: input.idempotencyKey,
       occurredAt: normalizeTimestamp(input.occurredAt, now),
       createdAt: now.toISOString(),
@@ -529,6 +760,10 @@ export class JournalService {
     const weeks = await this.repository.listWeeksOverlapping(startsOn, endsOn);
     const items = await this.repository.listItemsInWeeks(
       weeks.map((week) => week.id),
+    );
+    const summaryVersions = await this.repository.listPeriodSummaries(
+      kind,
+      anchor,
     );
     const totals = Object.fromEntries(
       RESOLUTIONS.map((resolution) => [resolution, 0]),
@@ -555,6 +790,25 @@ export class JournalService {
       if (["active", "held"].includes(item.resolution)) project.active += 1;
       projects.set(key, project);
     }
+    const logicalItems = new Map<
+      string,
+      { instances: ItemRecord[]; latest: ItemRecord }
+    >();
+    for (const item of items) {
+      const existing = logicalItems.get(item.logicalItemId);
+      if (!existing) {
+        logicalItems.set(item.logicalItemId, { instances: [item], latest: item });
+        continue;
+      }
+      existing.instances.push(item);
+      if (
+        item.weekId > existing.latest.weekId ||
+        (item.weekId === existing.latest.weekId &&
+          item.updatedAt > existing.latest.updatedAt)
+      ) {
+        existing.latest = item;
+      }
+    }
     return {
       kind,
       anchor,
@@ -566,7 +820,101 @@ export class JournalService {
       projects: [...projects.values()].sort(
         (left, right) => right.total - left.total,
       ),
+      highlights: items
+        .filter(
+          (item) => item.resolution === "completed" || item.durableOutcome,
+        )
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .slice(0, 20)
+        .map((item) => ({
+          itemId: item.id,
+          weekId: item.weekId,
+          title: item.title,
+          projectKey: item.projectKey,
+          resolution: item.resolution,
+          durableOutcome: item.durableOutcome,
+        })),
+      longRunning: [...logicalItems.entries()]
+        .filter(
+          ([, value]) =>
+            value.instances.length >= 2 &&
+            ["active", "held"].includes(value.latest.resolution),
+        )
+        .map(([logicalItemId, value]) => ({
+          logicalItemId,
+          title: value.latest.title,
+          projectKey: value.latest.projectKey,
+          weekCount: new Set(value.instances.map((item) => item.weekId)).size,
+          latestWeekId: value.latest.weekId,
+          resolution: value.latest.resolution,
+        }))
+        .sort((left, right) => right.weekCount - left.weekCount),
+      currentSummary: summaryVersions.at(-1) ?? null,
+      summaryVersions,
     };
+  }
+
+  async savePeriodSummary(
+    input: SavePeriodSummaryInput,
+    principal: Principal,
+  ): Promise<{ summary: PeriodSummaryVersion; duplicate: boolean }> {
+    if (principal.kind !== "owner") {
+      throw new JournalError(
+        "owner_confirmation_required",
+        "saving a period summary requires owner confirmation",
+        403,
+      );
+    }
+    const duplicate = await this.repository.getPeriodSummaryByIdempotency(
+      input.idempotencyKey,
+    );
+    if (duplicate) return { summary: duplicate, duplicate: true };
+
+    const { startsOn, endsOn } = periodRange(input.kind, input.anchor);
+    const versions = await this.repository.listPeriodSummaries(
+      input.kind,
+      input.anchor,
+    );
+    const currentVersion = versions.at(-1)?.version ?? 0;
+    if (
+      input.expectedVersion !== null &&
+      input.expectedVersion !== currentVersion
+    ) {
+      throw new JournalError(
+        "version_conflict",
+        "the period summary changed after it was shown",
+        409,
+        { currentVersion },
+      );
+    }
+    const weeks = await this.repository.listWeeksOverlapping(startsOn, endsOn);
+    const events = await this.repository.listEventsInWeeks(
+      weeks.map((week) => week.id),
+    );
+    const now = this.clock().toISOString();
+    const summary: PeriodSummaryVersion = {
+      id: crypto.randomUUID(),
+      kind: input.kind,
+      anchor: input.anchor,
+      startsOn,
+      endsOn,
+      body: input.body,
+      version: currentVersion + 1,
+      sourceEventIds: events
+        .filter((event) => {
+          const date = kstEventDate(event.occurred_at);
+          return startsOn <= date && date <= endsOn;
+        })
+        .map((event) => event.id),
+      createdBy: actorRef(principal),
+      createdAt: now,
+    };
+    await this.repository.insertPeriodSummary(
+      summary,
+      input.idempotencyKey,
+      currentVersion,
+    );
+    return { summary, duplicate: false };
   }
 
   async recordPromotion(
@@ -584,8 +932,32 @@ export class JournalService {
     if (await this.repository.findPromotionReceipt(input)) {
       return { receiptId: input.contentHash, duplicate: true };
     }
-    if (input.itemId && !(await this.repository.getItem(input.itemId))) {
-      throw new JournalError("item_not_found", "item was not found", 404);
+    if (week.status === "closed") {
+      throw new JournalError(
+        "week_closed",
+        "Corpus reflection must be recorded before the week is closed",
+        409,
+      );
+    }
+    if (input.itemId) {
+      const item = await this.repository.getItem(input.itemId);
+      if (!item || item.weekId !== input.weekId) {
+        throw new JournalError("item_not_found", "item was not found", 404);
+      }
+      const expectedHash = item.durableOutcome
+        ? await contentHash(item.durableOutcome)
+        : null;
+      if (
+        !item.corpusTargetSpace ||
+        item.corpusTargetSpace !== input.targetSpace ||
+        expectedHash !== input.contentHash
+      ) {
+        throw new JournalError(
+          "promotion_candidate_mismatch",
+          "the Corpus reflection receipt does not match the current item",
+          409,
+        );
+      }
     }
     const now = this.clock();
     const event = this.event({
