@@ -2,10 +2,11 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus와 Hypes를 로컬에서 운영하고, 선택한 원격 서비스를 소유자 인증에 연결하는 개인용 에이전트 도구 모음입니다.
+Sense, Corpus, Document Files와 Hypes를 로컬에서 운영하고, 선택한 원격 서비스를 소유자 인증에 연결하는 개인용 에이전트 도구 모음입니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
+- **Document Files**: PDF, Office와 HWP/HWPX를 포함한 문서 파일의 추출·변환·렌더링·편집
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
@@ -38,6 +39,7 @@ Sense, Corpus와 Hypes를 로컬에서 운영하고, 선택한 원격 서비스�
 codex plugin marketplace add Ruzzy77/personal-agent-toolkit
 codex plugin add sense@personal-agent-toolkit
 codex plugin add corpus@personal-agent-toolkit
+codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 ```
 
@@ -53,6 +55,7 @@ codex plugin marketplace add .
 claude plugin marketplace add Ruzzy77/personal-agent-toolkit
 claude plugin install sense@personal-agent-toolkit --scope user
 claude plugin install corpus@personal-agent-toolkit --scope user
+claude plugin install document-files@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 ```
 
@@ -94,6 +97,7 @@ plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 �
 codex plugin marketplace upgrade personal-agent-toolkit
 codex plugin add sense@personal-agent-toolkit
 codex plugin add corpus@personal-agent-toolkit
+codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 codex plugin list --json
 ```
@@ -106,6 +110,7 @@ codex plugin list --json
 claude plugin marketplace update personal-agent-toolkit
 claude plugin update sense@personal-agent-toolkit --scope user
 claude plugin update corpus@personal-agent-toolkit --scope user
+claude plugin update document-files@personal-agent-toolkit --scope user
 claude plugin update hypes@personal-agent-toolkit --scope user
 claude plugin list
 ```
@@ -114,15 +119,17 @@ claude plugin list
 
 ### Claude Desktop
 
-`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus와 Hypes를 모두 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Cowork 세션에서 세 plugin의 Skill과 로컬 MCP 도구가 보이는지 확인합니다. 일반 Chat에 Skill만 나타나는 상태를 로컬 MCP 연결 확인으로 간주하지 않습니다.
+`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document Files와 Hypes를 모두 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Cowork 세션에서 네 plugin의 Skill과 로컬 MCP 도구가 보이는지 확인합니다. 일반 Chat에 Skill만 나타나는 상태를 로컬 MCP 연결 확인으로 간주하지 않습니다.
 
 ### ChatGPT 웹
 
 [gateway guide](./gateway/GUIDE.md)의 버전 갱신 절차에 따라 LaunchAgent를 다시 설치해 새 Codex plugin 경로를 반영하고 gateway 상태를 확인합니다. 이어 `플러그인 → 설치됨 → Sense·Corpus·Hypes → 관리`에서 각 plugin을 `새로 고침`합니다. 각 plugin의 액션 목록이 현재 MCP 도구와 일치하고 권한이 `모든 액션 허용`인지 확인합니다. 새로 고침으로 현재 액션이 반영되지 않으면 해당 developer plugin을 다시 연결합니다.
 
+Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
+
 ### 완료 기준
 
-변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude Desktop·ChatGPT 웹에서 새 버전이나 현재 도구 목록을 확인해야 갱신이 완료됩니다. Sense, Corpus와 Hypes의 사용자 데이터는 설치 경로 밖의 각 Application Support 폴더에 유지합니다.
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude Desktop에서 네 로컬 plugin의 새 버전이나 현재 도구 목록을 확인해야 갱신이 완료됩니다. ChatGPT 웹에서는 Sense·Corpus·Hypes의 현재 액션과 권한을 별도로 확인합니다. Sense, Corpus와 Hypes의 사용자 데이터는 설치 경로 밖의 각 Application Support 폴더에 유지합니다.
 
 ## Sense 시작
 

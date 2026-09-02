@@ -7,6 +7,8 @@ description: Refresh registered local Corpus Source indexes after source files c
 
 Treat each registered source folder as canonical and its Corpus index as a derived projection. Run the bundled refresher rather than reconstructing the synchronization loop:
 
+## One-time refresh
+
 ```bash
 python3 "${SKILL_DIR}/scripts/refresh_sources.py"
 ```
@@ -17,10 +19,36 @@ To refresh only explicitly named registrations, repeat `--corpus`:
 python3 "${SKILL_DIR}/scripts/refresh_sources.py" --corpus SOURCE_ID
 ```
 
+## Monitored refresh
+
+For a recurring monitor, keep its private warning history outside the plugin and pass the same path on every run:
+
+```bash
+python3 "${SKILL_DIR}/scripts/refresh_sources.py" --warning-state "${STATE_PATH}"
+```
+
+The first successful run initializes a baseline for each selected source instead of reporting every existing warning as new. A later run reports `new`, `increased`, and `reappeared` items as alerting changes. Mention `resolved` and `decreased` items only when useful, and do not repeat unchanged warnings. A failed refresh does not advance the baseline.
+
+After a coordinated extractor release and successful reindex, replace the old baseline once:
+
+```bash
+python3 "${SKILL_DIR}/scripts/refresh_sources.py" \
+  --warning-state "${STATE_PATH}" \
+  --reset-warning-baseline
+```
+
+Do not reset the baseline merely to hide an unresolved warning.
+
+## Boundaries
+
 The script scans every selected registration, refreshes locally available pending documents in bounded batches, and stops after at most four passes per source. It never enables remote hydration.
+
+Previously approved large documents are refreshed one at a time after the ordinary bounded passes. Approval remains an explicit local user action. If the source identity changed, leave it skipped until the user approves the current file again; do not raise the global file limit or approve a replacement automatically.
 
 Do not modify source files, source scope, registration roots, or registrations. If a registered root is unavailable, report it; do not rebind, unregister, delete, or substitute another path.
 
+## Result
+
 Use the script's final JSON and exit status as the result. A source is successfully refreshed when its scan completes and no locally refreshable work or unexplained outdated projection remains. An outdated projection is a warning only when the script can attribute every such projection to an oversized file, an unavailable remote file, or a current extraction failure. `partial` projections and these non-actionable gaps may remain; report them as warnings rather than repeatedly retrying them.
 
-Report how many sources were checked, which documents changed or were indexed, and any unresolved errors or warnings. Distinguish a completed refresh from a fully covered source.
+Report how many sources were checked, which documents changed or were indexed, and any unresolved errors. In a one-time refresh, summarize current warnings. In a monitored refresh, follow the warning delta instead of restating the complete warning inventory. Distinguish a completed refresh from a fully covered source.
