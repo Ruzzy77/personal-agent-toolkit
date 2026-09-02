@@ -1,0 +1,167 @@
+{
+  "schema_version": 3,
+  "id": "yeobaek",
+  "name": "여백 (Yeobaek)",
+  "description": "한 화면에 필수 내용과 주요 동작 한 개만 배치한다. 정보 위계는 글자 크기, 정렬과 간격으로 구분한다.",
+  "version": "1.1",
+  "created": "2026-08-19",
+  "status": "validated",
+  "kind": "recipe",
+  "visibility": "public",
+  "pattern_refs": [
+    "single-purpose"
+  ],
+  "format_support": {
+    "web": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "document": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "slides": [
+      "guidance"
+    ],
+    "image": [
+      "guidance"
+    ]
+  },
+  "provenance": {
+    "origin": "original",
+    "license": "Apache-2.0",
+    "references": [
+      {
+        "title": "Vercel Geist Typography",
+        "url": "https://vercel.com/geist/typography",
+        "adopted": "역할별 글자 체계"
+      },
+      {
+        "title": "Vercel Web Interface Guidelines",
+        "url": "https://vercel.com/design/guidelines",
+        "adopted": "정렬, 직접적인 도움말과 의미 구조"
+      },
+      {
+        "title": "Linear UI redesign",
+        "url": "https://linear.app/now/how-we-redesigned-the-linear-ui",
+        "adopted": "시각적 잡음 축소와 정렬"
+      },
+      {
+        "title": "GOV.UK spacing",
+        "url": "https://design-system.service.gov.uk/styles/spacing/",
+        "adopted": "반응형 간격 체계"
+      }
+    ]
+  },
+  "mediums": [
+    "standalone-html",
+    "print-html"
+  ],
+  "formats": [
+    "web",
+    "document",
+    "slides",
+    "image"
+  ],
+  "format_fit": {
+    "web": "primary",
+    "document": "primary",
+    "slides": "primary",
+    "image": "primary"
+  },
+  "use_for": [
+    "concise-content",
+    "single-purpose-content",
+    "essential-information"
+  ],
+  "avoid_for": [
+    "long-reading",
+    "dense-data",
+    "multi-step-workflow",
+    "decorative-content"
+  ],
+  "capabilities": {
+    "dark_mode": true,
+    "print": true,
+    "charts": true,
+    "diagrams": true,
+    "long_form": false,
+    "interactive_ui": true,
+    "motion": false,
+    "image_layout": true,
+    "minimal_content": true
+  },
+  "default_profile": "core",
+  "profiles": {
+    "min": [
+      "tokens.css",
+      "base.css"
+    ],
+    "core": [
+      "tokens.css",
+      "base.css",
+      "components.css"
+    ]
+  },
+  "aliases": {
+    "full": "core"
+  },
+  "gallery": {
+    "korean_name": "여백",
+    "purpose": "최소 구성",
+    "note": "한 화면에 필수 내용과 주요 동작 하나만 배치합니다.",
+    "directions": [
+      "제목, 설명과 본문이 같은 내용을 반복하지 않는지 확인",
+      "카드, 배지, 아이콘과 구분선이 없어도 내용과 행동을 이해할 수 있는지 확인"
+    ],
+    "swatches": [
+      "#fbfbf8",
+      "#ffffff",
+      "#141411",
+      "#5d5d57",
+      "#d8d8d1",
+      "#145fc4"
+    ],
+    "template_labels": {
+      "artifact": "기본"
+    },
+    "use_labels": {
+      "concise-content": "간결한 내용",
+      "single-purpose-content": "한 가지 목적",
+      "essential-information": "필수 정보"
+    },
+    "avoid_labels": {
+      "long-reading": "긴 본문",
+      "dense-data": "표와 그래프가 많은 내용",
+      "multi-step-workflow": "단계가 많은 작업",
+      "decorative-content": "장식 중심 내용"
+    },
+    "specimen": {
+      "canvas": "#fbfbf8",
+      "canvas_dark": "#10100f",
+      "ink": "#141411",
+      "ink_dark": "#f3f3ef",
+      "accent": "#141411",
+      "accent_dark": "#f3f3ef"
+    }
+  },
+  "styleguide": "styleguide.html",
+  "format_guide": "formats.json",
+  "templates": {
+    "artifact": "templates/artifact.html"
+  },
+  "validation": {
+    "checked_on": "2026-08-26",
+    "checks": [
+      "manifest-json",
+      "wcag-aa-text",
+      "dark-mode-tokens",
+      "print-styles",
+      "responsive-layout",
+      "focus-visible",
+      "format-guide"
+    ]
+  }
+}

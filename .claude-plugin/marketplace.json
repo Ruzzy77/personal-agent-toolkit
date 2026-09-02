@@ -34,6 +34,12 @@
       "source": "./plugins/journal",
       "description": "Keep a private daily and weekly work journal with owner-confirmed status changes.",
       "category": "productivity"
+    },
+    {
+      "name": "design",
+      "source": "./plugins/design",
+      "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
+      "category": "design"
     }
   ]
 }

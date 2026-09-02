@@ -1,6 +1,6 @@
 # Privacy boundary
 
-Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, and Journal use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy.
+Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, and Journal use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy. Design has no product data store.
 
 ## Sense
 
@@ -93,6 +93,15 @@ project source material and reusable project context.
 - D1 exports are operational backups controlled by the owner. They are not shipped in the plugin
   or public repository.
 
+## Design
+
+Design is a Skill-only plugin with a static, publicly licensed reference pack. It has no MCP
+server, external account connection, background process, or product data store. The reference pack
+contains reusable patterns, optional recipes, example assets, and source attribution; it contains
+no project-only extensions or user content. Design can read or edit project files only through the
+host agent's current tools and permissions, and the plugin does not retain those files or task
+history.
+
 ## Private ChatGPT tunnel use
 
 The gateway and Secure MCP Tunnel are transitional compatibility paths while the remote migration
@@ -141,7 +150,8 @@ The release repository must not contain:
   files.
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
-build-time copy of runtime data or maintainer credentials. `services/journal` contains the
+build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
+Skills and the generated public reference pack. `services/journal` contains the
 deployable schema and service source, and `sites/journal` contains the owner-only Sites frontend;
 runtime values and secrets stay in ignored configuration or the hosting environment. Public
 resource and Site endpoints may appear in the plugin manifest. The optional gateway remains a

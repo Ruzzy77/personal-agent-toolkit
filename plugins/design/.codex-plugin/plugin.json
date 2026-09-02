@@ -1,0 +1,46 @@
+{
+  "name": "design",
+  "version": "0.2.0+codex.20260902204806",
+  "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
+  "author": {
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
+  },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit/tree/main/plugins/design",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design",
+    "design-reference",
+    "frontend",
+    "ux",
+    "accessibility",
+    "user-research"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Design",
+    "shortDescription": "Design, review, and research product interfaces",
+    "longDescription": "Design creates and refines product interfaces in the existing project, reviews usability and accessibility from available evidence, and plans or synthesizes product design research. Its optional offline library separates reusable patterns, named recipes, and example assets without replacing the project's design system.",
+    "developerName": "Ruzzy77",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interface design and frontend implementation",
+      "Optional pattern and recipe reference library",
+      "Design-system and UX copy refinement",
+      "Design and accessibility review",
+      "Product design research"
+    ],
+    "websiteURL": "https://github.com/Ruzzy77/personal-agent-toolkit/tree/main/plugins/design",
+    "privacyPolicyURL": "https://github.com/Ruzzy77/personal-agent-toolkit/blob/main/PRIVACY.md",
+    "brandColor": "#4255D4",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "defaultPrompt": [
+      "Design and implement this interface within the existing project.",
+      "Find one to three useful design reference directions for this product.",
+      "Review this screen and fix the most important issues.",
+      "Plan or synthesize the user research needed for this decision."
+    ]
+  }
+}
