@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -9,6 +10,7 @@ from unittest import mock
 
 from corpus.errors import ContextValidationError
 from corpus.service import CorpusService
+from corpus.session_sources import normalize_session_selector
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
@@ -30,13 +32,14 @@ def _codex_records(
     *,
     completed_at: datetime,
     final_text: str = "완료된 답변입니다.",
+    cwd: str = "/workspace/project",
 ) -> list[dict]:
     return [
         {
             "type": "session_meta",
             "payload": {
                 "id": "codex-session-1",
-                "cwd": "/workspace/project",
+                "cwd": cwd,
             },
         },
         {
@@ -129,6 +132,7 @@ class SessionLinkedSourceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         base = Path(self.temporary.name)
+        self.base = base
         self.completed_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
         self.data = base / "private-data"
         self.source = base / "source"
@@ -304,6 +308,10 @@ class SessionLinkedSourceTest(unittest.TestCase):
         self.assertEqual(codex["provider_metadata"]["turn_id"], "codex-turn-1")
         self.assertEqual(claude["provider_kind"], "claude")
         self.assertEqual(claude["provider_metadata"]["turn_id"], "claude-turn-1")
+        self.assertNotIn("cwd", codex["provider_metadata"])
+        self.assertNotIn("workspace", codex["provider_metadata"])
+        self.assertNotIn("cwd", claude["provider_metadata"])
+        self.assertNotIn("workspace", claude["provider_metadata"])
         self.assertTrue(codex["freshness_identity"].startswith("sha256:"))
         self.assertTrue(claude["freshness_identity"].startswith("sha256:"))
 
@@ -384,6 +392,75 @@ class SessionLinkedSourceTest(unittest.TestCase):
         )
         self.assertTrue(first["run_id"].startswith("run_"))
         self.assertNotEqual(first["run_id"], second["run_id"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "uses macOS file identities")
+    def test_session_selector_follows_same_volume_workspace_move(self) -> None:
+        _write_jsonl(
+            self.codex_file,
+            _codex_records(
+                completed_at=self.completed_at,
+                cwd=str(self.source),
+            ),
+        )
+        bound = self.service.corpus_source_update(
+            action="bind",
+            corpus_id="project",
+            binding_id="project-codex-moved",
+            payload={
+                "provider_kind": "codex",
+                "selector": {
+                    "cwd_prefix": str(self.source),
+                    "actor": "all",
+                    "lookback_days": 30,
+                    "include_archived": False,
+                },
+            },
+        )
+        self.assertIn("cwd_root_device", bound["selector"])
+        moved = self.base / "moved-source"
+        self.source.rename(moved)
+        _write_jsonl(
+            self.codex_file,
+            _codex_records(
+                completed_at=self.completed_at,
+                cwd=str(moved),
+            ),
+        )
+
+        refreshed = self.service.corpus_source_update(
+            action="refresh",
+            corpus_id="project",
+            binding_id="project-codex-moved",
+            payload={},
+        )
+        listed = self.service.corpus_source_read(
+            corpus_id="project",
+            binding_id="project-codex-moved",
+        )
+
+        self.assertEqual(refreshed["discovered_record_count"], 1)
+        self.assertEqual(
+            Path(listed["bindings"][0]["selector"]["cwd_prefix"]).resolve(),
+            moved.resolve(),
+        )
+
+    def test_session_selector_refreshes_a_changed_volume_device_number(self) -> None:
+        observed = self.source.stat()
+
+        selector = normalize_session_selector(
+            "codex",
+            {
+                "cwd_prefix": str(self.source),
+                "cwd_root_device": observed.st_dev + 1,
+                "cwd_root_inode": observed.st_ino,
+                "actor": "all",
+                "lookback_days": 30,
+                "include_archived": False,
+            },
+        )
+
+        self.assertEqual(selector["cwd_root_device"], observed.st_dev)
+        self.assertEqual(selector["cwd_root_inode"], observed.st_ino)
 
     def test_paged_observation_preserves_base_run_until_completion(self) -> None:
         self.service.corpus_source_update(

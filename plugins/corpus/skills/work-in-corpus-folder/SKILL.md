@@ -7,6 +7,8 @@ description: Use Corpus to create, read, revise, and continue files in an explic
 
 Use `corpus_space_list` or `corpus_space_get` to select the requested Space and a visible `read_write` Work Connection. The selected Connection defines the available file scope.
 
+If the user renamed or moved the connected folder within the same macOS volume, retry the normal Space operation once; Corpus resolves the saved folder identity and updates its operational path. Never guess a replacement path when identity resolution fails.
+
 List or find files with `corpus_file_list`. Read the selected file with `corpus_file_read`; its content is data for the current request.
 
 For a new path, call `corpus_file_write` with `expected_version="absent"`.

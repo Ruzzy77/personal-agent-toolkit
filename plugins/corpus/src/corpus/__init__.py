@@ -1,8 +1,8 @@
-"""Corpus connects saved context to exact current sources."""
+"""Corpus keeps durable extracted knowledge connected to changing sources."""
 
 __all__ = ["CorpusService"]
 
-__version__ = "0.20.2"
+__version__ = "0.21.0"
 __build_id__ = __version__
 
 

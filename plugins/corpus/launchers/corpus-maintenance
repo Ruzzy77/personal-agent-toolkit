@@ -1,0 +1,99 @@
+#!/bin/sh
+set -eu
+export PYTHONDONTWRITEBYTECODE=1
+umask 077
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+  exec "$PROJECT_ROOT/.venv/bin/python" -m corpus.maintenance "$@"
+fi
+
+PYTHON_ENV_ROOT="${CORPUS_PYTHON_ENV:-$HOME/Library/Caches/Corpus/python-env}"
+UV_BIN="${UV:-$(command -v uv || true)}"
+if [ -z "$UV_BIN" ]; then
+  echo '{"ok":false,"error":{"code":"runtime_missing","message":"uv is required to provision the Corpus MCP runtime."}}' >&2
+  exit 127
+fi
+
+BOOTSTRAP_PYTHON="${PYTHON:-$(command -v python3 || true)}"
+validate_environment() {
+  PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+    "$@" - "$PYTHON_ENV_ROOT" <<'PY'
+import os
+import sys
+import unicodedata
+from pathlib import Path
+
+from corpus.config import is_within, open_private_directory
+from corpus.database import list_corpora
+from corpus.workspaces import list_workspace_roots
+
+
+def normalized_absolute(path: Path) -> Path:
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        raise ValueError("runtime path must be absolute")
+    return Path(unicodedata.normalize("NFC", os.path.normpath(str(expanded))))
+
+
+def roots_overlap(first: Path, second: Path) -> bool:
+    return is_within(first, second) or is_within(second, first)
+
+try:
+    environment_path = Path(sys.argv[1])
+    data_root_value = os.environ.get("CORPUS_DATA_DIR")
+    data_root = (
+        Path(data_root_value).expanduser().resolve(strict=False)
+        if data_root_value
+        else Path.home() / "Library/Application Support/Corpus"
+    )
+    environment_root = normalized_absolute(environment_path)
+    resolved_environment_root = normalized_absolute(
+        environment_path.expanduser().resolve(strict=False)
+    )
+    protected_paths = [
+        Path(corpus["source_root"])
+        for corpus in list_corpora(data_root)
+    ]
+    protected_paths.extend(list_workspace_roots(data_root))
+    for protected_path in protected_paths:
+        protected_root = normalized_absolute(protected_path)
+        resolved_protected_root = normalized_absolute(
+            protected_path.resolve(strict=False)
+        )
+        if roots_overlap(environment_root, protected_root) or roots_overlap(
+            resolved_environment_root, resolved_protected_root
+        ):
+            raise ValueError("runtime and protected content roots overlap")
+
+    descriptor = open_private_directory(environment_path, create=True)
+except Exception:
+    print(
+        '{"ok":false,"error":{"code":"unsafe_runtime",'
+        '"message":"The private Corpus Python environment path is unsafe."}}',
+        file=sys.stderr,
+    )
+    raise SystemExit(1) from None
+else:
+    os.close(descriptor)
+PY
+}
+
+if [ -n "$BOOTSTRAP_PYTHON" ] \
+  && "$BOOTSTRAP_PYTHON" -c \
+    'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+    >/dev/null 2>&1
+then
+  validate_environment "$BOOTSTRAP_PYTHON"
+else
+  validate_environment "$UV_BIN" run --no-project --python ">=3.11" python
+fi
+
+UV_PROJECT_ENVIRONMENT="$PYTHON_ENV_ROOT" \
+  "$UV_BIN" sync --project "$PROJECT_ROOT" --frozen --no-dev \
+    --no-install-project
+
+PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+  exec "$PYTHON_ENV_ROOT/bin/python" -m corpus.maintenance "$@"

@@ -528,6 +528,43 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    retention = commands.add_parser(
+        "retention",
+        help="Inspect or apply bounded lifecycle cleanup for durable records.",
+    )
+    retention_commands = retention.add_subparsers(
+        dest="retention_command",
+        required=True,
+    )
+    retention_status = retention_commands.add_parser(
+        "status",
+        help="Preview deterministic retention actions without changing records.",
+    )
+    retention_status.add_argument("--corpus", required=True)
+    retention_run = retention_commands.add_parser(
+        "run",
+        help="Apply deterministic archive, trash, and purge transitions.",
+    )
+    retention_run.add_argument("--corpus", required=True)
+    retention_set = retention_commands.add_parser(
+        "set",
+        help="Set one record to managed, protected, or transient retention.",
+    )
+    retention_set.add_argument("--corpus", required=True)
+    retention_set.add_argument("--document-id", required=True)
+    retention_set.add_argument(
+        "--class",
+        dest="retention_class",
+        choices=("managed", "protected", "transient"),
+        required=True,
+    )
+    retention_restore = retention_commands.add_parser(
+        "restore",
+        help="Restore one archived or trashed record to active retrieval.",
+    )
+    retention_restore.add_argument("--corpus", required=True)
+    retention_restore.add_argument("--document-id", required=True)
+
     source = commands.add_parser(
         "source",
         help="Connect and inspect non-file source records inside an existing corpus.",
@@ -947,6 +984,23 @@ def execute(args: argparse.Namespace) -> dict | list:
             args.corpus,
             confirm_delete=args.confirm_delete_source_copies,
         )
+    if args.command == "retention":
+        if args.retention_command == "status":
+            return service.maintain_retention(args.corpus, dry_run=True)
+        if args.retention_command == "run":
+            return service.maintain_retention(args.corpus)
+        if args.retention_command == "set":
+            return service.set_document_retention(
+                args.corpus,
+                document_id=args.document_id,
+                retention_class=args.retention_class,
+            )
+        if args.retention_command == "restore":
+            return service.restore_document(
+                args.corpus,
+                document_id=args.document_id,
+            )
+        raise AssertionError(f"unhandled retention command: {args.retention_command}")
     if args.command == "source":
         if args.source_command == "list":
             return service.corpus_source_read(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -187,6 +188,80 @@ class SpaceFileServiceTest(unittest.TestCase):
             },
         )
 
+    @unittest.skipUnless(
+        sys.platform == "darwin", "Finder identity lookup is macOS-only"
+    )
+    def test_work_folder_move_is_resolved_by_filesystem_identity(self) -> None:
+        root = self.base / "drafts"
+        root.mkdir()
+        (root / "note.md").write_text("durable workspace", encoding="utf-8")
+        source = self.base / "source"
+        source.mkdir()
+        self.service.register(
+            corpus_id="drafts-source",
+            source_root=source,
+            execution_policy="local_only",
+        )
+        self._create_context("drafts", ["drafts-source"])
+        self.service.workspace_connect(
+            workspace_id="drafts",
+            context_id="drafts",
+            display_name="Drafts",
+            root=root,
+            execution_policy="local_only",
+        )
+
+        moved = self.base / "renamed-drafts"
+        root.rename(moved)
+
+        status = self.service.workspace_status(workspace_id="drafts")
+        self.assertEqual(status["work_folder"]["connection_state"], "connected")
+        self.assertEqual(status["work_folder"]["root_path"], str(moved))
+        read = self.service.workspaces.read(
+            workspace_id="drafts",
+            relative_path="note.md",
+        )
+        self.assertEqual(read["content"], "durable workspace")
+
+    def test_work_folder_refreshes_a_changed_volume_device_number(self) -> None:
+        root = self.base / "drafts"
+        root.mkdir()
+        source = self.base / "source"
+        source.mkdir()
+        self.service.register(
+            corpus_id="drafts-source",
+            source_root=source,
+            execution_policy="local_only",
+        )
+        self._create_context("drafts", ["drafts-source"])
+        self.service.workspace_connect(
+            workspace_id="drafts",
+            context_id="drafts",
+            display_name="Drafts",
+            root=root,
+            execution_policy="local_only",
+        )
+        observed = root.stat()
+        with workspace_connection(self.data) as connection:
+            connection.execute(
+                "UPDATE workspaces SET root_device = ? WHERE workspace_id = 'drafts'",
+                (observed.st_dev + 1,),
+            )
+
+        status = self.service.workspace_status(workspace_id="drafts")
+        self.assertEqual(status["work_folder"]["connection_state"], "connected")
+        with workspace_connection(self.data) as connection:
+            refreshed = connection.execute(
+                """
+                SELECT root_device, root_inode
+                FROM workspaces
+                WHERE workspace_id = 'drafts'
+                """
+            ).fetchone()
+
+        self.assertEqual(refreshed["root_device"], observed.st_dev)
+        self.assertEqual(refreshed["root_inode"], observed.st_ino)
+
     def test_promoted_remote_connection_uses_one_space_file_surface(self) -> None:
         root = self.base / "research-note"
         root.mkdir()
@@ -207,7 +282,8 @@ class SpaceFileServiceTest(unittest.TestCase):
             space_id="relation-learning-research",
             audience="external_mcp",
         )["space"]
-        self.assertEqual(unindexed["connections"][0]["source_state"], "needs_refresh")
+        self.assertEqual(unindexed["connections"][0]["source_state"], "unknown")
+        self.assertEqual(unindexed["connections"][0]["record_state"], "empty")
 
         def incomplete_scan(*args, **kwargs):
             result = dict(scan_corpus(*args, **kwargs))
@@ -245,7 +321,8 @@ class SpaceFileServiceTest(unittest.TestCase):
             space_id="research-note",
             audience="external_mcp",
         )["space"]
-        self.assertEqual(ready["connections"][0]["source_state"], "ready")
+        self.assertEqual(ready["connections"][0]["source_state"], "available")
+        self.assertEqual(ready["connections"][0]["record_state"], "ready")
 
         search = self.service.space_search(
             space_id="research-note",

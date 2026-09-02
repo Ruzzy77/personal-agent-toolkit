@@ -1,7 +1,7 @@
 {
   "name": "corpus",
-  "version": "0.20.2+codex.20260902122958",
-  "description": "Connect saved questions and relationships to their exact current sources.",
+  "version": "0.21.0+codex.20260902145410",
+  "description": "Keep durable extracted knowledge connected to changing sources and local work.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -27,7 +27,7 @@
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
-    "longDescription": "Corpus organizes reusable Context, indexed Sources, and editable Work files into Spaces. It owns source capture, revision and projection identity, anchors, search, and exact reading; the Document Files plugin supplies document parsing and OCR through a read-only process boundary. Chat starts from saved Context, can revise user-selected Context item kinds, bodies, and statuses with version protection, and reads exact current Source text only when needed.",
+    "longDescription": "Corpus organizes durable Context, extracted Source records, and editable Work files into Spaces. It keeps the last successful record usable when a source moves or becomes unavailable, follows same-volume Finder moves by filesystem identity, and separates record usability from source freshness. The Document Files plugin supplies document parsing and OCR through a read-only process boundary. Chat starts from saved Context and reads captured Source text only when needed.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -36,7 +36,8 @@
       "Context-scoped workflow guidance",
       "Version-checked Context Skill replacement",
       "Remote-safe Connection projection",
-      "Indexed Source search and exact reading",
+      "Durable Source record search and captured reading",
+      "Path-independent Source and Work folder identity",
       "Bounded local Source index refresh",
       "Local-only Source separation",
       "Explicitly connected Work files",
@@ -47,7 +48,7 @@
     "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Show my Corpus Spaces and their available Context and Connections.",
-      "Use the relevant Context, then read only the exact Source text still needed.",
+      "Use the relevant Context, then read only the captured Source records still needed.",
       "Continue the Current File in my Corpus Work Connection."
     ]
   }

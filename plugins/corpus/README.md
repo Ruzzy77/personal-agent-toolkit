@@ -1,13 +1,13 @@
 # Corpus
 
-Corpus는 Context, Source와 Work를 연결하는 로컬 MCP 시스템입니다.
+Corpus는 원자료에서 추출한 지식을 내구성 있게 보관하고 Context, Source와 Work를 연결하는 로컬 MCP 시스템입니다.
 
 - **Space**: Context와 Connection의 통합 작업면
 - **Context**: 출처 기반 재사용 지식
-- **Source Connection**: 읽기 전용 원본
+- **Source Connection**: 새 내용을 받아들이는 읽기 전용 원자료
 - **Work Connection**: 사용자가 연결한 편집 폴더
 
-Source Connection은 읽기 전용 원본을 제공하고, Work Connection은 파일 생성·교체·삭제를 제공합니다.
+Source Connection은 갱신 입력을 제공하고, Corpus record는 마지막으로 정상 추출된 본문과 구조를 원자료 위치와 별개로 유지합니다. Work Connection은 파일 생성·교체·삭제를 제공합니다.
 
 ## MCP 도구
 
@@ -43,6 +43,12 @@ uv sync --frozen
 CORPUS_DATA_DIR=/absolute/private/path ./launchers/corpus-mcp
 ```
 
+macOS에서는 설치된 Corpus plugin을 찾아 자동 갱신을 계속하는 사용자 LaunchAgent를 한 번 설치할 수 있습니다. 이 실행기는 특정 Agent-Workspace 절대 경로를 저장하지 않으므로 저장소 폴더를 Finder에서 옮겨도 설치된 plugin을 다시 찾습니다.
+
+```sh
+./launchers/install-maintenance install
+```
+
 Loopback HTTP 전송은 다음 환경변수로 엽니다.
 
 ```sh
@@ -63,7 +69,11 @@ CORPUS_MCP_PORT=8000 \
 ./launchers/corpus sync --corpus thesis-sources
 ```
 
-`scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 연동 규격은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
+`scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 내구성 있는 record와 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 연동 규격은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
+
+등록할 때 폴더 위치와 별개인 ID 및 파일시스템 정체성을 저장합니다. 같은 볼륨 안에서 Finder로 폴더 이름이나 위치를 바꾸면 다음 자동 갱신 또는 Source 접근 때 새 위치를 찾아 등록 경로를 고칩니다. 다른 볼륨으로 옮겼거나 운영체제가 정체성을 제공하지 못하면 기존 `rebind-root`를 사용합니다. 파일명과 공개 경로는 NFC로 비교·표시하지만 디스크의 실제 이름을 강제로 바꾸지 않습니다.
+
+원자료가 삭제되거나 일시적으로 연결되지 않아도 마지막 정상 record는 검색하고 읽을 수 있습니다. 새 추출이 실패해도 정상 record를 실패 결과로 교체하지 않습니다. `source_state`는 원자료의 이용 가능성과 변경 여부를, `record_state`는 저장된 추출 결과의 이용 가능성과 추출기 현재성을 각각 나타냅니다. 따라서 원자료가 `unavailable`이어도 record가 `ready`일 수 있습니다.
 
 문서 형식별 파싱, OCR, 구조 단위와 추출 범위 판정은 Document Files가 담당합니다. Corpus는 등록된 원본을 읽기 전용 임시 사본으로 캡처하고, Document Files의 검증된 결과에 revision·projection·Source unit ID와 anchor를 부여해 검색에 연결합니다. Corpus에는 PDF·Office·HWP/HWPX 파서나 해당 라이브러리를 포함하지 않습니다.
 
@@ -84,7 +94,31 @@ HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Doc
   --max-file-bytes 1GiB
 ```
 
-이 동작은 등록된 로컬 원본을 임시 사본으로 읽으며 원본, 등록 경로와 Source 범위를 변경하지 않습니다.
+이 동작은 등록된 로컬 원본을 임시 사본으로 읽으며 원본과 Source 범위를 변경하지 않습니다. 추출이 끝나면 원본 바이트 사본은 필수 보관 대상이 아니며, 구조화된 record가 Corpus의 지속 자료가 됩니다.
+
+### 자동 갱신과 변경 대기열
+
+`corpus-maintenance`는 파일 변경을 잠시 모아 중복을 합친 뒤 갱신합니다. 대기열은 최대 2,048개이며 넘치면 항목을 계속 쌓지 않고 전체 대조 한 건으로 합칩니다. 성공한 대조 뒤 항목을 지우므로 장기 변경 이력처럼 커지지 않습니다. 파일 감시가 끊겨도 기본 15분마다 전체 대조하고, 프로세스 시작 시에도 한 번 대조합니다.
+
+```sh
+./launchers/corpus-maintenance --once
+./launchers/corpus-maintenance
+```
+
+### record 보존과 정리
+
+record는 `protected`, `managed`, `transient` 세 등급으로 관리합니다. Context가 현재 참조하는 record와 사용자가 `protected`로 지정한 record는 자동 삭제하지 않습니다. 그 밖의 원자료 분리 record는 마지막 사용 시점과 등급별 고정 기간에 따라 `active → archived → trash → purge` 순서로 정리합니다. 내용의 의미나 중요도를 모델이 추측해 삭제하지 않습니다.
+
+```sh
+./launchers/corpus retention status --corpus thesis-sources
+./launchers/corpus retention set \
+  --corpus thesis-sources \
+  --document-id 'doc_...' \
+  --class protected
+./launchers/corpus retention restore \
+  --corpus thesis-sources \
+  --document-id 'doc_...'
+```
 
 더 이상 존재하지 않는 Source 등록은 로컬에서 해제할 수 있습니다.
 
@@ -95,7 +129,7 @@ HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Doc
   --confirm-unregister
 ```
 
-현재 등록 경로가 `--expected-root`와 다르거나 Context·Work Connection이 남아 있으면 중단합니다. 등록만 해제하며 비공개 색인은 이후 정리를 위해 그대로 둡니다.
+현재 등록 경로가 `--expected-root`와 다르거나 Context·Work Connection이 남아 있으면 중단합니다. 단순히 원자료가 이동했거나 잠시 사라진 경우에는 등록을 해제하지 않습니다. 등록 해제는 새 갱신을 완전히 끊는 별도 작업이며, 남은 비공개 데이터는 명시적 이관·정리 절차의 대상으로 둡니다.
 
 이미 다른 정본으로 옮겨진 보관 Context가 유일한 연결이라면, 그 Context의 현재 version을 지정해 Corpus 내부의 연결 기록과 함께 정리할 수 있습니다.
 
@@ -206,13 +240,13 @@ Source 연결은 그대로 둡니다. 이 도구는 항목을 추가·삭제하�
 
 ## 검색
 
-검색 결과의 `read_ref`를 `corpus_file_read`에 전달하면 현재 Source unit을 읽을 수 있습니다. Connection 상태는 `ready`, `needs_refresh`, `partial`, `unavailable`로 표시됩니다.
+검색 결과의 `read_ref`를 `corpus_file_read`에 전달하면 저장된 Source unit을 읽을 수 있습니다. 각 결과의 `captured_at`, `source_state`, `record_state`로 추출 시점과 원자료·record 상태를 구분합니다.
 
-Context는 기본 조회 자료입니다. 최신 정보와 원문 인용은 Source에서 조회합니다.
+Context는 미리 분석한 재사용 맥락이고, record는 캡처 시점의 추출 근거입니다. 최신 정보나 현재 원문 일치가 필요한 작업은 `source_state`와 `captured_at`을 확인하고 필요하면 갱신합니다. 원자료가 없어도 Corpus가 보관한 맥락과 record는 계속 활용할 수 있습니다.
 
 ## 저장 범위
 
-Corpus runtime에는 Source 등록과 색인, Context, Work Connection과 직전 교체본이 들어갑니다. Source와 Work 폴더는 원래 위치에 남습니다. 사용법은 이 문서에, 제품의 구조와 경계는 [DESIGN.md](DESIGN.md)에, 외부 형식은 [docs](docs/)에 둡니다.
+Corpus runtime에는 Source 위치 등록, 내구성 있는 추출 record, 재구축 가능한 검색 투영, Context, Work Connection과 직전 교체본이 들어갑니다. Source와 Work 폴더는 사용자가 정한 위치에 남으며 같은 볼륨의 이동은 자동으로 따라갑니다. 사용법은 이 문서에, 제품의 구조와 경계는 [DESIGN.md](DESIGN.md)에, 외부 형식은 [docs](docs/)에 둡니다.
 
 ## 라이선스
 

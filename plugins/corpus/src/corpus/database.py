@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import unicodedata
+import uuid
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
@@ -23,7 +25,9 @@ from .config import (
 from .errors import (
     ConfigurationError,
     ContextNotFoundError,
+    CorpusError,
     CorpusNotFoundError,
+    MigrationError,
     MigrationRequiredError,
     UnsupportedSchemaError,
     WorkspaceNotFoundError,
@@ -36,6 +40,7 @@ from .migrations import (
 )
 from .schema import (
     CATALOG_SCHEMA,
+    CATALOG_SCHEMA_VERSION,
     CONTEXT_SCHEMA,
     CONTEXT_SCHEMA_VERSION,
     CORPUS_SCHEMA,
@@ -43,11 +48,31 @@ from .schema import (
     WORKSPACE_SCHEMA,
     WORKSPACE_SCHEMA_VERSION,
 )
-from .source_access import opened_source_root
+from .source_access import (
+    opened_source_root,
+    resolve_source_root_identity_path,
+    source_root_identity,
+)
 
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _execute_transactional_script(
+    connection: sqlite3.Connection,
+    script: str,
+) -> None:
+    """Execute a SQL script without sqlite3.executescript's implicit commit."""
+
+    statement = ""
+    for character in script:
+        statement += character
+        if character == ";" and sqlite3.complete_statement(statement):
+            connection.execute(statement)
+            statement = ""
+    if statement.strip():
+        connection.execute(statement)
 
 
 def _configure_write_connection(connection: sqlite3.Connection, *, path: Path) -> None:
@@ -158,12 +183,61 @@ def _ensure_private_database(path: Path, *, parent_descriptor: int) -> bool:
     return created
 
 
+def _catalog_schema_is_current(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        with closing(connect_readonly(path)) as connection:
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            row = connection.execute(
+                "SELECT version FROM schema_info ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            columns = {
+                value["name"]
+                for value in connection.execute("PRAGMA table_info(corpora)")
+            }
+            indexes = {
+                value["name"]
+                for value in connection.execute("PRAGMA index_list(corpora)")
+            }
+    except (CorpusError, sqlite3.DatabaseError):
+        return False
+    return (
+        user_version == CATALOG_SCHEMA_VERSION
+        and row is not None
+        and int(row["version"]) == CATALOG_SCHEMA_VERSION
+        and {
+            "location_id",
+            "root_device",
+            "root_inode",
+            "location_state",
+            "last_resolved_at",
+            "last_resolution_error",
+        }.issubset(columns)
+        and {
+            "idx_corpora_location_id",
+            "idx_corpora_root_nfc",
+            "idx_corpora_root_identity",
+        }.issubset(indexes)
+    )
+
+
 def ensure_catalog(data_root: Path) -> Path:
     path = data_root / "catalog.sqlite"
+    if _catalog_schema_is_current(path):
+        return path
     with private_directory(data_root, create=True) as parent_descriptor:
         _ensure_private_database(path, parent_descriptor=parent_descriptor)
     with closing(connect(path)) as connection, connection:
-        connection.executescript(CATALOG_SCHEMA)
+        connection.execute("BEGIN IMMEDIATE")
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "corpora" not in tables:
+            _execute_transactional_script(connection, CATALOG_SCHEMA)
         columns = {
             column["name"]
             for column in connection.execute("PRAGMA table_info(corpora)").fetchall()
@@ -176,6 +250,91 @@ def ensure_catalog(data_root: Path) -> Path:
                     DEFAULT '{"exclude_directory_names":[],"exclude_path_prefixes":[]}'
                 """
             )
+        additions = {
+            "location_id": "ALTER TABLE corpora ADD COLUMN location_id TEXT",
+            "root_device": "ALTER TABLE corpora ADD COLUMN root_device INTEGER",
+            "root_inode": "ALTER TABLE corpora ADD COLUMN root_inode INTEGER",
+            "location_state": (
+                "ALTER TABLE corpora ADD COLUMN location_state TEXT NOT NULL "
+                "DEFAULT 'unknown'"
+            ),
+            "last_resolved_at": (
+                "ALTER TABLE corpora ADD COLUMN last_resolved_at TEXT"
+            ),
+            "last_resolution_error": (
+                "ALTER TABLE corpora ADD COLUMN last_resolution_error TEXT"
+            ),
+        }
+        for name, statement in additions.items():
+            if name not in columns:
+                connection.execute(statement)
+        for row in connection.execute(
+            """
+            SELECT corpus_id, source_root, location_id, root_device, root_inode
+            FROM corpora
+            """
+        ).fetchall():
+            location_id = row["location_id"] or f"loc_{uuid.uuid4().hex}"
+            root_device = row["root_device"]
+            root_inode = row["root_inode"]
+            location_state = "unknown"
+            resolved_at = None
+            resolution_error = None
+            try:
+                with opened_source_root(Path(row["source_root"])) as descriptor:
+                    observed_device, observed_inode = source_root_identity(descriptor)
+                if root_device is None or root_inode is None:
+                    root_device, root_inode = observed_device, observed_inode
+                if (int(root_device), int(root_inode)) == (
+                    observed_device,
+                    observed_inode,
+                ):
+                    location_state = "available"
+                    resolved_at = utc_now()
+                else:
+                    location_state = "unavailable"
+                    resolution_error = "registered_path_identity_changed"
+            except (OSError, CorpusError):
+                location_state = "unavailable"
+                resolution_error = "registered_path_unavailable"
+            connection.execute(
+                """
+                UPDATE corpora
+                SET location_id = ?, root_device = ?, root_inode = ?,
+                    location_state = ?, last_resolved_at = COALESCE(?, last_resolved_at),
+                    last_resolution_error = ?
+                WHERE corpus_id = ?
+                """,
+                (
+                    location_id,
+                    root_device,
+                    root_inode,
+                    location_state,
+                    resolved_at,
+                    resolution_error,
+                    row["corpus_id"],
+                ),
+            )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_corpora_location_id "
+            "ON corpora(location_id)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_corpora_root_nfc "
+            "ON corpora(source_root_nfc)"
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_corpora_root_identity
+            ON corpora(root_device, root_inode)
+            WHERE root_device IS NOT NULL AND root_inode IS NOT NULL
+            """
+        )
+        connection.execute(
+            "UPDATE schema_info SET version = ?",
+            (CATALOG_SCHEMA_VERSION,),
+        )
+        connection.execute(f"PRAGMA user_version = {CATALOG_SCHEMA_VERSION}")
     return path
 
 
@@ -215,7 +374,7 @@ def _require_current_context_schema(path: Path) -> None:
         "current_version": max(user_version, schema_version),
         "target_version": CONTEXT_SCHEMA_VERSION,
     }
-    if user_version in {1, 2, 3, 4} and schema_version == user_version:
+    if user_version in {1, 2, 3, 4, 5} and schema_version == user_version:
         raise MigrationRequiredError(
             "context database migration is required",
             details=details,
@@ -325,7 +484,7 @@ def migrate_context_database(data_root: Path) -> dict:
                 "to_version": CONTEXT_SCHEMA_VERSION,
                 "migrated": False,
             }
-        if user_version not in {1, 2, 3, 4} or schema_version != user_version:
+        if user_version not in {1, 2, 3, 4, 5} or schema_version != user_version:
             raise UnsupportedSchemaError(
                 "context database schema is not supported",
                 details={
@@ -337,6 +496,7 @@ def migrate_context_database(data_root: Path) -> dict:
 
         from_version = user_version
         with connection:
+            connection.execute("BEGIN IMMEDIATE")
             if from_version == 1:
                 columns = {
                     column["name"]
@@ -354,7 +514,8 @@ def migrate_context_database(data_root: Path) -> dict:
                             )
                         """
                     )
-                connection.executescript(
+                _execute_transactional_script(
+                    connection,
                     """
                     CREATE TABLE IF NOT EXISTS context_release_manifests (
                         release_id TEXT PRIMARY KEY,
@@ -398,9 +559,10 @@ def migrate_context_database(data_root: Path) -> dict:
                     );
                     CREATE INDEX IF NOT EXISTS idx_context_release_items_item
                         ON context_release_items(item_id, release_id);
-                    """
+                    """,
                 )
-            connection.executescript(
+            _execute_transactional_script(
+                connection,
                 """
                 CREATE TABLE IF NOT EXISTS corpus_source_bindings (
                     binding_id TEXT PRIMARY KEY,
@@ -483,7 +645,7 @@ def migrate_context_database(data_root: Path) -> dict:
                     ON context_external_sources(item_id);
                 CREATE INDEX IF NOT EXISTS idx_context_external_sources_record
                     ON context_external_sources(source_record_id, item_id);
-                """
+                """,
             )
             record_columns = {
                 column["name"]
@@ -574,11 +736,218 @@ def migrate_context_database(data_root: Path) -> dict:
                 """,
                 (migration_time,),
             )
+            context_corpora_columns = {
+                column["name"]
+                for column in connection.execute(
+                    "PRAGMA table_info(context_corpora)"
+                ).fetchall()
+            }
+            if "last_checked_snapshot_id" in context_corpora_columns:
+                _execute_transactional_script(
+                    connection,
+                    """
+                    ALTER TABLE context_corpora RENAME TO context_corpora_v5;
+                    CREATE TABLE context_corpora (
+                        context_id TEXT NOT NULL,
+                        corpus_id TEXT NOT NULL,
+                        last_checked_scan_id TEXT,
+                        last_checked_inventory_hash TEXT,
+                        last_checked_at TEXT,
+                        PRIMARY KEY(context_id, corpus_id),
+                        FOREIGN KEY(context_id)
+                            REFERENCES contexts(context_id) ON DELETE CASCADE
+                    );
+                    INSERT INTO context_corpora(
+                        context_id, corpus_id, last_checked_scan_id,
+                        last_checked_inventory_hash, last_checked_at
+                    )
+                    SELECT context_id, corpus_id, last_checked_scan_id,
+                           last_checked_inventory_hash, last_checked_at
+                    FROM context_corpora_v5;
+                    DROP TABLE context_corpora_v5;
+                    """,
+                )
+            context_source_columns = {
+                column["name"]
+                for column in connection.execute(
+                    "PRAGMA table_info(context_sources)"
+                ).fetchall()
+            }
+            if "snapshot_id" in context_source_columns:
+                _execute_transactional_script(
+                    connection,
+                    """
+                    ALTER TABLE context_sources RENAME TO context_sources_v5;
+                    CREATE TABLE context_sources (
+                        source_ref_id TEXT PRIMARY KEY,
+                        item_id TEXT NOT NULL,
+                        corpus_id TEXT NOT NULL,
+                        document_id TEXT NOT NULL,
+                        revision_id TEXT NOT NULL,
+                        projection_id TEXT NOT NULL,
+                        source_unit_id TEXT NOT NULL,
+                        link_role TEXT NOT NULL
+                            CHECK (link_role IN ('direct', 'context', 'contrast')),
+                        source_span_json TEXT NOT NULL,
+                        UNIQUE(item_id, corpus_id, source_unit_id),
+                        FOREIGN KEY(item_id)
+                            REFERENCES context_items(item_id) ON DELETE CASCADE
+                    );
+                    INSERT INTO context_sources(
+                        source_ref_id, item_id, corpus_id, document_id,
+                        revision_id, projection_id, source_unit_id,
+                        link_role, source_span_json
+                    )
+                    SELECT source_ref_id, item_id, corpus_id, document_id,
+                           revision_id, projection_id, source_unit_id,
+                           link_role, source_span_json
+                    FROM context_sources_v5;
+                    DROP TABLE context_sources_v5;
+                    CREATE INDEX idx_context_sources_item
+                        ON context_sources(item_id);
+                    CREATE INDEX idx_context_sources_document
+                        ON context_sources(corpus_id, document_id);
+                    """,
+                )
+            _execute_transactional_script(
+                connection,
+                """
+                DROP TABLE IF EXISTS context_release_items;
+                DROP TABLE IF EXISTS context_release_manifests;
+                """,
+            )
+            session_rows = connection.execute(
+                """
+                SELECT record.source_record_id, record.external_id,
+                       record.parent_external_id, record.occurred_at,
+                       record.provider_metadata_json, record.freshness_identity
+                FROM external_source_records record
+                JOIN corpus_source_bindings binding
+                  ON binding.binding_id = record.binding_id
+                WHERE binding.provider_kind IN ('codex', 'claude')
+                """
+            ).fetchall()
+            for session_row in session_rows:
+                try:
+                    provider_metadata = json.loads(
+                        session_row["provider_metadata_json"]
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    provider_metadata = {}
+                if not isinstance(provider_metadata, dict):
+                    provider_metadata = {}
+                provider_metadata.pop("cwd", None)
+                provider_metadata.pop("workspace", None)
+                canonical_freshness = {
+                    "external_id": session_row["external_id"],
+                    "parent_external_id": session_row["parent_external_id"],
+                    "occurred_at": session_row["occurred_at"],
+                    "provider_metadata": provider_metadata,
+                    "freshness_identity": session_row["freshness_identity"],
+                }
+                metadata_sha256 = hashlib.sha256(
+                    encode_json(canonical_freshness).encode()
+                ).hexdigest()
+                connection.execute(
+                    """
+                    UPDATE external_source_records
+                    SET provider_metadata_json = ?, metadata_sha256 = ?
+                    WHERE source_record_id = ?
+                    """,
+                    (
+                        encode_json(provider_metadata),
+                        metadata_sha256,
+                        session_row["source_record_id"],
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE context_external_sources
+                    SET observed_metadata_sha256 = ?
+                    WHERE source_record_id = ?
+                    """,
+                    (metadata_sha256, session_row["source_record_id"]),
+                )
+            from .session_sources import normalize_session_selector
+
+            session_bindings = connection.execute(
+                """
+                SELECT binding.binding_id, binding.provider_kind,
+                       binding.selector_json, binding.updated_at,
+                       COUNT(record.source_record_id) AS record_count
+                FROM corpus_source_bindings binding
+                LEFT JOIN external_source_records record
+                  ON record.binding_id = binding.binding_id
+                WHERE binding.provider_kind IN ('codex', 'claude')
+                GROUP BY binding.binding_id
+                """
+            ).fetchall()
+            for binding in session_bindings:
+                try:
+                    selector = json.loads(binding["selector_json"])
+                    normalized_selector = normalize_session_selector(
+                        str(binding["provider_kind"]),
+                        selector,
+                    )
+                except (CorpusError, TypeError, json.JSONDecodeError):
+                    normalized_selector = None
+                recoverable = bool(
+                    normalized_selector is not None
+                    and (
+                        Path(normalized_selector["cwd_prefix"]).is_dir()
+                        or (
+                            "cwd_root_device" in normalized_selector
+                            and "cwd_root_inode" in normalized_selector
+                        )
+                    )
+                )
+                if not recoverable and int(binding["record_count"]) == 0:
+                    connection.execute(
+                        "DELETE FROM corpus_source_bindings WHERE binding_id = ?",
+                        (binding["binding_id"],),
+                    )
+                    continue
+                if not recoverable:
+                    connection.execute(
+                        """
+                        UPDATE corpus_source_bindings
+                        SET state = 'archived', updated_at = ?
+                        WHERE binding_id = ?
+                        """,
+                        (migration_time, binding["binding_id"]),
+                    )
+                    continue
+                connection.execute(
+                    """
+                    UPDATE corpus_source_bindings
+                    SET selector_json = ?, updated_at = ?
+                    WHERE binding_id = ?
+                    """,
+                    (
+                        encode_json(normalized_selector),
+                        migration_time,
+                        binding["binding_id"],
+                    ),
+                )
             connection.execute(
                 "UPDATE schema_info SET version = ?",
                 (CONTEXT_SCHEMA_VERSION,),
             )
             connection.execute(f"PRAGMA user_version = {CONTEXT_SCHEMA_VERSION}")
+            foreign_key_issues = connection.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            if foreign_key_issues:
+                raise MigrationError(
+                    "context foreign-key validation failed after migration",
+                    details={"issues": [tuple(row) for row in foreign_key_issues[:20]]},
+                )
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity != "ok":
+                raise MigrationError(
+                    "context SQLite integrity check failed after migration",
+                    details={"result": integrity},
+                )
 
     _require_current_context_schema(path)
     return {
@@ -608,6 +977,8 @@ def register_corpus(
             },
         )
     source_root = validate_source_root(source_root, data_root)
+    with opened_source_root(source_root) as source_descriptor:
+        root_device, root_inode = source_root_identity(source_descriptor)
     catalog = ensure_catalog(data_root)
     now = utc_now()
     with closing(connect(catalog)) as connection, connection:
@@ -621,6 +992,23 @@ def register_corpus(
                     "corpus_id": corpus_id,
                     "existing_root": existing["source_root"],
                     "requested_root": str(source_root),
+                },
+            )
+        identity_conflict = connection.execute(
+            """
+            SELECT corpus_id, source_root FROM corpora
+            WHERE corpus_id != ? AND root_device = ? AND root_inode = ?
+            LIMIT 1
+            """,
+            (corpus_id, root_device, root_inode),
+        ).fetchone()
+        if identity_conflict is not None:
+            raise ConfigurationError(
+                "source location is already registered to another corpus",
+                details={
+                    "corpus_id": corpus_id,
+                    "conflicting_corpus_id": identity_conflict["corpus_id"],
+                    "conflicting_root": identity_conflict["source_root"],
                 },
             )
         if source_scope is None and existing is not None:
@@ -645,12 +1033,19 @@ def register_corpus(
             """
             INSERT INTO corpora(
                 corpus_id, source_root, source_root_nfc, execution_policy,
-                provider_kind, source_scope_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                provider_kind, source_scope_json, location_id, root_device,
+                root_inode, location_state, last_resolved_at,
+                last_resolution_error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, NULL, ?, ?)
             ON CONFLICT(corpus_id) DO UPDATE SET
                 execution_policy = excluded.execution_policy,
                 provider_kind = excluded.provider_kind,
                 source_scope_json = excluded.source_scope_json,
+                root_device = excluded.root_device,
+                root_inode = excluded.root_inode,
+                location_state = 'available',
+                last_resolved_at = excluded.last_resolved_at,
+                last_resolution_error = NULL,
                 updated_at = excluded.updated_at
             """,
             (
@@ -660,6 +1055,10 @@ def register_corpus(
                 execution_policy,
                 provider_kind,
                 source_scope_json,
+                existing["location_id"] if existing else f"loc_{uuid.uuid4().hex}",
+                root_device,
+                root_inode,
+                now,
                 now,
                 now,
             ),
@@ -672,6 +1071,159 @@ def register_corpus(
 def _expected_source_root_nfc(source_root: Path) -> str:
     resolved = source_root.expanduser().resolve(strict=False)
     return unicodedata.normalize("NFC", str(resolved))
+
+
+def resolve_corpus_source_root(*, data_root: Path, corpus_id: str) -> dict:
+    """Resolve one registered source by stable identity before source access."""
+
+    corpus_id = normalize_corpus_id(corpus_id)
+    catalog = ensure_catalog(data_root)
+    with closing(connect(catalog)) as connection, connection:
+        row = connection.execute(
+            "SELECT * FROM corpora WHERE corpus_id = ?",
+            (corpus_id,),
+        ).fetchone()
+        if row is None:
+            raise CorpusNotFoundError(
+                "corpus is not registered",
+                details={"corpus_id": corpus_id},
+            )
+        registered_path = Path(row["source_root"])
+        expected_identity = (
+            (int(row["root_device"]), int(row["root_inode"]))
+            if row["root_device"] is not None and row["root_inode"] is not None
+            else None
+        )
+        observed_identity: tuple[int, int] | None = None
+        try:
+            with opened_source_root(registered_path) as descriptor:
+                observed_identity = source_root_identity(descriptor)
+        except (OSError, CorpusError):
+            pass
+        identity_rebased = False
+        if expected_identity is None and observed_identity is not None:
+            expected_identity = observed_identity
+        elif (
+            expected_identity is not None
+            and observed_identity is not None
+            and observed_identity[1] == expected_identity[1]
+            and observed_identity != expected_identity
+        ):
+            # macOS volume device numbers can be reassigned across mounts or
+            # system changes. The still-valid registered path plus the same
+            # directory inode is enough to refresh that operational locator.
+            expected_identity = observed_identity
+            identity_rebased = True
+        if expected_identity is not None and observed_identity == expected_identity:
+            resolved_at = utc_now()
+            connection.execute(
+                """
+                UPDATE corpora
+                SET root_device = ?, root_inode = ?, location_state = 'available',
+                    last_resolved_at = ?, last_resolution_error = NULL,
+                    updated_at = ?
+                WHERE corpus_id = ?
+                """,
+                (*expected_identity, resolved_at, resolved_at, corpus_id),
+            )
+            return {
+                "changed": False,
+                "resolution": (
+                    "registered_path_identity_refreshed"
+                    if identity_rebased
+                    else "registered_path"
+                ),
+                "corpus": _corpus_row(
+                    connection.execute(
+                        "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+                    ).fetchone()
+                ),
+            }
+
+        recovered_path = (
+            resolve_source_root_identity_path(*expected_identity)
+            if expected_identity is not None
+            else None
+        )
+        if recovered_path is None:
+            connection.execute(
+                """
+                UPDATE corpora
+                SET location_state = 'unavailable',
+                    last_resolution_error = ?, updated_at = ?
+                WHERE corpus_id = ?
+                """,
+                (
+                    (
+                        "registered_path_identity_changed"
+                        if observed_identity is not None
+                        else "registered_path_unavailable"
+                    ),
+                    utc_now(),
+                    corpus_id,
+                ),
+            )
+            return {
+                "changed": False,
+                "resolution": "unavailable",
+                "corpus": _corpus_row(
+                    connection.execute(
+                        "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+                    ).fetchone()
+                ),
+            }
+
+        recovered_path = validate_source_root(recovered_path, data_root)
+        recovered_nfc = unicodedata.normalize("NFC", str(recovered_path))
+        conflict = connection.execute(
+            """
+            SELECT corpus_id, source_root FROM corpora
+            WHERE corpus_id != ?
+              AND (
+                  source_root_nfc = ?
+                  OR (root_device = ? AND root_inode = ?)
+              )
+            LIMIT 1
+            """,
+            (corpus_id, recovered_nfc, *expected_identity),
+        ).fetchone()
+        if conflict is not None:
+            raise ConfigurationError(
+                "resolved source location conflicts with another corpus",
+                details={
+                    "corpus_id": corpus_id,
+                    "conflicting_corpus_id": conflict["corpus_id"],
+                },
+            )
+        resolved_at = utc_now()
+        connection.execute(
+            """
+            UPDATE corpora
+            SET source_root = ?, source_root_nfc = ?, root_device = ?, root_inode = ?,
+                location_state = 'available', last_resolved_at = ?,
+                last_resolution_error = NULL, updated_at = ?
+            WHERE corpus_id = ?
+            """,
+            (
+                str(recovered_path),
+                recovered_nfc,
+                *expected_identity,
+                resolved_at,
+                resolved_at,
+                corpus_id,
+            ),
+        )
+        return {
+            "changed": recovered_nfc
+            != unicodedata.normalize("NFC", str(registered_path)),
+            "resolution": "filesystem_identity",
+            "previous_root": str(registered_path),
+            "corpus": _corpus_row(
+                connection.execute(
+                    "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+                ).fetchone()
+            ),
+        }
 
 
 def rebind_corpus_source_root(
@@ -698,7 +1250,11 @@ def rebind_corpus_source_root(
     expected_root_nfc = _expected_source_root_nfc(expected_source_root)
     catalog = ensure_catalog(data_root)
 
-    with opened_source_root(source_root), closing(connect(catalog)) as connection:
+    with (
+        opened_source_root(source_root) as source_descriptor,
+        closing(connect(catalog)) as connection,
+    ):
+        root_device, root_inode = source_root_identity(source_descriptor)
         existing = connection.execute(
             "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
         ).fetchone()
@@ -721,12 +1277,33 @@ def rebind_corpus_source_root(
                 },
             )
         if existing_root_nfc == source_root_nfc:
+            resolved_at = utc_now()
+            with connection:
+                connection.execute(
+                    """
+                    UPDATE corpora
+                    SET root_device = ?, root_inode = ?, location_state = 'available',
+                        last_resolved_at = ?, last_resolution_error = NULL,
+                        updated_at = ?
+                    WHERE corpus_id = ?
+                    """,
+                    (
+                        root_device,
+                        root_inode,
+                        resolved_at,
+                        resolved_at,
+                        corpus_id,
+                    ),
+                )
+            refreshed = connection.execute(
+                "SELECT * FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
             return {
                 "changed": False,
                 "previous_root": existing["source_root"],
                 "source_root": str(source_root),
                 "backup": None,
-                "corpus": _corpus_row(existing),
+                "corpus": _corpus_row(refreshed),
             }
         conflicting = connection.execute(
             """
@@ -746,6 +1323,23 @@ def rebind_corpus_source_root(
                     "requested_root": str(source_root),
                     "conflicting_corpus_id": conflicting["corpus_id"],
                     "conflicting_root": conflicting["source_root"],
+                },
+            )
+        identity_conflict = connection.execute(
+            """
+            SELECT corpus_id, source_root FROM corpora
+            WHERE corpus_id != ? AND root_device = ? AND root_inode = ?
+            LIMIT 1
+            """,
+            (corpus_id, root_device, root_inode),
+        ).fetchone()
+        if identity_conflict is not None:
+            raise ConfigurationError(
+                "source location is already registered to another corpus",
+                details={
+                    "corpus_id": corpus_id,
+                    "conflicting_corpus_id": identity_conflict["corpus_id"],
+                    "conflicting_root": identity_conflict["source_root"],
                 },
             )
 
@@ -814,10 +1408,21 @@ def rebind_corpus_source_root(
             connection.execute(
                 """
                 UPDATE corpora
-                SET source_root = ?, source_root_nfc = ?, updated_at = ?
+                SET source_root = ?, source_root_nfc = ?, root_device = ?,
+                    root_inode = ?, location_state = 'available',
+                    last_resolved_at = ?, last_resolution_error = NULL,
+                    updated_at = ?
                 WHERE corpus_id = ?
                 """,
-                (str(source_root), source_root_nfc, utc_now(), corpus_id),
+                (
+                    str(source_root),
+                    source_root_nfc,
+                    root_device,
+                    root_inode,
+                    utc_now(),
+                    utc_now(),
+                    corpus_id,
+                ),
             )
 
     return {

@@ -113,10 +113,13 @@ _SESSION_EXTERNAL_RECORD_KEYS = {
 _SESSION_PROVIDER_METADATA_KEYS = {
     "session_id",
     "turn_id",
-    "cwd",
-    "workspace",
     "actor",
     "task_kind",
+}
+_LEGACY_SESSION_PROVIDER_METADATA_KEYS = {
+    *_SESSION_PROVIDER_METADATA_KEYS,
+    "cwd",
+    "workspace",
 }
 _SESSION_LOCATOR_KEYS = {
     "root_ref",
@@ -359,7 +362,6 @@ class ContextService:
             """
             UPDATE context_corpora
             SET last_checked_scan_id = NULL,
-                last_checked_snapshot_id = NULL,
                 last_checked_inventory_hash = NULL,
                 last_checked_at = NULL
             """
@@ -501,7 +503,10 @@ class ContextService:
             field="provider_metadata",
             maximum_bytes=CONTEXT_MAX_EXTERNAL_METADATA_BYTES,
         )
-        if set(provider_metadata) != _SESSION_PROVIDER_METADATA_KEYS:
+        if set(provider_metadata) not in {
+            frozenset(_SESSION_PROVIDER_METADATA_KEYS),
+            frozenset(_LEGACY_SESSION_PROVIDER_METADATA_KEYS),
+        }:
             raise ContextValidationError(
                 "session source provider metadata fields are invalid",
                 details={"required": sorted(_SESSION_PROVIDER_METADATA_KEYS)},
@@ -537,16 +542,6 @@ class ContextService:
         normalized_metadata = {
             "session_id": session_id,
             "turn_id": turn_id,
-            "cwd": _require_string(
-                provider_metadata["cwd"],
-                field="provider_metadata.cwd",
-                maximum=2_000,
-            ),
-            "workspace": _require_string(
-                provider_metadata["workspace"],
-                field="provider_metadata.workspace",
-                maximum=2_000,
-            ),
             "actor": actor,
             "task_kind": task_kind,
         }
@@ -1157,6 +1152,30 @@ class ContextService:
             provider_kind,
             _json_dict(binding["selector_json"]),
         )
+        normalized_selector_json = encode_json(discovery["selector"])
+        if normalized_selector_json != binding["selector_json"]:
+            with (
+                context_writer_lock(self.data_root),
+                context_connection(self.data_root) as connection,
+            ):
+                updated = connection.execute(
+                    """
+                    UPDATE corpus_source_bindings
+                    SET selector_json = ?, updated_at = ?
+                    WHERE binding_id = ? AND selector_json = ?
+                    """,
+                    (
+                        normalized_selector_json,
+                        utc_now(),
+                        binding_id,
+                        binding["selector_json"],
+                    ),
+                ).rowcount
+                if updated != 1:
+                    raise ContextConflictError(
+                        "linked source selector changed during refresh",
+                        details={"reason": "selector_changed"},
+                    )
         records = discovery["records"]
         pages = [
             records[index : index + CONTEXT_MAX_EXTERNAL_RECORDS_PER_UPDATE]
@@ -1684,7 +1703,6 @@ class ContextService:
         sources_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for source_row in source_rows:
             source = dict(source_row)
-            source.pop("snapshot_id", None)
             source["source_span"] = _json_dict(source.pop("source_span_json"))
             observation = self._observe_source(source)
             observation.pop("source_span", None)
@@ -2605,16 +2623,15 @@ class ContextService:
                     connection.execute(
                         """
                             INSERT INTO context_sources(
-                                source_ref_id, item_id, corpus_id, snapshot_id,
-                                document_id, revision_id, projection_id,
+                                source_ref_id, item_id, corpus_id, document_id,
+                                revision_id, projection_id,
                                 source_unit_id, link_role, source_span_json
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                         (
                             f"ctxs_{uuid.uuid4().hex}",
                             item_id,
                             source["corpus_id"],
-                            "",
                             source["document_id"],
                             source["revision_id"],
                             source["projection_id"],
