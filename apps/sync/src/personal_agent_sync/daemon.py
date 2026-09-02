@@ -148,12 +148,19 @@ class SyncDaemon:
             self.state.complete_missing(change["connection_key"], change["document_id"])
             return
         if change["event_kind"] == "deleted":
-            await self.remote.update_source_state(
-                corpus_id,
-                change["document_id"],
-                "unavailable",
-                now_iso(),
-            )
+            try:
+                await self.remote.update_source_state(
+                    corpus_id,
+                    change["document_id"],
+                    "unavailable",
+                    now_iso(),
+                )
+            except SyncError as error:
+                # Absence already satisfies deletion. This also drains stale
+                # pre-migration queue entries whose provisional local IDs were
+                # never canonical remote document IDs.
+                if error.code != "document_not_found":
+                    raise
             self.state.complete_missing(change["connection_key"], change["document_id"])
             return
         if change["event_kind"] == "moved" and change.get("last_revision_sha256"):

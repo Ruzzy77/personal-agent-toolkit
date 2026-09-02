@@ -10,6 +10,7 @@ import personal_agent_sync.state as state_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
 from personal_agent_sync.config import load_config
+from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
 from personal_agent_sync.reconcile import reconcile_all
@@ -125,6 +126,33 @@ def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(
         ).fetchall()
     assert [row["document_id"] for row in rows] == ["doc_canonical"]
     assert state.due_changes() == []
+
+
+def test_deleted_unknown_remote_document_completes_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "retired.txt"
+    document.write_text("temporary", encoding="utf-8")
+    daemon = SyncDaemon(load_config(write_config(tmp_path, root)), "test-token")
+    reconcile_all(daemon.state)
+    document.unlink()
+    reconcile_all(daemon.state)
+    change = daemon.state.due_changes()[0]
+    assert change["event_kind"] == "deleted"
+
+    async def missing(*args: object, **kwargs: object) -> dict[str, object]:
+        raise SyncError("document_not_found", "document is already absent")
+
+    monkeypatch.setattr(daemon.remote, "update_source_state", missing)
+
+    async def exercise() -> None:
+        await daemon._process_change(change)
+        await daemon.close()
+
+    asyncio.run(exercise())
+    assert daemon.state.due_changes() == []
 
 
 def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(
