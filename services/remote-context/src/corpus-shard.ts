@@ -384,6 +384,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
 
 export class CorpusShard {
   private readonly sql: DurableObjectStorage["sql"];
+  private readonly documentColumns: Set<string>;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -397,15 +398,14 @@ export class CorpusShard {
       ),
     ].length;
     if (initialized === 0) this.sql.exec(SHARD_SCHEMA);
-    this.ensureSchema();
-  }
-
-  private ensureSchema(): void {
-    const columns = new Set(
+    this.documentColumns = new Set(
       [...this.sql.exec<{ name: string }>("PRAGMA table_info(documents)")].map(
         (row) => row.name,
       ),
     );
+  }
+
+  private ensureSchema(): void {
     const additions: Array<[string, string]> = [
       ["media_type", "TEXT"],
       ["logical_size", "INTEGER"],
@@ -416,12 +416,23 @@ export class CorpusShard {
       ["last_user_access_at", "TEXT"],
     ];
     for (const [name, declaration] of additions) {
-      if (!columns.has(name)) {
+      if (!this.documentColumns.has(name)) {
         this.sql.exec(
           `ALTER TABLE documents ADD COLUMN ${name} ${declaration}`,
         );
+        this.documentColumns.add(name);
       }
     }
+  }
+
+  private documentField(
+    table: string,
+    name: string,
+    fallback: string,
+  ): string {
+    return this.documentColumns.has(name)
+      ? `${table}.${name}`
+      : `${fallback} AS ${name}`;
   }
 
   private one<T>(query: string, ...bindings: unknown[]): T | null {
@@ -434,9 +445,14 @@ export class CorpusShard {
   ): Record<string, unknown> | null {
     const row = this.one<CommittedProjectionRow>(
       `SELECT r.document_id, d.relative_path, d.extension, d.source_state,
-              d.media_type, d.logical_size, d.modified_ns, d.residency_state,
-              d.eligibility_state, d.current_revision_id, d.deleted_at,
-              d.lifecycle_state, d.retention_class, d.last_user_access_at,
+              ${this.documentField("d", "media_type", "NULL")},
+              ${this.documentField("d", "logical_size", "NULL")},
+              ${this.documentField("d", "modified_ns", "NULL")},
+              ${this.documentField("d", "residency_state", "'unknown'")},
+              ${this.documentField("d", "eligibility_state", "'supported'")},
+              d.current_revision_id, d.deleted_at, d.lifecycle_state,
+              ${this.documentField("d", "retention_class", "'managed'")},
+              ${this.documentField("d", "last_user_access_at", "NULL")},
               r.sha256, r.source_size, r.predecessor_revision_id,
               p.adapter_id, p.adapter_version, p.config_hash,
               p.result_manifest_hash, p.completeness_state, p.coverage_json,
@@ -688,6 +704,7 @@ export class CorpusShard {
     raw: unknown,
   ): Record<string, unknown> {
     const input = corpusDocumentsImportSchema.parse(raw);
+    this.ensureSchema();
     const storedOwner = this.one<{ value: string }>(
       "SELECT value FROM shard_meta WHERE key = 'owner_id'",
     );
@@ -993,6 +1010,7 @@ export class CorpusShard {
 
   private commit(raw: unknown): Record<string, unknown> {
     const input = projectionCommitSchema.parse(raw);
+    this.ensureSchema();
     const upload = this.one<UploadRow>(
       "SELECT header_json, created_at FROM staged_uploads WHERE upload_id = ?",
       input.uploadId,
@@ -1483,10 +1501,15 @@ export class CorpusShard {
     const documents = [
       ...this.sql.exec(
         `SELECT d.document_id, d.relative_path, d.extension, d.source_state,
-                d.media_type, d.logical_size, d.modified_ns, d.residency_state,
-                d.eligibility_state, d.current_revision_id, d.first_seen_at,
-                d.last_seen_at, d.deleted_at, d.lifecycle_state,
-                d.retention_class, d.last_user_access_at,
+                ${this.documentField("d", "media_type", "NULL")},
+                ${this.documentField("d", "logical_size", "NULL")},
+                ${this.documentField("d", "modified_ns", "NULL")},
+                ${this.documentField("d", "residency_state", "'unknown'")},
+                ${this.documentField("d", "eligibility_state", "'supported'")},
+                d.current_revision_id, d.first_seen_at, d.last_seen_at,
+                d.deleted_at, d.lifecycle_state,
+                ${this.documentField("d", "retention_class", "'managed'")},
+                ${this.documentField("d", "last_user_access_at", "NULL")},
                 r.sha256, r.source_size, r.captured_at,
                 p.projection_id, p.result_manifest_hash, p.completeness_state,
                 p.assurance_state,
