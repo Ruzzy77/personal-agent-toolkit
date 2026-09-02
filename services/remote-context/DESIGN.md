@@ -98,6 +98,11 @@ Sync may also remove abandoned staged uploads after a configured minimum age.
 Age-based cleanup never targets a committed projection, and the ordinary
 default leaves a full day for an interrupted upload to resume.
 
+Committed units retain the complete logical Source anchor returned to clients,
+but the shard stores document, revision, projection, path, and structural-locator
+values only once when they match the projection header. Reads reconstruct those
+invariants, avoiding per-unit metadata amplification without weakening provenance.
+
 ## Sync behavior
 
 The Sync app connects outward to the SyncBroker. There is no inbound listener
