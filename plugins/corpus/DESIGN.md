@@ -72,6 +72,8 @@ Corpus는 `document-files process --describe`에서 adapter identity와 capabili
 
 maintenance worker는 시작 시와 기본 15분 간격으로 전체 대조합니다. 따라서 파일 감시가 누락되거나 Source root 자체가 이동해도 다음 대조에서 복구합니다. 동시에 여러 클라이언트가 실행해도 private worker lock을 얻은 한 프로세스만 갱신합니다. 별도 전역 색인 세대나 클라이언트별 동기화 상태는 두지 않습니다.
 
+worker 상태는 `maintenance-state.json` 단일 스냅샷으로 원자적으로 교체합니다. 변경 이벤트와 보존 전환의 상세 목록을 장기 실행 기록으로 남기지 않습니다.
+
 ## Context
 
 Context는 Source 원문을 매번 다시 읽지 않아도 쓸 수 있는, 미리 분석·정리된 재사용 맥락입니다. 제목, 목적, 범위, 연결 Source와 질문·관계·판단·gap item을 저장합니다. Context item 본문은 durable representation이고 Source unit 또는 provider record 연결은 근거와 갱신 판단을 위한 provenance입니다.

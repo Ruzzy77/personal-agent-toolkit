@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import threading
 import time
 import unicodedata
 from collections import defaultdict
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from .config import default_data_root
+from .config import default_data_root, open_private_file_at, private_directory
 from .locking import maintenance_worker_lock
 from .service import CorpusService
 
@@ -34,6 +38,108 @@ class _PendingEvents:
             self._paths.clear()
             self.changed.clear()
         return drained
+
+
+def _compact_corpus_result(result: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {
+        "corpus_id": result.get("corpus_id"),
+        "state": result.get("state"),
+        "pending_change_count": result.get("pending_change_count", 0),
+    }
+    error = result.get("error")
+    if isinstance(error, dict):
+        compact["error"] = {
+            "code": error.get("code"),
+            "message": error.get("message"),
+        }
+    sync = result.get("sync")
+    if isinstance(sync, dict):
+        retention = sync.get("retention")
+        compact["sync"] = {
+            "state": sync.get("state"),
+            "summary": sync.get("summary", {}),
+            "source_state": sync.get("source_state"),
+            "change_queue": sync.get("change_queue", {}),
+        }
+        if isinstance(retention, dict):
+            compact["sync"]["retention"] = {
+                "action_count": retention.get("action_count", 0),
+                "limit_reached": retention.get("limit_reached", False),
+                "purged": retention.get("purged", {}),
+                "lifecycle_counts": retention.get("lifecycle_counts", {}),
+            }
+    return compact
+
+
+def _compact_maintenance_result(result: dict[str, Any]) -> dict[str, Any]:
+    raw_corpora = result.get("corpora")
+    if isinstance(raw_corpora, list):
+        corpora = [
+            _compact_corpus_result(item)
+            for item in raw_corpora
+            if isinstance(item, dict)
+        ]
+        return {
+            "state": result.get("state"),
+            "count": len(corpora),
+            "corpora": corpora,
+        }
+    return {
+        "state": result.get("state"),
+        "count": 1,
+        "corpora": [_compact_corpus_result(result)],
+    }
+
+
+def _publish_maintenance_state(
+    service: CorpusService,
+    result: dict[str, Any],
+) -> None:
+    """Atomically replace one current-state snapshot instead of appending history."""
+
+    payload = {
+        "format": "corpus-maintenance-state",
+        "version": 1,
+        "updated_at": datetime.now(UTC).isoformat(),
+        "result": _compact_maintenance_result(result),
+    }
+    encoded = (
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    target_name = "maintenance-state.json"
+    temporary_name = f".{target_name}.{uuid4().hex}.tmp"
+    temporary_path = service.data_root / temporary_name
+    with suppress(OSError):
+        service.data_root.chmod(0o700)
+    with private_directory(service.data_root, create=True) as parent_descriptor:
+        descriptor = -1
+        try:
+            descriptor, _created = open_private_file_at(
+                parent_descriptor,
+                temporary_name,
+                path=temporary_path,
+                flags=os.O_WRONLY,
+                create=True,
+                exclusive=True,
+            )
+            with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                descriptor = -1
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(
+                temporary_name,
+                target_name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+            os.fsync(parent_descriptor)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            with suppress(FileNotFoundError):
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
 
 
 def _relative_event_path(root: Path, raw_path: str) -> str:
@@ -125,12 +231,14 @@ def run_once(
                     },
                 }
             )
+    if any(result["state"] == "failed" for result in results):
+        state = "attention_required"
+    elif any(result["state"] == "pending" for result in results):
+        state = "pending"
+    else:
+        state = "complete"
     return {
-        "state": (
-            "complete"
-            if all(result["state"] in {"complete", "idle"} for result in results)
-            else "attention_required"
-        ),
+        "state": state,
         "corpora": results,
         "count": len(results),
     }
@@ -156,7 +264,7 @@ def watch(
     pending = _PendingEvents()
     observer: Any | None = None
     with maintenance_worker_lock(service.data_root):
-        print(json.dumps(run_once(service), ensure_ascii=False), flush=True)
+        _publish_maintenance_state(service, run_once(service))
         observer = _start_observer(service, pending)
         last_reconcile = time.monotonic()
         try:
@@ -178,17 +286,14 @@ def watch(
                     if service.source_change_queue_status(corpus_id)[
                         "pending_change_count"
                     ]:
-                        print(
-                            json.dumps(
-                                service.process_source_change_queue(corpus_id),
-                                ensure_ascii=False,
-                            ),
-                            flush=True,
+                        _publish_maintenance_state(
+                            service,
+                            service.process_source_change_queue(corpus_id),
                         )
                 if time.monotonic() - last_reconcile >= reconcile_interval_seconds:
                     _stop_observer(observer)
                     observer = None
-                    print(json.dumps(run_once(service), ensure_ascii=False), flush=True)
+                    _publish_maintenance_state(service, run_once(service))
                     observer = _start_observer(service, pending)
                     last_reconcile = time.monotonic()
         finally:
@@ -211,7 +316,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     service = CorpusService(args.data_root)
     if args.once:
-        print(json.dumps(run_once(service), ensure_ascii=False))
+        result = run_once(service)
+        _publish_maintenance_state(service, result)
+        print(json.dumps(result, ensure_ascii=False))
         return 0
     watch(
         service,

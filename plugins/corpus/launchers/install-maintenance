@@ -32,6 +32,9 @@ esac
 
 mkdir -p "$BIN_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
 chmod 700 "$DATA_ROOT" "$BIN_DIR" "$LOG_DIR"
+: > "$LOG_DIR/maintenance.log"
+: > "$LOG_DIR/maintenance-error.log"
+chmod 600 "$LOG_DIR/maintenance.log" "$LOG_DIR/maintenance-error.log"
 TEMP_RUNNER="$RUNNER.tmp.$$"
 cp "$SCRIPT_DIR/corpus-maintenance-bootstrap" "$TEMP_RUNNER"
 chmod 700 "$TEMP_RUNNER"

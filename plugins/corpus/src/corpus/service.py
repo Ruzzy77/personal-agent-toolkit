@@ -573,11 +573,34 @@ class CorpusService:
                             )
                           )
                       AND NOT (
-                          revision_id IN (
-                              SELECT revision_id FROM retained_context_revisions
+                          COALESCE(
+                              projection_id IN (
+                                  SELECT projection_id
+                                  FROM retained_context_projections
+                              ),
+                              0
                           )
-                          OR projection_id IN (
-                              SELECT projection_id FROM retained_context_projections
+                          OR (
+                              projection_id IS NULL
+                              AND attempt_id IS NULL
+                              AND COALESCE(
+                                  revision_id IN (
+                                      SELECT revision_id
+                                      FROM retained_context_revisions
+                                  ),
+                                  0
+                              )
+                          )
+                          OR COALESCE(
+                              attempt_id IN (
+                                  SELECT attempt_id
+                                  FROM extraction_attempts
+                                  WHERE projection_id IN (
+                                      SELECT projection_id
+                                      FROM retained_context_projections
+                                  )
+                              ),
+                              0
                           )
                       )
                     """
@@ -606,13 +629,23 @@ class CorpusService:
                                 )
                             )
                           )
-                      AND revision_id NOT IN (
-                          SELECT revision_id FROM retained_context_revisions
-                      )
-                      AND (
-                          projection_id IS NULL
-                          OR projection_id NOT IN (
-                              SELECT projection_id FROM retained_context_projections
+                      AND NOT (
+                          COALESCE(
+                              projection_id IN (
+                                  SELECT projection_id
+                                  FROM retained_context_projections
+                              ),
+                              0
+                          )
+                          OR (
+                              projection_id IS NULL
+                              AND COALESCE(
+                                  revision_id IN (
+                                      SELECT revision_id
+                                      FROM retained_context_revisions
+                                  ),
+                                  0
+                              )
                           )
                       )
                     """

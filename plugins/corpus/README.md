@@ -100,6 +100,8 @@ HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Doc
 
 `corpus-maintenance`는 파일 변경을 잠시 모아 중복을 합친 뒤 갱신합니다. 대기열은 최대 2,048개이며 넘치면 항목을 계속 쌓지 않고 전체 대조 한 건으로 합칩니다. 성공한 대조 뒤 항목을 지우므로 장기 변경 이력처럼 커지지 않습니다. 파일 감시가 끊겨도 기본 15분마다 전체 대조하고, 프로세스 시작 시에도 한 번 대조합니다.
 
+최근 실행 상태는 private data root의 `maintenance-state.json` 한 파일에 축약해 교체 저장합니다. 개별 파일 변경이나 정리 대상 목록을 실행 이력으로 계속 쌓지 않습니다.
+
 ```sh
 ./launchers/corpus-maintenance --once
 ./launchers/corpus-maintenance
