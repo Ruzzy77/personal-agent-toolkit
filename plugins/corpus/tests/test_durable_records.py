@@ -594,6 +594,73 @@ class DurableRecordTest(unittest.TestCase):
             ),
         )
 
+    def test_catalog_migration_rolls_back_all_schema_changes_on_failure(self) -> None:
+        legacy_data = self.base / "rollback-data"
+        legacy_data.mkdir(mode=0o700)
+        first_source = self.base / "rollback-source-one"
+        second_source = self.base / "rollback-source-two"
+        first_source.mkdir()
+        second_source.mkdir()
+        catalog = legacy_data / "catalog.sqlite"
+        with closing(sqlite3.connect(catalog)) as connection, connection:
+            connection.executescript(
+                """
+                CREATE TABLE schema_info(version INTEGER NOT NULL);
+                INSERT INTO schema_info(version) VALUES (1);
+                CREATE TABLE corpora (
+                    corpus_id TEXT PRIMARY KEY,
+                    source_root TEXT NOT NULL UNIQUE,
+                    source_root_nfc TEXT NOT NULL,
+                    execution_policy TEXT NOT NULL,
+                    provider_kind TEXT NOT NULL,
+                    source_scope_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            rows = [
+                (
+                    "first",
+                    str(first_source),
+                    "duplicate-normalized-root",
+                ),
+                (
+                    "second",
+                    str(second_source),
+                    "duplicate-normalized-root",
+                ),
+            ]
+            connection.executemany(
+                """
+                INSERT INTO corpora VALUES (
+                    ?, ?, ?, 'local_only', 'filesystem',
+                    '{"exclude_directory_names":[],"exclude_path_prefixes":[]}',
+                    '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00'
+                )
+                """,
+                rows,
+            )
+            connection.execute("PRAGMA user_version = 1")
+        catalog.chmod(0o600)
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            ensure_catalog(legacy_data)
+
+        with closing(sqlite3.connect(catalog)) as connection:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(corpora)")
+            }
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            schema_version = connection.execute(
+                "SELECT version FROM schema_info"
+            ).fetchone()[0]
+        self.assertNotIn("location_id", columns)
+        self.assertNotIn("root_device", columns)
+        self.assertEqual(version, 1)
+        self.assertEqual(schema_version, 1)
+
     def test_context_v5_migration_removes_historical_workspace_paths(self) -> None:
         self.root.joinpath("note.txt").write_text("context migration", encoding="utf-8")
         self.service.register(
