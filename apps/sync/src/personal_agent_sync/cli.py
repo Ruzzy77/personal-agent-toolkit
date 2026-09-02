@@ -38,11 +38,13 @@ def parser() -> argparse.ArgumentParser:
     storage_report.add_argument("--hotspot-limit", type=int, default=10)
     storage_maintain = commands.add_parser(
         "storage-maintain",
-        help="clean abandoned staging and compact the derived search index",
+        help="clean staging and compact derived or redundant remote metadata",
     )
     storage_maintain.add_argument("--staged-min-age-hours", type=float, default=24)
     storage_maintain.add_argument("--skip-search-index", action="store_true")
     storage_maintain.add_argument("--maximum-batches", type=int, default=1000)
+    storage_maintain.add_argument("--unit-metadata-batch-size", type=int, default=2000)
+    storage_maintain.add_argument("--unit-metadata-batches", type=int, default=1)
     initialize = commands.add_parser(
         "init-from-corpus",
         help="create a private configuration from remote-visible local Corpus Spaces",
@@ -247,6 +249,10 @@ def main() -> None:
                     staged_min_age_hours=arguments.staged_min_age_hours,
                     compact_search_index=not arguments.skip_search_index,
                     maximum_batches_per_corpus=arguments.maximum_batches,
+                    unit_metadata_batch_size=arguments.unit_metadata_batch_size,
+                    maximum_unit_metadata_batches_per_corpus=(
+                        arguments.unit_metadata_batches
+                    ),
                 )
             )
         elif arguments.command == "approve-remote":

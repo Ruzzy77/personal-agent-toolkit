@@ -358,7 +358,10 @@ function dependencyState(row: UnitRow): string {
 }
 
 const COMPACT_SOURCE_ANCHOR_PREFIX = "compact-v1:";
+const FULL_SOURCE_ANCHOR_PREFIX = "full-v1:";
 const SEARCH_INDEX_VERSION = 1;
+const SOURCE_ANCHOR_STORAGE_CURSOR = "source_anchor_storage_cursor_v1";
+const UTF8_ENCODER = new TextEncoder();
 
 function hasSearchableText(expression: string): string {
   return `length(trim(${expression}, ' ' || char(9) || char(10) || char(13))) > 0`;
@@ -387,9 +390,60 @@ function storedSourceAnchor(
     ([key, expected]) =>
       !(key in anchor) || canonicalJson(anchor[key]) === canonicalJson(expected),
   );
-  if (!canCompact) return canonicalJson(anchor);
+  if (!canCompact)
+    return `${FULL_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`;
   for (const [key] of invariants) delete anchor[key];
   return `${COMPACT_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`;
+}
+
+export function compactStoredSourceAnchor(
+  stored: string,
+  structurePathJson: string,
+  documentId: string,
+  revisionId: string,
+  projectionId: string,
+  relativePath: string,
+  revisionSha256: string,
+): { value: string; compacted: boolean } {
+  if (
+    stored.startsWith(COMPACT_SOURCE_ANCHOR_PREFIX) ||
+    stored.startsWith(FULL_SOURCE_ANCHOR_PREFIX)
+  ) {
+    return {
+      value: stored,
+      compacted: stored.startsWith(COMPACT_SOURCE_ANCHOR_PREFIX),
+    };
+  }
+  const anchor = objectValue(stored);
+  delete anchor.absolute_path;
+  delete anchor.surface_open_target;
+  const structurePath = objectValue(structurePathJson);
+  const normalizedPath = relativePath.normalize("NFC");
+  const invariants: Array<[string, unknown]> = [
+    ["content_hash", revisionSha256],
+    ["document_id", documentId],
+    ["revision_id", revisionId],
+    ["projection_id", projectionId],
+    ["canonical_locator", normalizedPath],
+    ["relative_path", normalizedPath],
+    ["structural_locator", structurePath],
+    ["structure_path", structurePath],
+  ];
+  const canCompact = invariants.every(
+    ([key, expected]) =>
+      !(key in anchor) || canonicalJson(anchor[key]) === canonicalJson(expected),
+  );
+  if (!canCompact) {
+    return {
+      value: `${FULL_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`,
+      compacted: false,
+    };
+  }
+  for (const [key] of invariants) delete anchor[key];
+  return {
+    value: `${COMPACT_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`,
+    compacted: true,
+  };
 }
 
 function unitResult(row: UnitRow): Record<string, unknown> {
@@ -397,9 +451,12 @@ function unitResult(row: UnitRow): Record<string, unknown> {
   const compact = row.source_anchor_json.startsWith(
     COMPACT_SOURCE_ANCHOR_PREFIX,
   );
+  const full = row.source_anchor_json.startsWith(FULL_SOURCE_ANCHOR_PREFIX);
   const anchor = objectValue(
     compact
       ? row.source_anchor_json.slice(COMPACT_SOURCE_ANCHOR_PREFIX.length)
+      : full
+        ? row.source_anchor_json.slice(FULL_SOURCE_ANCHOR_PREFIX.length)
       : row.source_anchor_json,
   );
   if (compact) {
@@ -663,6 +720,9 @@ export class CorpusShard {
         indexed_unit_count: 0,
         searchable_unit_count: 0,
         structural_only_unit_count: 0,
+        source_anchor_logical_bytes: 0,
+        pending_source_anchor_compaction_count: 0,
+        pending_source_anchor_logical_bytes: 0,
         staged_unit_count: 0,
         staged_logical_bytes: 0,
         lifecycle_counts: {},
@@ -683,14 +743,33 @@ export class CorpusShard {
     ) ?? { total: 0, searchable: 0, structural_only: 0 };
     const staged = this.one<{ count: number; logical_bytes: number }>(
       `SELECT COUNT(*) AS count,
-              COALESCE(SUM(length(structure_path_json) +
-                           length(source_anchor_json) +
-                           length(normalized_content) +
-                           length(extraction_issues_json) +
-                           length(geometry_json) +
-                           length(quality_flags_json)), 0) AS logical_bytes
+              COALESCE(SUM(length(CAST(structure_path_json AS BLOB)) +
+                           length(CAST(source_anchor_json AS BLOB)) +
+                           length(CAST(normalized_content AS BLOB)) +
+                           length(CAST(extraction_issues_json AS BLOB)) +
+                           length(CAST(geometry_json AS BLOB)) +
+                           length(CAST(quality_flags_json AS BLOB))), 0)
+                AS logical_bytes
        FROM staged_units_v2`,
     ) ?? { count: 0, logical_bytes: 0 };
+    const anchors = this.one<{
+      logical_bytes: number;
+      pending_count: number;
+      pending_logical_bytes: number;
+    }>(
+      `SELECT COALESCE(SUM(length(CAST(source_anchor_json AS BLOB))), 0)
+                AS logical_bytes,
+              SUM(CASE
+                    WHEN source_anchor_json LIKE '${COMPACT_SOURCE_ANCHOR_PREFIX}%'
+                      OR source_anchor_json LIKE '${FULL_SOURCE_ANCHOR_PREFIX}%'
+                    THEN 0 ELSE 1 END) AS pending_count,
+              COALESCE(SUM(CASE
+                    WHEN source_anchor_json LIKE '${COMPACT_SOURCE_ANCHOR_PREFIX}%'
+                      OR source_anchor_json LIKE '${FULL_SOURCE_ANCHOR_PREFIX}%'
+                    THEN 0 ELSE length(CAST(source_anchor_json AS BLOB)) END), 0)
+                AS pending_logical_bytes
+       FROM source_units`,
+    ) ?? { logical_bytes: 0, pending_count: 0, pending_logical_bytes: 0 };
     const indexed =
       this.one<{ count: number }>(
         "SELECT COUNT(*) AS count FROM source_units_fts",
@@ -737,13 +816,15 @@ export class CorpusShard {
         content_bytes: number;
         record_bytes: number;
       }>(
-        `SELECT COALESCE(SUM(length(normalized_content)), 0) AS content_bytes,
-                COALESCE(SUM(length(structure_path_json) +
-                             length(source_anchor_json) +
-                             length(normalized_content) +
-                             length(extraction_issues_json) +
-                             length(geometry_json) +
-                             length(quality_flags_json)), 0) AS record_bytes
+        `SELECT COALESCE(SUM(length(CAST(normalized_content AS BLOB))), 0)
+                  AS content_bytes,
+                COALESCE(SUM(length(CAST(structure_path_json AS BLOB)) +
+                             length(CAST(source_anchor_json AS BLOB)) +
+                             length(CAST(normalized_content AS BLOB)) +
+                             length(CAST(extraction_issues_json AS BLOB)) +
+                             length(CAST(geometry_json AS BLOB)) +
+                             length(CAST(quality_flags_json AS BLOB))), 0)
+                  AS record_bytes
          FROM source_units WHERE projection_id = ?`,
         candidate.projection_id,
       ) ?? { content_bytes: 0, record_bytes: 0 };
@@ -754,6 +835,9 @@ export class CorpusShard {
       indexed_unit_count: indexed,
       searchable_unit_count: unitCounts.searchable ?? 0,
       structural_only_unit_count: unitCounts.structural_only ?? 0,
+      source_anchor_logical_bytes: anchors.logical_bytes ?? 0,
+      pending_source_anchor_compaction_count: anchors.pending_count ?? 0,
+      pending_source_anchor_logical_bytes: anchors.pending_logical_bytes ?? 0,
       staged_unit_count: staged.count,
       staged_logical_bytes: staged.logical_bytes,
       lifecycle_counts: lifecycleCounts,
@@ -881,6 +965,10 @@ export class CorpusShard {
       value.compactSearchIndexLimit === undefined
         ? 0
         : value.compactSearchIndexLimit;
+    const compactUnitMetadataLimit =
+      value.compactUnitMetadataLimit === undefined
+        ? 0
+        : value.compactUnitMetadataLimit;
     if (
       !Number.isInteger(compactSearchIndexLimit) ||
       Number(compactSearchIndexLimit) < 0 ||
@@ -892,6 +980,16 @@ export class CorpusShard {
       );
     }
     if (
+      !Number.isInteger(compactUnitMetadataLimit) ||
+      Number(compactUnitMetadataLimit) < 0 ||
+      Number(compactUnitMetadataLimit) > 2_000
+    ) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus unit-metadata maintenance limit is invalid",
+      );
+    }
+    if (
       Object.keys(value).some(
         (key) =>
           ![
@@ -900,6 +998,7 @@ export class CorpusShard {
             "removeDocumentIds",
             "removeUploadIds",
             "compactSearchIndexLimit",
+            "compactUnitMetadataLimit",
           ].includes(key),
       )
     ) {
@@ -935,6 +1034,15 @@ export class CorpusShard {
       processed_projections: 0,
       removed_structural_only_rows: 0,
       pending_projections: 0,
+    };
+    const unitMetadata = {
+      version: 1,
+      scanned_units: 0,
+      rewritten_units: 0,
+      compacted_units: 0,
+      bytes_before: 0,
+      bytes_after: 0,
+      complete: Number(compactUnitMetadataLimit) === 0,
     };
 
     this.state.storage.transactionSync(() => {
@@ -1138,12 +1246,87 @@ export class CorpusShard {
            WHERE search_index_version < ?`,
           SEARCH_INDEX_VERSION,
         )?.count ?? 0;
+
+      if (Number(compactUnitMetadataLimit) > 0) {
+        const cursor = Number(
+          this.one<{ value: string }>(
+            "SELECT value FROM shard_meta WHERE key = ?",
+            SOURCE_ANCHOR_STORAGE_CURSOR,
+          )?.value ?? "0",
+        );
+        const candidates = [
+          ...this.sql.exec<{
+            row_id: number;
+            unit_id: string;
+            revision_id: string;
+            projection_id: string;
+            structure_path_json: string;
+            source_anchor_json: string;
+            document_id: string;
+            relative_path: string;
+            revision_sha256: string;
+          }>(
+            `SELECT unit.rowid AS row_id, unit.unit_id, unit.revision_id,
+                    unit.projection_id, unit.structure_path_json,
+                    unit.source_anchor_json, revision.document_id,
+                    document.relative_path, revision.sha256 AS revision_sha256
+             FROM source_units AS unit
+             JOIN revisions AS revision
+               ON revision.revision_id = unit.revision_id
+             JOIN documents AS document
+               ON document.document_id = revision.document_id
+             WHERE unit.rowid > ?
+             ORDER BY unit.rowid LIMIT ?`,
+            Number.isFinite(cursor) ? cursor : 0,
+            Number(compactUnitMetadataLimit),
+          ),
+        ];
+        for (const candidate of candidates) {
+          unitMetadata.scanned_units += 1;
+          const compacted = compactStoredSourceAnchor(
+            candidate.source_anchor_json,
+            candidate.structure_path_json,
+            candidate.document_id,
+            candidate.revision_id,
+            candidate.projection_id,
+            candidate.relative_path,
+            candidate.revision_sha256,
+          );
+          if (compacted.value !== candidate.source_anchor_json) {
+            this.sql.exec(
+              "UPDATE source_units SET source_anchor_json = ? WHERE unit_id = ?",
+              compacted.value,
+              candidate.unit_id,
+            );
+            unitMetadata.rewritten_units += 1;
+            if (compacted.compacted) unitMetadata.compacted_units += 1;
+            unitMetadata.bytes_before += UTF8_ENCODER.encode(
+              candidate.source_anchor_json,
+            ).byteLength;
+            unitMetadata.bytes_after += UTF8_ENCODER.encode(
+              compacted.value,
+            ).byteLength;
+          }
+        }
+        const nextCursor = candidates.at(-1)?.row_id ?? cursor;
+        if (candidates.length > 0) {
+          this.sql.exec(
+            `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+            SOURCE_ANCHOR_STORAGE_CURSOR,
+            String(nextCursor),
+          );
+        }
+        unitMetadata.complete =
+          candidates.length < Number(compactUnitMetadataLimit);
+      }
     });
     return {
       corpusId,
       removed,
       protected: protectedCounts,
       search_index: searchIndex,
+      unit_metadata: unitMetadata,
       storage: this.storageSummary(),
     };
   }

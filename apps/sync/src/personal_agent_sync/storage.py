@@ -91,8 +91,10 @@ async def maintain_remote_storage(
     compact_search_index: bool = True,
     compaction_batch_size: int = 10,
     maximum_batches_per_corpus: int = 1_000,
+    unit_metadata_batch_size: int = 2_000,
+    maximum_unit_metadata_batches_per_corpus: int = 1,
 ) -> dict[str, Any]:
-    """Remove abandoned staging and compact only the derived search index.
+    """Remove abandoned staging and compact derived or redundant metadata.
 
     Canonical documents, revisions, projections, units, and Context-linked
     records are not selected here. Their retention continues to follow the
@@ -112,6 +114,16 @@ async def maintain_remote_storage(
         raise SyncError(
             "invalid_storage_request",
             "maximum batch count is outside the supported range",
+        )
+    if not 1 <= unit_metadata_batch_size <= 2_000:
+        raise SyncError(
+            "invalid_storage_request",
+            "unit-metadata batch size must be between 1 and 2000",
+        )
+    if not 0 <= maximum_unit_metadata_batches_per_corpus <= 10_000:
+        raise SyncError(
+            "invalid_storage_request",
+            "unit-metadata batch count is outside the supported range",
         )
 
     remote = RemoteClient(config, read_token(config.device_id))
@@ -209,6 +221,57 @@ async def maintain_remote_storage(
                 pending = next_pending
                 batches += 1
 
+            metadata_batches = 0
+            scanned_metadata_units = 0
+            rewritten_metadata_units = 0
+            compacted_anchor_units = 0
+            metadata_bytes_before = 0
+            metadata_bytes_after = 0
+            metadata_complete = maximum_unit_metadata_batches_per_corpus == 0
+            while metadata_batches < maximum_unit_metadata_batches_per_corpus:
+                result = await remote.maintain_corpus(
+                    corpus_id,
+                    remove_projection_ids=[],
+                    remove_document_ids=[],
+                    remove_upload_ids=[],
+                    compact_unit_metadata_limit=unit_metadata_batch_size,
+                )
+                metadata = result.get("unit_metadata")
+                if not isinstance(metadata, dict):
+                    raise SyncError(
+                        "remote_protocol_error",
+                        "remote unit-metadata maintenance result is invalid",
+                    )
+                scanned = _integer(
+                    metadata.get("scanned_units"), "scanned unit-metadata count"
+                )
+                scanned_metadata_units += scanned
+                rewritten_metadata_units += _integer(
+                    metadata.get("rewritten_units"),
+                    "rewritten unit-metadata count",
+                )
+                compacted_anchor_units += _integer(
+                    metadata.get("compacted_units"),
+                    "compacted Source-anchor count",
+                )
+                metadata_bytes_before += _integer(
+                    metadata.get("bytes_before"),
+                    "unit-metadata bytes before compaction",
+                )
+                metadata_bytes_after += _integer(
+                    metadata.get("bytes_after"),
+                    "unit-metadata bytes after compaction",
+                )
+                metadata_complete = metadata.get("complete") is True
+                metadata_batches += 1
+                if metadata_complete:
+                    break
+                if scanned == 0:
+                    raise SyncError(
+                        "storage_maintenance_stalled",
+                        "unit-metadata maintenance made no progress",
+                    )
+
             final = await remote.inventory(
                 corpus_id,
                 limit=1,
@@ -222,6 +285,16 @@ async def maintain_remote_storage(
                     "processed_search_index_projections": processed,
                     "removed_structural_only_index_rows": removed_index_rows,
                     "pending_search_index_projections": pending,
+                    "unit_metadata_batches": metadata_batches,
+                    "scanned_unit_metadata_rows": scanned_metadata_units,
+                    "rewritten_unit_metadata_rows": rewritten_metadata_units,
+                    "compacted_source_anchor_rows": compacted_anchor_units,
+                    "unit_metadata_bytes_before": metadata_bytes_before,
+                    "unit_metadata_bytes_after": metadata_bytes_after,
+                    "unit_metadata_bytes_saved": (
+                        metadata_bytes_before - metadata_bytes_after
+                    ),
+                    "unit_metadata_complete": metadata_complete,
                     "storage": final.get("storage"),
                     "storage_details": final.get("storage_details"),
                 }

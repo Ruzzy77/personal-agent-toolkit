@@ -52,3 +52,8 @@ requested, so normal Source reads and uploads do not pay for per-unit accounting
 writes. Maintenance removes sufficiently old abandoned staging data and
 compacts only the derived search index. Canonical Corpus records continue to
 follow local retention and Context protection.
+
+Legacy Source-unit anchors can be rewritten in bounded batches to remove fields
+that are already guaranteed by their document, revision, projection, or
+structure row. Reads reconstruct the complete public anchor, so this reduces
+stored bytes without dropping extracted structure or provenance.

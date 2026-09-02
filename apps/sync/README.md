@@ -91,8 +91,11 @@ Ordinary metadata-only filesystem changes still reuse the committed projection.
 `personal-agent-sync storage-report` reads the current remote shard sizes,
 record counts, derived-index state, and largest logical projections. It is an
 explicit diagnostic rather than a scheduled scan. `personal-agent-sync
-storage-maintain` removes staged uploads older than 24 hours by default and
-compacts legacy structural-only search rows in bounded batches. It never chooses
+storage-maintain` removes staged uploads older than 24 hours by default,
+compacts legacy structural-only search rows, and losslessly rewrites one bounded
+batch of legacy Source-anchor metadata. Larger one-time compaction is explicit
+through `--unit-metadata-batches`; new uploads use the compact representation
+immediately. It never chooses
 canonical records for deletion by size; exact record removal remains part of a
 completed local-snapshot reconciliation and preserves active or Context-linked
 records.

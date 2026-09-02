@@ -204,6 +204,7 @@ class RemoteClient:
         remove_document_ids: list[str],
         remove_upload_ids: list[str],
         compact_search_index_limit: int = 0,
+        compact_unit_metadata_limit: int = 0,
     ) -> dict[str, Any]:
         request: dict[str, Any] = {
             "corpusId": corpus_id,
@@ -213,6 +214,8 @@ class RemoteClient:
         }
         if compact_search_index_limit:
             request["compactSearchIndexLimit"] = compact_search_index_limit
+        if compact_unit_metadata_limit:
+            request["compactUnitMetadataLimit"] = compact_unit_metadata_limit
         return await self._json(
             "POST",
             f"/sync/v1/corpora/{corpus_id}/maintenance",

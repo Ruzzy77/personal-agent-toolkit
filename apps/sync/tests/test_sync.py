@@ -117,6 +117,17 @@ def test_remote_storage_report_and_conservative_maintenance(
             calls.append({"operation": "maintain", "corpus_id": corpus_id, **options})
             if options.get("remove_upload_ids"):
                 return {"removed": {"uploads": 1}}
+            if options.get("compact_unit_metadata_limit"):
+                return {
+                    "unit_metadata": {
+                        "scanned_units": 3,
+                        "rewritten_units": 2,
+                        "compacted_units": 2,
+                        "bytes_before": 120,
+                        "bytes_after": 40,
+                        "complete": True,
+                    }
+                }
             compact_calls = sum(
                 1
                 for call in calls
@@ -152,6 +163,10 @@ def test_remote_storage_report_and_conservative_maintenance(
     assert summary["processed_search_index_projections"] == 2
     assert summary["removed_structural_only_index_rows"] == 2
     assert summary["pending_search_index_projections"] == 0
+    assert summary["scanned_unit_metadata_rows"] == 3
+    assert summary["compacted_source_anchor_rows"] == 2
+    assert summary["unit_metadata_bytes_saved"] == 80
+    assert summary["unit_metadata_complete"] is True
 
 
 def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(

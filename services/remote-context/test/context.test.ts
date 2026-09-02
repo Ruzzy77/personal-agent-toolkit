@@ -5,6 +5,7 @@ import corpusPlugin from "../../../plugins/corpus/.claude-plugin/plugin.json";
 import hypesPlugin from "../../../plugins/hypes/.claude-plugin/plugin.json";
 import sensePlugin from "../../../plugins/sense/.claude-plugin/plugin.json";
 import { contentSha256, sha256Hex } from "../src/canonical";
+import { compactStoredSourceAnchor } from "../src/corpus-shard";
 import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
@@ -18,6 +19,32 @@ const syncHeaders = {
   "X-Personal-Agent-Device": "test-mac",
   "Content-Type": "application/json",
 };
+
+it("losslessly compacts legacy Source-anchor invariants", () => {
+  const structure = { paragraph: 2, structural_only: true };
+  const compacted = compactStoredSourceAnchor(
+    JSON.stringify({
+      canonical_locator: "folder/note.txt",
+      content_hash: "a".repeat(64),
+      document_id: "doc_test",
+      revision_id: "rev_test",
+      projection_id: "projection_test",
+      structural_locator: structure,
+      source_span: { paragraph: 2 },
+      absolute_path: "/private/source/note.txt",
+    }),
+    JSON.stringify(structure),
+    "doc_test",
+    "rev_test",
+    "projection_test",
+    "folder/note.txt",
+    "a".repeat(64),
+  );
+  expect(compacted.compacted).toBe(true);
+  expect(compacted.value).toBe(
+    'compact-v1:{"source_span":{"paragraph":2}}',
+  );
+});
 
 async function body(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
@@ -658,12 +685,36 @@ describe("remote personal context service", () => {
           indexed_unit_count: 1,
           searchable_unit_count: 1,
           structural_only_unit_count: 1,
+          source_anchor_logical_bytes: expect.any(Number),
+          pending_source_anchor_compaction_count: 0,
           hotspots: [
             {
               projection_id: "projection_search_storage",
               unit_count: 2,
             },
           ],
+        },
+      },
+    });
+
+    const compacted = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      {
+        corpusId,
+        removeProjectionIds: [],
+        removeDocumentIds: [],
+        removeUploadIds: [],
+        compactUnitMetadataLimit: 10,
+      },
+    );
+    expect(compacted.status, await compacted.clone().text()).toBe(200);
+    expect(await body(compacted)).toMatchObject({
+      result: {
+        unit_metadata: {
+          scanned_units: 2,
+          rewritten_units: 0,
+          compacted_units: 0,
+          complete: true,
         },
       },
     });
