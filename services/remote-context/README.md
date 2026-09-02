@@ -57,3 +57,5 @@ Legacy Source-unit anchors can be rewritten in bounded batches to remove fields
 that are already guaranteed by their document, revision, projection, or
 structure row. Reads reconstruct the complete public anchor, so this reduces
 stored bytes without dropping extracted structure or provenance.
+Redundant legacy Source-unit indexes are removed during maintenance; the
+remaining primary and uniqueness indexes already cover the live read paths.

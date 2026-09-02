@@ -181,13 +181,9 @@ CREATE TABLE IF NOT EXISTS source_units (
   ocr INTEGER NOT NULL CHECK (ocr IN (0, 1)),
   quality_flags_json TEXT NOT NULL,
   UNIQUE(projection_id, ordinal),
-  UNIQUE(unit_id, revision_id),
   FOREIGN KEY(revision_id) REFERENCES revisions(revision_id),
   FOREIGN KEY(projection_id) REFERENCES projections(projection_id) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_units_revision ON source_units(revision_id, ordinal);
-CREATE INDEX IF NOT EXISTS idx_units_projection ON source_units(projection_id, ordinal);
 
 CREATE TABLE IF NOT EXISTS external_bindings (
   binding_id TEXT PRIMARY KEY,
@@ -572,6 +568,11 @@ export class CorpusShard {
       );
       this.projectionColumns.add("search_index_version");
     }
+    // unit_id's primary key and the projection/ordinal uniqueness constraint
+    // already cover current point and ordered projection reads. These two
+    // legacy indexes duplicated those access paths for every Source unit.
+    this.sql.exec("DROP INDEX IF EXISTS idx_units_revision");
+    this.sql.exec("DROP INDEX IF EXISTS idx_units_projection");
   }
 
   private documentField(
@@ -727,6 +728,7 @@ export class CorpusShard {
         extraction_issues_logical_bytes: 0,
         geometry_logical_bytes: 0,
         quality_flags_logical_bytes: 0,
+        legacy_redundant_index_count: 0,
         pending_source_anchor_compaction_count: 0,
         pending_source_anchor_logical_bytes: 0,
         staged_unit_count: 0,
@@ -808,6 +810,11 @@ export class CorpusShard {
       this.one<{ count: number }>(
         "SELECT COUNT(*) AS count FROM source_units_fts",
       )?.count ?? 0;
+    const legacyRedundantIndexes =
+      this.one<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM sqlite_master
+         WHERE type = 'index' AND name IN ('idx_units_revision', 'idx_units_projection')`,
+      )?.count ?? 0;
     const lifecycleCounts = Object.fromEntries(
       [
         ...this.sql.exec<{ lifecycle_state: string; count: number }>(
@@ -882,6 +889,7 @@ export class CorpusShard {
       extraction_issues_logical_bytes: unitCounts.extraction_issues_bytes ?? 0,
       geometry_logical_bytes: unitCounts.geometry_bytes ?? 0,
       quality_flags_logical_bytes: unitCounts.quality_flags_bytes ?? 0,
+      legacy_redundant_index_count: legacyRedundantIndexes,
       pending_source_anchor_compaction_count: anchors.pending_count ?? 0,
       pending_source_anchor_logical_bytes: anchors.pending_logical_bytes ?? 0,
       staged_unit_count: staged.count,

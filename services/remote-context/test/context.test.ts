@@ -689,6 +689,7 @@ describe("remote personal context service", () => {
           structure_path_logical_bytes: expect.any(Number),
           source_anchor_logical_bytes: expect.any(Number),
           normalized_content_logical_bytes: expect.any(Number),
+          legacy_redundant_index_count: 0,
           pending_source_anchor_compaction_count: 0,
           hotspots: [
             {
