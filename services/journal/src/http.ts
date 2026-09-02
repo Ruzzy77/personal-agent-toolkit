@@ -5,10 +5,12 @@ import { asJournalError, JournalError } from "./errors";
 import {
   closeWeekRequestSchema,
   correctionRequestSchema,
+  findItemsSchema,
   ingestRequestSchema,
   periodKindSchema,
   promotionRequestSchema,
   resolutionRequestSchema,
+  savePeriodSummarySchema,
 } from "./schemas";
 import { JournalService } from "./service";
 import type { Env } from "./types";
@@ -96,7 +98,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       return jsonResponse(request, env, {
         ok: true,
         service: "personal-agent-journal",
-        version: "0.1.0",
+        version: "0.2.0",
       });
     }
     if (
@@ -137,6 +139,38 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       return jsonResponse(request, env, { ok: true, result }, 200);
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/items") {
+      await authenticate(request, env, ["journal.read"]);
+      const parsed = findItemsSchema.safeParse({
+        weekId: url.searchParams.get("week"),
+        startsOn: url.searchParams.get("starts_on"),
+        endsOn: url.searchParams.get("ends_on"),
+        query: url.searchParams.get("query"),
+        projectKey: url.searchParams.get("project"),
+        lane: url.searchParams.get("lane"),
+        resolution: url.searchParams.get("resolution"),
+        limit: Number(url.searchParams.get("limit") ?? "50"),
+      });
+      if (!parsed.success) {
+        throw new JournalError("invalid_request", "item filters are invalid");
+      }
+      const result = await service.findItems(parsed.data);
+      return jsonResponse(request, env, { ok: true, result });
+    }
+
+    const itemDetailMatch = /^\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(
+      url.pathname,
+    );
+    if (request.method === "GET" && itemDetailMatch) {
+      await authenticate(request, env, ["journal.read"]);
+      const itemId = itemDetailMatch[1];
+      if (!itemId) {
+        throw new JournalError("item_not_found", "item was not found", 404);
+      }
+      const result = await service.getItemDetail(itemId);
+      return jsonResponse(request, env, { ok: true, result });
+    }
+
     const resolutionMatch =
       /^\/api\/v1\/items\/([0-9a-f-]+)\/resolution$/.exec(url.pathname);
     if (request.method === "PATCH" && resolutionMatch) {
@@ -150,18 +184,34 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       return jsonResponse(request, env, { ok: true, result });
     }
 
-    const closeMatch = /^\/api\/v1\/weeks\/(\d{4}-\d{2}-\d{2}):close$/.exec(
-      url.pathname,
-    );
-    if (request.method === "POST" && closeMatch) {
+    const prepareCloseMatch =
+      /^\/api\/v1\/weeks\/(\d{4}-\d{2}-\d{2}):prepare-close$/.exec(
+        url.pathname,
+      );
+    if (request.method === "POST" && prepareCloseMatch) {
       const principal = await authenticate(request, env, ["journal.close"]);
-      const input = await readJson(request, closeWeekRequestSchema);
-      const weekId = closeMatch[1];
+      const weekId = prepareCloseMatch[1];
       if (!weekId) {
         throw new JournalError("week_not_found", "week was not found", 404);
       }
-      const result = await service.closeWeek(
+      const result = await service.prepareWeekClose(weekId, principal);
+      return jsonResponse(request, env, { ok: true, result });
+    }
+
+    const confirmCloseMatch =
+      /^\/api\/v1\/weeks\/(\d{4}-\d{2}-\d{2}):(?:confirm-close|close)$/.exec(
+        url.pathname,
+      );
+    if (request.method === "POST" && confirmCloseMatch) {
+      const principal = await authenticate(request, env, ["journal.close"]);
+      const input = await readJson(request, closeWeekRequestSchema);
+      const weekId = confirmCloseMatch[1];
+      if (!weekId) {
+        throw new JournalError("week_not_found", "week was not found", 404);
+      }
+      const result = await service.confirmWeekClose(
         weekId,
+        input.preparationVersion,
         input.idempotencyKey,
         input.occurredAt,
         principal,
@@ -201,10 +251,19 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
 
     if (
       request.method === "POST" &&
+      url.pathname === "/api/v1/period-summaries"
+    ) {
+      const principal = await authenticate(request, env, ["journal.write"]);
+      const input = await readJson(request, savePeriodSummarySchema);
+      const result = await service.savePeriodSummary(input, principal);
+      return jsonResponse(request, env, { ok: true, result });
+    }
+
+    if (
+      request.method === "POST" &&
       url.pathname === "/api/v1/corpus-promotions"
     ) {
       const principal = await authenticate(request, env, [
-        "journal.ingest",
         "journal.write",
       ]);
       const input = await readJson(request, promotionRequestSchema);

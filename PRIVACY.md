@@ -1,91 +1,72 @@
 # Privacy boundary
 
-Personal Agent Toolkit is local-first and ships with no user data.
+Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, and Journal use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy.
 
 ## Sense
 
-Sense stores one private set of user-controlled guidance and user-approved Section Skills on the
-user's machine. The profile covers durable intent, responsibility, and lessons that should affect
-important choices in different contexts. A Section Skill holds one reusable workflow attached to a
-profile section. Neither holds project facts, project files, or raw conversation history.
+Sense stores one owner-scoped set of user-controlled guidance and user-approved Section Skills in
+the remote context service's D1 database. The profile covers durable intent, responsibility, and
+lessons that should affect important choices in different contexts. A Section Skill holds one
+reusable workflow attached to a profile section. Neither holds project files or raw conversation
+history.
 
-- The plugin package contains no default or active guidance.
-- The private database stores one current profile. Section Skills are stored as private `SKILL.md`
-  files under their linked sections. Sense stores no revision history, replay receipts, source
-  locations, or source hashes.
-- Import uses a profile the user has already reviewed. Replacing an existing profile requires an
-  explicit local confirmation.
-- Ordinary Section Skill replacement requires an explicit user request and the current Skill
-  version. Sensitive Skill changes, Skill removal, sensitive guidance, and permanent deletion
-  require explicit local confirmation.
-- Ordinary updates use only the current section's change token and complete replacement text.
-- Plugin updates do not replace the current guidance or Section Skills. The schema 2 upgrade keeps
-  the active profile and removes superseded history and provenance fields.
+- The plugin package contains no default or active guidance and only declares the authenticated
+  remote MCP endpoint and its Skills.
+- Migration copies the current local profile and approved Skills without creating revision history.
+  Subsequent ordinary updates replace complete sections with conflict-safe change tokens.
+- The authenticated owner may read a sensitive section only by its explicit identifier. Ordinary
+  overview responses omit sensitive text. Sensitive revisions, sensitive Skill changes, Skill
+  removal, and permanent deletion remain restricted to the local administrative interface.
+- Plugin updates do not replace the stored profile or Section Skills. Each owner identifier is part
+  of every storage key, and tokens are valid only for the exact Sense resource and scopes.
 
 ## Corpus
 
-Corpus indexes only sources the user explicitly registers.
+Corpus keeps durable Context and extracted Source records independent of the current Finder path.
+Only sources and Work folders that the owner explicitly connects are represented remotely.
 
-- Source bytes remain in their original locations and are not written by Corpus.
-- Local indexes and reusable context stay in the private Corpus runtime directory.
-- The index keeps the current revision and extraction projection for each current source file. It
-  does not accumulate source snapshots, scan-event history, or older extracted copies.
+- Space, Context, Context Skill, Connection, Current File, Sync-device, and migration-receipt state
+  is stored in the owner-scoped D1 database. Each Source's documents, revisions, extraction
+  projections, Source units, issues, provider metadata, and search index are stored in a separate
+  owner-scoped SQLite Durable Object.
+- Corpus retains extracted text, structural units, provenance anchors, and the revisions needed for
+  durable reading. It does not retain original document bytes. Failed or incomplete uploads never
+  replace the last committed projection.
+- Operational Finder locators, filesystem identifiers, and transfer approvals stay in Personal
+  Agent Sync's private local database. Remote records use stable Connection, document, revision,
+  projection, and job identifiers rather than an authoritative local path.
+- A `local_only` Connection sends neither Source state nor file content. Other Connections may send
+  extraction output after the Sync app rechecks the current scope, generation, and transfer policy.
+  A separately deployed remote analyzer receives only a version-pinned temporary capture when the
+  Connection permits it; an `approval_required` route also requires approval for the exact document
+  revision and byte limit.
 - Gmail bodies remain with Gmail. Completed Codex and Claude turns remain with their providers.
-- Provider links keep only limited record details, the original record's location, and a fingerprint
-  used to detect changes.
-- Exact provider content is read at request time and is not copied into the Corpus index.
-- Archived context remains readable. Destructive context purge is not currently provided.
-- Existing Context item kind, body, and status replacement requires an explicit user request and the
-  current Context version. One transaction changes every selected item or none, while preserving
-  other attributes and existing Source links. Item creation, deletion, and Source-link changes
-  remain local operations.
-- A complete Context Skill replacement requires an explicit user request and the current Skill
-  version. It does not make a Source Connection writable or change Source bytes.
-- A separately connected local work folder is writable only when the user explicitly registers it
-  for an active Corpus context. The local file remains the latest copy; Corpus does not upload or
-  maintain an offline cloud copy of the folder.
-- Work-folder replacement uses a freshly observed file version and stops on concurrent changes.
-  Corpus keeps only the latest recoverable replacement for each path as a private copy under its
-  runtime and removes older or expired recovery copies during bounded local maintenance.
-- Hidden, sensitive, temporary, linked, and special files are excluded. Work-folder deletion
-  requires an explicit request and current file version; tools do not move or execute files, and
-  local root paths are not returned through the Chat surface.
-
-Some explicitly requested extraction operations may run outside the local machine when the Corpus
-execution policy allows it. Downloading cloud placeholder files uses network, disk, and local
-storage. These actions are separate from ordinary local reads.
+  Provider links keep bounded record metadata and freshness identities; selected Context items are
+  the durable interpreted knowledge.
+- Work operations travel through a bounded remote job and an outbound Sync connection. The Sync app
+  rechecks the Connection's role, generation, and read or write permission before delegating to the
+  local Corpus authority. Replacements and destructive operations require the expected current
+  version and the product-specific confirmation fields.
+- Hidden, temporary, linked, special, and policy-excluded files are not captured. Temporary Source
+  snapshots use private local storage and are deleted after analysis or failure.
 
 ## Hypes
 
-Hypes combines the `use-user-model` skill with a sessionless local MCP server and a private,
-revisable relationship model of the user on the user's machine.
+Hypes stores one owner-scoped, revisable relationship graph in the remote context service's D1
+database and exposes it through an authenticated MCP endpoint.
 
 - The relationship model is the agent's current, revisable understanding of the user. It is not a
   user-authored profile, an external evaluation, or a source of objective facts about the person.
 - The database stores agent-created Nodes, Predicates, and Edges. It does not store raw
   conversations, full answers, task records, project facts, Corpus sources, Sense guidance, or
   hidden reasoning.
-- Hypes reads only when the model could materially change the current response and writes only when
-  the interaction changed a reusable part of the agent's model. The skill can be selected
-  implicitly, but a conversation that neither depends on nor changes the model makes no Hypes call.
-  Ordinary conversation completion is not stored.
-- Current user input always takes priority over stored structure. When that input actually changes
-  a reusable relation, the agent replaces or deletes the old structure rather than adding review,
-  evidence, confidence, or retention records to every relation. Task-local facts and wording are
-  not written back as changes to the relationship model.
-- The MCP exposes only `hypes_read` and `hypes_rewrite`. A rewrite is one SQLite transaction and
-  either changes the complete requested graph patch or leaves the graph unchanged. Deleting a Node
-  or Predicate also removes its incident Edges in that transaction.
-- Schema initialization runs once at server start. Ordinary reads use a read-only SQLite connection
-  and do not acquire a schema-write lock.
-- The local database is `hypes-ontology.sqlite3`. Earlier Hypes databases are not read, converted,
-  deleted, or included in the active model.
-- The Hypes data directory and database must be owned by the current user and use modes `0700` and
-  `0600`. Hypes refuses unsafe links, ownership, or permissions before it writes.
-- Automatic skill selection is based on the current request. Hypes does not monitor the screen,
-  keyboard, emotion, or unrelated conversations.
-- Sense continues to own durable user-set direction, while Corpus owns registered sources and
-  project relationships. Hypes does not copy either store.
+- Current user input always takes priority over the stored graph. A rewrite is one transaction and
+  either changes the complete requested graph patch or leaves it unchanged. Deleting a Node or
+  Predicate also removes its incident Edges in that transaction.
+- Hypes uses only nonsensitive reusable relationships. Automatic Skill selection does not monitor
+  the screen, keyboard, emotion, or unrelated conversations.
+- Every graph row is keyed to the authenticated owner. Tokens are accepted only for the exact Hypes
+  resource and requested scopes.
 
 ## Journal
 
@@ -114,35 +95,27 @@ project source material and reusable project context.
 
 ## Private ChatGPT tunnel use
 
-The local product plugins remain local-first and contain no `.app.json`, maintainer-owned ChatGPT
-connection, OAuth credential, or multi-user storage. Their streamable HTTP listeners accept only
-loopback connections.
+The gateway and Secure MCP Tunnel are transitional compatibility paths while the remote migration
+is being verified. They are not part of the target operating model.
 
-The optional gateway can connect selected installed products to the user's own OpenAI Secure MCP
-Tunnels. It does not copy product data or create another product database. The supervising service
-starts the selected local launchers, and the gateway proxies their fixed loopback paths. Each
-product uses its own tunnel. The Platform runtime key is read from the user's login Keychain and
-passed only to official tunnel-client processes. It is not placed in the product processes,
-gateway process, LaunchAgent file, plugin package, or repository.
+The permanent Sense, Corpus, and Hypes endpoints run in the owner-operated remote context service.
+Codex, Claude, ChatGPT, and claude.ai connect to those HTTPS resources directly, so they do not
+receive a local launcher path or an inbound route to the Mac. Personal Agent Sync opens only an
+outbound WebSocket for authorized Source updates and Work jobs.
 
-The public gateway package contains no tunnel id, developer connection id, API key, product data,
-or absolute maintainer path. A user's generated tunnel profiles and `.app.json` bindings remain
-private local configuration and are not part of this repository. Stopping the gateway leaves local
-product data and installations unchanged.
-
-Registering a tunnel-backed MCP endpoint for private developer testing does not publish it. Public
-availability still requires a separate submission and review for each product. The gateway is not
-a hosted service, cross-product profile, or model router.
+The public gateway package contains no tunnel identifier, developer connection identifier, API key,
+product data, or absolute maintainer path. Private tunnel profiles remain outside the repository.
+The gateway and its active client connections are removed only after migration parity and client
+cutover have been verified; removing them does not delete either the remote records or the local
+source files.
 
 ## Optional remote authentication template
 
-The `auth` directory is a self-deploy template for one owner to authorize selected remote services.
-It is separate from the local gateway and does not turn Sense, Corpus, or Hypes into hosted products.
-Journal is an explicit remote resource that uses this authentication service; it does not change
-the storage model of the local products.
+The `auth` directory is a self-deploy template for one owner to authorize the remote context and
+Journal services.
 
 - The public repository contains no Google client secret, Cloudflare credential, owner identifier,
-  production resource URI, token, grant, or session.
+  production token, grant, or session.
 - A deployer supplies the resource registry and secrets directly to their own Cloudflare account.
 - OAuth grants and opaque tokens remain in the deployer's `OAUTH_KV` namespace.
 - Every resource has an exact audience URI and its own scopes. A token for one resource is rejected
@@ -154,7 +127,7 @@ the storage model of the local products.
   the owner's allowlist.
 - The authentication Worker does not retain Google's access token or refresh token. It keeps only
   the approved Google identity claims in its own OAuth grant.
-- Production deployment and credentials are not part of the repository.
+- Production deployment identifiers and credentials remain outside the repository.
 
 ## Repository contents
 
@@ -168,11 +141,11 @@ The release repository must not contain:
   files.
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
-build-time copy of runtime data or maintainer credentials. `services/journal` contains only the
-deployable schema and service source; D1 identifiers, account configuration, and secrets stay in
-ignored runtime configuration. Public resource and Site endpoints may appear in the plugin
-manifest. The optional gateway remains a separate package and follows the same repository-content
-boundary.
+build-time copy of runtime data or maintainer credentials. `services/journal` contains the
+deployable schema and service source, and `sites/journal` contains the owner-only Sites frontend;
+runtime values and secrets stay in ignored configuration or the hosting environment. Public
+resource and Site endpoints may appear in the plugin manifest. The optional gateway remains a
+separate package and follows the same repository-content boundary.
 
 The authentication template and Journal service record their resolved JavaScript dependencies in
 `auth/package-lock.json` and `services/journal/package-lock.json`.

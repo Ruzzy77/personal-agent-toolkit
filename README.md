@@ -222,7 +222,7 @@ Hypes는 대화나 프로젝트 자료를 저장하지 않습니다. 현재 요�
 
 ## Journal 시작
 
-Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인합니다.
+Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인하며, 화면 소스는 `sites/journal`에서 관리합니다.
 
 Daily Monitoring 같은 로컬 자동화는 `plugins/journal/launchers/journal`을 사용해 달라진 항목만 반영합니다. 읽기·ingest 전용 토큰은 macOS Keychain의 `personal-agent-journal-ingest` service에 두며 저장소나 자동화 프롬프트에 넣지 않습니다.
 
@@ -241,8 +241,9 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
 Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. `plugins/journal`과
-`services/journal`은 Journal 연결과 서비스이며, `auth`는 원격 제품이 함께 쓰는 소유자 인증
-구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
+`services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다. `auth`는
+원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만
+만듭니다.
 
 plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 
