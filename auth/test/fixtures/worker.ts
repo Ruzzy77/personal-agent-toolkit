@@ -44,6 +44,7 @@ const testAuthorizationHandler: ExportedHandler<OAuthEnv> = {
           testOnly: true,
         },
         scope: decision.grantedScopes,
+        revokeExistingGrants: false,
         props: {
           provider: "google",
           subject: "google-sub-owner-123",

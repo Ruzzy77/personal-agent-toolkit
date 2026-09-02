@@ -205,6 +205,34 @@ describe("OAuth provider contract", () => {
     });
   });
 
+  it("keeps independent resource grants active for the same client", async ({
+    expect,
+  }) => {
+    const libraryToken = await authorizeAndExchange(
+      clientId,
+      LIBRARY,
+      "library.read",
+      expect,
+    );
+    const corpusToken = await authorizeAndExchange(
+      clientId,
+      CORPUS,
+      "corpus.read",
+      expect,
+    );
+
+    await expect(
+      authService.validateAccessToken(libraryToken.access_token, LIBRARY, [
+        "library.read",
+      ]),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      authService.validateAccessToken(corpusToken.access_token, CORPUS, [
+        "corpus.read",
+      ]),
+    ).resolves.toMatchObject({ ok: true });
+  });
+
   it("rejects the same token for another registered resource", async ({
     expect,
   }) => {

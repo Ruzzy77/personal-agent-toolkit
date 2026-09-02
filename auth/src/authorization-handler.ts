@@ -187,6 +187,10 @@ async function handleGoogleCallback(
       resourceId: policy.resource.id,
     },
     scope: policy.grantedScopes,
+    // A single MCP client can connect to several independently scoped resources.
+    // Keep those grants side by side; the provider default would revoke the
+    // earlier Sense/Corpus/Hypes grant whenever the next one is authorized.
+    revokeExistingGrants: false,
     props: {
       provider: "google",
       subject: identity.subject,
