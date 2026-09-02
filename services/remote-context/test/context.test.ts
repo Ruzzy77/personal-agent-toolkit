@@ -1,6 +1,9 @@
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+import corpusPlugin from "../../../plugins/corpus/.claude-plugin/plugin.json";
+import hypesPlugin from "../../../plugins/hypes/.claude-plugin/plugin.json";
+import sensePlugin from "../../../plugins/sense/.claude-plugin/plugin.json";
 import { contentSha256, sha256Hex } from "../src/canonical";
 import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
@@ -164,6 +167,43 @@ describe("remote personal context service", () => {
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
       }
+    }
+  });
+
+  it("keeps remote MCP server versions aligned with the client plugins", async () => {
+    const expectedVersions = {
+      sense: `${sensePlugin.version}-remote.1`,
+      corpus: `${corpusPlugin.version}-remote.1`,
+      hypes: `${hypesPlugin.version}-remote.1`,
+    } as const;
+    for (const kind of ["sense", "corpus", "hypes"] as const) {
+      const response = await handleMcp(
+        new Request(`https://context.test/${kind}/mcp`, {
+          method: "POST",
+          headers: {
+            Accept: "application/json, text/event-stream",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-11-25",
+              capabilities: {},
+              clientInfo: { name: "version-contract-test", version: "1" },
+            },
+          }),
+        }),
+        runtime,
+        ownerPrincipal,
+        kind,
+      );
+      expect(response.status, await response.clone().text()).toBe(200);
+      const payload = await mcpPayload(response);
+      expect(payload).toMatchObject({
+        result: { serverInfo: { version: expectedVersions[kind] } },
+      });
     }
   });
 
