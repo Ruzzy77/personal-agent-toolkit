@@ -1091,10 +1091,6 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     result,
                 )
                 migrated += 1
-            # Projection commits intentionally do not own Finder observation metadata.
-            # Reapplying the document inventory also repairs stores written by an
-            # earlier service version that updated last_seen_at during projection import.
-            document_result = await remote.import_documents(corpus_id, documents)
             corpus_summaries[corpus_id] = {
                 "documents": document_result,
                 "external": external_result,
@@ -1103,6 +1099,15 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 "migrated_projections": migrated,
                 "resumed_projections": skipped,
             }
+        # Projection commits intentionally do not own Finder observation metadata.
+        # Reapply inventories only after every durable projection is present; this
+        # also repairs stores written by an earlier service version that changed
+        # observation timestamps during projection import.
+        for corpus_id in corpus.corpus_ids():
+            documents = corpus.documents(corpus_id)
+            corpus_summaries[corpus_id]["documents"] = await remote.import_documents(
+                corpus_id, documents
+            )
         summary["corpora"] = corpus_summaries
         return summary
     finally:

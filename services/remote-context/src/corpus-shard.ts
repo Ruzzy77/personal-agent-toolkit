@@ -594,7 +594,21 @@ export class CorpusShard {
              deleted_at = excluded.deleted_at,
              lifecycle_state = excluded.lifecycle_state,
              retention_class = excluded.retention_class,
-             last_user_access_at = excluded.last_user_access_at`,
+             last_user_access_at = excluded.last_user_access_at
+           WHERE documents.relative_path IS NOT excluded.relative_path
+              OR documents.extension IS NOT excluded.extension
+              OR documents.source_state IS NOT excluded.source_state
+              OR documents.media_type IS NOT excluded.media_type
+              OR documents.logical_size IS NOT excluded.logical_size
+              OR documents.modified_ns IS NOT excluded.modified_ns
+              OR documents.residency_state IS NOT excluded.residency_state
+              OR documents.eligibility_state IS NOT excluded.eligibility_state
+              OR documents.current_revision_id IS NOT excluded.current_revision_id
+              OR documents.last_seen_at IS NOT excluded.last_seen_at
+              OR documents.deleted_at IS NOT excluded.deleted_at
+              OR documents.lifecycle_state IS NOT excluded.lifecycle_state
+              OR documents.retention_class IS NOT excluded.retention_class
+              OR documents.last_user_access_at IS NOT excluded.last_user_access_at`,
           document.documentId,
           document.relativePath.normalize("NFC"),
           document.extension,
