@@ -23,6 +23,7 @@ interface ExecuteInput {
 }
 
 const MAX_IN_FLIGHT_JOBS = 20;
+const TERMINAL_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function response(value: unknown, status = 200): Response {
   return Response.json(value, { status });
@@ -145,7 +146,7 @@ export class SyncBroker {
       .run();
   }
 
-  private async expireQueued(ownerId: string, deviceId: string): Promise<void> {
+  private async maintainJobs(ownerId: string, deviceId: string): Promise<void> {
     const now = nowIso();
     await this.env.STATE_DB.prepare(
       `UPDATE sync_jobs SET state = 'expired', updated_at = ?
@@ -153,6 +154,17 @@ export class SyncBroker {
          AND state IN ('queued', 'dispatched') AND expires_at <= ?`,
     )
       .bind(now, ownerId, deviceId, now)
+      .run();
+    const retentionCutoff = new Date(
+      Date.now() - TERMINAL_JOB_RETENTION_MS,
+    ).toISOString();
+    await this.env.STATE_DB.prepare(
+      `DELETE FROM sync_jobs
+       WHERE owner_id = ? AND device_id = ?
+         AND state IN ('succeeded', 'failed', 'expired', 'canceled')
+         AND COALESCE(completed_at, updated_at) <= ?`,
+    )
+      .bind(ownerId, deviceId, retentionCutoff)
       .run();
   }
 
@@ -345,7 +357,7 @@ export class SyncBroker {
           serverTime: nowIso(),
         }),
       );
-      await this.expireQueued(metadata.ownerId, metadata.deviceId);
+      await this.maintainJobs(metadata.ownerId, metadata.deviceId);
       await this.dispatchQueued(
         socket,
         metadata.ownerId,

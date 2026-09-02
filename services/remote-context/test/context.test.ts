@@ -1127,6 +1127,26 @@ describe("remote personal context service", () => {
         limit: 1,
       });
     }
+    const staleJobId = `job_${"a".repeat(32)}`;
+    await runtime.STATE_DB.prepare(
+      `INSERT INTO sync_jobs(
+         owner_id, job_id, device_id, operation, scope_json, request_json,
+         response_json, idempotency_key, state, maximum_response_bytes,
+         expires_at, created_at, updated_at, completed_at
+       ) VALUES (?, ?, ?, 'work.file.list', '{}', '{}', '{}', ?, 'succeeded',
+                 1024, ?, ?, ?, ?)`,
+    )
+      .bind(
+        "owner_test",
+        staleJobId,
+        "backlog-mac",
+        staleJobId,
+        "2020-01-01T00:05:00.000Z",
+        "2020-01-01T00:00:00.000Z",
+        "2020-01-01T00:00:01.000Z",
+        "2020-01-01T00:00:01.000Z",
+      )
+      .run();
 
     const connected = await SELF.fetch("https://context.test/sync/v1/connect", {
       headers: {
@@ -1152,6 +1172,13 @@ describe("remote personal context service", () => {
     const initialJobs = initial.slice(1);
     expect(initialJobs).toHaveLength(20);
     expect(initialJobs.every((message) => message.type === "job")).toBe(true);
+    expect(
+      await runtime.STATE_DB.prepare(
+        "SELECT job_id FROM sync_jobs WHERE owner_id = ? AND job_id = ?",
+      )
+        .bind("owner_test", staleJobId)
+        .first(),
+    ).toBeNull();
 
     const completionMessages = nextSocketMessages(socket, 2);
     socket.send(

@@ -123,7 +123,10 @@ or public tunnel on the Mac.
 
 The broker accepts one active writer for a device. Every job has a stable ID,
 scope, deadline, maximum payload, and idempotency key. The app rechecks local
-policy and file identity before reading or writing.
+policy and file identity before reading or writing. Reconnection expires missed
+deadlines, drains at most 20 in-flight jobs at a time, and removes terminal job
+payloads after seven days so the control-plane database does not become an
+unbounded activity archive.
 
 ## Document analysis
 
