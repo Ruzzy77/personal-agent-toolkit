@@ -282,8 +282,7 @@ class SyncDaemon:
             )
         previous_projection = change.get("last_projection_id")
         if (
-            force_refresh
-            and isinstance(previous_projection, str)
+            isinstance(previous_projection, str)
             and previous_projection != projection_id
         ):
             await self.remote.maintain_corpus(

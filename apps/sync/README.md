@@ -79,7 +79,9 @@ queue state, and stable error codes. It does not print local roots.
 Remote clients request an on-demand refresh with the exact Space, Connection,
 and document IDs. The request can include the last known revision digest. Sync
 re-analyzes unchanged bytes when explicitly requested, atomically activates the
-new projection, and removes only an unprotected superseded extractor projection.
+new projection, and removes only an unprotected superseded projection. The same
+conservative cleanup follows an ordinary content change, so unreferenced prior
+extractions do not accumulate with each saved version.
 Ordinary metadata-only filesystem changes still reuse the committed projection.
 
 `personal-agent-sync storage-report` reads the current remote shard sizes,

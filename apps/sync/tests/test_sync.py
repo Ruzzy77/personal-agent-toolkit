@@ -403,25 +403,41 @@ def test_metadata_only_change_reuses_the_committed_projection(
         "expiresAt": "2099-01-01T00:00:00+00:00",
     }
 
-    async def refresh() -> dict[str, object]:
+    async def refresh_and_change() -> tuple[dict[str, object], dict[str, object]]:
         response = await daemon._execute_job(job)
+        refresh_result = response["result"]
+        assert isinstance(refresh_result, dict)
+        document.write_text("changed bytes", encoding="utf-8")
+        reconcile_all(daemon.state)
+        await daemon._process_change(daemon.state.due_changes()[0])
+        changed_result = daemon.state.refresh_result(
+            "notes", "main", initial["document_id"]
+        )
         await daemon.close()
-        return response
+        return response, changed_result
 
-    response = asyncio.run(refresh())
+    response, changed_result = asyncio.run(refresh_and_change())
     assert response["ok"] is True
     result = response["result"]
     assert isinstance(result, dict)
     assert result["completed"] is True
     assert result["revision_sha256"] == digest
     assert result["projection_id"] != "projection_existing"
-    assert analysis_calls == [digest]
+    changed_digest = hashlib.sha256(b"changed bytes").hexdigest()
+    assert changed_result["revision_sha256"] == changed_digest
+    assert changed_result["projection_id"] != result["projection_id"]
+    assert analysis_calls == [digest, changed_digest]
     assert maintenance_calls == [
         {
             "remove_projection_ids": ["projection_existing"],
             "remove_document_ids": [],
             "remove_upload_ids": [],
-        }
+        },
+        {
+            "remove_projection_ids": [result["projection_id"]],
+            "remove_document_ids": [],
+            "remove_upload_ids": [],
+        },
     ]
     assert daemon.state.due_changes() == []
 
