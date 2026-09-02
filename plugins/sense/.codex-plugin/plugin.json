@@ -1,6 +1,6 @@
 {
   "name": "sense",
-  "version": "0.3.3+codex.20260831004733",
+  "version": "0.3.4+codex.20260902183000",
   "description": "Keep private guidance for important choices available across AI tools.",
   "author": {
     "name": "Ruzzy77",
@@ -18,15 +18,14 @@
   "skills": "./skills/",
   "mcpServers": {
     "sense": {
-      "command": "./launchers/sense-mcp",
-      "args": [],
-      "cwd": "."
+      "type": "http",
+      "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp"
     }
   },
   "interface": {
     "displayName": "Sense",
     "shortDescription": "Keep guidance for important choices private",
-    "longDescription": "Sense keeps one current set of user-controlled guidance and user-approved Section Skills for important choices and reusable work. Current requests and sources take priority. Final ordinary guidance and Skill replacements are version-checked, and Sense data stays on this Mac across plugin updates.",
+    "longDescription": "Sense keeps one owner-authenticated set of user-controlled guidance and user-approved Section Skills available across supported AI clients. Current requests and sources take priority, and final ordinary guidance and Skill replacements are version-checked.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

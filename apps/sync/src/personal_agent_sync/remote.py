@@ -30,8 +30,12 @@ class RemoteClient:
     async def close(self) -> None:
         await self.http.aclose()
 
-    async def _json(self, method: str, path: str, value: object) -> dict[str, Any]:
-        response = await self.http.request(method, path, json=value)
+    async def _json(
+        self, method: str, path: str, value: object | None = None
+    ) -> dict[str, Any]:
+        response = await self.http.request(
+            method, path, **({"json": value} if value is not None else {})
+        )
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
@@ -66,14 +70,23 @@ class RemoteClient:
         header: dict[str, Any],
         units: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        await self._json(
+        begun = await self._json(
             "POST", f"/sync/v1/corpora/{corpus_id}/projections:begin", header
         )
-        for start in range(0, len(units), 25):
+        staged = begun.get("stagedUnitCount", 0)
+        if (
+            isinstance(staged, bool)
+            or not isinstance(staged, int)
+            or not 0 <= staged <= len(units)
+        ):
+            raise SyncError(
+                "remote_protocol_error", "remote staged-unit count is invalid"
+            )
+        for batch in self._unit_batches(units[staged:]):
             await self._json(
                 "POST",
                 f"/sync/v1/corpora/{corpus_id}/projection-units:append",
-                {"uploadId": header["uploadId"], "units": units[start : start + 25]},
+                {"uploadId": header["uploadId"], "units": batch},
             )
         return await self._json(
             "POST",
@@ -84,6 +97,83 @@ class RemoteClient:
                 "expectedManifestHash": header["projection"]["resultManifestHash"],
             },
         )
+
+    @staticmethod
+    def _unit_batches(
+        units: list[dict[str, Any]],
+        *,
+        maximum_count: int = 500,
+        maximum_bytes: int = 8 * 1024 * 1024,
+    ):
+        batch: list[dict[str, Any]] = []
+        size = 64
+        for unit in units:
+            encoded_size = len(
+                json.dumps(unit, ensure_ascii=False, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            )
+            if batch and (
+                len(batch) >= maximum_count or size + encoded_size > maximum_bytes
+            ):
+                yield batch
+                batch = []
+                size = 64
+            if encoded_size > maximum_bytes:
+                raise SyncError(
+                    "projection_unit_too_large",
+                    "one Source unit exceeds the upload budget",
+                )
+            batch.append(unit)
+            size += encoded_size + 1
+        if batch:
+            yield batch
+
+    async def import_documents(
+        self, corpus_id: str, documents: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        imported = 0
+        for start in range(0, len(documents), 500):
+            result = await self._json(
+                "POST",
+                f"/sync/v1/corpora/{corpus_id}/documents:import",
+                {"corpusId": corpus_id, "documents": documents[start : start + 500]},
+            )
+            count = result.get("importedDocumentCount")
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise SyncError(
+                    "remote_protocol_error", "remote document count is invalid"
+                )
+            imported += count
+        return {"corpusId": corpus_id, "importedDocumentCount": imported}
+
+    async def import_external(
+        self, corpus_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST", f"/sync/v1/corpora/{corpus_id}/external:import", payload
+        )
+
+    async def inventory(
+        self,
+        corpus_id: str,
+        *,
+        document_offset: int = 0,
+        projection_offset: int = 0,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST",
+            f"/sync/v1/corpora/{corpus_id}/inventory",
+            {
+                "documentOffset": document_offset,
+                "projectionOffset": projection_offset,
+                "limit": limit,
+            },
+        )
+
+    async def verification_summary(self) -> dict[str, Any]:
+        return await self._json("GET", "/sync/v1/verification-summary")
 
     async def update_source_state(
         self,

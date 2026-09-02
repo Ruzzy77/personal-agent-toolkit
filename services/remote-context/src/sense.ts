@@ -28,7 +28,10 @@ const SECTION_PRESENTATION: Record<string, { title: string; group: string }> = {
   "scope-and-checking": { title: "업무 범위", group: "질문과 답" },
   "evidence-and-judgment": { title: "자료와 해석", group: "자료와 표현" },
   "conversation-and-writing": { title: "대화와 글", group: "자료와 표현" },
-  "research-and-long-term-goals": { title: "관계 학습 연구", group: "장기 맥락" },
+  "research-and-long-term-goals": {
+    title: "관계 학습 연구",
+    group: "장기 맥락",
+  },
   "what-to-keep": { title: "기억 체계", group: "장기 맥락" },
 };
 const GROUP_ORDER = ["질문과 답", "자료와 표현", "장기 맥락", "기타 지침"];
@@ -118,6 +121,24 @@ export class SenseService {
     return new Map(result.results.map((row) => [row.section_id, row]));
   }
 
+  async verificationState(): Promise<Record<string, unknown>> {
+    const stored = await this.profile();
+    const skills = [...(await this.skills()).values()]
+      .sort((left, right) => left.section_id.localeCompare(right.section_id))
+      .map((skill) => ({
+        section_id: skill.section_id,
+        name: skill.name,
+        description: skill.description,
+        instructions: skill.instructions,
+        updated_at: skill.updated_at,
+      }));
+    return {
+      profile_sha256: stored.digest,
+      skill_count: skills.length,
+      skills_sha256: await contentSha256(skills),
+    };
+  }
+
   async read(
     view: "index" | "sections" | "full",
     sectionIds?: string[] | null,
@@ -170,7 +191,9 @@ export class SenseService {
         "section_ids are required when view=sections",
       );
     }
-    const byId = new Map(stored.profile.sections.map((section) => [section.id, section]));
+    const byId = new Map(
+      stored.profile.sections.map((section) => [section.id, section]),
+    );
     const sections = [];
     for (const id of [...new Set(sectionIds)]) {
       const section = byId.get(id);
@@ -233,7 +256,9 @@ export class SenseService {
   async revise(input: unknown): Promise<Record<string, unknown>> {
     const parsed = senseReviseSchema.parse(input);
     const stored = await this.profile();
-    const current = new Map(stored.profile.sections.map((section) => [section.id, section]));
+    const current = new Map(
+      stored.profile.sections.map((section) => [section.id, section]),
+    );
     const changedIds = new Set<string>();
 
     for (const change of parsed.changes) {
@@ -246,7 +271,11 @@ export class SenseService {
       changedIds.add(change.section_id);
       const section = current.get(change.section_id);
       if (!section) {
-        throw new ContextError("section_not_found", "Sense section was not found", 404);
+        throw new ContextError(
+          "section_not_found",
+          "Sense section was not found",
+          404,
+        );
       }
       if (section.sensitivity !== "ordinary") {
         throw new ContextError(
@@ -263,12 +292,17 @@ export class SenseService {
           { section_id: change.section_id },
         );
       }
-      current.set(change.section_id, profileSectionSchema.parse(change.new_section));
+      current.set(
+        change.section_id,
+        profileSectionSchema.parse(change.new_section),
+      );
     }
 
     const nextProfile: SenseProfile = {
       schema_version: 2,
-      sections: stored.profile.sections.map((section) => current.get(section.id) ?? section),
+      sections: stored.profile.sections.map(
+        (section) => current.get(section.id) ?? section,
+      ),
     };
     senseProfileSchema.parse(nextProfile);
     const nextJson = canonicalJson(nextProfile);
@@ -292,7 +326,11 @@ export class SenseService {
       .bind(nextJson, nextDigest, updatedAt, this.ownerId, stored.digest)
       .run();
     if ((result.meta.changes ?? 0) !== 1) {
-      throw new ContextError("section_conflict", "Sense changed after it was read", 409);
+      throw new ContextError(
+        "section_conflict",
+        "Sense changed after it was read",
+        409,
+      );
     }
     return {
       changed: true,
@@ -310,7 +348,11 @@ export class SenseService {
       (candidate) => candidate.id === parsed.section_id,
     );
     if (!section) {
-      throw new ContextError("section_not_found", "Sense section was not found", 404);
+      throw new ContextError(
+        "section_not_found",
+        "Sense section was not found",
+        404,
+      );
     }
     if (section.sensitivity !== "ordinary") {
       throw new ContextError(
@@ -396,7 +438,9 @@ export class SenseService {
       section_id: parsed.section_id,
       name: parsed.new_skill.name.trim(),
       description: parsed.new_skill.description.trim(),
-      instructions: parsed.new_skill.instructions.replace(/\r\n?/g, "\n").trim(),
+      instructions: parsed.new_skill.instructions
+        .replace(/\r\n?/g, "\n")
+        .trim(),
       version,
       updated_at: updatedAt,
     };
@@ -433,7 +477,10 @@ export class SenseService {
 
   async importSkills(value: unknown): Promise<Record<string, unknown>> {
     if (!Array.isArray(value)) {
-      throw new ContextError("invalid_import", "Sense Skill import must be an array");
+      throw new ContextError(
+        "invalid_import",
+        "Sense Skill import must be an array",
+      );
     }
     const profile = await this.profile();
     const ordinaryIds = new Set(
@@ -444,7 +491,10 @@ export class SenseService {
     const rows: SkillRow[] = [];
     for (const item of value) {
       if (item === null || Array.isArray(item) || typeof item !== "object") {
-        throw new ContextError("invalid_import", "Sense Skill import is invalid");
+        throw new ContextError(
+          "invalid_import",
+          "Sense Skill import is invalid",
+        );
       }
       const candidate = item as Record<string, unknown>;
       const parsed = senseSkillReviseSchema.parse({
@@ -475,7 +525,9 @@ export class SenseService {
         section_id: parsed.section_id,
         name: parsed.new_skill.name.trim(),
         description: parsed.new_skill.description.trim(),
-        instructions: parsed.new_skill.instructions.replace(/\r\n?/g, "\n").trim(),
+        instructions: parsed.new_skill.instructions
+          .replace(/\r\n?/g, "\n")
+          .trim(),
         version,
         updated_at:
           typeof candidate.updated_at === "string" &&

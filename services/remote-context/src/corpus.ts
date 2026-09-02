@@ -93,20 +93,29 @@ interface ReadReference {
   unitId: string;
 }
 
-const PRIVATE_PATH = /(?:\bfile:(?:\/\/)?\/|(?:^|[\s"'(])\/(?:Users|home|Volumes|private|var)\/|\b[A-Za-z]:\\)/;
-
 function parseObject(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new ContextError("invalid_stored_state", "stored Corpus state is invalid", 500);
+    throw new ContextError(
+      "invalid_stored_state",
+      "stored Corpus state is invalid",
+      500,
+    );
   }
   return parsed as Record<string, unknown>;
 }
 
 function parseStrings(value: string): string[] {
   const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
-    throw new ContextError("invalid_stored_state", "stored Corpus state is invalid", 500);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((item) => typeof item === "string")
+  ) {
+    throw new ContextError(
+      "invalid_stored_state",
+      "stored Corpus state is invalid",
+      500,
+    );
   }
   return parsed;
 }
@@ -116,11 +125,16 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   }
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 }
 
 function base64UrlToBytes(value: string): Uint8Array {
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  const padded =
+    value.replaceAll("-", "+").replaceAll("_", "/") +
+    "=".repeat((4 - (value.length % 4)) % 4);
   let binary: string;
   try {
     binary = atob(padded);
@@ -140,7 +154,9 @@ function decodeReadReference(value: string): ReadReference {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder().decode(base64UrlToBytes(value.slice(6))));
+    parsed = JSON.parse(
+      new TextDecoder().decode(base64UrlToBytes(value.slice(6))),
+    );
   } catch (error) {
     if (error instanceof ContextError) throw error;
     throw new ContextError("invalid_reference", "Space reference is invalid");
@@ -173,16 +189,6 @@ function skillProjection(row: SkillRow | null, includeInstructions: boolean) {
   };
 }
 
-function noPrivatePath(...values: string[]): void {
-  if (values.some((value) => PRIVATE_PATH.test(value))) {
-    throw new ContextError(
-      "private_content_detected",
-      "local absolute paths cannot be stored in remote Corpus context",
-      400,
-    );
-  }
-}
-
 export class CorpusService {
   constructor(
     private readonly env: Env,
@@ -197,7 +203,11 @@ export class CorpusService {
     )
       .bind(this.principal.ownerId, spaceId)
       .first<SpaceRow>();
-    if (!row || row.state !== "active" || row.access_scope !== "remote_allowed") {
+    if (
+      !row ||
+      row.state !== "active" ||
+      row.access_scope !== "remote_allowed"
+    ) {
       throw new ContextError("space_not_found", "space does not exist", 404, {
         space_id: spaceId,
       });
@@ -262,7 +272,9 @@ export class CorpusService {
     };
   }
 
-  private async publicConnection(row: ConnectionRow): Promise<Record<string, unknown>> {
+  private async publicConnection(
+    row: ConnectionRow,
+  ): Promise<Record<string, unknown>> {
     const roles = parseStrings(row.roles_json);
     const currentFile = roles.includes("work")
       ? await this.currentFile(row.space_id, row.connection_id)
@@ -275,7 +287,8 @@ export class CorpusService {
       permission: row.permission,
       index_mode: row.index_mode,
       connection_state: row.device_id ? "registered" : "unavailable",
-      connection_reason: row.configuration_state === "ready" ? null : row.configuration_state,
+      connection_reason:
+        row.configuration_state === "ready" ? null : row.configuration_state,
       current_file: currentFile,
       generation: row.generation,
       write_state: roles.includes("work") ? "unknown" : null,
@@ -290,7 +303,10 @@ export class CorpusService {
     };
   }
 
-  private async publicSpace(row: SpaceRow, includeContextInstructions: boolean) {
+  private async publicSpace(
+    row: SpaceRow,
+    includeContextInstructions: boolean,
+  ) {
     const [context, skill, connections] = await Promise.all([
       this.context(row.space_id),
       this.skill(row.space_id),
@@ -301,8 +317,9 @@ export class CorpusService {
     );
     const primary =
       row.primary_work_connection_id ??
-      connections.find((connection) => parseStrings(connection.roles_json).includes("work"))
-        ?.connection_id ??
+      connections.find((connection) =>
+        parseStrings(connection.roles_json).includes("work"),
+      )?.connection_id ??
       null;
     return {
       space_id: row.space_id,
@@ -338,7 +355,9 @@ export class CorpusService {
       .bind(this.principal.ownerId, input.limit + 1, input.offset)
       .all<SpaceRow>();
     const selected = rows.results.slice(0, input.limit);
-    const spaces = await Promise.all(selected.map((row) => this.publicSpace(row, false)));
+    const spaces = await Promise.all(
+      selected.map((row) => this.publicSpace(row, false)),
+    );
     const hasMore = rows.results.length > input.limit;
     return {
       offset: input.offset,
@@ -352,7 +371,14 @@ export class CorpusService {
         context: ["read", "revise_items"],
         context_skill: ["read", "revise"],
         indexed_source: ["search", "read_ref"],
-        work_file: ["list", "read", "write", "delete", "select_current", "restore"],
+        work_file: [
+          "list",
+          "read",
+          "write",
+          "delete",
+          "select_current",
+          "restore",
+        ],
       },
     };
   }
@@ -391,7 +417,9 @@ export class CorpusService {
       detail.limit = input.context_limit;
       detail.returned_count = selected.length;
       detail.has_more = hasMore;
-      detail.next_offset = hasMore ? input.context_offset + selected.length : null;
+      detail.next_offset = hasMore
+        ? input.context_offset + selected.length
+        : null;
     }
     return { space: result };
   }
@@ -400,20 +428,32 @@ export class CorpusService {
     const input = corpusContextItemsReviseSchema.parse(raw);
     await this.space(input.space_id);
     const context = await this.context(input.space_id);
-    if (!context) throw new ContextError("context_not_found", "Context does not exist", 404);
+    if (!context)
+      throw new ContextError(
+        "context_not_found",
+        "Context does not exist",
+        404,
+      );
     if (context.version !== input.expected_version) {
-      throw new ContextError("context_conflict", "Context changed after it was read", 409, {
-        expected_version: input.expected_version,
-        current_version: context.version,
-      });
+      throw new ContextError(
+        "context_conflict",
+        "Context changed after it was read",
+        409,
+        {
+          expected_version: input.expected_version,
+          current_version: context.version,
+        },
+      );
     }
     const ids = new Set<string>();
     const statements: D1PreparedStatement[] = [];
     let changed = false;
     for (const revision of input.revisions) {
-      noPrivatePath(revision.body_text);
       if (ids.has(revision.item_id)) {
-        throw new ContextError("duplicate_item", "a Context item may be revised only once");
+        throw new ContextError(
+          "duplicate_item",
+          "a Context item may be revised only once",
+        );
       }
       ids.add(revision.item_id);
       const row = await this.env.STATE_DB.prepare(
@@ -423,9 +463,14 @@ export class CorpusService {
         .bind(this.principal.ownerId, input.space_id, revision.item_id)
         .first<{ kind: string; body_text: string; attributes_json: string }>();
       if (!row) {
-        throw new ContextError("context_item_not_found", "Context item does not exist", 404, {
-          item_id: revision.item_id,
-        });
+        throw new ContextError(
+          "context_item_not_found",
+          "Context item does not exist",
+          404,
+          {
+            item_id: revision.item_id,
+          },
+        );
       }
       const attributes = parseObject(row.attributes_json);
       attributes.status = revision.status;
@@ -441,7 +486,11 @@ export class CorpusService {
       statements.push(
         this.env.STATE_DB.prepare(
           `UPDATE corpus_context_items SET kind = ?, body_text = ?, attributes_json = ?
-           WHERE owner_id = ? AND space_id = ? AND item_id = ?`,
+           WHERE owner_id = ? AND space_id = ? AND item_id = ?
+             AND EXISTS (
+               SELECT 1 FROM corpus_contexts
+               WHERE owner_id = ? AND space_id = ? AND version = ?
+             )`,
         ).bind(
           revision.kind,
           revision.body_text,
@@ -449,11 +498,18 @@ export class CorpusService {
           this.principal.ownerId,
           input.space_id,
           revision.item_id,
+          this.principal.ownerId,
+          input.space_id,
+          context.version,
         ),
       );
     }
     if (!changed) {
-      return { changed: false, space_id: input.space_id, version: context.version };
+      return {
+        changed: false,
+        space_id: input.space_id,
+        version: context.version,
+      };
     }
     const nextVersion = context.version + 1;
     const updatedAt = nowIso();
@@ -469,7 +525,15 @@ export class CorpusService {
         context.version,
       ),
     );
-    await this.env.STATE_DB.batch(statements);
+    const results = await this.env.STATE_DB.batch(statements);
+    if (results.at(-1)?.meta.changes !== 1) {
+      throw new ContextError(
+        "context_conflict",
+        "Context changed while revisions were being committed",
+        409,
+        { expected_version: context.version },
+      );
+    }
     return {
       changed: true,
       space_id: input.space_id,
@@ -483,13 +547,12 @@ export class CorpusService {
     const input = corpusContextSkillReviseSchema.parse(raw);
     await this.space(input.space_id);
     if (!(await this.context(input.space_id))) {
-      throw new ContextError("context_not_found", "Context does not exist", 404);
+      throw new ContextError(
+        "context_not_found",
+        "Context does not exist",
+        404,
+      );
     }
-    noPrivatePath(
-      input.new_skill.name,
-      input.new_skill.description,
-      input.new_skill.instructions,
-    );
     const current = await this.skill(input.space_id);
     const normalized = {
       name: input.new_skill.name.trim(),
@@ -505,33 +568,59 @@ export class CorpusService {
     }
     const expected = current?.version ?? "absent";
     if (input.expected_version !== expected) {
-      throw new ContextError("context_skill_conflict", "Context Skill changed after it was read", 409);
+      throw new ContextError(
+        "context_skill_conflict",
+        "Context Skill changed after it was read",
+        409,
+      );
     }
     const updatedAt = nowIso();
-    await this.env.STATE_DB.prepare(
-      `INSERT INTO corpus_context_skills(
-         owner_id, space_id, name, description, instructions, version, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(owner_id, space_id) DO UPDATE SET
-         name = excluded.name,
-         description = excluded.description,
-         instructions = excluded.instructions,
-         version = excluded.version,
-         updated_at = excluded.updated_at`,
-    )
-      .bind(
-        this.principal.ownerId,
-        input.space_id,
-        normalized.name,
-        normalized.description,
-        normalized.instructions,
-        version,
-        updatedAt,
-      )
-      .run();
+    const result = current
+      ? await this.env.STATE_DB.prepare(
+          `UPDATE corpus_context_skills SET
+             name = ?, description = ?, instructions = ?, version = ?, updated_at = ?
+           WHERE owner_id = ? AND space_id = ? AND version = ?`,
+        )
+          .bind(
+            normalized.name,
+            normalized.description,
+            normalized.instructions,
+            version,
+            updatedAt,
+            this.principal.ownerId,
+            input.space_id,
+            current.version,
+          )
+          .run()
+      : await this.env.STATE_DB.prepare(
+          `INSERT INTO corpus_context_skills(
+             owner_id, space_id, name, description, instructions, version, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(owner_id, space_id) DO NOTHING`,
+        )
+          .bind(
+            this.principal.ownerId,
+            input.space_id,
+            normalized.name,
+            normalized.description,
+            normalized.instructions,
+            version,
+            updatedAt,
+          )
+          .run();
+    if (result.meta.changes !== 1) {
+      throw new ContextError(
+        "context_skill_conflict",
+        "Context Skill changed while the revision was being committed",
+        409,
+      );
+    }
     return {
       changed: true,
-      skill: skillProjection({ ...normalized, version, updated_at: updatedAt }, true),
+      skill: skillProjection(
+        { ...normalized, version, updated_at: updatedAt },
+        true,
+      ),
     };
   }
 
@@ -547,15 +636,25 @@ export class CorpusService {
     path: string,
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const result = await this.shard(corpusId).fetch(`https://corpus.internal${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Owner-Id": this.principal.ownerId },
-      body: JSON.stringify(body),
-    });
+    const result = await this.shard(corpusId).fetch(
+      `https://corpus.internal${path}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": this.principal.ownerId,
+        },
+        body: JSON.stringify(body),
+      },
+    );
     const payload = (await result.json()) as {
       ok: boolean;
       result?: Record<string, unknown>;
-      error?: { code: string; message: string; details?: Record<string, unknown> };
+      error?: {
+        code: string;
+        message: string;
+        details?: Record<string, unknown>;
+      };
     };
     if (!result.ok || !payload.ok || !payload.result) {
       throw new ContextError(
@@ -575,7 +674,11 @@ export class CorpusService {
     await this.space(spaceId);
     const rows = (await this.connections(spaceId)).filter((row) => {
       const roles = parseStrings(row.roles_json);
-      return roles.includes("source") && row.index_mode === "indexed" && row.corpus_id;
+      return (
+        roles.includes("source") &&
+        row.index_mode === "indexed" &&
+        row.corpus_id
+      );
     });
     const selected = connectionId
       ? rows.filter((row) => row.connection_id === connectionId)
@@ -594,7 +697,10 @@ export class CorpusService {
 
   async spaceSearch(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusSpaceSearchSchema.parse(raw);
-    const connections = await this.sourceConnections(input.space_id, input.connection_id);
+    const connections = await this.sourceConnections(
+      input.space_id,
+      input.connection_id,
+    );
     const perShardLimit = Math.min(100, Math.max(input.limit, 20));
     const results = await Promise.all(
       connections.map(async (connection) => ({
@@ -609,7 +715,12 @@ export class CorpusService {
     for (const { connection, result } of results) {
       const values = Array.isArray(result.candidates) ? result.candidates : [];
       for (const candidate of values) {
-        if (candidate === null || Array.isArray(candidate) || typeof candidate !== "object") continue;
+        if (
+          candidate === null ||
+          Array.isArray(candidate) ||
+          typeof candidate !== "object"
+        )
+          continue;
         const item = candidate as Record<string, unknown>;
         if (typeof item.unit_id !== "string") continue;
         candidates.push({
@@ -652,7 +763,11 @@ export class CorpusService {
       );
     }
     if (write && selected.permission !== "read_write") {
-      throw new ContextError("connection_read_only", "selected Work Connection is read-only", 403);
+      throw new ContextError(
+        "connection_read_only",
+        "selected Work Connection is read-only",
+        403,
+      );
     }
     return selected;
   }
@@ -718,7 +833,11 @@ export class CorpusService {
     const payload = (await remote.json()) as {
       ok: boolean;
       result?: BrokerResult;
-      error?: { code: string; message: string; details?: Record<string, unknown> };
+      error?: {
+        code: string;
+        message: string;
+        details?: Record<string, unknown>;
+      };
     };
     if (!remote.ok || !payload.ok || !payload.result) {
       throw new ContextError(
@@ -735,7 +854,9 @@ export class CorpusService {
     if (result.state === "succeeded") return result.response ?? {};
     if (result.state === "failed") {
       throw new ContextError(
-        typeof result.response?.code === "string" ? result.response.code : "sync_job_failed",
+        typeof result.response?.code === "string"
+          ? result.response.code
+          : "sync_job_failed",
         typeof result.response?.message === "string"
           ? result.response.message
           : "the local Sync operation failed",
@@ -754,9 +875,17 @@ export class CorpusService {
 
   async fileList(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusFileListSchema.parse(raw);
-    const connection = await this.workConnection(input.space_id, input.connection_id);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+    );
     return this.unwrapJob(
-      await this.runJob(connection, "work.file.list", input as Record<string, unknown>, 2 * 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.list",
+        input as Record<string, unknown>,
+        2 * 1024 * 1024,
+      ),
     );
   }
 
@@ -765,12 +894,22 @@ export class CorpusService {
     if (input.read_ref != null) {
       const reference = decodeReadReference(input.read_ref);
       if (reference.spaceId !== input.space_id) {
-        throw new ContextError("invalid_reference", "read_ref belongs to another Space");
+        throw new ContextError(
+          "invalid_reference",
+          "read_ref belongs to another Space",
+        );
       }
-      const connections = await this.sourceConnections(input.space_id, reference.connectionId);
+      const connections = await this.sourceConnections(
+        input.space_id,
+        reference.connectionId,
+      );
       const connection = connections[0]!;
       if (connection.corpus_id !== reference.corpusId) {
-        throw new ContextError("invalid_reference", "read_ref Source binding has changed", 409);
+        throw new ContextError(
+          "invalid_reference",
+          "read_ref Source binding has changed",
+          409,
+        );
       }
       const result = await this.callShard(reference.corpusId, "/units/read", {
         unitIds: [reference.unitId],
@@ -785,7 +924,10 @@ export class CorpusService {
             : "",
         )
         .join("\n\n");
-      const selected = text.slice(input.start_char, input.start_char + input.max_chars);
+      const selected = text.slice(
+        input.start_char,
+        input.start_char + input.max_chars,
+      );
       const hasMore = input.start_char + selected.length < text.length;
       return {
         ...result,
@@ -796,20 +938,42 @@ export class CorpusService {
         next_start_char: hasMore ? input.start_char + selected.length : null,
       };
     }
-    const connection = await this.workConnection(input.space_id, input.connection_id);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+    );
     return this.unwrapJob(
-      await this.runJob(connection, "work.file.read", input as Record<string, unknown>, 16 * 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.read",
+        input as Record<string, unknown>,
+        16 * 1024 * 1024,
+      ),
     );
   }
 
   async fileWrite(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusFileWriteSchema.parse(raw);
-    const connection = await this.workConnection(input.space_id, input.connection_id, true);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+      true,
+    );
     const result = this.unwrapJob(
-      await this.runJob(connection, "work.file.write", input as Record<string, unknown>, 2 * 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.write",
+        input as Record<string, unknown>,
+        2 * 1024 * 1024,
+      ),
     );
     if (input.make_current && result.pending !== true) {
-      await this.storeCurrentFile(input.space_id, connection.connection_id, result, input.relative_path);
+      await this.storeCurrentFile(
+        input.space_id,
+        connection.connection_id,
+        result,
+        input.relative_path,
+      );
     }
     return result;
   }
@@ -817,31 +981,66 @@ export class CorpusService {
   async fileDelete(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusFileDeleteSchema.parse(raw);
     if (!input.confirm_delete) {
-      throw new ContextError("delete_not_confirmed", "confirm_delete must be true");
+      throw new ContextError(
+        "delete_not_confirmed",
+        "confirm_delete must be true",
+      );
     }
-    const connection = await this.workConnection(input.space_id, input.connection_id, true);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+      true,
+    );
     return this.unwrapJob(
-      await this.runJob(connection, "work.file.delete", input as Record<string, unknown>, 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.delete",
+        input as Record<string, unknown>,
+        1024 * 1024,
+      ),
     );
   }
 
   async fileSelectCurrent(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusFileSelectSchema.parse(raw);
-    const connection = await this.workConnection(input.space_id, input.connection_id, true);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+      true,
+    );
     const result = this.unwrapJob(
-      await this.runJob(connection, "work.file.select_current", input as Record<string, unknown>, 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.select_current",
+        input as Record<string, unknown>,
+        1024 * 1024,
+      ),
     );
     if (result.pending !== true) {
-      await this.storeCurrentFile(input.space_id, connection.connection_id, result, input.relative_path);
+      await this.storeCurrentFile(
+        input.space_id,
+        connection.connection_id,
+        result,
+        input.relative_path,
+      );
     }
     return result;
   }
 
   async fileRestore(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusFileRestoreSchema.parse(raw);
-    const connection = await this.workConnection(input.space_id, input.connection_id, true);
+    const connection = await this.workConnection(
+      input.space_id,
+      input.connection_id,
+      true,
+    );
     return this.unwrapJob(
-      await this.runJob(connection, "work.file.restore", input as Record<string, unknown>, 2 * 1024 * 1024),
+      await this.runJob(
+        connection,
+        "work.file.restore",
+        input as Record<string, unknown>,
+        2 * 1024 * 1024,
+      ),
     );
   }
 
@@ -852,7 +1051,9 @@ export class CorpusService {
     fallbackPath: string,
   ): Promise<void> {
     const path =
-      typeof result.relative_path === "string" ? result.relative_path : fallbackPath.normalize("NFC");
+      typeof result.relative_path === "string"
+        ? result.relative_path
+        : fallbackPath.normalize("NFC");
     await this.env.STATE_DB.prepare(
       `INSERT INTO corpus_current_files(
          owner_id, space_id, connection_id, relative_path, version_token,
@@ -874,7 +1075,9 @@ export class CorpusService {
         connectionId,
         path,
         typeof result.version_token === "string" ? result.version_token : null,
-        typeof result.residency_state === "string" ? result.residency_state : null,
+        typeof result.residency_state === "string"
+          ? result.residency_state
+          : null,
         typeof result.size === "number" ? result.size : null,
         typeof result.modified_ns === "string" ? result.modified_ns : null,
         nowIso(),
@@ -902,7 +1105,8 @@ export class CorpusService {
         updated_at: string;
         completed_at: string | null;
       }>();
-    if (!row) throw new ContextError("job_not_found", "Sync job was not found", 404);
+    if (!row)
+      throw new ContextError("job_not_found", "Sync job was not found", 404);
     return {
       job_id: row.job_id,
       operation: row.operation,

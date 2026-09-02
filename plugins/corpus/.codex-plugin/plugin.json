@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.21.1+codex.20260902163913",
+  "version": "0.21.2+codex.20260902183000",
   "description": "Keep durable extracted knowledge connected to changing sources and local work.",
   "author": {
     "name": "Ruzzy77",
@@ -19,15 +19,14 @@
   "skills": "./skills/",
   "mcpServers": {
     "corpus": {
-      "command": "./launchers/corpus-mcp",
-      "args": [],
-      "cwd": "."
+      "type": "http",
+      "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp"
     }
   },
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
-    "longDescription": "Corpus organizes durable Context, extracted Source records, and editable Work files into Spaces. It keeps the last successful record usable when a source moves or becomes unavailable, follows same-volume Finder moves by filesystem identity, and separates record usability from source freshness. The Document Files plugin supplies document parsing and OCR through a read-only process boundary. Chat starts from saved Context and reads captured Source text only when needed.",
+    "longDescription": "Corpus organizes owner-authenticated durable Context, extracted Source records, and editable Work files into Spaces shared across supported AI clients. Remote records remain usable when a Mac or source is offline; the outbound Sync app follows Finder moves, applies local policy, and delegates parsing to Document Files without exposing a local MCP server.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

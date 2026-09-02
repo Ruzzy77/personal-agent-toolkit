@@ -1,6 +1,7 @@
 # Corpus
 
-Corpus는 원자료에서 추출한 지식을 내구성 있게 보관하고 Context, Source와 Work를 연결하는 로컬 MCP 시스템입니다.
+Corpus는 원자료에서 추출한 지식을 원자료 위치와 독립된 원격 저장층에 내구성 있게 보관하고,
+Context·Source·Work를 여러 AI client에 같은 MCP로 연결합니다.
 
 - **Space**: Context와 Connection의 통합 작업면
 - **Context**: 출처 기반 재사용 지식
@@ -25,11 +26,23 @@ Source Connection은 갱신 입력을 제공하고, Corpus record는 마지막�
 | `corpus_file_select_current` | Current File 선택 |
 | `corpus_file_restore` | 직전 교체본 복원 |
 
-Source 등록·색인, Context 생성·보관과 Work Connection 연결은 로컬 CLI에서 수행합니다. 사용자가 명시적으로 요청한 기존 Context 항목의 종류·본문·상태와 Context Skill 전체 교체는 Chat에서도 할 수 있습니다. stdio와 private tunnel은 같은 도구를 제공합니다.
+Source 등록과 Work Connection의 Finder 권한은 로컬에 남고 Personal Agent Sync가 원격 Corpus와
+연결합니다. 사용자가 명시적으로 요청한 기존 Context 항목의 종류·본문·상태와 Context Skill 전체
+교체는 Chat에서도 할 수 있습니다. Codex, Claude Code, Claude Desktop/Cowork, claude.ai와
+ChatGPT는 다음 상시 endpoint에서 같은 확정 revision을 사용합니다.
 
-## 설치
+```text
+https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp
+```
 
-Python 3.11 이상, `uv`, 활성화된 Document Files 플러그인이 필요합니다.
+## 로컬 Source·Work 연결
+
+원격 MCP 조회만 할 때에는 로컬 Corpus를 실행하지 않습니다. Finder의 Source·Work를 연결할
+Mac에는 Python 3.12 이상, `uv`, Personal Agent Sync와 Document Files runtime이 필요합니다.
+[`apps/sync`](../../apps/sync/README.md)의 설치 절차로 Sync, Corpus와 Document Files를 서로
+분리된 고정 runtime에 설치합니다.
+
+다음 launcher는 로컬 파일 권한 관리, 개발과 최초 이관에 사용합니다.
 
 ```sh
 uv sync --frozen
@@ -49,7 +62,8 @@ macOS에서는 설치된 Corpus plugin을 찾아 자동 갱신을 계속하는 �
 ./launchers/install-maintenance install
 ```
 
-Loopback HTTP 전송은 다음 환경변수로 엽니다.
+로컬 MCP 구현을 직접 시험할 때에만 loopback HTTP 전송을 열 수 있습니다. 상시 원격 연결이나
+웹 client 연결에는 사용하지 않습니다.
 
 ```sh
 CORPUS_MCP_TRANSPORT=streamable-http \
@@ -97,6 +111,10 @@ HWP/HWPX 변환·렌더링용 `rhwp` 설치와 형식별 백엔드 관리는 Doc
 이 동작은 등록된 로컬 원본을 임시 사본으로 읽으며 원본과 Source 범위를 변경하지 않습니다. 추출이 끝나면 원본 바이트 사본은 필수 보관 대상이 아니며, 구조화된 record가 Corpus의 지속 자료가 됩니다.
 
 ### 자동 갱신과 변경 대기열
+
+운영 구성에서는 Personal Agent Sync가 Finder 변경을 대조하고 제한된 로컬 대기열을 처리하므로
+별도 예약 작업이나 공개 터널이 필요하지 않습니다. 로컬 Corpus만 단독 시험하는 경우에는 아래
+`corpus-maintenance`를 사용할 수 있습니다.
 
 `corpus-maintenance`는 파일 변경을 잠시 모아 중복을 합친 뒤 갱신합니다. 대기열은 최대 2,048개이며 넘치면 항목을 계속 쌓지 않고 전체 대조 한 건으로 합칩니다. 성공한 대조 뒤 항목을 지우므로 장기 변경 이력처럼 커지지 않습니다. 파일 감시가 끊겨도 기본 15분마다 전체 대조하고, 프로세스 시작 시에도 한 번 대조합니다.
 
@@ -168,7 +186,9 @@ Context는 출처 기반 재사용 지식을 저장합니다.
   --execution-policy external_host_allowed
 ```
 
-`local_only` Connection은 로컬에서 사용합니다. `external_host_allowed` Work Connection은 Chat에서 읽고 쓸 수 있습니다.
+`local_only` Connection은 로컬에만 남습니다. `external_host_allowed` Work Connection은 원격
+MCP가 Sync 앱에 외부 작업을 요청할 수 있습니다. Sync 앱은 작업마다 현재 Connection 권한과
+generation을 다시 확인하고 로컬 Corpus runtime에 위임합니다.
 
 ```sh
 ./launchers/corpus space list

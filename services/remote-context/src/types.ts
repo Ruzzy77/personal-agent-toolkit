@@ -104,12 +104,23 @@ export interface ProjectionBeginInput {
     relativePath: string;
     extension: string;
     sourceState: string;
+    mediaType: string | null;
+    logicalSize: number | null;
+    modifiedNs: string | null;
+    residencyState: string;
+    eligibilityState: string;
+    lifecycleState: "active" | "archived" | "trash";
+    retentionClass: string;
+    lastUserAccessAt: string | null;
+    deletedAt: string | null;
   };
   revision: {
     revisionId: string;
     sha256: string;
     sourceSize: number;
     capturedAt: string;
+    predecessorRevisionId: string | null;
+    makeCurrent: boolean;
   };
   projection: {
     projectionId: string;
@@ -123,6 +134,8 @@ export interface ProjectionBeginInput {
     issues: unknown[];
     assuranceState: string;
     declaredUnitCount: number;
+    activate: boolean;
+    createdAt: string | null;
   };
 }
 

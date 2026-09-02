@@ -2,13 +2,16 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus, Document Files와 Hypes를 로컬에서 운영하고, Journal과 선택한 원격 서비스를 소유자 인증에 연결하는 개인용 에이전트 도구 모음입니다.
+Sense, Corpus, Hypes와 Journal은 소유자 인증형 상시 원격 MCP로 공유하고,
+Document Files와 Personal Agent Sync는 로컬 파일 권한 안에서 운영하는 개인용 에이전트 도구
+모음입니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
 - **Document Files**: PDF, Office와 HWP/HWPX를 포함한 문서 파일의 추출·변환·렌더링·편집
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
+- **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 전송 정책 검사, 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
 제품 코드와 manifest, asset, lockfile만 배포하며 사용자 자료와 runtime database는 포함하지 않습니다.
@@ -24,12 +27,12 @@ Sense, Corpus, Document Files와 Hypes를 로컬에서 운영하고, Journal과 
 
 ## 요구사항
 
-- macOS
-- [uv](https://docs.astral.sh/uv/)
-- Python 3.11 이상
-- Codex, Claude Code 또는 plugin을 지원하는 로컬 Claude Cowork
+- 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
+- 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-각 launcher는 committed lockfile에서 독립 Python 환경을 구성합니다.
+Sense·Corpus·Hypes plugin은 Skill과 원격 MCP 주소를 배포합니다. 로컬 Source와 Work를 연결하는
+Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
+plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
 
 선택 기능인 Personal Agent Auth의 로컬 시험에는 Node.js 24 이상이 필요합니다. Cloudflare와 Google 설정은 실제 원격 배포 단계에서만 필요합니다.
 
@@ -75,23 +78,34 @@ Ruzzy77/personal-agent-toolkit
 
 설치나 갱신 뒤에는 새 세션을 시작합니다.
 
-## ChatGPT 연결
+## 원격 MCP 연결
 
-로컬 plugin만 쓸 때에는 gateway가 필요하지 않습니다. 개인 ChatGPT에 연결하려면 [gateway guide](./gateway/GUIDE.md)에 따라 제품별 OpenAI Secure MCP Tunnel과 developer connection을 만듭니다.
+Sense·Corpus·Hypes는 다음 상시 HTTPS endpoint를 사용합니다.
 
-Gateway는 선택한 plugin의 MCP를 고정 loopback 경로로 전달합니다.
-
-| 제품 | 경로 |
+| 제품 | endpoint |
 |---|---|
-| Sense | `/sense/mcp` |
-| Corpus | `/corpus/mcp` |
-| Hypes | `/hypes/mcp` |
+| Sense | `https://personal-agent-context.hiyaq77.workers.dev/sense/mcp` |
+| Corpus | `https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp` |
+| Hypes | `https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp` |
 
-Gateway는 제품을 합치거나 데이터를 옮기지 않습니다. 한 LaunchAgent가 선택한 제품과 tunnel을 실행합니다.
+Codex·Claude plugin은 이 주소를 내장하고 각 client에서 소유자 OAuth 로그인을 시작합니다.
+ChatGPT와 claude.ai에서는 같은 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의
+loopback server나 공개 터널은 필요하지 않습니다.
 
-Journal은 이미 소유자 인증을 사용하는 원격 MCP로 제공되므로 로컬 gateway 경로를 추가하지 않습니다. 설치할 때 Journal 리소스에 로그인하고, 시각적 확인과 빠른 처리는 소유자 전용 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 사용합니다.
+Journal도 소유자 인증형 원격 MCP로 제공됩니다. 시각적 확인과 빠른 처리는 소유자 전용
+[Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 사용합니다.
 
-Cloudflare에 원격 MCP를 배포할 때에는 [`auth`](./auth/README.md)를 이용해 Google 소유자 인증을 연결할 수 있습니다. 인증 Worker와 같은 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 같은 별도 호스팅 서비스는 이 비공개 연결을 직접 쓴다고 가정하지 않습니다. 그런 화면은 그대로 두고, MCP endpoint만 같은 Cloudflare 계정의 Worker로 분리하는 구성이 현재 기본안입니다.
+원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
+Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 화면과
+MCP endpoint는 서로 다른 배포 경계입니다.
+
+### Finder 자료 연결
+
+로컬 자료를 연결할 Mac에는 [`apps/sync`](./apps/sync/README.md)를 설치합니다. Sync 앱만 Finder
+경로와 파일시스템 정체성을 보유하고 외부 방향 연결을 유지합니다. 허용된 Source의 변경은
+Document Files로 분석한 뒤 확정된 Corpus revision으로 원자적으로 반영하며, 허용된 Work 요청은
+현재 Connection 권한과 generation을 다시 검사한 뒤 로컬 Corpus에 위임합니다. 원문 바이트는
+원격 Corpus의 필수 보관 대상이 아닙니다.
 
 ## 버전 갱신
 
@@ -109,7 +123,8 @@ codex plugin add journal@personal-agent-toolkit
 codex plugin list --json
 ```
 
-변경한 plugin이 활성화되어 있고 새 버전과 공개 MCP 도구가 보이는지 확인한 뒤 새 작업을 시작합니다.
+변경한 plugin이 활성화되어 있고 새 버전, 원격 연결 상태와 공개 MCP 도구가 보이는지 확인한 뒤
+새 작업을 시작합니다.
 
 ### Claude Code
 
@@ -123,21 +138,31 @@ claude plugin update journal@personal-agent-toolkit --scope user
 claude plugin list
 ```
 
-갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전과 공개 MCP 도구를 확인합니다.
+갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전, 원격 연결 상태와 공개 MCP
+도구를 확인합니다.
 
 ### Claude Desktop
 
-`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document Files, Hypes와 Journal을 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시 시작하고 새 Cowork 세션에서 로컬 plugin과 Journal의 현재 MCP 도구가 보이는지 확인합니다. 일반 Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
+`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document
+Files, Hypes와 Journal을 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면
+해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시
+시작하고 새 Cowork 세션에서 각 원격 MCP의 현재 도구를 확인합니다. 일반 Chat에 Skill만 나타나는
+상태를 MCP 연결 확인으로 간주하지 않습니다.
 
 ### ChatGPT 웹
 
-[gateway guide](./gateway/GUIDE.md)의 버전 갱신 절차에 따라 LaunchAgent를 다시 설치해 새 Codex plugin 경로를 반영하고 gateway 상태를 확인합니다. 이어 `플러그인 → 설치됨 → Sense·Corpus·Hypes → 관리`에서 각 plugin을 `새로 고침`합니다. Journal은 별도 원격 MCP 연결과 소유자 인증을 확인합니다. 각 plugin의 액션 목록이 현재 MCP 도구와 일치하는지 확인하고, 새로 고침으로 반영되지 않으면 해당 연결을 다시 설정합니다.
+Sense·Corpus·Hypes의 사용자 MCP 연결을 각각 새 endpoint로 등록하거나 갱신하고 소유자 인증을
+마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. 기존 Secure MCP
+Tunnel과 gateway 연결은 원격 이관 검증을 통과한 뒤 제거합니다.
 
 Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
 
 ### 완료 기준
 
-변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude Desktop에서 로컬 plugin과 Journal의 새 버전이나 현재 도구 목록을 확인해야 갱신이 완료됩니다. ChatGPT 웹에서는 Sense·Corpus·Hypes와 Journal의 현재 액션과 권한을 별도로 확인합니다. Sense, Corpus와 Hypes의 사용자 데이터는 설치 경로 밖의 각 Application Support 폴더에 유지합니다.
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude
+Desktop/Cowork·claude.ai·ChatGPT에서 같은 MCP 도구와 확정 revision을 확인해야 갱신이
+완료됩니다. 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도
+함께 검증합니다.
 
 ## Sense 시작
 
@@ -150,7 +175,8 @@ cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 ./plugins/sense/launchers/sense status
 ```
 
-Sense는 현재 프로필 하나만 유지합니다. 일반 수정은 관련 section을 교체하며, 민감 항목과 영구 삭제는 로컬 명령에서 처리합니다.
+Sense는 소유자별 현재 프로필 하나를 유지합니다. 일반 수정은 관련 section을 원자적으로
+교체합니다. 민감 section은 원격 조회와 Chat 수정에서 제외합니다.
 각 section에는 검토한 `SKILL.md`를 하나까지 연결할 수 있습니다. 색인에는 Skill의 이름과 설명이
 나타나고, 해당 section을 읽으면 전체 작업 방법을 함께 불러옵니다. 일반 Section Skill은 사용자가
 명시적으로 요청하면 현재 버전과 전체 교체안을 대조해 Chat에서 수정할 수 있습니다. 민감 Skill의
@@ -178,7 +204,12 @@ Chat과 로컬 작업이 함께 편집할 폴더는 Context에 Work Connection�
   --execution-policy external_host_allowed
 ```
 
-Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 로컬 파일이 정본이고, 교체에는 직전 읽기에서 받은 version token을 사용합니다. 사용자가 명시적으로 요청하면 기존 Context 항목의 종류·본문·상태를 현재 Context version과 대조해 한 번에 수정할 수 있습니다. 나머지 속성과 Source 연결은 보존하며 항목 추가·삭제는 로컬 작업으로 남깁니다. Context Skill은 Source와 분리되어 있으며, 사용자가 요청한 전체 교체안을 현재 Skill 버전과 대조해 Chat에서 수정할 수 있습니다.
+Source는 읽기 전용이며 Work Connection만 파일 편집을 허용합니다. 원격 Corpus에는 마지막 정상
+추출 revision을 내구성 있게 보존하고, 로컬 원자료는 필요할 때 Sync가 다시 읽습니다. Work 파일
+교체에는 직전 읽기에서 받은 version token을 사용합니다. 사용자가 명시적으로 요청하면 기존
+Context 항목의 종류·본문·상태를 현재 Context version과 대조해 한 번에 수정할 수 있습니다.
+Context Skill은 Source와 분리되어 있으며, 사용자가 요청한 전체 교체안을 현재 Skill 버전과
+대조해 Chat에서 수정할 수 있습니다.
 
 ## Hypes 시작
 
@@ -199,15 +230,19 @@ Daily Monitoring 같은 로컬 자동화는 `plugins/journal/launchers/journal`�
 
 | 제품 | 기본 위치 |
 |---|---|
-| Sense | `~/Library/Application Support/Sense/` |
-| Corpus | `~/Library/Application Support/Corpus/` |
-| Hypes | `~/Library/Application Support/Hypes/` |
+| 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
+| Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
+| 이관 전 로컬 Sense·Corpus·Hypes | 각 제품의 기존 `Application Support` 폴더 |
 
 Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVACY.md](./PRIVACY.md)에 있습니다.
 
 ## 저장소 구조
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 로컬 제품의 소스이자 설치·실행 경로입니다. `plugins/journal`은 Journal의 remote MCP 연결과 운영 Skill, `services/journal`은 소유자가 배포하는 D1 기반 서비스입니다. `auth`는 여러 원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
+Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. `plugins/journal`과
+`services/journal`은 Journal 연결과 서비스이며, `auth`는 원격 제품이 함께 쓰는 소유자 인증
+구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 

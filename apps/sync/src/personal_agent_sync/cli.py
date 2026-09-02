@@ -15,6 +15,7 @@ from .config import default_config_path, load_config
 from .credentials import read_token, store_token
 from .daemon import SyncDaemon
 from .errors import SyncError
+from .migration import migrate_local, verify_local, write_discovered_config
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState
@@ -30,6 +31,18 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("validate", help="validate local configuration and storage")
     commands.add_parser("reconcile", help="run one local Source reconciliation")
     commands.add_parser("status", help="show local queue and Connection status")
+    initialize = commands.add_parser(
+        "init-from-corpus",
+        help="create a private configuration from remote-visible local Corpus Spaces",
+    )
+    initialize.add_argument("--service-url", required=True)
+    initialize.add_argument("--device-id", default="owner-mac")
+    initialize.add_argument("--display-name", default="Owner Mac")
+    initialize.add_argument("--corpus-python", type=Path, required=True)
+    initialize.add_argument("--document-files-python", type=Path, required=True)
+    initialize.add_argument("--corpus-data-root", type=Path, default=None)
+    initialize.add_argument("--output", type=Path, default=default_config_path())
+    initialize.add_argument("--replace", action="store_true")
     credential = commands.add_parser(
         "set-credential", help="store a device token in Keychain"
     )
@@ -44,6 +57,14 @@ def parser() -> argparse.ArgumentParser:
     migrate = commands.add_parser("import", help="upload a prepared migration payload")
     migrate.add_argument("product", choices=["sense", "hypes", "corpus-metadata"])
     migrate.add_argument("file", type=Path)
+    commands.add_parser(
+        "migrate-local",
+        help="resumably migrate installed Sense, Hypes, and Corpus durable records",
+    )
+    commands.add_parser(
+        "verify-migration",
+        help="compare installed durable records with the remote service",
+    )
     commands.add_parser(
         "install-agent", help="install and start the per-user launch agent"
     )
@@ -111,8 +132,11 @@ def _launch_agent_path() -> Path:
 
 
 def _install_agent(config_path: Path | None, data_root: Path) -> dict:
-    executable = shutil.which("personal-agent-sync")
-    if not executable:
+    executable = Path(sys.executable).parent / "personal-agent-sync"
+    if not executable.is_file():
+        discovered = shutil.which("personal-agent-sync")
+        executable = Path(discovered) if discovered else executable
+    if not executable.is_file():
         raise SyncError(
             "executable_not_found", "personal-agent-sync is not installed on PATH"
         )
@@ -122,7 +146,7 @@ def _install_agent(config_path: Path | None, data_root: Path) -> dict:
     path = _launch_agent_path()
     payload = {
         "Label": LAUNCH_AGENT_LABEL,
-        "ProgramArguments": [executable, "--config", str(source), "run"],
+        "ProgramArguments": [str(executable), "--config", str(source), "run"],
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},
         "ProcessType": "Background",
@@ -169,6 +193,19 @@ def _uninstall_agent() -> dict:
 def main() -> None:
     arguments = parser().parse_args()
     try:
+        if arguments.command == "init-from-corpus":
+            result = write_discovered_config(
+                output=arguments.output,
+                service_url=arguments.service_url,
+                device_id=arguments.device_id,
+                display_name=arguments.display_name,
+                corpus_python=arguments.corpus_python,
+                document_files_python=arguments.document_files_python,
+                corpus_data_root=arguments.corpus_data_root,
+                replace=arguments.replace,
+            )
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+            return
         config = load_config(arguments.config)
         if arguments.command == "run":
             asyncio.run(_run(arguments.config))
@@ -197,6 +234,10 @@ def main() -> None:
             result = asyncio.run(
                 _import(arguments.config, arguments.product, arguments.file)
             )
+        elif arguments.command == "migrate-local":
+            result = asyncio.run(migrate_local(config, read_token(config.device_id)))
+        elif arguments.command == "verify-migration":
+            result = asyncio.run(verify_local(config, read_token(config.device_id)))
         elif arguments.command == "install-agent":
             result = _install_agent(arguments.config, config.data_root)
         elif arguments.command == "uninstall-agent":

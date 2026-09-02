@@ -3,6 +3,8 @@ device_id = "owner-mac"
 display_name = "Owner Mac"
 data_root = "~/Library/Application Support/Personal Agent Sync"
 corpus_data_root = "~/Library/Application Support/Corpus"
+corpus_python = "~/Library/Application Support/Personal Agent Sync/runtimes/corpus/bin/python"
+document_files_python = "~/Library/Application Support/Personal Agent Sync/runtimes/document-files/bin/python"
 reconcile_seconds = 15
 
 [[connections]]

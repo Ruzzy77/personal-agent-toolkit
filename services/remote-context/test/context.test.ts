@@ -29,9 +29,14 @@ function syncPost(path: string, value: unknown): Promise<Response> {
   });
 }
 
-function nextSocketMessage(socket: WebSocket): Promise<Record<string, unknown>> {
+function nextSocketMessage(
+  socket: WebSocket,
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("WebSocket message timed out")), 3_000);
+    const timeout = setTimeout(
+      () => reject(new Error("WebSocket message timed out")),
+      3_000,
+    );
     socket.addEventListener(
       "message",
       (event) => {
@@ -58,7 +63,9 @@ const ownerPrincipal: Principal = {
   auth: "oauth",
 };
 
-async function mcpPayload(response: Response): Promise<Record<string, unknown>> {
+async function mcpPayload(
+  response: Response,
+): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (response.headers.get("content-type")?.includes("application/json")) {
     return JSON.parse(text) as Record<string, unknown>;
@@ -92,7 +99,12 @@ describe("remote personal context service", () => {
 
   it("advertises stable, object-rooted MCP schemas for all three products", async () => {
     const expected = {
-      sense: ["sense_read", "sense_overview", "sense_revise", "sense_skill_revise"],
+      sense: [
+        "sense_read",
+        "sense_overview",
+        "sense_revise",
+        "sense_skill_revise",
+      ],
       hypes: ["hypes_read", "hypes_rewrite"],
       corpus: [
         "corpus_space_list",
@@ -124,7 +136,9 @@ describe("remote personal context service", () => {
       );
       expect(response.status, await response.clone().text()).toBe(200);
       const payload = await mcpPayload(response);
-      const result = payload.result as { tools: Array<{ name: string; inputSchema: object }> };
+      const result = payload.result as {
+        tools: Array<{ name: string; inputSchema: object }>;
+      };
       expect(result.tools.map((tool) => tool.name)).toEqual(expected[kind]);
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
@@ -167,7 +181,10 @@ describe("remote personal context service", () => {
         {
           section_id: section.id,
           previous_section_sha256: await contentSha256(section),
-          new_section: { ...section, text: "Ask only when no safe path remains." },
+          new_section: {
+            ...section,
+            text: "Ask only when no safe path remains.",
+          },
         },
       ],
     });
@@ -192,8 +209,20 @@ describe("remote personal context service", () => {
     const edge = "edge_44444444444444444444444444444444";
     const imported = await syncPost("/sync/v1/import/hypes", {
       nodes: [
-        { node_id: nodeA, labels: ["preference"], name: "concise", aliases: [], attributes: {} },
-        { node_id: nodeB, labels: ["output"], name: "answer", aliases: [], attributes: {} },
+        {
+          node_id: nodeA,
+          labels: ["preference"],
+          name: "concise",
+          aliases: [],
+          attributes: {},
+        },
+        {
+          node_id: nodeB,
+          labels: ["output"],
+          name: "answer",
+          aliases: [],
+          attributes: {},
+        },
       ],
       predicates: [{ predicate_id: predicate, name: "prefers", aliases: [] }],
       edges: [
@@ -208,7 +237,11 @@ describe("remote personal context service", () => {
     });
     expect(imported.status, await imported.clone().text()).toBe(200);
     const service = new HypesService(runtime.STATE_DB, "owner_test");
-    const focused = await service.read({ focus: "concise", max_hops: 1, limit: 10 });
+    const focused = await service.read({
+      focus: "concise",
+      max_hops: 1,
+      limit: 10,
+    });
     expect(focused.nodes).toHaveLength(2);
     expect(focused.edges).toHaveLength(1);
 
@@ -229,7 +262,11 @@ describe("remote personal context service", () => {
         ],
       }),
     ).rejects.toMatchObject({ code: "dangling_edge" });
-    const unchanged = await service.read({ seed_refs: [nodeB], max_hops: 0, limit: 10 });
+    const unchanged = await service.read({
+      seed_refs: [nodeB],
+      max_hops: 0,
+      limit: 10,
+    });
     expect(unchanged.nodes).toHaveLength(1);
 
     const created = await service.rewrite({
@@ -241,7 +278,9 @@ describe("remote personal context service", () => {
         },
       ],
     });
-    expect((created.ref_map as Record<string, string>).$style).toMatch(/^node_[0-9a-f]{32}$/);
+    expect((created.ref_map as Record<string, string>).$style).toMatch(
+      /^node_[0-9a-f]{32}$/,
+    );
   });
 
   it("stages Corpus projections and preserves the last good revision on failure", async () => {
@@ -278,7 +317,8 @@ describe("remote personal context service", () => {
       },
     };
     expect(
-      (await syncPost(`/sync/v1/corpora/${corpusId}/projections:begin`, begin)).status,
+      (await syncPost(`/sync/v1/corpora/${corpusId}/projections:begin`, begin))
+        .status,
     ).toBe(200);
     const unit = {
       unitId: "unit_first",
@@ -320,7 +360,10 @@ describe("remote personal context service", () => {
     );
     const searched = await shard.fetch("https://internal/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Owner-Id": "owner_test" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
       body: JSON.stringify({ query: "durable marker", limit: 10 }),
     });
     expect(JSON.stringify(await body(searched))).toContain("unit_first");
@@ -328,7 +371,11 @@ describe("remote personal context service", () => {
     const badBegin = {
       ...begin,
       uploadId: "upload_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      revision: { ...begin.revision, revisionId: "rev_second", sha256: "4".repeat(64) },
+      revision: {
+        ...begin.revision,
+        revisionId: "rev_second",
+        sha256: "4".repeat(64),
+      },
       projection: {
         ...begin.projection,
         projectionId: "projection_second",
@@ -336,16 +383,22 @@ describe("remote personal context service", () => {
       },
     };
     await syncPost(`/sync/v1/corpora/${corpusId}/projections:begin`, badBegin);
-    const failedCommit = await syncPost(`/sync/v1/corpora/${corpusId}/projections:commit`, {
-      uploadId: badBegin.uploadId,
-      expectedUnitCount: 1,
-      expectedManifestHash: badBegin.projection.resultManifestHash,
-    });
+    const failedCommit = await syncPost(
+      `/sync/v1/corpora/${corpusId}/projections:commit`,
+      {
+        uploadId: badBegin.uploadId,
+        expectedUnitCount: 1,
+        expectedManifestHash: badBegin.projection.resultManifestHash,
+      },
+    );
     expect(failedCommit.status).toBe(409);
 
     const searchedAgain = await shard.fetch("https://internal/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Owner-Id": "owner_test" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
       body: JSON.stringify({ query: "durable marker", limit: 10 }),
     });
     expect(JSON.stringify(await body(searchedAgain))).toContain("rev_first");
@@ -362,10 +415,238 @@ describe("remote personal context service", () => {
     expect(stateResponse.status).toBe(200);
     const read = await shard.fetch("https://internal/units/read", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Owner-Id": "owner_test" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
       body: JSON.stringify({ unitIds: ["unit_first"] }),
     });
     expect(JSON.stringify(await body(read))).toContain("source_unavailable");
+  });
+
+  it("imports durable document metadata without activating historical projections", async () => {
+    const corpusId = "history-test";
+    const documentId = "doc_history_test";
+    const now = "2026-09-02T00:00:00.000Z";
+    const imported = await syncPost(
+      `/sync/v1/corpora/${corpusId}/documents:import`,
+      {
+        corpusId,
+        documents: [
+          {
+            documentId,
+            relativePath: "notes/history.txt",
+            extension: ".txt",
+            sourceState: "available",
+            mediaType: "text/plain",
+            logicalSize: 7,
+            modifiedNs: "123456789",
+            residencyState: "resident",
+            eligibilityState: "supported",
+            currentRevisionId: "rev_history_new",
+            lifecycleState: "active",
+            retentionClass: "managed",
+            lastUserAccessAt: null,
+            firstSeenAt: now,
+            lastSeenAt: now,
+            deletedAt: null,
+          },
+        ],
+      },
+    );
+    expect(imported.status, await imported.clone().text()).toBe(200);
+
+    const upload = async (
+      suffix: "old" | "new",
+      activate: boolean,
+      makeCurrent: boolean,
+    ) => {
+      const content = suffix === "new" ? "current" : "historic";
+      const header = {
+        uploadId: `upload_${(suffix === "new" ? "c" : "d").repeat(32)}`,
+        corpusId,
+        document: {
+          documentId,
+          relativePath: "notes/history.txt",
+          extension: ".txt",
+          sourceState: "available",
+          mediaType: "text/plain",
+          logicalSize: 7,
+          modifiedNs: "123456789",
+          residencyState: "resident",
+          eligibilityState: "supported",
+          lifecycleState: "active",
+          retentionClass: "managed",
+          lastUserAccessAt: null,
+          deletedAt: null,
+        },
+        revision: {
+          revisionId: `rev_history_${suffix}`,
+          sha256: suffix === "new" ? "6".repeat(64) : "7".repeat(64),
+          sourceSize: content.length,
+          capturedAt: suffix === "new" ? "2026-09-02T00:00:01.000Z" : now,
+          predecessorRevisionId: suffix === "new" ? "rev_history_old" : null,
+          makeCurrent,
+        },
+        projection: {
+          projectionId: `projection_history_${suffix}`,
+          adapterId: "document-files.text",
+          adapterVersion: "2",
+          configHash: "8".repeat(64),
+          resultManifestHash:
+            suffix === "new" ? "9".repeat(64) : "a".repeat(64),
+          completenessState: "complete",
+          coverage: { text_content: "complete" },
+          capabilityManifest: { text: true },
+          issues: [],
+          assuranceState: "declared",
+          declaredUnitCount: 1,
+          activate,
+          createdAt: now,
+        },
+      };
+      const unit = {
+        unitId: `unit_history_${suffix}`,
+        ordinal: 1,
+        unitType: "paragraph",
+        structurePath: { paragraph: 1 },
+        sourceAnchor: { relative_path: "notes/history.txt" },
+        content,
+        contentSha256: await sha256Hex(content),
+        previousUnitId: null,
+        nextUnitId: null,
+        extractionIssues: [],
+        derivationMethod: "native_text",
+        geometry: {},
+        confidence: 1,
+        ocr: false,
+        qualityFlags: [],
+      };
+      expect(
+        (
+          await syncPost(
+            `/sync/v1/corpora/${corpusId}/projections:begin`,
+            header,
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await syncPost(
+            `/sync/v1/corpora/${corpusId}/projection-units:append`,
+            {
+              uploadId: header.uploadId,
+              units: [unit],
+            },
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await syncPost(`/sync/v1/corpora/${corpusId}/projections:commit`, {
+            uploadId: header.uploadId,
+            expectedUnitCount: 1,
+            expectedManifestHash: header.projection.resultManifestHash,
+          })
+        ).status,
+      ).toBe(200);
+    };
+
+    await upload("old", false, false);
+    await upload("new", true, true);
+    const externalImport = await syncPost(
+      `/sync/v1/corpora/${corpusId}/external:import`,
+      {
+        corpusId,
+        bindings: [
+          {
+            bindingId: "binding_history",
+            providerKind: "gmail",
+            selector: { label: "research" },
+            state: "active",
+            lastCompleteRunId: "run_history",
+            lastCompleteAt: now,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        runs: [
+          {
+            runId: "run_history",
+            bindingId: "binding_history",
+            baseCompleteRunId: null,
+            status: "complete",
+            startedAt: now,
+            completedAt: now,
+            supersededAt: null,
+          },
+        ],
+        records: [
+          {
+            sourceRecordId: "record_history",
+            bindingId: "binding_history",
+            externalId: "message-1",
+            parentExternalId: null,
+            occurredAt: now,
+            title: "Source-linked message",
+            participants: ["owner@example.test"],
+            labelIds: ["research"],
+            attachments: [],
+            providerMetadata: { thread: "thread-1" },
+            locator: { message_id: "message-1" },
+            freshnessIdentity: "message-1:v1",
+            metadataSha256: "b".repeat(64),
+            membershipState: "active",
+            lastSeenRunId: "run_history",
+            firstSeenAt: now,
+            lastSeenAt: now,
+          },
+        ],
+      },
+    );
+    expect(externalImport.status, await externalImport.clone().text()).toBe(
+      200,
+    );
+    const shard = runtime.CORPUS_SHARDS.get(
+      runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),
+    );
+    const inventory = await shard.fetch("https://internal/inventory", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
+      body: "{}",
+    });
+    const inventoryText = JSON.stringify(await body(inventory));
+    expect(inventoryText).toContain('"current_revision_id":"rev_history_new"');
+    expect(inventoryText).toContain('"residency_state":"resident"');
+    expect(inventoryText).toContain(
+      '"external":{"binding_count":1,"run_count":1,"record_count":1}',
+    );
+
+    const historicSearch = await shard.fetch("https://internal/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
+      body: JSON.stringify({ query: "historic", limit: 10 }),
+    });
+    expect(JSON.stringify(await body(historicSearch))).not.toContain(
+      "unit_history_old",
+    );
+    const currentSearch = await shard.fetch("https://internal/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
+      body: JSON.stringify({ query: "current", limit: 10 }),
+    });
+    expect(JSON.stringify(await body(currentSearch))).toContain(
+      "unit_history_new",
+    );
   });
 
   it("imports path-free Corpus metadata and serves one shared Space", async () => {
@@ -396,7 +677,8 @@ describe("remote personal context service", () => {
             {
               itemId: "item_durable",
               kind: "finding",
-              bodyText: "The last committed record remains readable while its source is offline.",
+              bodyText:
+                "The last committed record remains readable while its source is offline.",
               attributes: { status: "adopted" },
               disclosureState: "restricted",
               lifecycleState: "active",
@@ -461,6 +743,14 @@ describe("remote personal context service", () => {
     const opened = await service.spaceGet({ space_id: "durable-space" });
     expect(JSON.stringify(opened)).toContain("last committed record");
     expect(JSON.stringify(opened)).toContain("drafts/note.md");
+    const verification = await SELF.fetch(
+      "https://context.test/sync/v1/verification-summary",
+      { headers: syncHeaders },
+    );
+    expect(verification.status, await verification.clone().text()).toBe(200);
+    expect(await body(verification)).toMatchObject({
+      result: { corpus_metadata: { source_digest: "a".repeat(64) } },
+    });
   });
 
   it("dispatches a bounded Work job over the outbound Sync WebSocket", async () => {
@@ -472,7 +762,14 @@ describe("remote personal context service", () => {
            capabilities_json, last_seen_at, created_at, updated_at
          ) VALUES (?, ?, ?, ?, 'active', '[]', NULL, ?, ?)
          ON CONFLICT(owner_id, device_id) DO UPDATE SET status = 'active'`,
-      ).bind("owner_test", "socket-mac", "Socket Mac", "environment:socket-mac", now, now),
+      ).bind(
+        "owner_test",
+        "socket-mac",
+        "Socket Mac",
+        "environment:socket-mac",
+        now,
+        now,
+      ),
       runtime.STATE_DB.prepare(
         `INSERT INTO corpus_spaces(
            owner_id, space_id, display_name, state, access_scope,
@@ -514,7 +811,10 @@ describe("remote personal context service", () => {
         capabilities: ["work.file.list"],
       }),
     );
-    expect(await ackPromise).toMatchObject({ type: "hello_ack", deviceId: "socket-mac" });
+    expect(await ackPromise).toMatchObject({
+      type: "hello_ack",
+      deviceId: "socket-mac",
+    });
 
     const service = new CorpusService(runtime, ownerPrincipal);
     const resultPromise = service.fileList({

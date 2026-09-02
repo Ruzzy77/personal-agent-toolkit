@@ -50,13 +50,15 @@ The small, cross-product state is stored in D1:
 - Corpus Space, Context, Context Skill, Connection, and Current File metadata;
 - registered Sync devices, bounded jobs, and migration receipts.
 
-No absolute local path is stored in D1.
+No operational Finder locator is stored in D1. Source-derived or user-authored
+text may contain a literal path, but it has no filesystem authority.
 
 ### CorpusShard Durable Objects
 
 Each Corpus Source has one SQLite-backed Durable Object named from the owner
-and `corpus_id`. A shard stores document identity, the last successful revision,
-extraction projections, Source units, and its FTS5 projection. Per-Corpus
+and `corpus_id`. A shard stores document identity, retained revisions,
+extraction projections, Source units, external-provider binding/run/record
+metadata, and its FTS5 projection. Per-Corpus
 sharding avoids making the current multi-gigabyte source fabric depend on one
 database's size or write serialization.
 
@@ -103,8 +105,9 @@ coverage, and extraction issues.
 
 ## Migration and cutover
 
-Migration is additive and resumable. Stable IDs and current versions are
-uploaded first, followed by Corpus projections in bounded batches. A receipt
+Migration is resumable. Stable IDs, document inventory, external-provider
+metadata, and current versions are uploaded first, followed by retained Corpus
+projections in bounded batches. A receipt
 records the source digest and imported counts. Local data remains authoritative
 until read and write parity has been checked in every supported client.
 
@@ -119,4 +122,3 @@ configuration only after:
    and preserves the last good revision on failure;
 4. Codex, Claude Desktop, Claude Code, claude.ai, and web ChatGPT expose the
    same current tool schemas and operate on the same committed state.
-

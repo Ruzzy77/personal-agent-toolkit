@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,40 @@ SUPPORTED_FORMATS = {
     "hwpx",
 }
 
+MEDIA_TYPES = {
+    "md": "text/markdown",
+    "markdown": "text/markdown",
+    "txt": "text/plain",
+    "html": "text/html",
+    "htm": "text/html",
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "hwpx": "application/vnd.hancom.hwpx",
+    "hwp": "application/x-hwp",
+}
+
+_MAX_ANALYSIS_OUTPUT = 256 * 1024 * 1024
+_ANALYSIS_HELPER = r"""
+import json
+import sys
+
+from document_files.analysis import AnalysisJob, analyze_document
+from document_files.extraction_errors import DocumentExtractionError
+
+
+try:
+    job = AnalysisJob.from_dict(json.load(sys.stdin))
+    with open(sys.argv[1], "rb") as source:
+        result = analyze_document(job, source).to_dict()
+    print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+except DocumentExtractionError as error:
+    print(json.dumps({"ok": False, "error": {"code": error.code, "message": str(error)}}))
+except Exception:
+    print(json.dumps({"ok": False, "error": {"code": "local_analysis_failed", "message": "local document analysis failed"}}))
+"""
+
 
 def format_id(relative_path: str) -> str:
     suffix = Path(relative_path).suffix.lower().lstrip(".")
@@ -42,39 +77,75 @@ def _identifier(prefix: str, value: str) -> str:
 
 
 def analyze_local(
-    snapshot: Snapshot, selected_format: str, job_id: str
+    snapshot: Snapshot,
+    selected_format: str,
+    job_id: str,
+    document_files_python: Path | None,
 ) -> dict[str, Any]:
-    try:
-        from document_files.analysis import (  # type: ignore[import-not-found]
-            AnalysisBudgets,
-            AnalysisInput,
-            AnalysisJob,
-            analyze_document,
-        )
-        from document_files.formats import (
-            FORMAT_SPECS,  # type: ignore[import-not-found]
-        )
-    except ImportError as exc:
+    if document_files_python is None:
         raise SyncError(
             "local_analyzer_unavailable",
-            "the installed Document Files analyzer is unavailable",
+            "the Document Files runtime is not configured",
+        )
+    job = {
+        "schema_version": "document-files.analysis-job.v1",
+        "job_id": job_id,
+        "operation": "extract",
+        "input": {
+            "format_id": selected_format,
+            "media_type": MEDIA_TYPES[selected_format],
+            "byte_size": snapshot.byte_size,
+            "sha256": snapshot.sha256,
+        },
+        "budgets": {
+            "max_input_bytes": max(1, snapshot.byte_size),
+            "completion_seconds": 580.0,
+        },
+    }
+    try:
+        completed = subprocess.run(
+            [str(document_files_python), "-c", _ANALYSIS_HELPER, str(snapshot.path)],
+            input=json.dumps(job, ensure_ascii=False, allow_nan=False),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SyncError(
+            "local_analyzer_unavailable",
+            "the Document Files runtime could not be started",
         ) from exc
-    specification = FORMAT_SPECS[selected_format]
-    analysis_input = AnalysisInput(
-        format_id=selected_format,
-        media_type=specification.media_type,
-        byte_size=snapshot.byte_size,
-        sha256=snapshot.sha256,
-    )
-    job = AnalysisJob(
-        job_id=job_id,
-        input=analysis_input,
-        budgets=AnalysisBudgets(
-            max_input_bytes=max(1, snapshot.byte_size), completion_seconds=580.0
-        ),
-    )
-    with snapshot.path.open("rb") as source:
-        return analyze_document(job, source).to_dict()
+    if (
+        completed.returncode != 0
+        or len(completed.stdout.encode()) > _MAX_ANALYSIS_OUTPUT
+    ):
+        raise SyncError("local_analysis_failed", "local document analysis failed")
+    try:
+        response = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise SyncError(
+            "local_analysis_failed", "local document analysis returned invalid data"
+        ) from exc
+    if not isinstance(response, dict) or type(response.get("ok")) is not bool:
+        raise SyncError(
+            "local_analysis_failed", "local document analysis returned invalid data"
+        )
+    if not response["ok"]:
+        error = response.get("error")
+        if not isinstance(error, dict):
+            raise SyncError("local_analysis_failed", "local document analysis failed")
+        code = error.get("code")
+        message = error.get("message")
+        if not isinstance(code, str) or not isinstance(message, str):
+            raise SyncError("local_analysis_failed", "local document analysis failed")
+        raise SyncError(code, message)
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise SyncError(
+            "local_analysis_failed", "local document analysis returned invalid data"
+        )
+    return result
 
 
 async def select_analyzer(
@@ -87,7 +158,9 @@ async def select_analyzer(
     job_id = f"analysis:{uuid.uuid4().hex}"
     route = change["analyzer_route"]
     if route == "local":
-        return analyze_local(snapshot, selected_format, job_id)
+        return analyze_local(
+            snapshot, selected_format, job_id, remote.config.document_files_python
+        )
     if route == "approval_required" and not state.remote_approved(
         change["connection_key"],
         change["document_id"],

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "sense": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/launchers/sense-mcp",
-      "args": []
+      "type": "http",
+      "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp"
     }
   }
 }

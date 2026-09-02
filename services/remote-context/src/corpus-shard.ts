@@ -1,12 +1,14 @@
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError, asContextError } from "./errors";
 import {
+  corpusDocumentsImportSchema,
+  corpusExternalImportSchema,
   projectionBeginSchema,
   projectionCommitSchema,
   projectionUnitsSchema,
   sourceStateSchema,
 } from "./schemas";
-import type { CorpusUnitInput, Env, ProjectionBeginInput } from "./types";
+import type { Env } from "./types";
 
 interface UploadRow {
   header_json: string;
@@ -60,12 +62,19 @@ CREATE TABLE IF NOT EXISTS documents (
   relative_path TEXT NOT NULL,
   extension TEXT NOT NULL,
   source_state TEXT NOT NULL,
+  media_type TEXT,
+  logical_size INTEGER,
+  modified_ns TEXT,
+  residency_state TEXT NOT NULL DEFAULT 'unknown',
+  eligibility_state TEXT NOT NULL DEFAULT 'supported',
   current_revision_id TEXT,
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
   deleted_at TEXT,
   lifecycle_state TEXT NOT NULL DEFAULT 'active'
-    CHECK (lifecycle_state IN ('active', 'archived', 'trash'))
+    CHECK (lifecycle_state IN ('active', 'archived', 'trash')),
+  retention_class TEXT NOT NULL DEFAULT 'managed',
+  last_user_access_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(relative_path);
@@ -138,6 +147,58 @@ CREATE TABLE IF NOT EXISTS source_units (
 CREATE INDEX IF NOT EXISTS idx_units_revision ON source_units(revision_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_units_projection ON source_units(projection_id, ordinal);
 
+CREATE TABLE IF NOT EXISTS external_bindings (
+  binding_id TEXT PRIMARY KEY,
+  provider_kind TEXT NOT NULL,
+  selector_json TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('active', 'archived')),
+  last_complete_run_id TEXT,
+  last_complete_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS external_runs (
+  run_id TEXT PRIMARY KEY,
+  binding_id TEXT NOT NULL,
+  base_complete_run_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('incomplete', 'complete')),
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  superseded_at TEXT,
+  FOREIGN KEY(binding_id) REFERENCES external_bindings(binding_id) ON DELETE CASCADE,
+  FOREIGN KEY(base_complete_run_id) REFERENCES external_runs(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_runs_binding
+  ON external_runs(binding_id, started_at);
+
+CREATE TABLE IF NOT EXISTS external_records (
+  source_record_id TEXT PRIMARY KEY,
+  binding_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  parent_external_id TEXT,
+  occurred_at TEXT,
+  title TEXT,
+  participants_json TEXT NOT NULL,
+  label_ids_json TEXT NOT NULL,
+  attachments_json TEXT NOT NULL,
+  provider_metadata_json TEXT NOT NULL,
+  locator_json TEXT NOT NULL,
+  freshness_identity TEXT,
+  metadata_sha256 TEXT NOT NULL,
+  membership_state TEXT NOT NULL CHECK (membership_state IN ('active', 'removed')),
+  last_seen_run_id TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  UNIQUE(binding_id, external_id),
+  FOREIGN KEY(binding_id) REFERENCES external_bindings(binding_id) ON DELETE CASCADE,
+  FOREIGN KEY(last_seen_run_id) REFERENCES external_runs(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_records_binding
+  ON external_records(binding_id, membership_state, occurred_at, external_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS source_units_fts USING fts5(
   unit_id UNINDEXED,
   projection_id UNINDEXED,
@@ -154,18 +215,31 @@ CREATE TABLE IF NOT EXISTS staged_uploads (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS staged_units (
+CREATE TABLE IF NOT EXISTS staged_units_v2 (
   upload_id TEXT NOT NULL,
   unit_id TEXT NOT NULL,
   ordinal INTEGER NOT NULL,
+  unit_type TEXT NOT NULL,
+  structure_path_json TEXT NOT NULL,
+  source_anchor_json TEXT NOT NULL,
+  normalized_content TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  previous_unit_id TEXT,
+  next_unit_id TEXT,
+  extraction_issues_json TEXT NOT NULL,
+  derivation_method TEXT NOT NULL,
+  geometry_json TEXT NOT NULL,
+  confidence REAL,
+  ocr INTEGER NOT NULL CHECK (ocr IN (0, 1)),
+  quality_flags_json TEXT NOT NULL,
   unit_json TEXT NOT NULL,
   PRIMARY KEY(upload_id, unit_id),
   UNIQUE(upload_id, ordinal),
   FOREIGN KEY(upload_id) REFERENCES staged_uploads(upload_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_staged_units_upload
-  ON staged_units(upload_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_staged_units_v2_upload
+  ON staged_units_v2(upload_id, ordinal);
 `;
 
 function json(value: unknown, status = 200): Response {
@@ -190,7 +264,11 @@ function errorResponse(error: unknown): Response {
 function objectValue(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new ContextError("invalid_stored_projection", "stored projection data is invalid", 500);
+    throw new ContextError(
+      "invalid_stored_projection",
+      "stored projection data is invalid",
+      500,
+    );
   }
   return parsed as Record<string, unknown>;
 }
@@ -198,26 +276,42 @@ function objectValue(value: string): Record<string, unknown> {
 function listValue(value: string): unknown[] {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed)) {
-    throw new ContextError("invalid_stored_projection", "stored projection data is invalid", 500);
+    throw new ContextError(
+      "invalid_stored_projection",
+      "stored projection data is invalid",
+      500,
+    );
   }
   return parsed;
 }
 
 function searchExpression(query: string): string {
-  const tokens = [...new Set(query.normalize("NFC").toLocaleLowerCase().match(/[^\W_]+/gu) ?? [])]
+  const tokens = [
+    ...new Set(
+      query
+        .normalize("NFC")
+        .toLocaleLowerCase()
+        .match(/[^\W_]+/gu) ?? [],
+    ),
+  ]
     .slice(0, 24)
     .map((token) => `"${token.replaceAll('"', '""')}"*`);
   if (tokens.length === 0) {
-    throw new ContextError("invalid_query", "search query must contain searchable text");
+    throw new ContextError(
+      "invalid_query",
+      "search query must contain searchable text",
+    );
   }
   return tokens.length === 1 ? tokens[0]! : tokens.join(" AND ");
 }
 
 function dependencyState(row: UnitRow): string {
-  if (row.current_revision_id !== row.revision_id) return "stale_source_revision";
+  if (row.current_revision_id !== row.revision_id)
+    return "stale_source_revision";
   if (row.source_state === "unavailable") return "source_unavailable";
   if (row.source_state === "changed") return "source_changed";
-  if (row.source_state === "partially_available") return "source_partially_available";
+  if (row.source_state === "partially_available")
+    return "source_partially_available";
   return "current_source";
 }
 
@@ -265,6 +359,31 @@ export class CorpusShard {
     void this.env;
     this.sql = state.storage.sql;
     this.sql.exec(SHARD_SCHEMA);
+    this.ensureSchema();
+  }
+
+  private ensureSchema(): void {
+    const columns = new Set(
+      [...this.sql.exec<{ name: string }>("PRAGMA table_info(documents)")].map(
+        (row) => row.name,
+      ),
+    );
+    const additions: Array<[string, string]> = [
+      ["media_type", "TEXT"],
+      ["logical_size", "INTEGER"],
+      ["modified_ns", "TEXT"],
+      ["residency_state", "TEXT NOT NULL DEFAULT 'unknown'"],
+      ["eligibility_state", "TEXT NOT NULL DEFAULT 'supported'"],
+      ["retention_class", "TEXT NOT NULL DEFAULT 'managed'"],
+      ["last_user_access_at", "TEXT"],
+    ];
+    for (const [name, declaration] of additions) {
+      if (!columns.has(name)) {
+        this.sql.exec(
+          `ALTER TABLE documents ADD COLUMN ${name} ${declaration}`,
+        );
+      }
+    }
   }
 
   private one<T>(query: string, ...bindings: unknown[]): T | null {
@@ -281,10 +400,18 @@ export class CorpusShard {
       "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
     );
     if (storedOwner && storedOwner.value !== ownerId) {
-      throw new ContextError("shard_identity_mismatch", "Corpus shard owner does not match", 409);
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard owner does not match",
+        409,
+      );
     }
     if (storedCorpus && storedCorpus.value !== input.corpusId) {
-      throw new ContextError("shard_identity_mismatch", "Corpus shard id does not match", 409);
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
     }
 
     const header = canonicalJson(input);
@@ -300,11 +427,16 @@ export class CorpusShard {
           409,
         );
       }
-      const count = this.one<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM staged_units WHERE upload_id = ?",
-        input.uploadId,
-      )?.count ?? 0;
-      return { uploadId: input.uploadId, stagedUnitCount: count, resumed: true };
+      const count =
+        this.one<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM staged_units_v2 WHERE upload_id = ?",
+          input.uploadId,
+        )?.count ?? 0;
+      return {
+        uploadId: input.uploadId,
+        stagedUnitCount: count,
+        resumed: true,
+      };
     }
 
     const createdAt = nowIso();
@@ -333,7 +465,12 @@ export class CorpusShard {
       "SELECT header_json, created_at FROM staged_uploads WHERE upload_id = ?",
       input.uploadId,
     );
-    if (!upload) throw new ContextError("upload_not_found", "staged upload was not found", 404);
+    if (!upload)
+      throw new ContextError(
+        "upload_not_found",
+        "staged upload was not found",
+        404,
+      );
 
     for (const unit of input.units) {
       const digest = await sha256Hex(unit.content);
@@ -350,7 +487,7 @@ export class CorpusShard {
       for (const unit of input.units) {
         const serialized = canonicalJson(unit);
         const existing = this.one<{ unit_json: string }>(
-          "SELECT unit_json FROM staged_units WHERE upload_id = ? AND unit_id = ?",
+          "SELECT unit_json FROM staged_units_v2 WHERE upload_id = ? AND unit_id = ?",
           input.uploadId,
           unit.unitId,
         );
@@ -366,20 +503,274 @@ export class CorpusShard {
           continue;
         }
         this.sql.exec(
-          `INSERT INTO staged_units(upload_id, unit_id, ordinal, unit_json)
-           VALUES (?, ?, ?, ?)`,
+          `INSERT INTO staged_units_v2(
+             upload_id, unit_id, ordinal, unit_type, structure_path_json,
+             source_anchor_json, normalized_content, content_sha256,
+             previous_unit_id, next_unit_id, extraction_issues_json,
+             derivation_method, geometry_json, confidence, ocr,
+             quality_flags_json, unit_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           input.uploadId,
           unit.unitId,
           unit.ordinal,
+          unit.unitType,
+          canonicalJson(unit.structurePath),
+          canonicalJson(unit.sourceAnchor),
+          unit.content,
+          unit.contentSha256,
+          unit.previousUnitId,
+          unit.nextUnitId,
+          canonicalJson(unit.extractionIssues),
+          unit.derivationMethod,
+          canonicalJson(unit.geometry),
+          unit.confidence,
+          unit.ocr ? 1 : 0,
+          canonicalJson(unit.qualityFlags),
           serialized,
         );
       }
     });
-    const count = this.one<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM staged_units WHERE upload_id = ?",
-      input.uploadId,
-    )?.count ?? 0;
+    const count =
+      this.one<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM staged_units_v2 WHERE upload_id = ?",
+        input.uploadId,
+      )?.count ?? 0;
     return { uploadId: input.uploadId, stagedUnitCount: count };
+  }
+
+  private importDocuments(
+    ownerId: string,
+    raw: unknown,
+  ): Record<string, unknown> {
+    const input = corpusDocumentsImportSchema.parse(raw);
+    const storedOwner = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'owner_id'",
+    );
+    const storedCorpus = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
+    );
+    if (storedOwner && storedOwner.value !== ownerId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard owner does not match",
+        409,
+      );
+    }
+    if (storedCorpus && storedCorpus.value !== input.corpusId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
+    }
+    this.state.storage.transactionSync(() => {
+      this.sql.exec(
+        "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('owner_id', ?)",
+        ownerId,
+      );
+      this.sql.exec(
+        "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('corpus_id', ?)",
+        input.corpusId,
+      );
+      for (const document of input.documents) {
+        this.sql.exec(
+          `INSERT INTO documents(
+             document_id, relative_path, extension, source_state, media_type,
+             logical_size, modified_ns, residency_state, eligibility_state,
+             current_revision_id, first_seen_at, last_seen_at, deleted_at,
+             lifecycle_state, retention_class, last_user_access_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(document_id) DO UPDATE SET
+             relative_path = excluded.relative_path,
+             extension = excluded.extension,
+             source_state = excluded.source_state,
+             media_type = excluded.media_type,
+             logical_size = excluded.logical_size,
+             modified_ns = excluded.modified_ns,
+             residency_state = excluded.residency_state,
+             eligibility_state = excluded.eligibility_state,
+             current_revision_id = excluded.current_revision_id,
+             last_seen_at = excluded.last_seen_at,
+             deleted_at = excluded.deleted_at,
+             lifecycle_state = excluded.lifecycle_state,
+             retention_class = excluded.retention_class,
+             last_user_access_at = excluded.last_user_access_at`,
+          document.documentId,
+          document.relativePath.normalize("NFC"),
+          document.extension,
+          document.sourceState,
+          document.mediaType,
+          document.logicalSize,
+          document.modifiedNs,
+          document.residencyState,
+          document.eligibilityState,
+          document.currentRevisionId,
+          document.firstSeenAt,
+          document.lastSeenAt,
+          document.deletedAt,
+          document.lifecycleState,
+          document.retentionClass,
+          document.lastUserAccessAt,
+        );
+      }
+    });
+    return {
+      corpusId: input.corpusId,
+      importedDocumentCount: input.documents.length,
+    };
+  }
+
+  private importExternal(
+    ownerId: string,
+    raw: unknown,
+  ): Record<string, unknown> {
+    const input = corpusExternalImportSchema.parse(raw);
+    const storedOwner = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'owner_id'",
+    );
+    const storedCorpus = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
+    );
+    if (storedOwner && storedOwner.value !== ownerId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard owner does not match",
+        409,
+      );
+    }
+    if (storedCorpus && storedCorpus.value !== input.corpusId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
+    }
+    const bindingIds = new Set(
+      input.bindings.map((binding) => binding.bindingId),
+    );
+    const runIds = new Set(input.runs.map((run) => run.runId));
+    if (
+      bindingIds.size !== input.bindings.length ||
+      runIds.size !== input.runs.length
+    ) {
+      throw new ContextError(
+        "duplicate_external_identity",
+        "external Source identities are duplicated",
+      );
+    }
+    for (const run of input.runs) {
+      if (
+        !bindingIds.has(run.bindingId) ||
+        (run.baseCompleteRunId && !runIds.has(run.baseCompleteRunId))
+      ) {
+        throw new ContextError(
+          "invalid_external_binding",
+          "external Source run binding is invalid",
+        );
+      }
+    }
+    const recordIds = new Set<string>();
+    for (const record of input.records) {
+      if (
+        recordIds.has(record.sourceRecordId) ||
+        !bindingIds.has(record.bindingId) ||
+        !runIds.has(record.lastSeenRunId)
+      ) {
+        throw new ContextError(
+          "invalid_external_binding",
+          "external Source record binding is invalid",
+        );
+      }
+      recordIds.add(record.sourceRecordId);
+    }
+
+    this.state.storage.transactionSync(() => {
+      this.sql.exec(
+        "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('owner_id', ?)",
+        ownerId,
+      );
+      this.sql.exec(
+        "INSERT OR IGNORE INTO shard_meta(key, value) VALUES ('corpus_id', ?)",
+        input.corpusId,
+      );
+      this.sql.exec("DELETE FROM external_records");
+      this.sql.exec("DELETE FROM external_runs");
+      this.sql.exec("DELETE FROM external_bindings");
+      for (const binding of input.bindings) {
+        this.sql.exec(
+          `INSERT INTO external_bindings(
+             binding_id, provider_kind, selector_json, state,
+             last_complete_run_id, last_complete_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          binding.bindingId,
+          binding.providerKind,
+          canonicalJson(binding.selector),
+          binding.state,
+          binding.lastCompleteRunId,
+          binding.lastCompleteAt,
+          binding.createdAt,
+          binding.updatedAt,
+        );
+      }
+      for (const run of input.runs) {
+        this.sql.exec(
+          `INSERT INTO external_runs(
+             run_id, binding_id, base_complete_run_id, status, started_at,
+             completed_at, superseded_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          run.runId,
+          run.bindingId,
+          null,
+          run.status,
+          run.startedAt,
+          run.completedAt,
+          run.supersededAt,
+        );
+      }
+      for (const run of input.runs) {
+        if (run.baseCompleteRunId) {
+          this.sql.exec(
+            "UPDATE external_runs SET base_complete_run_id = ? WHERE run_id = ?",
+            run.baseCompleteRunId,
+            run.runId,
+          );
+        }
+      }
+      for (const record of input.records) {
+        this.sql.exec(
+          `INSERT INTO external_records(
+             source_record_id, binding_id, external_id, parent_external_id,
+             occurred_at, title, participants_json, label_ids_json,
+             attachments_json, provider_metadata_json, locator_json,
+             freshness_identity, metadata_sha256, membership_state,
+             last_seen_run_id, first_seen_at, last_seen_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          record.sourceRecordId,
+          record.bindingId,
+          record.externalId,
+          record.parentExternalId,
+          record.occurredAt,
+          record.title,
+          canonicalJson(record.participants),
+          canonicalJson(record.labelIds),
+          canonicalJson(record.attachments),
+          canonicalJson(record.providerMetadata),
+          canonicalJson(record.locator),
+          record.freshnessIdentity,
+          record.metadataSha256,
+          record.membershipState,
+          record.lastSeenRunId,
+          record.firstSeenAt,
+          record.lastSeenAt,
+        );
+      }
+    });
+    return {
+      corpusId: input.corpusId,
+      importedBindingCount: input.bindings.length,
+      importedRunCount: input.runs.length,
+      importedRecordCount: input.records.length,
+    };
   }
 
   private commit(raw: unknown): Record<string, unknown> {
@@ -388,7 +779,12 @@ export class CorpusShard {
       "SELECT header_json, created_at FROM staged_uploads WHERE upload_id = ?",
       input.uploadId,
     );
-    if (!upload) throw new ContextError("upload_not_found", "staged upload was not found", 404);
+    if (!upload)
+      throw new ContextError(
+        "upload_not_found",
+        "staged upload was not found",
+        404,
+      );
     const header = projectionBeginSchema.parse(JSON.parse(upload.header_json));
     if (
       header.projection.declaredUnitCount !== input.expectedUnitCount ||
@@ -402,7 +798,7 @@ export class CorpusShard {
     }
     const counts = this.one<CountRow>(
       `SELECT COUNT(*) AS count, MIN(ordinal) AS minimum, MAX(ordinal) AS maximum
-       FROM staged_units WHERE upload_id = ?`,
+       FROM staged_units_v2 WHERE upload_id = ?`,
       input.uploadId,
     ) ?? { count: 0, minimum: null, maximum: null };
     const contiguous =
@@ -417,12 +813,42 @@ export class CorpusShard {
       );
     }
 
-    const staged = [
-      ...this.sql.exec<{ unit_json: string }>(
-        "SELECT unit_json FROM staged_units WHERE upload_id = ? ORDER BY ordinal",
-        input.uploadId,
-      ),
-    ].map((row) => projectionUnitsSchema.shape.units.element.parse(JSON.parse(row.unit_json)));
+    const document = this.one<{ current_revision_id: string | null }>(
+      "SELECT current_revision_id FROM documents WHERE document_id = ?",
+      header.document.documentId,
+    );
+    const expectedPredecessor =
+      header.revision.predecessorRevisionId ??
+      (header.revision.makeCurrent &&
+      document?.current_revision_id !== header.revision.revisionId
+        ? (document?.current_revision_id ?? null)
+        : null);
+    const existingRevision = this.one<{
+      document_id: string;
+      sha256: string;
+      source_size: number;
+      captured_at: string;
+      predecessor_revision_id: string | null;
+    }>(
+      `SELECT document_id, sha256, source_size, captured_at, predecessor_revision_id
+       FROM revisions WHERE revision_id = ?`,
+      header.revision.revisionId,
+    );
+    if (
+      existingRevision &&
+      (existingRevision.document_id !== header.document.documentId ||
+        existingRevision.sha256 !== header.revision.sha256 ||
+        existingRevision.source_size !== header.revision.sourceSize ||
+        existingRevision.captured_at !== header.revision.capturedAt ||
+        existingRevision.predecessor_revision_id !== expectedPredecessor)
+    ) {
+      throw new ContextError(
+        "revision_identity_conflict",
+        "revision id already names different captured content",
+        409,
+      );
+    }
+
     const existingProjection = this.one<{
       revision_id: string;
       result_manifest_hash: string;
@@ -433,7 +859,8 @@ export class CorpusShard {
     if (
       existingProjection &&
       (existingProjection.revision_id !== header.revision.revisionId ||
-        existingProjection.result_manifest_hash !== header.projection.resultManifestHash)
+        existingProjection.result_manifest_hash !==
+          header.projection.resultManifestHash)
     ) {
       throw new ContextError(
         "projection_identity_conflict",
@@ -444,28 +871,41 @@ export class CorpusShard {
 
     const committedAt = nowIso();
     this.state.storage.transactionSync(() => {
-      const document = this.one<{ current_revision_id: string | null }>(
-        "SELECT current_revision_id FROM documents WHERE document_id = ?",
-        header.document.documentId,
-      );
       this.sql.exec(
         `INSERT INTO documents(
-           document_id, relative_path, extension, source_state, current_revision_id,
-           first_seen_at, last_seen_at, deleted_at, lifecycle_state
-         ) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, 'active')
+           document_id, relative_path, extension, source_state, media_type,
+           logical_size, modified_ns, residency_state, eligibility_state,
+           current_revision_id, first_seen_at, last_seen_at, deleted_at,
+           lifecycle_state, retention_class, last_user_access_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(document_id) DO UPDATE SET
            relative_path = excluded.relative_path,
            extension = excluded.extension,
            source_state = excluded.source_state,
-           last_seen_at = excluded.last_seen_at,
-           deleted_at = NULL,
-           lifecycle_state = 'active'`,
+           media_type = COALESCE(excluded.media_type, documents.media_type),
+           logical_size = COALESCE(excluded.logical_size, documents.logical_size),
+           modified_ns = COALESCE(excluded.modified_ns, documents.modified_ns),
+           residency_state = excluded.residency_state,
+           eligibility_state = excluded.eligibility_state,
+           deleted_at = excluded.deleted_at,
+           lifecycle_state = excluded.lifecycle_state,
+           retention_class = excluded.retention_class,
+           last_user_access_at = excluded.last_user_access_at`,
         header.document.documentId,
         header.document.relativePath.normalize("NFC"),
         header.document.extension,
         header.document.sourceState,
+        header.document.mediaType,
+        header.document.logicalSize,
+        header.document.modifiedNs,
+        header.document.residencyState,
+        header.document.eligibilityState,
         committedAt,
         committedAt,
+        header.document.deletedAt,
+        header.document.lifecycleState,
+        header.document.retentionClass,
+        header.document.lastUserAccessAt,
       );
       this.sql.exec(
         `INSERT INTO revisions(
@@ -478,24 +918,35 @@ export class CorpusShard {
         header.revision.sha256,
         header.revision.sourceSize,
         header.revision.capturedAt,
-        document?.current_revision_id ?? null,
+        expectedPredecessor,
         committedAt,
       );
       if (existingProjection) {
-        this.sql.exec("DELETE FROM source_units_fts WHERE projection_id = ?", header.projection.projectionId);
-        this.sql.exec("DELETE FROM source_units WHERE projection_id = ?", header.projection.projectionId);
-        this.sql.exec("DELETE FROM projections WHERE projection_id = ?", header.projection.projectionId);
+        this.sql.exec(
+          "DELETE FROM source_units_fts WHERE projection_id = ?",
+          header.projection.projectionId,
+        );
+        this.sql.exec(
+          "DELETE FROM source_units WHERE projection_id = ?",
+          header.projection.projectionId,
+        );
+        this.sql.exec(
+          "DELETE FROM projections WHERE projection_id = ?",
+          header.projection.projectionId,
+        );
       }
-      this.sql.exec(
-        "UPDATE projections SET is_active = 0 WHERE revision_id = ?",
-        header.revision.revisionId,
-      );
+      if (header.projection.activate) {
+        this.sql.exec(
+          "UPDATE projections SET is_active = 0 WHERE revision_id = ?",
+          header.revision.revisionId,
+        );
+      }
       this.sql.exec(
         `INSERT INTO projections(
            projection_id, revision_id, adapter_id, adapter_version, config_hash,
            result_manifest_hash, completeness_state, coverage_json,
            capability_manifest_json, issues_json, assurance_state, is_active, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         header.projection.projectionId,
         header.revision.revisionId,
         header.projection.adapterId,
@@ -507,18 +958,52 @@ export class CorpusShard {
         canonicalJson(header.projection.capabilityManifest),
         canonicalJson(header.projection.issues),
         header.projection.assuranceState,
-        committedAt,
+        header.projection.activate ? 1 : 0,
+        header.projection.createdAt ?? committedAt,
       );
-      for (const unit of staged) this.insertUnit(header, unit);
       this.sql.exec(
-        `UPDATE documents SET current_revision_id = ?, source_state = ?, last_seen_at = ?
-         WHERE document_id = ?`,
+        `INSERT INTO source_units(
+           unit_id, revision_id, projection_id, ordinal, unit_type,
+           structure_path_json, source_anchor_json, normalized_content,
+           content_sha256, previous_unit_id, next_unit_id,
+           extraction_issues_json, derivation_method, geometry_json,
+           confidence, ocr, quality_flags_json
+         )
+         SELECT unit_id, ?, ?, ordinal, unit_type, structure_path_json,
+                source_anchor_json, normalized_content, content_sha256,
+                previous_unit_id, next_unit_id, extraction_issues_json,
+                derivation_method, geometry_json, confidence, ocr,
+                quality_flags_json
+         FROM staged_units_v2 WHERE upload_id = ? ORDER BY ordinal`,
         header.revision.revisionId,
-        header.document.sourceState,
-        committedAt,
-        header.document.documentId,
+        header.projection.projectionId,
+        input.uploadId,
       );
-      this.sql.exec("DELETE FROM staged_uploads WHERE upload_id = ?", input.uploadId);
+      this.sql.exec(
+        `INSERT INTO source_units_fts(
+           unit_id, projection_id, document_id, relative_path,
+           structure_path, normalized_content
+         )
+         SELECT unit_id, ?, ?, ?, structure_path_json, normalized_content
+         FROM staged_units_v2 WHERE upload_id = ? ORDER BY ordinal`,
+        header.projection.projectionId,
+        header.document.documentId,
+        header.document.relativePath.normalize("NFC"),
+        input.uploadId,
+      );
+      if (header.revision.makeCurrent) {
+        this.sql.exec(
+          `UPDATE documents SET current_revision_id = ?, source_state = ?
+           WHERE document_id = ?`,
+          header.revision.revisionId,
+          header.document.sourceState,
+          header.document.documentId,
+        );
+      }
+      this.sql.exec(
+        "DELETE FROM staged_uploads WHERE upload_id = ?",
+        input.uploadId,
+      );
     });
     return {
       corpusId: header.corpusId,
@@ -526,48 +1011,9 @@ export class CorpusShard {
       revisionId: header.revision.revisionId,
       projectionId: header.projection.projectionId,
       resultManifestHash: header.projection.resultManifestHash,
-      unitCount: staged.length,
+      unitCount: counts.count,
       committedAt,
     };
-  }
-
-  private insertUnit(header: ProjectionBeginInput, unit: CorpusUnitInput): void {
-    this.sql.exec(
-      `INSERT INTO source_units(
-         unit_id, revision_id, projection_id, ordinal, unit_type, structure_path_json,
-         source_anchor_json, normalized_content, content_sha256, previous_unit_id,
-         next_unit_id, extraction_issues_json, derivation_method, geometry_json,
-         confidence, ocr, quality_flags_json
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      unit.unitId,
-      header.revision.revisionId,
-      header.projection.projectionId,
-      unit.ordinal,
-      unit.unitType,
-      canonicalJson(unit.structurePath),
-      canonicalJson(unit.sourceAnchor),
-      unit.content,
-      unit.contentSha256,
-      unit.previousUnitId,
-      unit.nextUnitId,
-      canonicalJson(unit.extractionIssues),
-      unit.derivationMethod,
-      canonicalJson(unit.geometry),
-      unit.confidence,
-      unit.ocr ? 1 : 0,
-      canonicalJson(unit.qualityFlags),
-    );
-    this.sql.exec(
-      `INSERT INTO source_units_fts(
-         unit_id, projection_id, document_id, relative_path, structure_path, normalized_content
-       ) VALUES (?, ?, ?, ?, ?, ?)`,
-      unit.unitId,
-      header.projection.projectionId,
-      header.document.documentId,
-      header.document.relativePath.normalize("NFC"),
-      canonicalJson(unit.structurePath),
-      unit.content,
-    );
   }
 
   private sourceState(raw: unknown): Record<string, unknown> {
@@ -576,13 +1022,22 @@ export class CorpusShard {
       "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
     );
     if (corpus && corpus.value !== input.corpusId) {
-      throw new ContextError("shard_identity_mismatch", "Corpus shard id does not match", 409);
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
     }
     const document = this.one<{ document_id: string }>(
       "SELECT document_id FROM documents WHERE document_id = ?",
       input.documentId,
     );
-    if (!document) throw new ContextError("document_not_found", "document was not found", 404);
+    if (!document)
+      throw new ContextError(
+        "document_not_found",
+        "document was not found",
+        404,
+      );
     this.sql.exec(
       `UPDATE documents SET
          source_state = ?,
@@ -610,7 +1065,10 @@ export class CorpusShard {
     const query = typeof value.query === "string" ? value.query.trim() : "";
     const limit = Number.isInteger(value.limit) ? Number(value.limit) : 20;
     if (!query || query.length > 2_000 || limit < 1 || limit > 100) {
-      throw new ContextError("invalid_query", "Corpus search parameters are invalid");
+      throw new ContextError(
+        "invalid_query",
+        "Corpus search parameters are invalid",
+      );
     }
     const expression = searchExpression(query);
     const rows = [
@@ -670,11 +1128,19 @@ export class CorpusShard {
       value.unitIds.length > 100 ||
       !value.unitIds.every((item) => typeof item === "string")
     ) {
-      throw new ContextError("invalid_read", "unitIds must contain 1 to 100 unit ids");
+      throw new ContextError(
+        "invalid_read",
+        "unitIds must contain 1 to 100 unit ids",
+      );
     }
-    const neighborSpan = Number.isInteger(value.neighborSpan) ? Number(value.neighborSpan) : 0;
+    const neighborSpan = Number.isInteger(value.neighborSpan)
+      ? Number(value.neighborSpan)
+      : 0;
     if (neighborSpan < 0 || neighborSpan > 10) {
-      throw new ContextError("invalid_read", "neighborSpan must be between 0 and 10");
+      throw new ContextError(
+        "invalid_read",
+        "neighborSpan must be between 0 and 10",
+      );
     }
     const results: Record<string, unknown>[] = [];
     const missing: string[] = [];
@@ -711,24 +1177,48 @@ export class CorpusShard {
               row.ordinal + neighborSpan,
             ),
           ] as unknown as UnitRow[];
-          for (const neighbor of neighbors) selectedRows.set(neighbor.unit_id, neighbor);
+          for (const neighbor of neighbors)
+            selectedRows.set(neighbor.unit_id, neighbor);
         }
       }
     }
     for (const row of [...selectedRows.values()].sort(
       (left, right) =>
-        left.projection_id.localeCompare(right.projection_id) || left.ordinal - right.ordinal,
+        left.projection_id.localeCompare(right.projection_id) ||
+        left.ordinal - right.ordinal,
     )) {
       results.push(unitResult(row));
     }
     return { count: results.length, units: results, missing_unit_ids: missing };
   }
 
-  private inventory(): Record<string, unknown> {
+  private inventory(raw: unknown): Record<string, unknown> {
+    const value = raw as Record<string, unknown>;
+    const documentOffset = Number.isInteger(value.documentOffset)
+      ? Number(value.documentOffset)
+      : 0;
+    const projectionOffset = Number.isInteger(value.projectionOffset)
+      ? Number(value.projectionOffset)
+      : 0;
+    const limit = Number.isInteger(value.limit) ? Number(value.limit) : 500;
+    if (
+      documentOffset < 0 ||
+      projectionOffset < 0 ||
+      limit < 1 ||
+      limit > 500
+    ) {
+      throw new ContextError(
+        "invalid_inventory_request",
+        "inventory pagination is invalid",
+      );
+    }
     const documents = [
       ...this.sql.exec(
         `SELECT d.document_id, d.relative_path, d.extension, d.source_state,
-                d.current_revision_id, d.last_seen_at, d.lifecycle_state,
+                d.media_type, d.logical_size, d.modified_ns, d.residency_state,
+                d.eligibility_state, d.current_revision_id, d.first_seen_at,
+                d.last_seen_at, d.deleted_at, d.lifecycle_state,
+                d.retention_class, d.last_user_access_at,
                 r.sha256, r.source_size, r.captured_at,
                 p.projection_id, p.result_manifest_hash, p.completeness_state,
                 p.assurance_state,
@@ -737,34 +1227,121 @@ export class CorpusShard {
          FROM documents d
          LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
          LEFT JOIN projections p ON p.revision_id = r.revision_id AND p.is_active = 1
-         ORDER BY d.relative_path, d.document_id`,
+         ORDER BY d.document_id LIMIT ? OFFSET ?`,
+        limit + 1,
+        documentOffset,
       ),
     ] as unknown as Array<Record<string, unknown>>;
-    const staged = this.one<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM staged_uploads",
-    )?.count ?? 0;
-    return { documents, staged_upload_count: staged };
+    const projections = [
+      ...this.sql.exec(
+        `SELECT p.projection_id, p.revision_id, r.document_id, r.sha256,
+                r.source_size, r.captured_at, r.predecessor_revision_id,
+                p.adapter_id, p.adapter_version, p.config_hash,
+                p.result_manifest_hash, p.completeness_state, p.assurance_state,
+                p.coverage_json, p.capability_manifest_json, p.issues_json,
+                p.is_active, p.created_at,
+                CASE WHEN d.current_revision_id = r.revision_id THEN 1 ELSE 0 END
+                  AS is_current_revision,
+                (SELECT COUNT(*) FROM source_units u
+                 WHERE u.projection_id = p.projection_id) AS unit_count
+         FROM projections p
+         JOIN revisions r ON r.revision_id = p.revision_id
+         JOIN documents d ON d.document_id = r.document_id
+         ORDER BY p.projection_id LIMIT ? OFFSET ?`,
+        limit + 1,
+        projectionOffset,
+      ),
+    ] as unknown as Array<Record<string, unknown>>;
+    const counts = {
+      documents:
+        this.one<{ count: number }>("SELECT COUNT(*) AS count FROM documents")
+          ?.count ?? 0,
+      revisions:
+        this.one<{ count: number }>("SELECT COUNT(*) AS count FROM revisions")
+          ?.count ?? 0,
+      projections:
+        this.one<{ count: number }>("SELECT COUNT(*) AS count FROM projections")
+          ?.count ?? 0,
+      units:
+        this.one<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM source_units",
+        )?.count ?? 0,
+    };
+    const staged =
+      this.one<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM staged_uploads",
+      )?.count ?? 0;
+    const external = {
+      binding_count:
+        this.one<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM external_bindings",
+        )?.count ?? 0,
+      run_count:
+        this.one<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM external_runs",
+        )?.count ?? 0,
+      record_count:
+        this.one<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM external_records",
+        )?.count ?? 0,
+    };
+    return {
+      counts,
+      documents: documents.slice(0, limit),
+      document_offset: documentOffset,
+      document_has_more: documents.length > limit,
+      projections: projections.slice(0, limit),
+      projection_offset: projectionOffset,
+      projection_has_more: projections.length > limit,
+      staged_upload_count: staged,
+      external,
+    };
   }
 
   async fetch(request: Request): Promise<Response> {
     try {
       if (request.method !== "POST") {
-        throw new ContextError("method_not_allowed", "only POST is supported", 405);
+        throw new ContextError(
+          "method_not_allowed",
+          "only POST is supported",
+          405,
+        );
       }
       const ownerId = request.headers.get("X-Owner-Id");
-      if (!ownerId) throw new ContextError("missing_owner", "internal owner id is required", 401);
+      if (!ownerId)
+        throw new ContextError(
+          "missing_owner",
+          "internal owner id is required",
+          401,
+        );
       const path = new URL(request.url).pathname;
       const body: unknown = await request.json();
-      if (path === "/projection/begin") return json({ ok: true, result: this.begin(ownerId, body) });
+      if (path === "/projection/begin")
+        return json({ ok: true, result: this.begin(ownerId, body) });
+      if (path === "/documents/import") {
+        return json({ ok: true, result: this.importDocuments(ownerId, body) });
+      }
+      if (path === "/external/import") {
+        return json({ ok: true, result: this.importExternal(ownerId, body) });
+      }
       if (path === "/projection/units") {
         return json({ ok: true, result: await this.addUnits(body) });
       }
-      if (path === "/projection/commit") return json({ ok: true, result: this.commit(body) });
-      if (path === "/source-state") return json({ ok: true, result: this.sourceState(body) });
-      if (path === "/search") return json({ ok: true, result: this.search(body) });
-      if (path === "/units/read") return json({ ok: true, result: this.readUnits(body) });
-      if (path === "/inventory") return json({ ok: true, result: this.inventory() });
-      throw new ContextError("not_found", "Corpus shard route was not found", 404);
+      if (path === "/projection/commit")
+        return json({ ok: true, result: this.commit(body) });
+      if (path === "/source-state")
+        return json({ ok: true, result: this.sourceState(body) });
+      if (path === "/search")
+        return json({ ok: true, result: this.search(body) });
+      if (path === "/units/read")
+        return json({ ok: true, result: this.readUnits(body) });
+      if (path === "/inventory")
+        return json({ ok: true, result: this.inventory(body) });
+      throw new ContextError(
+        "not_found",
+        "Corpus shard route was not found",
+        404,
+      );
     } catch (error) {
       return errorResponse(error);
     }

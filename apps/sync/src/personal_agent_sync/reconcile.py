@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import unicodedata
 from pathlib import Path
 
 from .config import ConnectionConfig
@@ -27,19 +28,42 @@ def current_root(state: SyncState, connection: ConnectionConfig) -> Path | None:
 def reconcile_connection(
     state: SyncState, connection: ConnectionConfig
 ) -> dict[str, int | str]:
+    if "source" not in connection.roles:
+        return {"state": "work_only", "observed": 0, "changed": 0}
     root = current_root(state, connection)
     if root is None:
         return {"state": "unavailable", "observed": 0, "changed": 0}
     observed = 0
     changed = 0
     seen: set[str] = set()
+
+    def excluded(relative: str, *, directory_name: str | None = None) -> bool:
+        normalized = unicodedata.normalize("NFC", relative.replace(os.sep, "/"))
+        if (
+            directory_name is not None
+            and unicodedata.normalize("NFC", directory_name)
+            in connection.exclude_directory_names
+        ):
+            return True
+        return any(
+            normalized == prefix or normalized.startswith(f"{prefix}/")
+            for prefix in connection.exclude_path_prefixes
+        )
+
     for directory, directory_names, file_names in os.walk(root, followlinks=False):
-        if not connection.include_hidden:
-            directory_names[:] = [
-                name for name in directory_names if not name.startswith(".")
-            ]
-            file_names = [name for name in file_names if not name.startswith(".")]
         base = Path(directory)
+        base_relative = base.relative_to(root)
+        retained_directories = []
+        for name in directory_names:
+            relative = (base_relative / name).as_posix()
+            if excluded(relative, directory_name=name):
+                continue
+            if not connection.include_hidden and name.startswith("."):
+                continue
+            retained_directories.append(name)
+        directory_names[:] = retained_directories
+        if not connection.include_hidden:
+            file_names = [name for name in file_names if not name.startswith(".")]
         for name in file_names:
             path = base / name
             try:
@@ -49,6 +73,8 @@ def reconcile_connection(
             if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
                 continue
             relative = path.relative_to(root).as_posix()
+            if excluded(relative):
+                continue
             document_id, event = state.observe_file(connection.key, relative, metadata)
             seen.add(document_id)
             observed += 1
@@ -61,5 +87,5 @@ def reconcile_connection(
 def reconcile_all(state: SyncState) -> list[dict[str, int | str]]:
     return [
         reconcile_connection(state, connection)
-        for connection in state.config.connections
+        for connection in state.config.source_watchers
     ]

@@ -16,6 +16,7 @@ from typing import Any
 
 from .config import ConnectionConfig, SyncConfig
 from .errors import SyncError
+from .paths import resolve_moved_root
 
 MAX_PENDING_CHANGES = 10_000
 
@@ -148,6 +149,16 @@ class SyncState:
                     response_json TEXT NOT NULL,
                     completed_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS migration_progress (
+                    product TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    source_digest TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    PRIMARY KEY(product, item_key)
+                );
+                PRAGMA user_version = 1;
                 """
             )
 
@@ -155,24 +166,61 @@ class SyncState:
         now = now_iso()
         with self.connect() as connection:
             for value in values:
-                metadata = value.root.stat()
                 current = connection.execute(
-                    "SELECT root_device, root_inode FROM connections WHERE connection_key = ?",
+                    "SELECT root_path, root_device, root_inode FROM connections WHERE connection_key = ?",
                     (value.key,),
                 ).fetchone()
-                if current is not None and (
-                    current["root_device"],
-                    current["root_inode"],
-                ) != (
-                    metadata.st_dev,
-                    metadata.st_ino,
-                ):
-                    # A changed configured locator is accepted only when it identifies the
-                    # same directory; explicit rebind has its own CLI operation.
+                try:
+                    metadata = value.root.stat()
+                except OSError:
+                    metadata = None
+                if current is None and metadata is None:
                     raise SyncError(
-                        "connection_identity_changed",
-                        "a configured Connection root no longer has its registered identity",
+                        "source_unavailable",
+                        "a new Connection root must be available for initial registration",
                     )
+                if current is not None:
+                    identity = (int(current["root_device"]), int(current["root_inode"]))
+                    if (
+                        metadata is None
+                        or (metadata.st_dev, metadata.st_ino) != identity
+                    ):
+                        recovered = resolve_moved_root(
+                            Path(current["root_path"]), identity[0], identity[1]
+                        )
+                        if recovered is None:
+                            connection.execute(
+                                """
+                                UPDATE connections SET
+                                    space_id = ?, connection_id = ?, access_scope = ?,
+                                    permission = ?, roles_json = ?, corpus_id = ?,
+                                    analyzer_route = ?, max_transfer_bytes = ?,
+                                    generation = ?, location_state = 'unavailable',
+                                    updated_at = ?
+                                WHERE connection_key = ?
+                                """,
+                                (
+                                    value.space_id,
+                                    value.connection_id,
+                                    value.access_scope,
+                                    value.permission,
+                                    canonical(sorted(value.roles)),
+                                    value.corpus_id,
+                                    value.analyzer_route,
+                                    value.max_transfer_bytes,
+                                    value.generation,
+                                    now,
+                                    value.key,
+                                ),
+                            )
+                            continue
+                        metadata = recovered.stat()
+                        root_path = recovered
+                    else:
+                        root_path = value.root
+                else:
+                    root_path = value.root
+                assert metadata is not None
                 connection.execute(
                     """
                     INSERT INTO connections(
@@ -198,7 +246,7 @@ class SyncState:
                         value.key,
                         value.space_id,
                         value.connection_id,
-                        str(value.root),
+                        str(root_path),
                         metadata.st_dev,
                         metadata.st_ino,
                         value.access_scope,
@@ -211,6 +259,72 @@ class SyncState:
                         now,
                     ),
                 )
+
+    def seed_documents(
+        self, key: str, documents: list[Mapping[str, object]]
+    ) -> dict[str, int]:
+        seeded = 0
+        queued = 0
+        now = now_iso()
+        with self.connect() as connection:
+            for document in documents:
+                identity = connection.execute(
+                    "SELECT document_id FROM documents WHERE connection_key = ? AND device = ? AND inode = ?",
+                    (key, document["device"], document["inode"]),
+                ).fetchone()
+                if (
+                    identity is not None
+                    and identity["document_id"] != document["document_id"]
+                ):
+                    raise SyncError(
+                        "migration_identity_conflict",
+                        "a local file identity already belongs to a different document",
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO documents(
+                        connection_key, document_id, local_relative_path,
+                        relative_path_nfc, device, inode, size, modified_ns,
+                        changed_ns, last_revision_sha256, last_projection_id,
+                        last_seen_at, missing_since
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    ON CONFLICT(connection_key, document_id) DO UPDATE SET
+                        local_relative_path=excluded.local_relative_path,
+                        relative_path_nfc=excluded.relative_path_nfc,
+                        device=excluded.device, inode=excluded.inode,
+                        size=excluded.size, modified_ns=excluded.modified_ns,
+                        changed_ns=excluded.changed_ns,
+                        last_revision_sha256=excluded.last_revision_sha256,
+                        last_projection_id=excluded.last_projection_id,
+                        last_seen_at=excluded.last_seen_at, missing_since=NULL
+                    """,
+                    (
+                        key,
+                        document["document_id"],
+                        document["relative_path"],
+                        document["relative_path_nfc"],
+                        document["device"],
+                        document["inode"],
+                        document["size"],
+                        document["modified_ns"],
+                        document["changed_ns"],
+                        document.get("last_revision_sha256"),
+                        document.get("last_projection_id"),
+                        now,
+                    ),
+                )
+                seeded += 1
+                if document.get("needs_refresh") is True:
+                    self._enqueue(
+                        connection,
+                        key,
+                        str(document["document_id"]),
+                        "reconcile",
+                        str(document["relative_path_nfc"]),
+                        now,
+                    )
+                    queued += 1
+        return {"seeded": seeded, "queued": queued}
 
     def connection_row(self, key: str) -> sqlite3.Row:
         with self.connect() as connection:
@@ -530,4 +644,41 @@ class SyncState:
                 ON CONFLICT(job_id) DO NOTHING
                 """,
                 (job_id, self.request_digest(request), canonical(response), now_iso()),
+            )
+
+    def migration_result(
+        self, product: str, item_key: str, source_digest: str
+    ) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT source_digest, result_json FROM migration_progress
+                WHERE product = ? AND item_key = ?
+                """,
+                (product, item_key),
+            ).fetchone()
+        if row is None or row["source_digest"] != source_digest:
+            return None
+        value = json.loads(row["result_json"])
+        return value if isinstance(value, dict) else None
+
+    def remember_migration(
+        self,
+        product: str,
+        item_key: str,
+        source_digest: str,
+        result: Mapping[str, object],
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO migration_progress(
+                    product, item_key, source_digest, result_json, completed_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(product, item_key) DO UPDATE SET
+                    source_digest=excluded.source_digest,
+                    result_json=excluded.result_json,
+                    completed_at=excluded.completed_at
+                """,
+                (product, item_key, source_digest, canonical(result), now_iso()),
             )

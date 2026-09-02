@@ -1,6 +1,6 @@
 # Sense
 
-Sense는 여러 AI가 공유하는 비공개 작업 프로필이다. 프로필은 범용 지침을 저장하며, 각 항목에는
+Sense는 여러 AI가 소유자 인증을 거쳐 공유하는 비공개 작업 프로필이다. 프로필은 범용 지침을 저장하며, 각 항목에는
 그 지침과 이어지는 작업 방법을 Section Skill로 둘 수 있다. 프로젝트 정보는 각 프로젝트가,
 출처 기반 지식은 Corpus가, 사용자 모델은 Hypes가 관리한다.
 
@@ -25,12 +25,24 @@ Sense 개정은 관련 항목의 `section_sha256`와 최종 항목 전체를 한
 원자적 교체로 이루어진다.
 
 에이전트가 문안을 작성했거나 여러 항목을 함께 바꿀 때에는 Chat에서 최종 문안을 먼저 보여 준다.
-일반 Section Skill도 현재 `version`과 전체 교체안을 사용해 Chat에서 수정할 수 있다. 민감 항목과
-민감 Section Skill의 저장, Skill 제거와 영구 삭제는 로컬 명령에서 처리한다.
+일반 Section Skill도 현재 `version`과 전체 교체안을 사용해 Chat에서 수정할 수 있다. 민감 항목은
+색인과 overview에 본문을 드러내지 않으며 원격 변경을 거부한다.
 
-## 저장 위치
+## 원격 저장과 연결
 
-기본 위치는 다음과 같다.
+plugin은 다음 상시 원격 MCP에 연결한다.
+
+```text
+https://personal-agent-context.hiyaq77.workers.dev/sense/mcp
+```
+
+Codex, Claude Code, Claude Desktop/Cowork, claude.ai와 ChatGPT는 같은 소유자 프로필과 확정
+version을 사용한다. 로컬 MCP server나 공개 터널은 필요하지 않다. 민감 section 본문은 명시적인
+section 조회에서만 읽으며 원격 수정 대상에는 포함하지 않는다.
+
+## 로컬 개발·이관 자료
+
+이관 전 데이터와 로컬 구현을 시험할 때의 기본 위치는 다음과 같다.
 
 ```text
 ~/Library/Application Support/Sense/
@@ -47,7 +59,8 @@ Sense 개정은 관련 항목의 `section_sha256`와 최종 항목 전체를 한
 대화 전문, 작업 로그, 원자료와 출처 위치는 각 원본 시스템에서 관리한다. 이전 스키마를 처음 열면
 현재 활성 프로필을 새 형식으로 옮기고 현재 데이터 모델로 정리한다.
 
-## 로컬 관리
+다음 launcher는 로컬 구현의 개발과 최초 이관 자료 관리용이다. 설치된 plugin의 MCP 연결은 이
+launcher를 실행하지 않는다.
 
 ```sh
 uv sync

@@ -37,7 +37,8 @@ export const senseProfileSchema = z
       .max(24)
       .refine(
         (sections) =>
-          new Set(sections.map((section) => section.id)).size === sections.length,
+          new Set(sections.map((section) => section.id)).size ===
+          sections.length,
         "section ids must be unique",
       ),
   })
@@ -128,7 +129,9 @@ export const edgeInputSchema = z
   .strict();
 
 const rewriteOperationSchema = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("put_node"), ref: nodeRef, value: nodeInputSchema }).strict(),
+  z
+    .object({ op: z.literal("put_node"), ref: nodeRef, value: nodeInputSchema })
+    .strict(),
   z
     .object({
       op: z.literal("put_predicate"),
@@ -136,11 +139,17 @@ const rewriteOperationSchema = z.discriminatedUnion("op", [
       value: predicateInputSchema,
     })
     .strict(),
-  z.object({ op: z.literal("put_edge"), ref: edgeRef, value: edgeInputSchema }).strict(),
+  z
+    .object({ op: z.literal("put_edge"), ref: edgeRef, value: edgeInputSchema })
+    .strict(),
   z
     .object({
       op: z.literal("delete"),
-      ref: z.union([persistentNodeRef, persistentPredicateRef, persistentEdgeRef]),
+      ref: z.union([
+        persistentNodeRef,
+        persistentPredicateRef,
+        persistentEdgeRef,
+      ]),
     })
     .strict(),
 ]);
@@ -171,8 +180,29 @@ export const projectionBeginSchema = z
       .object({
         documentId: z.string().min(1).max(128),
         relativePath: z.string().min(1).max(4096),
-        extension: z.string().max(32),
+        extension: z.string().max(512),
         sourceState: z.string().min(1).max(64),
+        mediaType: z.string().max(200).nullable().default(null),
+        logicalSize: z
+          .number()
+          .int()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .nullable()
+          .default(null),
+        modifiedNs: z
+          .string()
+          .regex(/^[0-9]{1,30}$/)
+          .nullable()
+          .default(null),
+        residencyState: z.string().min(1).max(64).default("unknown"),
+        eligibilityState: z.string().min(1).max(64).default("supported"),
+        lifecycleState: z
+          .enum(["active", "archived", "trash"])
+          .default("active"),
+        retentionClass: z.string().min(1).max(64).default("managed"),
+        lastUserAccessAt: z.string().datetime().nullable().default(null),
+        deletedAt: z.string().datetime().nullable().default(null),
       })
       .strict(),
     revision: z
@@ -181,6 +211,13 @@ export const projectionBeginSchema = z
         sha256,
         sourceSize: z.number().int().min(0).max(1_073_741_824),
         capturedAt: z.string().datetime(),
+        predecessorRevisionId: z
+          .string()
+          .min(1)
+          .max(160)
+          .nullable()
+          .default(null),
+        makeCurrent: z.boolean().default(true),
       })
       .strict(),
     projection: z
@@ -196,6 +233,8 @@ export const projectionBeginSchema = z
         issues: z.array(z.json()).max(10_000).default([]),
         assuranceState: z.string().min(1).max(64),
         declaredUnitCount: z.number().int().min(0).max(2_000_000),
+        activate: z.boolean().default(true),
+        createdAt: z.string().datetime().nullable().default(null),
       })
       .strict(),
   })
@@ -224,7 +263,106 @@ export const corpusUnitSchema = z
 export const projectionUnitsSchema = z
   .object({
     uploadId: z.string().regex(/^upload_[0-9a-f]{32}$/),
-    units: z.array(corpusUnitSchema).min(1).max(100),
+    units: z.array(corpusUnitSchema).min(1).max(500),
+  })
+  .strict();
+
+export const corpusDocumentsImportSchema = z
+  .object({
+    corpusId: z.string().min(1).max(128),
+    documents: z
+      .array(
+        z
+          .object({
+            documentId: z.string().min(1).max(128),
+            relativePath: z.string().min(1).max(4096),
+            extension: z.string().max(512),
+            sourceState: z.enum([
+              "unknown",
+              "available",
+              "changed",
+              "partially_available",
+              "unavailable",
+            ]),
+            mediaType: z.string().max(200).nullable(),
+            logicalSize: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+            modifiedNs: z.string().regex(/^[0-9]{1,30}$/),
+            residencyState: z.string().min(1).max(64),
+            eligibilityState: z.string().min(1).max(64),
+            currentRevisionId: z.string().min(1).max(160).nullable(),
+            lifecycleState: z.enum(["active", "archived", "trash"]),
+            retentionClass: z.string().min(1).max(64),
+            lastUserAccessAt: z.string().datetime().nullable(),
+            firstSeenAt: z.string().datetime(),
+            lastSeenAt: z.string().datetime(),
+            deletedAt: z.string().datetime().nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+
+export const corpusExternalImportSchema = z
+  .object({
+    corpusId: z.string().min(1).max(128),
+    bindings: z
+      .array(
+        z
+          .object({
+            bindingId: z.string().min(1).max(192),
+            providerKind: z.string().min(1).max(120),
+            selector: boundedJsonObject,
+            state: z.enum(["active", "archived"]),
+            lastCompleteRunId: z.string().min(1).max(192).nullable(),
+            lastCompleteAt: z.string().datetime().nullable(),
+            createdAt: z.string().datetime(),
+            updatedAt: z.string().datetime(),
+          })
+          .strict(),
+      )
+      .max(100),
+    runs: z
+      .array(
+        z
+          .object({
+            runId: z.string().min(1).max(192),
+            bindingId: z.string().min(1).max(192),
+            baseCompleteRunId: z.string().min(1).max(192).nullable(),
+            status: z.enum(["incomplete", "complete"]),
+            startedAt: z.string().datetime(),
+            completedAt: z.string().datetime().nullable(),
+            supersededAt: z.string().datetime().nullable(),
+          })
+          .strict(),
+      )
+      .max(10_000),
+    records: z
+      .array(
+        z
+          .object({
+            sourceRecordId: z.string().min(1).max(192),
+            bindingId: z.string().min(1).max(192),
+            externalId: z.string().min(1).max(4096),
+            parentExternalId: z.string().max(4096).nullable(),
+            occurredAt: z.string().datetime().nullable(),
+            title: z.string().max(20_000).nullable(),
+            participants: z.array(z.json()).max(2000),
+            labelIds: z.array(z.string().max(1000)).max(2000),
+            attachments: z.array(z.json()).max(2000),
+            providerMetadata: boundedJsonObject,
+            locator: boundedJsonObject,
+            freshnessIdentity: z.string().max(4096).nullable(),
+            metadataSha256: sha256,
+            membershipState: z.enum(["active", "removed"]),
+            lastSeenRunId: z.string().min(1).max(192),
+            firstSeenAt: z.string().datetime(),
+            lastSeenAt: z.string().datetime(),
+          })
+          .strict(),
+      )
+      .max(10_000),
   })
   .strict();
 
@@ -268,12 +406,17 @@ export const syncResultSchema = z
     ok: z.boolean(),
     result: z.record(z.string(), z.json()).optional(),
     error: z
-      .object({ code: z.string().min(1).max(120), message: z.string().max(1000) })
+      .object({
+        code: z.string().min(1).max(120),
+        message: z.string().max(1000),
+      })
       .strict()
       .optional(),
   })
   .strict()
-  .refine((value) => (value.ok ? value.result !== undefined : value.error !== undefined));
+  .refine((value) =>
+    value.ok ? value.result !== undefined : value.error !== undefined,
+  );
 
 const spaceId = z
   .string()
@@ -309,7 +452,13 @@ export const corpusContextItemsReviseSchema = z
         z
           .object({
             item_id: z.string().min(1).max(200),
-            kind: z.enum(["finding", "relationship", "difference", "question", "gap"]),
+            kind: z.enum([
+              "finding",
+              "relationship",
+              "difference",
+              "question",
+              "gap",
+            ]),
             body_text: z.string().min(1).max(12_000),
             status: z.string().min(1).max(200),
           })
@@ -326,7 +475,11 @@ export const corpusContextSkillReviseSchema = z
     expected_version: z.string().min(6).max(128),
     new_skill: z
       .object({
-        name: z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
         description: z.string().min(1).max(1000),
         instructions: z.string().min(1).max(24_000),
       })
@@ -362,15 +515,26 @@ export const corpusFileReadSchema = z
     relative_path: relativePath.nullable().optional(),
     read_ref: spaceReference.nullable().optional(),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
-    max_bytes: z.number().int().min(1).max(16 * 1024 * 1024).default(16 * 1024 * 1024),
+    max_bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(16 * 1024 * 1024)
+      .default(16 * 1024 * 1024),
     neighbor_span: z.number().int().min(0).max(10).default(0),
     include_structure_context: z.boolean().default(false),
     max_chars: z.number().int().min(1000).max(500_000).default(100_000),
-    start_char: z.number().int().min(0).max(16 * 1024 * 1024).default(0),
+    start_char: z
+      .number()
+      .int()
+      .min(0)
+      .max(16 * 1024 * 1024)
+      .default(0),
   })
   .strict()
   .refine(
-    (value) => Number(value.relative_path != null) + Number(value.read_ref != null) <= 1,
+    (value) =>
+      Number(value.relative_path != null) + Number(value.read_ref != null) <= 1,
     "select at most one of relative_path and read_ref",
   );
 
@@ -452,11 +616,25 @@ export const corpusMetadataImportSchema = z
                 z
                   .object({
                     itemId: migrationId,
-                    kind: z.enum(["finding", "relationship", "difference", "question", "gap"]),
+                    kind: z.enum([
+                      "finding",
+                      "relationship",
+                      "difference",
+                      "question",
+                      "gap",
+                    ]),
                     bodyText: z.string().min(1).max(12_000),
                     attributes: boundedJsonObject,
-                    disclosureState: z.string().min(1).max(120).default("restricted"),
-                    lifecycleState: z.string().min(1).max(120).default("active"),
+                    disclosureState: z
+                      .string()
+                      .min(1)
+                      .max(120)
+                      .default("restricted"),
+                    lifecycleState: z
+                      .string()
+                      .min(1)
+                      .max(120)
+                      .default("active"),
                     supersedesItemId: migrationId.nullable().default(null),
                     createdAt: isoTimestamp,
                   })
@@ -476,7 +654,11 @@ export const corpusMetadataImportSchema = z
                     projectionId: migrationId.nullable().default(null),
                     sourceUnitId: migrationId.nullable().default(null),
                     providerKind: z.string().max(120).nullable().default(null),
-                    providerRecordId: z.string().max(1000).nullable().default(null),
+                    providerRecordId: z
+                      .string()
+                      .max(1000)
+                      .nullable()
+                      .default(null),
                     linkRole: z.string().min(1).max(120),
                     sourceSpan: boundedJsonObject,
                   })
@@ -505,13 +687,21 @@ export const corpusMetadataImportSchema = z
             spaceId,
             connectionId,
             displayName: z.string().min(1).max(300),
-            roles: z.array(z.enum(["source", "work"])).min(1).max(2),
+            roles: z
+              .array(z.enum(["source", "work"]))
+              .min(1)
+              .max(2),
             accessScope: z.enum(["remote_allowed", "local_only"]),
             permission: z.enum(["read_only", "read_write"]),
             indexMode: z.enum(["indexed", "not_indexed"]),
             corpusId: migrationId.nullable().default(null),
             deviceId: z.string().min(1).max(64).nullable().default(null),
-            localConnectionKey: z.string().min(1).max(500).nullable().default(null),
+            localConnectionKey: z
+              .string()
+              .min(1)
+              .max(500)
+              .nullable()
+              .default(null),
             generation: z.number().int().min(1),
             configurationState: z.string().min(1).max(120),
             sourceState: z.string().max(120).nullable().default(null),
@@ -544,10 +734,17 @@ export const corpusMetadataImportSchema = z
       .array(
         z
           .object({
-            deviceId: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+            deviceId: z
+              .string()
+              .min(1)
+              .max(64)
+              .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
             displayName: z.string().min(1).max(160),
             status: z.enum(["active", "revoked"]).default("active"),
-            capabilities: z.array(z.string().min(1).max(120)).max(64).default([]),
+            capabilities: z
+              .array(z.string().min(1).max(120))
+              .max(64)
+              .default([]),
             createdAt: isoTimestamp,
             updatedAt: isoTimestamp,
           })

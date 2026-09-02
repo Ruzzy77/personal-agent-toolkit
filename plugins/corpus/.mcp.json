@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "corpus": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/launchers/corpus-mcp",
-      "args": []
+      "type": "http",
+      "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp"
     }
   }
 }

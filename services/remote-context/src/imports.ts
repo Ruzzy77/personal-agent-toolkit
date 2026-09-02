@@ -3,8 +3,6 @@ import { ContextError } from "./errors";
 import { corpusMetadataImportSchema } from "./schemas";
 
 const ABSOLUTE_PATH = /^(?:\/|~[/\\]|[A-Za-z]:[\\/]|file:)/i;
-const EMBEDDED_PRIVATE_PATH = /(?:\bfile:(?:\/\/)?\/|(?:^|[\s"'(])\/(?:Users|home|Volumes)\/|\b[A-Za-z]:\\)/;
-
 function requireRelativePath(value: string): string {
   const normalized = value.normalize("NFC").replaceAll("\\", "/");
   if (
@@ -17,15 +15,6 @@ function requireRelativePath(value: string): string {
     );
   }
   return normalized;
-}
-
-function rejectEmbeddedPaths(...values: Array<string | null>): void {
-  if (values.some((value) => value != null && EMBEDDED_PRIVATE_PATH.test(value))) {
-    throw new ContextError(
-      "private_path_rejected",
-      "remote Corpus migration cannot retain local absolute paths",
-    );
-  }
 }
 
 export async function importCorpusMetadata(
@@ -52,7 +41,10 @@ export async function importCorpusMetadata(
 
   const spaceIds = new Set(input.spaces.map((space) => space.spaceId));
   if (spaceIds.size !== input.spaces.length) {
-    throw new ContextError("duplicate_space", "Corpus migration contains duplicate Spaces");
+    throw new ContextError(
+      "duplicate_space",
+      "Corpus migration contains duplicate Spaces",
+    );
   }
   const contextIds = new Set<string>();
   const itemIds = new Set<string>();
@@ -65,18 +57,22 @@ export async function importCorpusMetadata(
       );
     }
     contextIds.add(context.spaceId);
-    rejectEmbeddedPaths(context.title, context.purpose, context.skill?.instructions ?? null);
     const localItemIds = new Set<string>();
     for (const item of context.items) {
-      rejectEmbeddedPaths(item.bodyText);
       if (itemIds.has(item.itemId)) {
-        throw new ContextError("duplicate_context_item", "Context item ids must be owner-unique");
+        throw new ContextError(
+          "duplicate_context_item",
+          "Context item ids must be owner-unique",
+        );
       }
       itemIds.add(item.itemId);
       localItemIds.add(item.itemId);
     }
     for (const source of context.sources) {
-      if (!localItemIds.has(source.itemId) || sourceIds.has(source.sourceRefId)) {
+      if (
+        !localItemIds.has(source.itemId) ||
+        sourceIds.has(source.sourceRefId)
+      ) {
         throw new ContextError(
           "invalid_source_binding",
           "Context Source references must target items in the same Context and be unique",
@@ -102,7 +98,10 @@ export async function importCorpusMetadata(
         "Corpus Connection refers to an unknown Sync device",
       );
     }
-    if (connection.localConnectionKey && ABSOLUTE_PATH.test(connection.localConnectionKey)) {
+    if (
+      connection.localConnectionKey &&
+      ABSOLUTE_PATH.test(connection.localConnectionKey)
+    ) {
       throw new ContextError(
         "private_path_rejected",
         "local Connection keys must be opaque identifiers rather than paths",
@@ -111,7 +110,9 @@ export async function importCorpusMetadata(
     connectionKeys.add(key);
   }
   for (const current of input.currentFiles) {
-    if (!connectionKeys.has(`${current.spaceId}\u0000${current.connectionId}`)) {
+    if (
+      !connectionKeys.has(`${current.spaceId}\u0000${current.connectionId}`)
+    ) {
       throw new ContextError(
         "invalid_current_file_binding",
         "Current File refers to an unknown Connection",
@@ -123,11 +124,21 @@ export async function importCorpusMetadata(
   const statements: D1PreparedStatement[] = [
     db.prepare("DELETE FROM sync_job_events WHERE owner_id = ?").bind(ownerId),
     db.prepare("DELETE FROM sync_jobs WHERE owner_id = ?").bind(ownerId),
-    db.prepare("DELETE FROM corpus_current_files WHERE owner_id = ?").bind(ownerId),
-    db.prepare("DELETE FROM corpus_connections WHERE owner_id = ?").bind(ownerId),
-    db.prepare("DELETE FROM corpus_context_sources WHERE owner_id = ?").bind(ownerId),
-    db.prepare("DELETE FROM corpus_context_items WHERE owner_id = ?").bind(ownerId),
-    db.prepare("DELETE FROM corpus_context_skills WHERE owner_id = ?").bind(ownerId),
+    db
+      .prepare("DELETE FROM corpus_current_files WHERE owner_id = ?")
+      .bind(ownerId),
+    db
+      .prepare("DELETE FROM corpus_connections WHERE owner_id = ?")
+      .bind(ownerId),
+    db
+      .prepare("DELETE FROM corpus_context_sources WHERE owner_id = ?")
+      .bind(ownerId),
+    db
+      .prepare("DELETE FROM corpus_context_items WHERE owner_id = ?")
+      .bind(ownerId),
+    db
+      .prepare("DELETE FROM corpus_context_skills WHERE owner_id = ?")
+      .bind(ownerId),
     db.prepare("DELETE FROM corpus_contexts WHERE owner_id = ?").bind(ownerId),
     db.prepare("DELETE FROM corpus_spaces WHERE owner_id = ?").bind(ownerId),
     db.prepare("DELETE FROM sync_devices WHERE owner_id = ?").bind(ownerId),
@@ -344,5 +355,10 @@ export async function importCorpusMetadata(
       ),
   );
   await db.batch(statements);
-  return { changed: true, sourceDigest: input.sourceDigest, counts, importedAt };
+  return {
+    changed: true,
+    sourceDigest: input.sourceDigest,
+    counts,
+    importedAt,
+  };
 }

@@ -28,6 +28,7 @@ belong in the repository.
 - `/health`
 
 The Sync endpoint accepts only the dedicated device credential. MCP endpoints
-accept resource-specific owner OAuth tokens. Local absolute paths are never
-returned or stored by the service.
-
+accept resource-specific owner OAuth tokens. Operational Finder locators and
+filesystem identities remain in the Sync app. A path appearing literally in
+source-derived or user-authored text is stored only as untrusted content and is
+never interpreted as remote filesystem authority.

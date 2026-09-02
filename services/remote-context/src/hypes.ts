@@ -1,4 +1,4 @@
-import { canonicalJson } from "./canonical";
+import { canonicalJson, contentSha256 } from "./canonical";
 import { ContextError } from "./errors";
 import { hypesReadSchema, hypesRewriteSchema } from "./schemas";
 
@@ -28,10 +28,16 @@ interface EdgeRow {
   qualifiers_json: string;
 }
 
-type RewriteOperation = ReturnType<typeof hypesRewriteSchema.parse>["operations"][number];
+type RewriteOperation = ReturnType<
+  typeof hypesRewriteSchema.parse
+>["operations"][number];
 
 type NormalizedOperation =
-  | { op: "put_node"; ref: string; value: Extract<RewriteOperation, { op: "put_node" }>["value"] }
+  | {
+      op: "put_node";
+      ref: string;
+      value: Extract<RewriteOperation, { op: "put_node" }>["value"];
+    }
   | {
       op: "put_predicate";
       ref: string;
@@ -60,8 +66,15 @@ function refKind(ref: string): Kind | null {
 
 function parseStringArray(value: string): string[] {
   const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
-    throw new ContextError("invalid_stored_graph", "the stored Hypes graph is invalid", 500);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((item) => typeof item === "string")
+  ) {
+    throw new ContextError(
+      "invalid_stored_graph",
+      "the stored Hypes graph is invalid",
+      500,
+    );
   }
   return parsed;
 }
@@ -69,7 +82,11 @@ function parseStringArray(value: string): string[] {
 function parseObject(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new ContextError("invalid_stored_graph", "the stored Hypes graph is invalid", 500);
+    throw new ContextError(
+      "invalid_stored_graph",
+      "the stored Hypes graph is invalid",
+      500,
+    );
   }
   return parsed as Record<string, unknown>;
 }
@@ -105,7 +122,9 @@ function edgeValue(row: EdgeRow) {
 }
 
 function ftsQueries(focus: string): string[] {
-  const tokens = [...new Set(focus.toLocaleLowerCase().match(FOCUS_TOKEN) ?? [])].slice(0, 16);
+  const tokens = [
+    ...new Set(focus.toLocaleLowerCase().match(FOCUS_TOKEN) ?? []),
+  ].slice(0, 16);
   if (tokens.length === 0) return [];
   const terms = tokens.map((token) => `"${token.replaceAll('"', '""')}"*`);
   const exact = terms.join(" AND ");
@@ -197,8 +216,31 @@ export class HypesService {
     ]);
     return {
       nodes: new Map(nodes.results.map((row) => [row.node_id, row])),
-      predicates: new Map(predicates.results.map((row) => [row.predicate_id, row])),
+      predicates: new Map(
+        predicates.results.map((row) => [row.predicate_id, row]),
+      ),
       edges: new Map(edges.results.map((row) => [row.edge_id, row])),
+    };
+  }
+
+  async verificationState(): Promise<Record<string, unknown>> {
+    const rows = await this.allRows();
+    const graph = {
+      nodes: [...rows.nodes.keys()]
+        .sort()
+        .map((ref) => nodeValue(rows.nodes.get(ref)!)),
+      predicates: [...rows.predicates.keys()]
+        .sort()
+        .map((ref) => predicateValue(rows.predicates.get(ref)!)),
+      edges: [...rows.edges.keys()]
+        .sort()
+        .map((ref) => edgeValue(rows.edges.get(ref)!)),
+    };
+    return {
+      node_count: graph.nodes.length,
+      predicate_count: graph.predicates.length,
+      edge_count: graph.edges.length,
+      graph_sha256: await contentSha256(graph),
     };
   }
 
@@ -220,7 +262,11 @@ export class HypesService {
           );
         }
         targetRefs.add(operation.ref);
-        normalized.push({ op: "delete", ref: operation.ref, kind: refKind(operation.ref)! });
+        normalized.push({
+          op: "delete",
+          ref: operation.ref,
+          kind: refKind(operation.ref)!,
+        });
         continue;
       }
 
@@ -254,9 +300,17 @@ export class HypesService {
       }
       targetRefs.add(persistentRef);
       if (operation.op === "put_node") {
-        normalized.push({ op: operation.op, ref: persistentRef, value: operation.value });
+        normalized.push({
+          op: operation.op,
+          ref: persistentRef,
+          value: operation.value,
+        });
       } else if (operation.op === "put_predicate") {
-        normalized.push({ op: operation.op, ref: persistentRef, value: operation.value });
+        normalized.push({
+          op: operation.op,
+          ref: persistentRef,
+          value: operation.value,
+        });
       } else {
         normalized.push({
           op: operation.op,
@@ -288,12 +342,16 @@ export class HypesService {
 
     const deletedNodes = new Set(
       normalized
-        .filter((operation) => operation.op === "delete" && operation.kind === "node")
+        .filter(
+          (operation) => operation.op === "delete" && operation.kind === "node",
+        )
         .map((operation) => operation.ref),
     );
     const deletedPredicates = new Set(
       normalized
-        .filter((operation) => operation.op === "delete" && operation.kind === "pred")
+        .filter(
+          (operation) => operation.op === "delete" && operation.kind === "pred",
+        )
         .map((operation) => operation.ref),
     );
     for (const operation of normalized) {
@@ -340,7 +398,8 @@ export class HypesService {
     const prospectivePredicates = new Set(current.predicates.keys());
     for (const operation of normalized) {
       if (operation.op === "put_node") prospectiveNodes.add(operation.ref);
-      else if (operation.op === "put_predicate") prospectivePredicates.add(operation.ref);
+      else if (operation.op === "put_predicate")
+        prospectivePredicates.add(operation.ref);
       else if (operation.op === "delete" && operation.kind === "node") {
         prospectiveNodes.delete(operation.ref);
       } else if (operation.op === "delete" && operation.kind === "pred") {
@@ -413,7 +472,9 @@ export class HypesService {
       if (operation.op === "delete" && operation.kind === "edge") {
         statements.push(
           this.db
-            .prepare("DELETE FROM hypes_edges WHERE owner_id = ? AND edge_id = ?")
+            .prepare(
+              "DELETE FROM hypes_edges WHERE owner_id = ? AND edge_id = ?",
+            )
             .bind(this.ownerId, operation.ref),
         );
       }
@@ -450,13 +511,15 @@ export class HypesService {
       for (const edge of current.edges.values()) {
         if (
           (operation.kind === "node" &&
-            (edge.source_id === operation.ref || edge.target_id === operation.ref)) ||
+            (edge.source_id === operation.ref ||
+              edge.target_id === operation.ref)) ||
           (operation.kind === "pred" && edge.predicate_id === operation.ref)
         ) {
           cascadedEdges.add(edge.edge_id);
         }
       }
-      const table = operation.kind === "node" ? "hypes_nodes" : "hypes_predicates";
+      const table =
+        operation.kind === "node" ? "hypes_nodes" : "hypes_predicates";
       const column = operation.kind === "node" ? "node_id" : "predicate_id";
       statements.push(
         this.db
@@ -520,7 +583,10 @@ export class HypesService {
     };
   }
 
-  private async focusSeeds(focus: string, limit: number): Promise<Array<[Kind, string]>> {
+  private async focusSeeds(
+    focus: string,
+    limit: number,
+  ): Promise<Array<[Kind, string]>> {
     for (const query of ftsQueries(focus)) {
       const [nodes, predicates] = await Promise.all([
         this.db
@@ -543,14 +609,23 @@ export class HypesService {
           .all<{ ref: string; rank: number }>(),
       ]);
       const seeds: Array<[number, Kind, string]> = [
-        ...nodes.results.map((row): [number, Kind, string] => [row.rank, "node", row.ref]),
-        ...predicates.results.map(
-          (row): [number, Kind, string] => [row.rank, "pred", row.ref],
-        ),
+        ...nodes.results.map((row): [number, Kind, string] => [
+          row.rank,
+          "node",
+          row.ref,
+        ]),
+        ...predicates.results.map((row): [number, Kind, string] => [
+          row.rank,
+          "pred",
+          row.ref,
+        ]),
       ];
       if (seeds.length > 0) {
-        seeds.sort((left, right) =>
-          left[0] - right[0] || left[1].localeCompare(right[1]) || left[2].localeCompare(right[2]),
+        seeds.sort(
+          (left, right) =>
+            left[0] - right[0] ||
+            left[1].localeCompare(right[1]) ||
+            left[2].localeCompare(right[2]),
         );
         return seeds.slice(0, limit).map(([, kind, ref]) => [kind, ref]);
       }
@@ -562,7 +637,10 @@ export class HypesService {
     const parsed = hypesReadSchema.parse(input);
     const requestedRefs = [...(parsed.seed_refs ?? [])];
     const offset = outlineOffset(parsed.continuation);
-    if (parsed.continuation != null && (parsed.focus != null || requestedRefs.length > 0)) {
+    if (
+      parsed.continuation != null &&
+      (parsed.focus != null || requestedRefs.length > 0)
+    ) {
       throw new ContextError(
         "invalid_read",
         "continuation can be used only for an outline read without focus or seed_refs",
@@ -574,7 +652,8 @@ export class HypesService {
     const seen = new Set<string>();
     for (const ref of requestedRefs) {
       const kind = refKind(ref);
-      const exists = kind === "node" ? rows.nodes.has(ref) : rows.predicates.has(ref);
+      const exists =
+        kind === "node" ? rows.nodes.has(ref) : rows.predicates.has(ref);
       if (!exists) {
         throw new ContextError(
           "object_not_found",
@@ -594,11 +673,17 @@ export class HypesService {
       const remaining = Math.max(0, parsed.limit - seeds.length);
       let capacity = Math.min(MAX_FOCUS_SEEDS, remaining);
       if (parsed.max_hops > 0 && capacity > 0) {
-        capacity = Math.min(capacity, Math.max(0, remaining - EDGE_EXPANSION_RESERVE));
+        capacity = Math.min(
+          capacity,
+          Math.max(0, remaining - EDGE_EXPANSION_RESERVE),
+        );
         if (seeds.length === 0) capacity = Math.max(1, capacity);
       }
       if (capacity > 0) {
-        const candidates = await this.focusSeeds(parsed.focus, capacity + seen.size);
+        const candidates = await this.focusSeeds(
+          parsed.focus,
+          capacity + seen.size,
+        );
         let added = 0;
         for (const candidate of candidates) {
           if (seen.has(candidate[1])) continue;
@@ -610,25 +695,31 @@ export class HypesService {
       }
     } else if (seeds.length === 0) {
       const outline: Array<[string, Kind, string]> = [
-        ...[...rows.nodes.values()].map(
-          (row): [string, Kind, string] => [row.name.toLocaleLowerCase(), "node", row.node_id],
-        ),
-        ...[...rows.predicates.values()].map(
-          (row): [string, Kind, string] => [
-            row.name.toLocaleLowerCase(),
-            "pred",
-            row.predicate_id,
-          ],
-        ),
+        ...[...rows.nodes.values()].map((row): [string, Kind, string] => [
+          row.name.toLocaleLowerCase(),
+          "node",
+          row.node_id,
+        ]),
+        ...[...rows.predicates.values()].map((row): [string, Kind, string] => [
+          row.name.toLocaleLowerCase(),
+          "pred",
+          row.predicate_id,
+        ]),
       ];
-      outline.sort((left, right) =>
-        left[0].localeCompare(right[0]) ||
-        left[1].localeCompare(right[1]) ||
-        left[2].localeCompare(right[2]),
+      outline.sort(
+        (left, right) =>
+          left[0].localeCompare(right[0]) ||
+          left[1].localeCompare(right[1]) ||
+          left[2].localeCompare(right[2]),
       );
       const page = outline.slice(offset, offset + parsed.limit + 1);
-      seeds.push(...page.slice(0, parsed.limit).map(([, kind, ref]) => [kind, ref] as [Kind, string]));
-      if (page.length > parsed.limit) continuation = `outline-v1:${offset + seeds.length}`;
+      seeds.push(
+        ...page
+          .slice(0, parsed.limit)
+          .map(([, kind, ref]) => [kind, ref] as [Kind, string]),
+      );
+      if (page.length > parsed.limit)
+        continuation = `outline-v1:${offset + seeds.length}`;
     }
 
     const includedNodes = new Set<string>();
@@ -647,7 +738,8 @@ export class HypesService {
       }
     }
 
-    const maxHops = parsed.focus == null && requestedRefs.length === 0 ? 0 : parsed.max_hops;
+    const maxHops =
+      parsed.focus == null && requestedRefs.length === 0 ? 0 : parsed.max_hops;
     const expandedNodes = new Set<string>();
     for (let hop = 0; hop < maxHops; hop += 1) {
       const candidates = [...rows.edges.values()]
@@ -662,13 +754,21 @@ export class HypesService {
       const nextNodes = new Set<string>();
       for (const edge of candidates) {
         const missingNodes = new Set(
-          [edge.source_id, edge.target_id].filter((ref) => !includedNodes.has(ref)),
+          [edge.source_id, edge.target_id].filter(
+            (ref) => !includedNodes.has(ref),
+          ),
         );
         const missingPredicates = includedPredicates.has(edge.predicate_id)
           ? new Set<string>()
           : new Set([edge.predicate_id]);
         const cost = 1 + missingNodes.size + missingPredicates.size;
-        if (includedNodes.size + includedPredicates.size + includedEdges.size + cost > parsed.limit) {
+        if (
+          includedNodes.size +
+            includedPredicates.size +
+            includedEdges.size +
+            cost >
+          parsed.limit
+        ) {
           continue;
         }
         includedEdges.add(edge.edge_id);
@@ -678,17 +778,23 @@ export class HypesService {
         nextNodes.add(edge.target_id);
       }
       for (const ref of frontierNodes) expandedNodes.add(ref);
-      frontierNodes = new Set([...nextNodes].filter((ref) => !expandedNodes.has(ref)));
+      frontierNodes = new Set(
+        [...nextNodes].filter((ref) => !expandedNodes.has(ref)),
+      );
       frontierPredicates = new Set();
       if (frontierNodes.size === 0) break;
     }
 
     return {
-      nodes: [...includedNodes].sort().map((ref) => nodeValue(rows.nodes.get(ref)!)),
+      nodes: [...includedNodes]
+        .sort()
+        .map((ref) => nodeValue(rows.nodes.get(ref)!)),
       predicates: [...includedPredicates]
         .sort()
         .map((ref) => predicateValue(rows.predicates.get(ref)!)),
-      edges: [...includedEdges].sort().map((ref) => edgeValue(rows.edges.get(ref)!)),
+      edges: [...includedEdges]
+        .sort()
+        .map((ref) => edgeValue(rows.edges.get(ref)!)),
       continuation,
     };
   }
@@ -722,7 +828,8 @@ export class HypesService {
         ref: (predicate as { predicate_id: string }).predicate_id,
         value: {
           name: (predicate as { name: string }).name,
-          description: (predicate as { description?: unknown }).description ?? null,
+          description:
+            (predicate as { description?: unknown }).description ?? null,
           aliases: (predicate as { aliases?: unknown }).aliases ?? [],
         },
       })),
@@ -741,9 +848,15 @@ export class HypesService {
     hypesRewriteSchema.parse({ operations });
     const existing = await this.allRows();
     const statements: D1PreparedStatement[] = [
-      this.db.prepare("DELETE FROM hypes_edges WHERE owner_id = ?").bind(this.ownerId),
-      this.db.prepare("DELETE FROM hypes_nodes WHERE owner_id = ?").bind(this.ownerId),
-      this.db.prepare("DELETE FROM hypes_predicates WHERE owner_id = ?").bind(this.ownerId),
+      this.db
+        .prepare("DELETE FROM hypes_edges WHERE owner_id = ?")
+        .bind(this.ownerId),
+      this.db
+        .prepare("DELETE FROM hypes_nodes WHERE owner_id = ?")
+        .bind(this.ownerId),
+      this.db
+        .prepare("DELETE FROM hypes_predicates WHERE owner_id = ?")
+        .bind(this.ownerId),
     ];
     void existing;
     for (const operation of operations as Array<Record<string, any>>) {
@@ -804,6 +917,10 @@ export class HypesService {
       }
     }
     await this.db.batch(statements);
-    return { nodes: nodes.length, predicates: predicates.length, edges: edges.length };
+    return {
+      nodes: nodes.length,
+      predicates: predicates.length,
+      edges: edges.length,
+    };
   }
 }

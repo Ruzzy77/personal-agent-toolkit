@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,8 @@ def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
                 'device_id = "test-mac"',
                 'display_name = "Test Mac"',
                 f"data_root = {json.dumps(str(data))}",
+                f"corpus_python = {json.dumps(sys.executable)}",
+                f"document_files_python = {json.dumps(sys.executable)}",
                 "reconcile_seconds = 2",
                 "[[connections]]",
                 'space_id = "notes"',
@@ -177,8 +180,8 @@ def test_configuration_rejects_http_and_root_rebind(tmp_path: Path) -> None:
 
     config_path.write_text(text.replace("http://", "https://"))
     config = load_config(config_path)
-    SyncState(config)
+    state = SyncState(config)
     root.rmdir()
     root.mkdir()
-    with pytest.raises(SyncError, match="identity"):
-        SyncState(load_config(config_path))
+    state = SyncState(load_config(config_path))
+    assert state.connection_row("notes:main")["location_state"] == "unavailable"
