@@ -9,6 +9,7 @@ export interface OAuthEnv {
   GOOGLE_CLIENT_SECRET: string;
   OWNER_GOOGLE_SUBS?: string;
   OWNER_GOOGLE_EMAILS?: string;
+  OWNER_ID?: string;
 }
 
 export interface OwnerProps {

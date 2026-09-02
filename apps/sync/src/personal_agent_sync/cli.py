@@ -1,0 +1,219 @@
+"""Small operator interface for the background Sync app."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import plistlib
+import shutil
+import sys
+from pathlib import Path
+
+from .config import default_config_path, load_config
+from .credentials import read_token, store_token
+from .daemon import SyncDaemon
+from .errors import SyncError
+from .reconcile import reconcile_all
+from .remote import RemoteClient
+from .state import SyncState
+
+LAUNCH_AGENT_LABEL = "dev.personal-agent.sync"
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="personal-agent-sync")
+    root.add_argument("--config", type=Path, default=None)
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("run", help="run the outbound Sync daemon")
+    commands.add_parser("validate", help="validate local configuration and storage")
+    commands.add_parser("reconcile", help="run one local Source reconciliation")
+    commands.add_parser("status", help="show local queue and Connection status")
+    credential = commands.add_parser(
+        "set-credential", help="store a device token in Keychain"
+    )
+    credential.add_argument("token")
+    approve = commands.add_parser(
+        "approve-remote", help="approve one revision for remote analysis"
+    )
+    approve.add_argument("connection_key")
+    approve.add_argument("document_id")
+    approve.add_argument("revision_sha256")
+    approve.add_argument("--max-bytes", type=int, required=True)
+    migrate = commands.add_parser("import", help="upload a prepared migration payload")
+    migrate.add_argument("product", choices=["sense", "hypes", "corpus-metadata"])
+    migrate.add_argument("file", type=Path)
+    commands.add_parser(
+        "install-agent", help="install and start the per-user launch agent"
+    )
+    commands.add_parser(
+        "uninstall-agent", help="stop and remove the per-user launch agent"
+    )
+    return root
+
+
+async def _run(config_path: Path | None) -> None:
+    config = load_config(config_path)
+    daemon = SyncDaemon(config, read_token(config.device_id))
+    await daemon.run()
+
+
+async def _import(config_path: Path | None, product: str, source: Path) -> dict:
+    config = load_config(config_path)
+    token = read_token(config.device_id)
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SyncError(
+            "invalid_import", "migration payload could not be read"
+        ) from exc
+    remote = RemoteClient(config, token)
+    try:
+        return await remote.import_payload(product, value)
+    finally:
+        await remote.close()
+
+
+def _status(state: SyncState) -> dict:
+    with state.connect() as connection:
+        connections = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT connection_key, location_state, access_scope, permission,
+                       corpus_id, analyzer_route, updated_at
+                FROM connections ORDER BY connection_key
+                """
+            )
+        ]
+        pending = connection.execute("SELECT COUNT(*) FROM change_queue").fetchone()[0]
+        failures = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT connection_key, document_id, event_kind, attempt_count,
+                       last_error_code, next_attempt_at
+                FROM change_queue WHERE last_error_code IS NOT NULL
+                ORDER BY next_attempt_at LIMIT 20
+                """
+            )
+        ]
+    return {
+        "connections": connections,
+        "pending_changes": pending,
+        "recent_failures": failures,
+    }
+
+
+def _launch_agent_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
+
+
+def _install_agent(config_path: Path | None, data_root: Path) -> dict:
+    executable = shutil.which("personal-agent-sync")
+    if not executable:
+        raise SyncError(
+            "executable_not_found", "personal-agent-sync is not installed on PATH"
+        )
+    source = (config_path or default_config_path()).expanduser().resolve()
+    launch_agents = _launch_agent_path().parent
+    launch_agents.mkdir(parents=True, exist_ok=True)
+    path = _launch_agent_path()
+    payload = {
+        "Label": LAUNCH_AGENT_LABEL,
+        "ProgramArguments": [executable, "--config", str(source), "run"],
+        "RunAtLoad": True,
+        "KeepAlive": {"SuccessfulExit": False},
+        "ProcessType": "Background",
+        "ThrottleInterval": 10,
+        "StandardOutPath": str(data_root / "sync.log"),
+        "StandardErrorPath": str(data_root / "sync-error.log"),
+    }
+    temporary = path.with_suffix(".plist.tmp")
+    with temporary.open("wb") as stream:
+        plistlib.dump(payload, stream)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    os.spawnlp(
+        os.P_WAIT, "launchctl", "launchctl", "bootout", f"gui/{os.getuid()}", str(path)
+    )
+    status = os.spawnlp(
+        os.P_WAIT,
+        "launchctl",
+        "launchctl",
+        "bootstrap",
+        f"gui/{os.getuid()}",
+        str(path),
+    )
+    if status != 0:
+        raise SyncError("launch_agent_failed", "Sync launch agent could not be started")
+    return {"installed": True, "label": LAUNCH_AGENT_LABEL}
+
+
+def _uninstall_agent() -> dict:
+    path = _launch_agent_path()
+    if path.exists():
+        os.spawnlp(
+            os.P_WAIT,
+            "launchctl",
+            "launchctl",
+            "bootout",
+            f"gui/{os.getuid()}",
+            str(path),
+        )
+        path.unlink(missing_ok=True)
+    return {"installed": False, "label": LAUNCH_AGENT_LABEL}
+
+
+def main() -> None:
+    arguments = parser().parse_args()
+    try:
+        config = load_config(arguments.config)
+        if arguments.command == "run":
+            asyncio.run(_run(arguments.config))
+            return
+        if arguments.command == "set-credential":
+            store_token(config.device_id, arguments.token)
+            result = {"stored": True, "device_id": config.device_id}
+        elif arguments.command == "validate":
+            SyncState(config)
+            read_token(config.device_id)
+            result = {"valid": True, "device_id": config.device_id}
+        elif arguments.command == "reconcile":
+            result = {"connections": reconcile_all(SyncState(config))}
+        elif arguments.command == "status":
+            result = _status(SyncState(config))
+        elif arguments.command == "approve-remote":
+            state = SyncState(config)
+            state.approve_remote(
+                arguments.connection_key,
+                arguments.document_id,
+                arguments.revision_sha256,
+                arguments.max_bytes,
+            )
+            result = {"approved": True, "document_id": arguments.document_id}
+        elif arguments.command == "import":
+            result = asyncio.run(
+                _import(arguments.config, arguments.product, arguments.file)
+            )
+        elif arguments.command == "install-agent":
+            result = _install_agent(arguments.config, config.data_root)
+        elif arguments.command == "uninstall-agent":
+            result = _uninstall_agent()
+        else:  # pragma: no cover
+            raise SyncError("invalid_command", "command is unsupported")
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+    except SyncError as error:
+        print(
+            json.dumps(
+                {"ok": False, "error": {"code": error.code, "message": str(error)}},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from error
+
+
+if __name__ == "__main__":
+    main()

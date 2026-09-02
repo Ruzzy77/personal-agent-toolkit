@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-context-test",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "STATE_DB",
+      "database_name": "personal-agent-context-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CORPUS_SHARDS", "class_name": "CorpusShard" },
+      { "name": "SYNC_BROKERS", "class_name": "SyncBroker" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CorpusShard", "SyncBroker"]
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://auth.test",
+    "SENSE_RESOURCE": "https://context.test/sense/mcp",
+    "CORPUS_RESOURCE": "https://context.test/corpus/mcp",
+    "HYPES_RESOURCE": "https://context.test/hypes/mcp",
+    "SYNC_DEVICE_TOKEN": "test-device-token",
+    "SYNC_DEVICE_ID": "test-mac",
+    "SYNC_DEVICE_TOKENS_JSON": "{\"test-mac\":\"test-device-token\",\"socket-mac\":\"test-device-token\"}",
+    "SYNC_OWNER_ID": "owner_test"
+  }
+}

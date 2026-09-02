@@ -10,9 +10,23 @@
     {
       "id": "corpus",
       "name": "Corpus",
-      "resource": "https://corpus.example.com/mcp",
-      "scopes": ["corpus.read", "corpus.write"],
+      "resource": "https://context.example.com/corpus/mcp",
+      "scopes": ["corpus.read", "corpus.write", "corpus.sync"],
       "baselineScopes": ["corpus.read"]
+    },
+    {
+      "id": "sense",
+      "name": "Sense",
+      "resource": "https://context.example.com/sense/mcp",
+      "scopes": ["sense.read", "sense.write"],
+      "baselineScopes": ["sense.read"]
+    },
+    {
+      "id": "hypes",
+      "name": "Hypes",
+      "resource": "https://context.example.com/hypes/mcp",
+      "scopes": ["hypes.read", "hypes.write"],
+      "baselineScopes": ["hypes.read"]
     },
     {
       "id": "journal",

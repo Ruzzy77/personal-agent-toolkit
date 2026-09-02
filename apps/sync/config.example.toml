@@ -1,0 +1,29 @@
+service_url = "https://personal-agent-context.example.workers.dev"
+device_id = "owner-mac"
+display_name = "Owner Mac"
+data_root = "~/Library/Application Support/Personal Agent Sync"
+corpus_data_root = "~/Library/Application Support/Corpus"
+reconcile_seconds = 15
+
+[[connections]]
+space_id = "research-note"
+connection_id = "main"
+root = "~/Documents/research-note"
+roles = ["source", "work"]
+access_scope = "remote_allowed"
+permission = "read_write"
+corpus_id = "research-note"
+analyzer_route = "local"
+max_transfer_bytes = 268435456
+generation = 1
+
+[[connections]]
+space_id = "private-archive"
+connection_id = "source"
+root = "~/Documents/private-archive"
+roles = ["source"]
+access_scope = "local_only"
+permission = "read_only"
+corpus_id = "private-archive"
+analyzer_route = "approval_required"
+max_transfer_bytes = 67108864

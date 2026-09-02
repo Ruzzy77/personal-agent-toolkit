@@ -178,7 +178,10 @@ async function handleGoogleCallback(
 
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: flow.oauthRequest,
-    userId: `google-${encodeURIComponent(identity.subject)}`,
+    userId:
+      env.OWNER_ID && /^owner_[0-9a-f]{32}$/.test(env.OWNER_ID)
+        ? env.OWNER_ID
+        : `google-${encodeURIComponent(identity.subject)}`,
     metadata: {
       provider: "google",
       resourceId: policy.resource.id,

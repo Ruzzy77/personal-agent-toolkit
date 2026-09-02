@@ -1,0 +1,41 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-context",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "STATE_DB",
+      "database_name": "personal-agent-context",
+      "database_id": "replace-with-d1-database-id",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CORPUS_SHARDS", "class_name": "CorpusShard" },
+      { "name": "SYNC_BROKERS", "class_name": "SyncBroker" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CorpusShard", "SyncBroker"]
+    }
+  ],
+  "services": [
+    {
+      "binding": "AUTH_SERVICE",
+      "service": "personal-agent-auth",
+      "entrypoint": "AuthService"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://personal-agent-auth.example.workers.dev",
+    "SENSE_RESOURCE": "https://personal-agent-context.example.workers.dev/sense/mcp",
+    "CORPUS_RESOURCE": "https://personal-agent-context.example.workers.dev/corpus/mcp",
+    "HYPES_RESOURCE": "https://personal-agent-context.example.workers.dev/hypes/mcp"
+  }
+}
+

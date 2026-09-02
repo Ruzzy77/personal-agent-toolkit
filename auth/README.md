@@ -47,6 +47,7 @@ Worker secret에는 다음 값을 넣습니다.
 - `GOOGLE_CLIENT_SECRET`
 - `OWNER_GOOGLE_SUBS`: 허용할 Google subject. 여러 값은 쉼표나 줄바꿈으로 구분합니다.
 - `OWNER_GOOGLE_EMAILS`: 초기 설정에 쓸 수 있는 검증된 Google 이메일 허용 목록
+- `OWNER_ID`: 여러 리소스와 Sync 앱이 함께 쓰는 `owner_<32자리 hex>` 형식의 불투명 소유자 ID. 새 통합 배포에서는 Auth와 Context Worker에 같은 값을 설정합니다.
 
 Google OAuth client의 승인된 redirect URI는 다음 주소와 정확히 같아야 합니다.
 
@@ -82,7 +83,7 @@ Google token endpoint와 JWKS는 시험 안에서 대체합니다. 실제 Google
 3. Cloudflare KV namespace와 인증 Worker를 만듭니다.
 4. Google 자격 증명과 소유자 허용 목록을 Worker secret으로 등록합니다.
 5. 인증 Worker를 배포하고 OAuth metadata와 Google callback을 확인합니다.
-6. Library MCP Worker에 `AuthService` Service Binding을 연결합니다.
-7. `library.read`로 읽기 연결을 확인한 뒤 `library.write`와 편집 정본 저장 절차를 엽니다.
+6. Library와 Personal Agent Context Worker에 `AuthService` Service Binding을 연결합니다.
+7. 각 리소스의 읽기 scope로 먼저 연결한 뒤 필요한 쓰기 scope를 별도로 확인합니다. Context Worker에서는 Sense·Corpus·Hypes가 서로 다른 resource URI와 scope를 사용하므로 한 리소스의 토큰으로 다른 리소스를 열 수 없습니다.
 
 인증 배포가 끝나도 Library 저장소 이전은 별도 작업으로 남습니다.
