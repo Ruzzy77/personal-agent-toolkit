@@ -844,7 +844,8 @@ class LocalCorpusMigration:
                 """
                 SELECT d.*, r.sha256, r.source_size, r.source_modified_ns,
                        r.source_changed_ns, r.source_inode,
-                       p.projection_id AS active_projection_id
+                       p.projection_id AS active_projection_id,
+                       p.adapter_id, p.adapter_version, p.config_hash
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
@@ -1357,6 +1358,25 @@ def _first_record_mismatch(
     return None
 
 
+def _durable_counts_cover_expected(actual: object, expected: Mapping[str, int]) -> bool:
+    """Allow only preserved historical projections beyond the local snapshot."""
+
+    if not isinstance(actual, dict):
+        return False
+    for key in ("documents", "revisions"):
+        if actual.get(key) != expected.get(key):
+            return False
+    for key in ("projections", "units"):
+        value = actual.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < expected.get(key, 0)
+        ):
+            return False
+    return True
+
+
 async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
     """Compare the local durable records with the deployed remote state."""
 
@@ -1444,6 +1464,10 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 }
                 for header in headers
             }
+            expected_document_ids = set(expected_documents)
+            expected_revision_ids = {
+                str(header["revision"]["revisionId"]) for header in headers
+            }
             expected_counts = corpus.counts(corpus_id)
             external = corpus.external_state(corpus_id)
             expected_external = {
@@ -1456,6 +1480,7 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             document_done = False
             projection_done = False
             observed_counts: dict[str, Any] | None = None
+            preserved_projection_count = 0
             while not (document_done and projection_done):
                 inventory = await remote.inventory(
                     corpus_id,
@@ -1463,7 +1488,7 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     projection_offset=projection_offset,
                 )
                 counts = inventory.get("counts")
-                if counts != expected_counts:
+                if not _durable_counts_cover_expected(counts, expected_counts):
                     raise _verification_error(
                         f"{corpus_id} durable counts do not match"
                     )
@@ -1504,6 +1529,17 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     projection_id = actual.get("projection_id")
                     expected = expected_projections.pop(projection_id, None)
+                    if expected is None and (
+                        actual.get("is_active") == 0
+                        and actual.get("document_id") in expected_document_ids
+                        and actual.get("revision_id") in expected_revision_ids
+                    ):
+                        # A Context link can protect an older extraction for the
+                        # same durable revision. Completed migration maintenance
+                        # already attempted exact deletion; preserving this
+                        # inactive projection is intentional, not drift.
+                        preserved_projection_count += 1
+                        continue
                     mismatch = (
                         "projection_id"
                         if expected is None
@@ -1523,6 +1559,7 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             verified[corpus_id] = {
                 "counts": observed_counts,
                 "external": expected_external,
+                "preserved_historical_projections": preserved_projection_count,
             }
         return {
             "verified": True,

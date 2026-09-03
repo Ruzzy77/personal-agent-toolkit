@@ -42,6 +42,12 @@ Personal Agent Toolkit 플러그인입니다. 특정 디자인 제품이나 한 
 목록은 가져오지 않았습니다. 접근성 감사의 기본 기준은
 [WCAG 2.2](https://www.w3.org/TR/WCAG22/)입니다.
 
+현재 비교 기준은 Anthropic `frontend-design`의
+[`44490cc`](https://github.com/anthropics/claude-plugins-official/commit/44490cccaf6d9f82fdeec9416fbf7c9bd72575dc)와
+`taste-skill`의
+[`ccbc156`](https://github.com/leonxlnx/taste-skill/commit/ccbc15639c97057cbfcf32ecebc38ef716e4bb37)입니다.
+이후 변경도 그대로 병합하지 않고 Design의 현재 역할에 필요한 판단 원칙만 다시 검토합니다.
+
 ## 데이터와 연결
 
 Design plugin은 Skill과 정적 참고 자산만 포함하며 MCP 서버나 외부 계정 연결, 사용자 데이터

@@ -3,7 +3,6 @@
 .minimal-head {
   margin-bottom: clamp(48px, 8vw, 84px);
 }
-
 .minimal-summary {
   max-width: 42ch;
   margin: calc(var(--space-6) * -1) 0 0;
@@ -201,4 +200,3 @@ textarea.field {
     width: 100%;
   }
 }
-
