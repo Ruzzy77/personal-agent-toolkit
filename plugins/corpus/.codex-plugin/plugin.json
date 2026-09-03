@@ -1,6 +1,6 @@
 {
   "name": "corpus",
-  "version": "0.21.6+codex.20260903220200",
+  "version": "0.21.6+codex.20260903234339",
   "description": "Keep durable extracted knowledge connected to changing sources and local work.",
   "author": {
     "name": "Ruzzy77",
@@ -17,12 +17,7 @@
     "local"
   ],
   "skills": "./skills/",
-  "mcpServers": {
-    "corpus": {
-      "type": "http",
-      "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp"
-    }
-  },
+  "apps": "./.app.json",
   "interface": {
     "displayName": "Corpus",
     "shortDescription": "Use shared Context and continue local Work files",
