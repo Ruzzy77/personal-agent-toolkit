@@ -844,7 +844,8 @@ class LocalCorpusMigration:
                 """
                 SELECT d.*, r.sha256, r.source_size, r.source_modified_ns,
                        r.source_changed_ns, r.source_inode,
-                       p.projection_id AS active_projection_id
+                       p.projection_id AS active_projection_id,
+                       p.adapter_id, p.adapter_version, p.config_hash
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
