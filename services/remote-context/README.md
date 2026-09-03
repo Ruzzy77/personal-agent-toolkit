@@ -1,7 +1,8 @@
 # Personal Agent Context service
 
 Owner-operated remote MCP and synchronization service for Sense, Corpus, and
-Hypes.
+Hypes, plus the OpenAI-facing unified MCP for Sense, Corpus, Hypes, Journal,
+and Library.
 
 The service uses the existing Personal Agent Auth Worker for OAuth, D1 for
 owner-level state, one SQLite-backed Durable Object per Corpus Source, and a
@@ -21,6 +22,7 @@ belong in the repository.
 
 ## Endpoints
 
+- `/mcp`
 - `/sense/mcp`
 - `/corpus/mcp`
 - `/hypes/mcp`

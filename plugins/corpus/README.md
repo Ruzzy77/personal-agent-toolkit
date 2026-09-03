@@ -26,8 +26,8 @@ Context·Source·Work를 여러 AI client에 같은 MCP로 연결합니다.
 | `corpus_file_select_current` | Current File 선택 |
 | `corpus_file_restore` | 직전 교체본 복원 |
 
-OpenAI plugin은 Skill과 등록 app을 함께 배포하고, Claude plugin은 다음 상시 원격 MCP를 직접
-선언합니다.
+OpenAI에서는 Corpus Skill을 `Personal Agent Toolkit` 통합 plugin에 포함하고, Claude의 Corpus
+plugin은 다음 상시 원격 MCP를 직접 선언합니다.
 
 ```text
 https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp

@@ -66,7 +66,6 @@ async function safeTool(operation: () => Promise<unknown>) {
 }
 
 function buildServer(env: Env, principal: Principal): McpServer {
-  const service = new JournalService(env.DB);
   const server = new McpServer(
     { name: "Personal Agent Journal", version: "0.2.2" },
     {
@@ -77,7 +76,15 @@ function buildServer(env: Env, principal: Principal): McpServer {
         "Use source references instead of copying email or document bodies.",
     },
   );
+  registerJournalTools(server, new JournalService(env.DB), principal);
+  return server;
+}
 
+export function registerJournalTools(
+  server: McpServer,
+  service: JournalService,
+  principal: Principal,
+): void {
   server.registerTool(
     "journal_get_board",
     {
@@ -276,8 +283,6 @@ function buildServer(env: Env, principal: Principal): McpServer {
         return service.savePeriodSummary(input, principal);
       }),
   );
-
-  return server;
 }
 
 export async function handleMcp(

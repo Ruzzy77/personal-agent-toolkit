@@ -4,6 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Owner-operated Journal API and MCP service for Personal Agent Toolkit",
+  "exports": {
+    "./mcp": "./src/mcp.ts",
+    "./service": "./src/service.ts",
+    "./types": "./src/types.ts"
+  },
+  "files": [
+    "src"
+  ],
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

@@ -2,13 +2,16 @@
 
 ## Purpose
 
-This service is the owner-operated remote runtime for Sense, Corpus, and Hypes.
+This service is the owner-operated remote runtime for Sense, Corpus, and Hypes,
+and the OpenAI-facing unified MCP for Sense, Corpus, Hypes, Journal, and Library.
 It replaces client-specific local MCP processes and the ChatGPT tunnel while
 preserving the existing product boundaries and public tool names.
 
-Journal remains a separate service. Document Files remains a replaceable
-analyzer: the local Sync app may invoke it locally or send an authorized,
-temporary document capture to a remote analyzer.
+Journal and Library keep their separate services and product endpoints. The
+unified MCP registers their existing tool modules against their D1 and R2
+bindings directly; it does not proxy through a gateway or Site. Document Files
+remains a replaceable analyzer: the local Sync app may invoke it locally or send
+an authorized, temporary document capture to a remote analyzer.
 
 ## Runtime boundary
 
@@ -18,10 +21,11 @@ Codex / Claude / ChatGPT
         | OAuth resource token
         v
 Personal Agent Context Worker
+  |-- /mcp (Sense + Corpus + Hypes + Journal + Library)
   |-- /sense/mcp
   |-- /corpus/mcp
   |-- /hypes/mcp
-  |-- owner-state D1
+  |-- owner-state D1 + Journal D1 + Library D1/R2
   |-- CorpusShard Durable Objects
   `-- SyncBroker Durable Objects
              ^

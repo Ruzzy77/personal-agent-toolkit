@@ -9,8 +9,8 @@ Library는 Daily·Digest·Research 발간호를 읽고 고치고 발행하는 �
 - 문서 정본: Library service D1
 - 표지와 삽화: Library service R2
 
-OpenAI plugin은 Skill과 등록 app을 함께 배포하고, Claude plugin은 원격 MCP endpoint를 직접
-선언합니다.
+OpenAI에서는 Library Skill을 `Personal Agent Toolkit` 통합 plugin에 포함하고, Claude의 Library
+plugin은 원격 MCP endpoint를 직접 선언합니다.
 
 ## 도구
 

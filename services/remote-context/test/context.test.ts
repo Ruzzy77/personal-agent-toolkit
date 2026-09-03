@@ -189,9 +189,35 @@ const ownerPrincipal: Principal = {
     "sense.write",
     "hypes.read",
     "hypes.write",
+    "journal.read",
+    "journal.write",
+    "journal.close",
+    "library.read",
+    "library.write",
   ]),
   clientId: "test",
   auth: "oauth",
+  owner: {
+    userId: "owner_test",
+    provider: "google",
+    subject: "subject_test",
+    resource: "https://context.test/mcp",
+    scopes: [
+      "sense.read",
+      "sense.write",
+      "corpus.read",
+      "corpus.write",
+      "hypes.read",
+      "hypes.write",
+      "journal.read",
+      "journal.write",
+      "journal.close",
+      "library.read",
+      "library.write",
+    ],
+    clientId: "test",
+    expiresAt: 4_102_444_800,
+  },
 };
 
 async function mcpPayload(
@@ -213,7 +239,16 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      resources: ["sense", "corpus", "hypes"],
+      resources: ["toolkit", "sense", "corpus", "hypes"],
+    });
+
+    const toolkit = await SELF.fetch(
+      "https://context.test/.well-known/oauth-protected-resource/mcp",
+    );
+    expect(toolkit.status).toBe(200);
+    expect(await body(toolkit)).toMatchObject({
+      resource: "https://context.test/mcp",
+      authorization_servers: ["https://auth.test"],
     });
 
     for (const kind of ["sense", "corpus", "hypes"] as const) {
@@ -225,6 +260,38 @@ describe("remote personal context service", () => {
         resource: `https://context.test/${kind}/mcp`,
         authorization_servers: ["https://auth.test"],
       });
+    }
+  });
+
+  it("exposes every product through the unified toolkit MCP surface", async () => {
+    const response = await handleMcp(
+      new Request("https://context.test/mcp", {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      runtime,
+      ownerPrincipal,
+      "toolkit",
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    const payload = await mcpPayload(response);
+    const result = payload.result as {
+      tools: Array<{
+        name: string;
+        inputSchema: Record<string, unknown>;
+        outputSchema: Record<string, unknown>;
+      }>;
+    };
+    expect(result.tools.map((tool) => tool.name)).toEqual(
+      MCP_SURFACES.toolkit.tools,
+    );
+    for (const tool of result.tools) {
+      expect(tool.inputSchema).toMatchObject({ type: "object" });
+      expect(tool.outputSchema).toMatchObject({ type: "object" });
     }
   });
 

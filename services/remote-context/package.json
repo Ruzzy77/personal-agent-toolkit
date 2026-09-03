@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": true,
   "type": "module",
-  "description": "Owner-operated remote MCP and sync service for Sense, Corpus, and Hypes",
+  "description": "Owner-operated MCP and sync service with a unified OpenAI surface",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -14,6 +14,8 @@
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
     "@personal-agent/remote-runtime": "file:../../packages/remote-runtime",
+    "personal-agent-journal-service": "file:../journal",
+    "personal-agent-library-service": "file:../library",
     "zod": "4.5.4"
   },
   "devDependencies": {

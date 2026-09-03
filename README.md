@@ -34,8 +34,8 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-Sense·Corpus·Hypes·Journal·Library는 OpenAI에서 Skill과 등록 app 연결을 한 plugin으로 배포하고,
-Claude에서는 Skill과 원격 MCP 주소를 한 plugin으로 배포합니다. 로컬 Source와 Work를 연결하는
+Sense·Corpus·Hypes·Journal·Library는 OpenAI에서 하나의 등록 app과 plugin으로 함께 배포하고,
+Claude에서는 제품별 Skill과 원격 MCP 주소를 한 plugin으로 배포합니다. 로컬 Source와 Work를 연결하는
 Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
 plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
 
@@ -45,22 +45,21 @@ plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하�
 
 ### ChatGPT와 Codex
 
-Sense·Corpus·Hypes·Journal·Library는 ChatGPT의 plugin directory에 비공개 workspace plugin으로
-발행하고 설치합니다. 같은 설치 항목이 ChatGPT와 Codex에 나타나며, 각 plugin의 Skill과 등록 app을
-함께 사용합니다. 같은 제품을 Codex의 저장소 marketplace나 별도 `Created by me` 원격 plugin으로
-동시에 설치하지 않습니다.
+개인 계정에서는 ChatGPT의 **Personal**에 `Personal Agent Toolkit` app 하나를 만들고 설치합니다.
+Codex에서는 같은 등록 app을 참조하는 `Personal Agent Toolkit` plugin 하나를 저장소 marketplace에서
+설치합니다. 설치 항목만 이 이름을 쓰며 내부 제품과 기능은 Sense, Corpus, Hypes, Journal과 Library의
+짧은 이름을 유지합니다. 제품별 `Created by me` app이나 제품별 Codex plugin을 함께 설치하지 않습니다.
 
-Document Files와 Design처럼 로컬 실행이나 정적 자산이 필요한 plugin만 Codex의 저장소
-marketplace에서 설치합니다.
+Document Files와 Design도 Codex의 같은 저장소 marketplace에서 별도 설치합니다.
 
 ```sh
 codex plugin marketplace add Ruzzy77/personal-agent-toolkit
+codex plugin add personal-agent-toolkit@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
 ```
 
 로컬 checkout에서는 저장소 루트에서 다음 명령으로 marketplace 소스를 등록할 수 있습니다.
-원격 제품 항목은 발행 전 검증용이며 정상 사용 설치와 병행하지 않습니다.
 
 ```sh
 codex plugin marketplace add .
@@ -93,19 +92,20 @@ Ruzzy77/personal-agent-toolkit
 
 ## 원격 MCP 연결
 
-원격 제품은 다음 상시 HTTPS endpoint를 사용합니다.
+OpenAI 통합 app과 Claude의 제품별 plugin은 다음 상시 HTTPS endpoint를 사용합니다.
 
 | 제품 | endpoint |
 |---|---|
+| Personal Agent Toolkit | `https://personal-agent-context.hiyaq77.workers.dev/mcp` |
 | Sense | `https://personal-agent-context.hiyaq77.workers.dev/sense/mcp` |
 | Corpus | `https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp` |
 | Hypes | `https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp` |
 | Journal | `https://personal-agent-journal.hiyaq77.workers.dev/mcp` |
 | Library | `https://personal-library-mcp.hiyaq77.workers.dev/api/mcp` |
 
-OpenAI plugin은 등록 app을 통해 이 주소의 MCP를 사용하고, Claude plugin은 주소를 직접 내장합니다.
-ChatGPT와 Codex는 같은 OpenAI plugin 설치와 app 인증을 공유합니다. claude.ai에서는 같은 주소를
-사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
+OpenAI plugin은 등록 app을 통해 통합 endpoint를 사용하고, Claude plugin은 제품별 endpoint를 직접
+내장합니다. ChatGPT와 Codex는 같은 등록 app과 소유자 인증을 사용합니다. claude.ai에서는 제품별
+주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
 필요하지 않습니다.
 
 Journal과 Library의 시각 화면은 각각 소유자 전용
@@ -136,20 +136,21 @@ Document Files로 분석한 뒤 확정된 Corpus revision으로 원자적으로 
 ## 버전 갱신
 
 plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의
-절차로 마칩니다. OpenAI 원격 제품은 workspace plugin revision을 새로 발행하고, Claude와 Codex의
-로컬 plugin은 GitHub marketplace를 갱신합니다. 로컬 checkout marketplace는 발행 전 시험에만
+절차로 마칩니다. OpenAI 통합 app의 도구를 새로 고침하고 Codex의 packaging revision을 갱신하며,
+Claude와 Codex의 GitHub marketplace를 갱신합니다. 로컬 checkout marketplace는 발행 전 시험에만
 사용합니다.
 
 ### ChatGPT와 Codex
 
-Sense·Corpus·Hypes·Journal·Library의 변경은 각 비공개 workspace plugin에 새 revision으로
-발행합니다. plugin directory에서 설치된 항목의 현재 Skill과 등록 app 도구를 ChatGPT와 Codex의
-새 작업에서 확인합니다. 원격 app을 별도 설치 항목으로 중복 설치하지 않습니다.
+Sense·Corpus·Hypes·Journal·Library의 변경은 통합 app과 `Personal Agent Toolkit` plugin에 한 번
+반영합니다. ChatGPT에서는 app의 현재 도구를 새로 고치고, Codex에서는 통합 plugin의 packaging
+revision을 갱신합니다. 새 작업에서 현재 Skill과 다섯 제품의 등록 app 도구를 확인합니다.
 
 Document Files와 Design은 Codex marketplace에서 갱신합니다.
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
+codex plugin add personal-agent-toolkit@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
 codex plugin list --json
@@ -197,7 +198,7 @@ Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름�
 
 ### 완료 기준
 
-변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, OpenAI workspace plugin과 Claude
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, OpenAI 통합 app과 plugin, Claude
 plugin이 각각 갱신된 뒤 지원 client에서 현재 Skill과 같은 MCP 도구를 확인해야 갱신이 완료됩니다.
 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도 함께
 검증합니다.
@@ -315,26 +316,30 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 ## 저장소 구조
 
-제품 사이의 공통 실행 경계와 통일 방향은 [`DESIGN.md`](./DESIGN.md), 현재 제품·version·공개
-MCP 목록은 [`products.json`](./products.json)을 기준으로 합니다. 제품 내부 동작은 각 plugin의
-`DESIGN.md`에 둡니다.
+제품 사이의 공통 실행 경계와 통일 방향은 [`DESIGN.md`](./DESIGN.md), 현재 제품·version·공개 MCP와
+client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합니다. 제품 내부 동작은 각
+plugin의 `DESIGN.md`에 둡니다.
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill만 배포하며,
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`는 제품 계약과
+Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/personal-agent-toolkit`은 이 다섯 제품의
+현재 Skill과 통합 등록 app을 담는 OpenAI 배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
-bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 다섯 제품의 OpenAI 통합
+MCP를 제공합니다. Design은
 `plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
-서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
-`services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다.
-`plugins/library`, `services/library`와 `sites/library`는 Library의 연결, 서비스 소유 저장·MCP와
+서비스나 사용자 저장소를 만들지 않습니다. `services/journal`은 Journal 서비스이고,
+`sites/journal`은 소유자 전용 화면입니다. `services/library`와 `sites/library`는 Library의 서비스
+소유 저장·MCP와
 읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 이전과 rollback 경계는
 [`DESIGN.md`](./DESIGN.md)에 구분해 둡니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증
 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
-plugin base version을 바꿀 때에는 두 client manifest와 `products.json`을 맞춥니다. plugin 자체에
-Python package가 있는 Document Files와 같은 제품으로 배포하는 service·Site는 package와 lockfile도
-같은 release version을 사용합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한
-plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
+plugin base version을 바꿀 때에는 해당 client manifest와 `products.json`을 맞춥니다. OpenAI 통합
+plugin의 packaging revision은 제품 release와 분리합니다. plugin 자체에 Python package가 있는
+Document Files와 같은 제품으로 배포하는 service·Site는 package와 lockfile도 같은 release version을
+사용합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP
+도구를 내보내는 상태까지 이어서 다룹니다.
 
 ## 개발 검사
 

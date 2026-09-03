@@ -10,6 +10,22 @@
       "database_name": "personal-agent-context-test",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
+    },
+    {
+      "binding": "JOURNAL_DB",
+      "database_name": "personal-agent-journal-test",
+      "database_id": "00000000-0000-0000-0000-000000000001"
+    },
+    {
+      "binding": "LIBRARY_DB",
+      "database_name": "personal-agent-library-test",
+      "database_id": "00000000-0000-0000-0000-000000000002"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "LIBRARY_MEDIA",
+      "bucket_name": "personal-agent-library-media-test"
     }
   ],
   "durable_objects": {
@@ -29,6 +45,7 @@
     "SENSE_RESOURCE": "https://context.test/sense/mcp",
     "CORPUS_RESOURCE": "https://context.test/corpus/mcp",
     "HYPES_RESOURCE": "https://context.test/hypes/mcp",
+    "TOOLKIT_RESOURCE": "https://context.test/mcp",
     "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "true",
     "SEARCH_INDEX_V2_WRITE_ENABLED": "true",
     "SEARCH_INDEX_V2_CUTOVER_ENABLED": "false",

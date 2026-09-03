@@ -30,7 +30,9 @@ import type {
 
 function maskEmail(value: string | undefined): string | null {
   if (!value?.includes("@")) return null;
-  const [name, domain] = value.split("@", 2);
+  const separator = value.indexOf("@");
+  const name = value.slice(0, separator);
+  const domain = value.slice(separator + 1);
   return `${name.slice(0, 2)}${"*".repeat(Math.max(1, name.length - 2))}@${domain}`;
 }
 
@@ -70,7 +72,15 @@ function createServer(
           : "소유자의 온라인 Library 원본을 읽습니다. 원문 HTML과 읽기용 텍스트를 제공합니다.",
     },
   );
+  registerLibraryTools(server, owner, library);
+  return server;
+}
 
+export function registerLibraryTools(
+  server: McpServer,
+  owner: AuthenticatedOwner,
+  library: LibraryService,
+): void {
   server.registerTool(
     "library_whoami",
     {
@@ -253,8 +263,6 @@ function createServer(
       },
     );
   }
-
-  return server;
 }
 
 export async function handleMcp(
