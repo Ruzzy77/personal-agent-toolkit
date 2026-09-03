@@ -6,7 +6,6 @@ html {
   background: var(--paper);
   scroll-behavior: smooth;
 }
-
 body {
   min-width: 320px;
   margin: 0;
@@ -228,4 +227,3 @@ svg {
   white-space: nowrap !important;
   border: 0 !important;
 }
-

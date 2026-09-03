@@ -35,11 +35,12 @@ npm run dev
 ## 확인
 
 ```bash
-npm run build
-npm test
-npm run lint
+npm run check
 npm run export:plugin
 ```
+
+`npm run check`는 린트, 프로덕션 빌드와 렌더링 시험을 실행한 뒤 플러그인의
+오프라인 참고 묶음이 `designs/` 정본과 일치하는지 확인합니다.
 
 원본은 `designs/`에서 수정합니다. 자동 생성되는 카탈로그와 `public/`의
 미리보기 파일은 직접 고치지 않습니다. 공개 가능한 묶음은 다음처럼 내보냅니다.
