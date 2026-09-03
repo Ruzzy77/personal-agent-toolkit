@@ -92,9 +92,10 @@ Ordinary metadata-only filesystem changes still reuse the committed projection.
 record counts, derived-index state, and largest logical projections. It is an
 explicit diagnostic rather than a scheduled scan. `personal-agent-sync
 storage-maintain` removes staged uploads older than 24 hours by default,
-compacts legacy structural-only search rows, and losslessly rewrites one bounded
-batch of legacy Source-anchor metadata and repeated table-cell structure paths.
-The remote read contract and structural search text stay unchanged. Larger
+rebuilds older search projections from user-visible paths and extracted text
+without duplicating canonical structure JSON, and losslessly rewrites one
+bounded batch of legacy Source-anchor metadata and repeated table-cell
+structure paths. Source-unit reads still return the full structure. Larger
 one-time compaction is explicit
 through `--unit-metadata-batches`; new uploads use the compact representation
 immediately. It never chooses

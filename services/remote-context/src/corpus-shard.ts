@@ -22,6 +22,20 @@ interface CountRow {
   maximum: number | null;
 }
 
+interface SearchRow extends Record<string, SqlStorageValue> {
+  unit_id: string;
+  document_id: string;
+  projection_id: string;
+  relative_path: string;
+  normalized_content: string;
+  rank: number;
+  ordinal: number;
+  revision_id: string;
+  source_state: string;
+  completeness_state: string;
+  assurance_state: string;
+}
+
 interface UnitRow {
   unit_id: string;
   revision_id: string;
@@ -247,6 +261,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS source_units_fts USING fts5(
   tokenize = 'unicode61 remove_diacritics 2'
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS source_units_fts_v2 USING fts5(
+  relative_path,
+  normalized_content,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
+
 CREATE TABLE IF NOT EXISTS staged_uploads (
   upload_id TEXT PRIMARY KEY,
   header_json TEXT NOT NULL,
@@ -330,7 +350,7 @@ function searchExpression(query: string): string {
       query
         .normalize("NFC")
         .toLocaleLowerCase()
-        .match(/[^\W_]+/gu) ?? [],
+        .match(/[\p{L}\p{M}\p{N}]+/gu) ?? [],
     ),
   ]
     .slice(0, 24)
@@ -357,10 +377,15 @@ function dependencyState(row: UnitRow): string {
 const COMPACT_SOURCE_ANCHOR_PREFIX = "compact-v1:";
 const FULL_SOURCE_ANCHOR_PREFIX = "full-v1:";
 const COMPACT_STRUCTURE_PATH_PREFIX = "compact-path-v1:";
-const SEARCH_INDEX_VERSION = 1;
+// Search is a derived projection over user-visible path and extracted text.
+// Canonical structure remains in source_units and is reconstructed on read;
+// indexing the JSON structure path duplicated hundreds of megabytes of
+// numeric extractor metadata and produced matches for implementation keys.
+const SEARCH_INDEX_VERSION = 2;
 const SOURCE_ANCHOR_STORAGE_CURSOR = "source_anchor_storage_cursor_v1";
 const STRUCTURE_PATH_STORAGE_CURSOR = "structure_path_storage_cursor_v1";
 const STRUCTURE_PATH_STORAGE_VERSION_KEY = "structure_path_storage_version";
+const SEARCH_INDEX_STORAGE_VERSION_KEY = "search_index_storage_version";
 const STRUCTURE_PATH_STORAGE_VERSION = 1;
 const UTF8_ENCODER = new TextEncoder();
 
@@ -607,6 +632,7 @@ export class CorpusShard {
   private readonly documentColumns: Set<string>;
   private readonly projectionColumns: Set<string>;
   private readonly stagedUnitColumns: Set<string>;
+  private compactSearchIndexAvailable: boolean;
   private initialized: boolean;
 
   constructor(
@@ -621,6 +647,12 @@ export class CorpusShard {
       ),
     ];
     this.initialized = documentTable.length > 0;
+    this.compactSearchIndexAvailable =
+      [
+        ...this.sql.exec<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_units_fts_v2'",
+        ),
+      ].length > 0;
     this.documentColumns = new Set(
       this.initialized
         ? [
@@ -649,6 +681,7 @@ export class CorpusShard {
   private ensureSchema(): void {
     this.sql.exec(SHARD_SCHEMA);
     this.initialized = true;
+    this.compactSearchIndexAvailable = true;
     for (const row of this.sql.exec<{ name: string }>(
       "PRAGMA table_info(documents)",
     )) {
@@ -851,18 +884,23 @@ export class CorpusShard {
   }
 
   private storageSummary(): Record<string, number> {
+    const targetSearchIndexVersion =
+      this.env.SEARCH_INDEX_V2_WRITE_ENABLED === "true"
+        ? SEARCH_INDEX_VERSION
+        : 1;
     const pendingSearchIndexProjections = this.initialized
       ? (this.one<{ count: number }>(
           this.projectionColumns.has("search_index_version")
             ? "SELECT COUNT(*) AS count FROM projections WHERE search_index_version < ?"
             : "SELECT COUNT(*) AS count FROM projections",
           ...(this.projectionColumns.has("search_index_version")
-            ? [SEARCH_INDEX_VERSION]
+            ? [targetSearchIndexVersion]
             : []),
         )?.count ?? 0)
       : 0;
     return {
       database_size_bytes: this.sql.databaseSize,
+      search_index_target_version: targetSearchIndexVersion,
       search_index_pending_projections: pendingSearchIndexProjections,
     };
   }
@@ -871,6 +909,14 @@ export class CorpusShard {
     if (!this.initialized) {
       return {
         indexed_unit_count: 0,
+        legacy_indexed_unit_count: 0,
+        compact_indexed_unit_count: 0,
+        search_index_storage_version:
+          this.env.SEARCH_INDEX_V2_CUTOVER_ENABLED === "true" ? 2 : 1,
+        search_index_compact_write_enabled:
+          this.env.SEARCH_INDEX_V2_WRITE_ENABLED === "true",
+        search_index_legacy_cleanup_enabled:
+          this.env.SEARCH_INDEX_V2_CUTOVER_ENABLED === "true",
         searchable_unit_count: 0,
         structural_only_unit_count: 0,
         source_unit_payload_logical_bytes: 0,
@@ -984,10 +1030,22 @@ export class CorpusShard {
         STRUCTURE_PATH_STORAGE_VERSION_KEY,
       )?.value ?? "0",
     );
-    const indexed =
+    const legacyIndexed =
       this.one<{ count: number }>(
         "SELECT COUNT(*) AS count FROM source_units_fts",
       )?.count ?? 0;
+    const compactIndexed =
+      (this.compactSearchIndexAvailable
+        ? this.one<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM source_units_fts_v2",
+          )?.count
+        : 0) ?? 0;
+    const searchStorageVersion = Number(
+      this.one<{ value: string }>(
+        "SELECT value FROM shard_meta WHERE key = ?",
+        SEARCH_INDEX_STORAGE_VERSION_KEY,
+      )?.value ?? "1",
+    );
     const legacyRedundantIndexes =
       this.one<{ count: number }>(
         `SELECT COUNT(*) AS count FROM sqlite_master
@@ -1051,7 +1109,17 @@ export class CorpusShard {
     });
     return {
       unit_count: unitCounts.total ?? 0,
-      indexed_unit_count: indexed,
+      indexed_unit_count:
+        searchStorageVersion >= SEARCH_INDEX_VERSION
+          ? compactIndexed
+          : legacyIndexed,
+      legacy_indexed_unit_count: legacyIndexed,
+      compact_indexed_unit_count: compactIndexed,
+      search_index_storage_version: searchStorageVersion,
+      search_index_compact_write_enabled:
+        this.env.SEARCH_INDEX_V2_WRITE_ENABLED === "true",
+      search_index_legacy_cleanup_enabled:
+        this.env.SEARCH_INDEX_V2_CUTOVER_ENABLED === "true",
       searchable_unit_count: unitCounts.searchable ?? 0,
       structural_only_unit_count: unitCounts.structural_only ?? 0,
       source_unit_payload_logical_bytes:
@@ -1267,11 +1335,18 @@ export class CorpusShard {
     const removed = { documents: 0, revisions: 0, projections: 0, units: 0, uploads: 0 };
     const protectedCounts = { documents: 0, projections: 0 };
     const candidateRevisionIds = new Set<string>();
+    const targetSearchIndexVersion =
+      this.env.SEARCH_INDEX_V2_WRITE_ENABLED === "true"
+        ? SEARCH_INDEX_VERSION
+        : 1;
     const searchIndex = {
-      version: SEARCH_INDEX_VERSION,
+      version: targetSearchIndexVersion,
       processed_projections: 0,
+      reindexed_searchable_rows: 0,
       removed_structural_only_rows: 0,
+      excluded_structure_path_logical_bytes: 0,
       pending_projections: 0,
+      legacy_index_reclaimed: false,
     };
     const unitMetadata = {
       version: 2,
@@ -1318,6 +1393,12 @@ export class CorpusShard {
         candidateRevisionIds.add(projection.revision_id);
         this.sql.exec(
           "DELETE FROM source_units_fts WHERE projection_id = ?",
+          projectionId,
+        );
+        this.sql.exec(
+          `DELETE FROM source_units_fts_v2 WHERE rowid IN (
+             SELECT rowid FROM source_units WHERE projection_id = ?
+           )`,
           projectionId,
         );
         this.sql.exec(
@@ -1372,6 +1453,12 @@ export class CorpusShard {
         for (const projection of documentProjections) {
           this.sql.exec(
             "DELETE FROM source_units_fts WHERE projection_id = ?",
+            projection.projection_id,
+          );
+          this.sql.exec(
+            `DELETE FROM source_units_fts_v2 WHERE rowid IN (
+               SELECT rowid FROM source_units WHERE projection_id = ?
+             )`,
             projection.projection_id,
           );
           this.sql.exec(
@@ -1453,41 +1540,117 @@ export class CorpusShard {
           `SELECT projection_id FROM projections
            WHERE search_index_version < ?
            ORDER BY projection_id LIMIT ?`,
-          SEARCH_INDEX_VERSION,
+          targetSearchIndexVersion,
           Number(compactSearchIndexLimit),
         ),
       ];
       for (const projection of pendingProjections) {
-        const structuralOnlyCount =
-          this.one<{ count: number }>(
-            `SELECT COUNT(*) AS count FROM source_units
-             WHERE projection_id = ? AND NOT (${hasSearchableText("normalized_content")})`,
-            projection.projection_id,
-          )?.count ?? 0;
-        if (structuralOnlyCount > 0) {
+        const sourceState = this.one<{
+          searchable_count: number;
+          structure_path_bytes: number;
+        }>(
+          `SELECT
+             SUM(CASE WHEN ${hasSearchableText("normalized_content")}
+                      THEN 1 ELSE 0 END) AS searchable_count,
+             COALESCE(SUM(CASE
+               WHEN ${hasSearchableText("normalized_content")}
+               THEN length(CAST(structure_path_json AS BLOB)) ELSE 0 END), 0)
+                 AS structure_path_bytes
+           FROM source_units WHERE projection_id = ?`,
+          projection.projection_id,
+        ) ?? { searchable_count: 0, structure_path_bytes: 0 };
+        if (targetSearchIndexVersion >= SEARCH_INDEX_VERSION) {
           this.sql.exec(
-            `DELETE FROM source_units_fts WHERE unit_id IN (
-               SELECT unit_id FROM source_units
-               WHERE projection_id = ? AND NOT (${hasSearchableText("normalized_content")})
+            `DELETE FROM source_units_fts_v2 WHERE rowid IN (
+               SELECT rowid FROM source_units WHERE projection_id = ?
              )`,
             projection.projection_id,
           );
+          this.sql.exec(
+            `INSERT INTO source_units_fts_v2(
+               rowid, relative_path, normalized_content
+             )
+             SELECT unit.rowid, document.relative_path,
+                    unit.normalized_content
+             FROM source_units AS unit
+             JOIN revisions AS revision
+               ON revision.revision_id = unit.revision_id
+             JOIN documents AS document
+               ON document.document_id = revision.document_id
+             WHERE unit.projection_id = ?
+               AND ${hasSearchableText("unit.normalized_content")}
+             ORDER BY unit.ordinal`,
+            projection.projection_id,
+          );
+          searchIndex.reindexed_searchable_rows +=
+            sourceState.searchable_count ?? 0;
+          searchIndex.excluded_structure_path_logical_bytes +=
+            sourceState.structure_path_bytes ?? 0;
+        } else {
+          const structuralOnlyCount =
+            this.one<{ count: number }>(
+              `SELECT COUNT(*) AS count FROM source_units
+               WHERE projection_id = ?
+                 AND NOT (${hasSearchableText("normalized_content")})`,
+              projection.projection_id,
+            )?.count ?? 0;
+          if (structuralOnlyCount > 0) {
+            this.sql.exec(
+              `DELETE FROM source_units_fts WHERE unit_id IN (
+                 SELECT unit_id FROM source_units
+                 WHERE projection_id = ?
+                   AND NOT (${hasSearchableText("normalized_content")})
+               )`,
+              projection.projection_id,
+            );
+          }
+          searchIndex.removed_structural_only_rows += structuralOnlyCount;
         }
         this.sql.exec(
           `UPDATE projections SET search_index_version = ?
            WHERE projection_id = ?`,
-          SEARCH_INDEX_VERSION,
+          targetSearchIndexVersion,
           projection.projection_id,
         );
         searchIndex.processed_projections += 1;
-        searchIndex.removed_structural_only_rows += structuralOnlyCount;
       }
       searchIndex.pending_projections =
         this.one<{ count: number }>(
           `SELECT COUNT(*) AS count FROM projections
            WHERE search_index_version < ?`,
-          SEARCH_INDEX_VERSION,
+          targetSearchIndexVersion,
         )?.count ?? 0;
+      if (
+        targetSearchIndexVersion >= SEARCH_INDEX_VERSION &&
+        searchIndex.pending_projections === 0 &&
+        this.env.SEARCH_INDEX_V2_CUTOVER_ENABLED === "true"
+      ) {
+        const storedSearchIndexVersion = Number(
+          this.one<{ value: string }>(
+            "SELECT value FROM shard_meta WHERE key = ?",
+            SEARCH_INDEX_STORAGE_VERSION_KEY,
+          )?.value ?? "1",
+        );
+        if (storedSearchIndexVersion < SEARCH_INDEX_VERSION) {
+          this.sql.exec("DROP TABLE source_units_fts");
+          this.sql.exec(`CREATE VIRTUAL TABLE source_units_fts USING fts5(
+            unit_id UNINDEXED,
+            projection_id UNINDEXED,
+            document_id UNINDEXED,
+            relative_path,
+            structure_path,
+            normalized_content,
+            tokenize = 'unicode61 remove_diacritics 2'
+          )`);
+          this.sql.exec(
+            `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+            SEARCH_INDEX_STORAGE_VERSION_KEY,
+            String(SEARCH_INDEX_VERSION),
+          );
+          searchIndex.legacy_index_reclaimed = true;
+        }
+      }
 
       if (Number(compactUnitMetadataLimit) > 0) {
         const cursor = Number(
@@ -2264,6 +2427,13 @@ export class CorpusShard {
     }
 
     const committedAt = nowIso();
+    const compactSearchWrite =
+      this.env.SEARCH_INDEX_V2_WRITE_ENABLED === "true";
+    const legacySearchWrite =
+      this.env.SEARCH_INDEX_V2_CUTOVER_ENABLED !== "true";
+    const committedSearchIndexVersion = compactSearchWrite
+      ? SEARCH_INDEX_VERSION
+      : 1;
     this.state.storage.transactionSync(() => {
       this.sql.exec(
         `INSERT INTO documents(
@@ -2343,6 +2513,12 @@ export class CorpusShard {
           header.projection.projectionId,
         );
         this.sql.exec(
+          `DELETE FROM source_units_fts_v2 WHERE rowid IN (
+             SELECT rowid FROM source_units WHERE projection_id = ?
+           )`,
+          header.projection.projectionId,
+        );
+        this.sql.exec(
           "DELETE FROM source_units WHERE projection_id = ?",
           header.projection.projectionId,
         );
@@ -2376,7 +2552,7 @@ export class CorpusShard {
         canonicalJson(header.projection.issues),
         header.projection.assuranceState,
         header.projection.activate ? 1 : 0,
-        SEARCH_INDEX_VERSION,
+        committedSearchIndexVersion,
         header.projection.createdAt ?? committedAt,
       );
       this.sql.exec(
@@ -2398,20 +2574,36 @@ export class CorpusShard {
         header.projection.projectionId,
         input.uploadId,
       );
-      this.sql.exec(
-        `INSERT INTO source_units_fts(
-           unit_id, projection_id, document_id, relative_path,
-           structure_path, normalized_content
-         )
-         SELECT unit_id, ?, ?, ?, structure_path_json, normalized_content
-         FROM staged_units_v2
-         WHERE upload_id = ? AND ${hasSearchableText("normalized_content")}
-         ORDER BY ordinal`,
-        header.projection.projectionId,
-        header.document.documentId,
-        header.document.relativePath.normalize("NFC"),
-        input.uploadId,
-      );
+      if (legacySearchWrite) {
+        this.sql.exec(
+          `INSERT INTO source_units_fts(
+             unit_id, projection_id, document_id, relative_path,
+             structure_path, normalized_content
+           )
+           SELECT unit_id, ?, ?, ?, structure_path_json, normalized_content
+           FROM staged_units_v2
+           WHERE upload_id = ? AND ${hasSearchableText("normalized_content")}
+           ORDER BY ordinal`,
+          header.projection.projectionId,
+          header.document.documentId,
+          header.document.relativePath.normalize("NFC"),
+          input.uploadId,
+        );
+      }
+      if (compactSearchWrite) {
+        this.sql.exec(
+          `INSERT INTO source_units_fts_v2(
+             rowid, relative_path, normalized_content
+           )
+           SELECT unit.rowid, ?, unit.normalized_content
+           FROM source_units AS unit
+           WHERE unit.projection_id = ?
+             AND ${hasSearchableText("unit.normalized_content")}
+           ORDER BY unit.ordinal`,
+          header.document.relativePath.normalize("NFC"),
+          header.projection.projectionId,
+        );
+      }
       if (header.revision.makeCurrent) {
         this.sql.exec(
           `UPDATE documents SET current_revision_id = ?, source_state = ?
@@ -2505,6 +2697,17 @@ export class CorpusShard {
             relativePath,
             input.documentId,
           );
+          this.sql.exec(
+            `UPDATE source_units_fts_v2 SET relative_path = ?
+             WHERE rowid IN (
+               SELECT unit.rowid FROM source_units AS unit
+               JOIN revisions AS revision
+                 ON revision.revision_id = unit.revision_id
+               WHERE revision.document_id = ?
+             )`,
+            relativePath,
+            input.documentId,
+          );
         }
       });
     }
@@ -2529,26 +2732,18 @@ export class CorpusShard {
     }
     if (!this.initialized) return { query, count: 0, candidates: [] };
     const expression = searchExpression(query);
-    const rows = [
-      ...this.sql.exec<{
-        unit_id: string;
-        document_id: string;
-        projection_id: string;
-        relative_path: string;
-        normalized_content: string;
-        rank: number;
-        revision_id: string;
-        source_state: string;
-        completeness_state: string;
-        assurance_state: string;
-      }>(
+    const legacyRows = [
+      ...this.sql.exec<SearchRow>(
         `SELECT f.unit_id, f.document_id, f.projection_id, d.relative_path,
-                f.normalized_content, bm25(source_units_fts) AS rank,
-                u.revision_id, d.source_state, p.completeness_state,
-                p.assurance_state
+                u.normalized_content, bm25(source_units_fts) AS rank,
+                u.ordinal, u.revision_id, d.source_state,
+                p.completeness_state, p.assurance_state
          FROM source_units_fts AS f
          JOIN source_units AS u ON u.unit_id = f.unit_id
-         JOIN projections AS p ON p.projection_id = u.projection_id AND p.is_active = 1
+         JOIN projections AS p
+           ON p.projection_id = u.projection_id
+          AND p.is_active = 1
+          AND p.search_index_version < ?
          JOIN documents AS d
            ON d.document_id = f.document_id
           AND d.current_revision_id = u.revision_id
@@ -2556,10 +2751,48 @@ export class CorpusShard {
          WHERE source_units_fts MATCH ?
          ORDER BY rank, f.relative_path, u.ordinal
          LIMIT ?`,
+        SEARCH_INDEX_VERSION,
         expression,
         limit,
       ),
     ];
+    const compactRows = this.compactSearchIndexAvailable
+      ? [
+          ...this.sql.exec<SearchRow>(
+        `SELECT unit.unit_id, revision.document_id, unit.projection_id,
+                document.relative_path, unit.normalized_content,
+                bm25(source_units_fts_v2) AS rank, unit.ordinal,
+                unit.revision_id, document.source_state,
+                projection.completeness_state, projection.assurance_state
+         FROM source_units_fts_v2 AS search
+         JOIN source_units AS unit ON unit.rowid = search.rowid
+         JOIN projections AS projection
+           ON projection.projection_id = unit.projection_id
+          AND projection.is_active = 1
+          AND projection.search_index_version >= ?
+         JOIN revisions AS revision
+           ON revision.revision_id = unit.revision_id
+         JOIN documents AS document
+           ON document.document_id = revision.document_id
+          AND document.current_revision_id = unit.revision_id
+          AND document.lifecycle_state = 'active'
+         WHERE source_units_fts_v2 MATCH ?
+         ORDER BY rank, document.relative_path, unit.ordinal
+         LIMIT ?`,
+        SEARCH_INDEX_VERSION,
+        expression,
+        limit,
+          ),
+        ]
+      : [];
+    const rows = [...legacyRows, ...compactRows]
+      .sort(
+        (left, right) =>
+          left.rank - right.rank ||
+          left.relative_path.localeCompare(right.relative_path) ||
+          left.ordinal - right.ordinal,
+      )
+      .slice(0, limit);
     return {
       query,
       count: rows.length,

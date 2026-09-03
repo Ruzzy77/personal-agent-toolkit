@@ -85,7 +85,18 @@ legacy structural-only FTS rows in bounded projection batches. It does not
 rewrite or delete document, revision, projection, Source-unit, or Context data.
 Detailed storage inspection is read-only and runs only on operator request; it
 reports logical record sizes and the largest projections without adding
-per-unit accounting writes to ordinary ingestion.
+per-unit accounting writes to ordinary ingestion. The derived FTS projection
+indexes the relative path and extracted text. Structure JSON remains canonical
+in `source_units` and is restored on read, but is not duplicated in FTS: its
+numeric coordinates and extractor field names are not useful Source-text
+matches and previously amplified both stored content and index tokens. A
+versioned maintenance pass reindexes older projections in bounded batches so
+search remains available throughout the conversion. The dual reader is
+deployed before compact writes begin. It selects the legacy or compact FTS row
+set from each projection's version, so conversion does not duplicate results.
+The legacy table is reclaimed only after every projection is compact-indexed
+and the cutover flag is enabled; the dual-reader deployment is then the safe
+rollback floor.
 
 After a complete local snapshot has been migrated, Sync may reconcile exact
 remote-minus-local document, projection, and abandoned-upload IDs in bounded
@@ -105,10 +116,8 @@ invariants, avoiding per-unit metadata amplification without weakening provenanc
 For common table-cell units, the structure row also stores one compact container
 tuple instead of repeating the same cell coordinates and table identity at both
 the top level and inside `container_path`. This representation is used only when
-the two forms match exactly. Reads restore both forms, and FTS keeps the original
-uncompressed structure text so search behavior does not change. A versioned
-cursor scans older units once and rewrites only rows that pass that equality
-check.
+the two forms match exactly. Reads restore both forms. A versioned cursor scans
+older units once and rewrites only rows that pass that equality check.
 The reader is deployed with compact writes disabled before the write flag is
 enabled. This makes the immediately preceding deployment a safe rollback target
 after compact rows exist.

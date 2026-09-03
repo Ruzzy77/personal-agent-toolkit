@@ -59,11 +59,20 @@ structure row. Reads reconstruct the complete public anchor, so this reduces
 stored bytes without dropping extracted structure or provenance.
 Repeated table-cell container data in structure paths uses the same lossless
 approach. The canonical Source-unit read reconstructs the original object,
-while the search index retains its unmodified structural text. Existing shards
-are scanned once in bounded batches; new uploads write the compact storage form
-before commit.
+while the derived search index contains only the user-visible relative path and
+extracted text. Numeric and implementation-oriented structure JSON remains
+available through Source-unit reads but is not duplicated or tokenized for
+search. Existing shards are reindexed once in bounded projection batches; new
+uploads write the compact search form immediately.
 Deploy the reader first with `STRUCTURE_PATH_COMPACTION_WRITE_ENABLED=false`.
 After read and migration verification, deploy the same reader with the flag set
 to `true` and retain the reader-compatible deployment as the rollback floor.
 Redundant legacy Source-unit indexes are removed during maintenance; the
 remaining primary and uniqueness indexes already cover the live read paths.
+
+The compact search projection has a separate rollback-safe transition. Deploy
+the dual reader with `SEARCH_INDEX_V2_WRITE_ENABLED=false`, then enable compact
+writes and complete bounded search maintenance while the legacy index remains
+intact. After search verification, enable
+`SEARCH_INDEX_V2_CUTOVER_ENABLED=true` and run maintenance once more to reclaim
+the legacy index. Retain the dual-reader deployment as the rollback floor.

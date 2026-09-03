@@ -618,7 +618,7 @@ describe("remote personal context service", () => {
 
   it("keeps structural-only units out of the derived search index", async () => {
     const corpusId = "search-storage-test";
-    const content = "searchable storage marker";
+    const content = "searchable storage marker 검색 저장";
     const header = {
       uploadId: "upload_ffffffffffffffffffffffffffffffff",
       corpusId,
@@ -779,6 +779,102 @@ describe("remote personal context service", () => {
     const shard = runtime.CORPUS_SHARDS.get(
       runtime.CORPUS_SHARDS.idFromName(`owner_test:${corpusId}`),
     );
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE source_units_fts SET structure_path = ? WHERE unit_id = ?",
+        '{"legacystructuretoken":true}',
+        "unit_search_storage_text",
+      );
+      state.storage.sql.exec(
+        "UPDATE projections SET search_index_version = 1 WHERE projection_id = ?",
+        "projection_search_storage",
+      );
+    });
+    const legacyStructureSearch = await shard.fetch("https://internal/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner_test",
+      },
+      body: JSON.stringify({ query: "legacystructuretoken", limit: 10 }),
+    });
+    expect(await body(legacyStructureSearch)).toMatchObject({
+      result: { count: 1 },
+    });
+
+    const reindexed = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      {
+        corpusId,
+        removeProjectionIds: [],
+        removeDocumentIds: [],
+        removeUploadIds: [],
+        compactSearchIndexLimit: 10,
+      },
+    );
+    expect(reindexed.status, await reindexed.clone().text()).toBe(200);
+    expect(await body(reindexed)).toMatchObject({
+      result: {
+        search_index: {
+          version: 2,
+          processed_projections: 1,
+          reindexed_searchable_rows: 1,
+          removed_structural_only_rows: 0,
+          excluded_structure_path_logical_bytes: expect.any(Number),
+          pending_projections: 0,
+          legacy_index_reclaimed: false,
+        },
+      },
+    });
+    const structureSearchAfterCompaction = await shard.fetch(
+      "https://internal/search",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": "owner_test",
+        },
+        body: JSON.stringify({ query: "legacystructuretoken", limit: 10 }),
+      },
+    );
+    expect(await body(structureSearchAfterCompaction)).toMatchObject({
+      result: { count: 0 },
+    });
+    const contentSearchAfterCompaction = await shard.fetch(
+      "https://internal/search",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": "owner_test",
+        },
+        body: JSON.stringify({ query: "searchable storage marker", limit: 10 }),
+      },
+    );
+    expect(await body(contentSearchAfterCompaction)).toMatchObject({
+      result: {
+        count: 1,
+        candidates: [{ unit_id: "unit_search_storage_text" }],
+      },
+    });
+    const koreanSearchAfterCompaction = await shard.fetch(
+      "https://internal/search",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": "owner_test",
+        },
+        body: JSON.stringify({ query: "검색 저장", limit: 10 }),
+      },
+    );
+    expect(await body(koreanSearchAfterCompaction)).toMatchObject({
+      result: {
+        count: 1,
+        candidates: [{ unit_id: "unit_search_storage_text" }],
+      },
+    });
+
     const restored = await shard.fetch("https://internal/units/read", {
       method: "POST",
       headers: {

@@ -36,6 +36,8 @@
     "SENSE_RESOURCE": "https://personal-agent-context.example.workers.dev/sense/mcp",
     "CORPUS_RESOURCE": "https://personal-agent-context.example.workers.dev/corpus/mcp",
     "HYPES_RESOURCE": "https://personal-agent-context.example.workers.dev/hypes/mcp",
-    "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "false"
+    "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "false",
+    "SEARCH_INDEX_V2_WRITE_ENABLED": "false",
+    "SEARCH_INDEX_V2_CUTOVER_ENABLED": "false"
   }
 }

@@ -30,6 +30,8 @@
     "CORPUS_RESOURCE": "https://context.test/corpus/mcp",
     "HYPES_RESOURCE": "https://context.test/hypes/mcp",
     "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "true",
+    "SEARCH_INDEX_V2_WRITE_ENABLED": "true",
+    "SEARCH_INDEX_V2_CUTOVER_ENABLED": "false",
     "SYNC_DEVICE_TOKEN": "test-device-token",
     "SYNC_DEVICE_ID": "test-mac",
     "SYNC_DEVICE_TOKENS_JSON": "{\"test-mac\":\"test-device-token\",\"socket-mac\":\"test-device-token\",\"backlog-mac\":\"test-device-token\"}",

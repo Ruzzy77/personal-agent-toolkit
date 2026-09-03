@@ -173,7 +173,10 @@ async def maintain_remote_storage(
                     break
 
             processed = 0
+            reindexed_searchable_rows = 0
             removed_index_rows = 0
+            excluded_index_structure_bytes = 0
+            legacy_index_reclaimed = False
             pending = _integer(
                 (inventory.get("storage") or {}).get("search_index_pending_projections")
                 if isinstance(inventory.get("storage"), dict)
@@ -214,9 +217,21 @@ async def maintain_remote_storage(
                         "search-index maintenance made no progress",
                     )
                 processed += batch_processed
+                reindexed_searchable_rows += _integer(
+                    search.get("reindexed_searchable_rows", 0),
+                    "reindexed searchable row count",
+                )
                 removed_index_rows += _integer(
                     search.get("removed_structural_only_rows"),
                     "removed search-index row count",
+                )
+                excluded_index_structure_bytes += _integer(
+                    search.get("excluded_structure_path_logical_bytes", 0),
+                    "excluded search-index structure-path bytes",
+                )
+                legacy_index_reclaimed = (
+                    legacy_index_reclaimed
+                    or search.get("legacy_index_reclaimed") is True
                 )
                 pending = next_pending
                 batches += 1
@@ -293,7 +308,12 @@ async def maintain_remote_storage(
                     "corpus_id": corpus_id,
                     "removed_staged_uploads": removed_uploads,
                     "processed_search_index_projections": processed,
+                    "reindexed_searchable_rows": reindexed_searchable_rows,
                     "removed_structural_only_index_rows": removed_index_rows,
+                    "excluded_search_index_structure_path_logical_bytes": (
+                        excluded_index_structure_bytes
+                    ),
+                    "legacy_search_index_reclaimed": legacy_index_reclaimed,
                     "pending_search_index_projections": pending,
                     "unit_metadata_batches": metadata_batches,
                     "scanned_unit_metadata_rows": scanned_metadata_units,

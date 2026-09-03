@@ -139,7 +139,10 @@ def test_remote_storage_report_and_conservative_maintenance(
             return {
                 "search_index": {
                     "processed_projections": 1,
+                    "reindexed_searchable_rows": 2,
                     "removed_structural_only_rows": 1,
+                    "excluded_structure_path_logical_bytes": 80,
+                    "legacy_index_reclaimed": compact_calls == 2,
                     "pending_projections": max(0, 2 - compact_calls),
                 }
             }
@@ -163,7 +166,10 @@ def test_remote_storage_report_and_conservative_maintenance(
     assert maintained["canonical_records_removed"] == 0
     assert summary["removed_staged_uploads"] == 1
     assert summary["processed_search_index_projections"] == 2
+    assert summary["reindexed_searchable_rows"] == 4
     assert summary["removed_structural_only_index_rows"] == 2
+    assert summary["excluded_search_index_structure_path_logical_bytes"] == 160
+    assert summary["legacy_search_index_reclaimed"] is True
     assert summary["pending_search_index_projections"] == 0
     assert summary["scanned_unit_metadata_rows"] == 3
     assert summary["compacted_source_anchor_rows"] == 2
