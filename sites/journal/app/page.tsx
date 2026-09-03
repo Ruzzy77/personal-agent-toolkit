@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
+import { requireChatGPTUser } from '@/app/chatgpt-auth';
 import { JournalBoard } from '@/components/journal-board';
 import { PeriodSummary } from '@/components/period-summary';
 import {
@@ -19,6 +20,8 @@ const PERIODS: Array<{ kind: PeriodKind; label: string }> = [
   { kind: 'quarter', label: '분기' },
   { kind: 'year', label: '연' },
 ];
+
+export const dynamic = 'force-dynamic';
 
 function addDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00Z`);
@@ -75,7 +78,13 @@ function safeWeek(value: string | string[] | undefined): string | undefined {
     : undefined;
 }
 
-export default async function Home({
+export default function Home(props: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  return <AuthenticatedHome {...props} />;
+}
+
+async function AuthenticatedHome({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -84,6 +93,10 @@ export default async function Home({
   const today = currentKstDate();
   const selectedWeek = safeWeek(params.week);
   const selectedPeriod = safePeriod(params.period);
+  const returnTo = new URLSearchParams();
+  if (selectedWeek) returnTo.set('week', selectedWeek);
+  if (params.period !== undefined) returnTo.set('period', selectedPeriod);
+  await requireChatGPTUser(returnTo.size > 0 ? `/?${returnTo}` : '/');
   let unavailable = false;
   let board;
   try {
@@ -263,11 +276,15 @@ export default async function Home({
                   {period.weeks.map((week) => (
                     <Link
                       href={`/?week=${week.id}&period=${selectedPeriod}`}
-                      aria-current={week.id === board.week.id ? 'page' : undefined}
+                      aria-current={
+                        week.id === board.week.id ? 'page' : undefined
+                      }
                       key={week.id}
                     >
                       <span>{week.id}</span>
-                      <span>{week.status === 'closed' ? '마감' : '진행 중'}</span>
+                      <span>
+                        {week.status === 'closed' ? '마감' : '진행 중'}
+                      </span>
                     </Link>
                   ))}
                 </nav>

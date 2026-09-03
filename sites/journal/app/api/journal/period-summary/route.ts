@@ -1,3 +1,4 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import {
   journalRequest,
   type PeriodKind,
@@ -8,6 +9,9 @@ const PERIODS = new Set<PeriodKind>(['week', 'month', 'quarter', 'year']);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(request: Request) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -35,7 +39,10 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        error: { code: 'invalid_summary', message: '요약 내용이 올바르지 않습니다.' },
+        error: {
+          code: 'invalid_summary',
+          message: '요약 내용이 올바르지 않습니다.',
+        },
       },
       { status: 400 },
     );
@@ -62,7 +69,9 @@ export async function POST(request: Request) {
         error: {
           code: 'period_summary_failed',
           message:
-            error instanceof Error ? error.message : '요약을 저장하지 못했습니다.',
+            error instanceof Error
+              ? error.message
+              : '요약을 저장하지 못했습니다.',
         },
       },
       { status: 409 },

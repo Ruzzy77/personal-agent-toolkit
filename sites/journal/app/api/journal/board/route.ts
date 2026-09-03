@@ -1,8 +1,12 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import { getBoard } from '@/lib/journal';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(request: Request) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   const week = new URL(request.url).searchParams.get('week') ?? undefined;
   if (week && !DATE.test(week)) {
     return Response.json(

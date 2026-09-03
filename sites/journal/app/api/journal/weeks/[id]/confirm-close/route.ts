@@ -1,3 +1,4 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import { journalRequest, type WeekClosureResult } from '@/lib/journal';
 
 const WEEK_ID = /^\d{4}-\d{2}-\d{2}$/;
@@ -6,6 +7,9 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   const { id } = await context.params;
   if (!WEEK_ID.test(id)) {
     return Response.json(
