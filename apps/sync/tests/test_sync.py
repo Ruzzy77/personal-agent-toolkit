@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -19,7 +20,7 @@ import personal_agent_sync.storage as storage_module
 import personal_agent_sync.work as work_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
-from personal_agent_sync.config import load_config
+from personal_agent_sync.config import load_config, rewrite_connection_roots
 from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
@@ -921,6 +922,47 @@ def test_configuration_rejects_http_and_root_rebind(tmp_path: Path) -> None:
     root.mkdir()
     state = SyncState(load_config(config_path))
     assert state.connection_row("notes:main")["location_state"] == "unavailable"
+
+
+def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("same bytes", encoding="utf-8")
+    config_path = write_config(tmp_path, root)
+    config = load_config(config_path)
+    state = SyncState(config)
+    metadata = note.stat()
+    document_id, _ = state.observe_file("notes:main", "note.txt", metadata)
+    digest = hashlib.sha256(note.read_bytes()).hexdigest()
+    state.complete_change("notes:main", document_id, digest, "projection_old")
+
+    replacement = tmp_path / "restored"
+    replacement.mkdir()
+    shutil.copy2(note, replacement / "note.txt")
+    result = state.rebind_connection_root("notes:main", replacement)
+    rewrite_connection_roots(config_path, set(result["connection_keys"]), replacement)
+
+    rebound = state.connection_row("notes:main")
+    with state.connect() as connection:
+        document = connection.execute(
+            "SELECT * FROM documents WHERE connection_key = ? AND document_id = ?",
+            ("notes:main", document_id),
+        ).fetchone()
+        queued = connection.execute("SELECT COUNT(*) FROM change_queue").fetchone()[0]
+    assert result["matched_documents"] == 1
+    assert result["unchanged_documents"] == 1
+    assert result["changed_documents"] == 0
+    assert result["unmatched_documents"] == 0
+    assert Path(rebound["root_path"]) == replacement
+    assert (document["device"], document["inode"]) == (
+        (replacement / "note.txt").stat().st_dev,
+        (replacement / "note.txt").stat().st_ino,
+    )
+    assert queued == 0
+    assert load_config(config_path).connections[0].root == replacement
 
 
 def test_completed_job_replay_is_identity_checked_and_bounded(
