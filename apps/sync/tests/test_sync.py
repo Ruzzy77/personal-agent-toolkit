@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from dataclasses import replace
@@ -331,6 +332,107 @@ def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(
         ).fetchall()
     assert [row["document_id"] for row in rows] == ["doc_canonical"]
     assert state.due_changes() == []
+
+
+def test_corpus_seed_records_active_projection_adapter_identity(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "note.txt"
+    document.write_text("indexed", encoding="utf-8")
+    metadata = document.stat()
+    state = SyncState(load_config(write_config(tmp_path, root)))
+
+    data_root = tmp_path / "corpus-data"
+    database_path = data_root / "corpora" / "notes" / "corpus.sqlite"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE documents (
+                document_id TEXT PRIMARY KEY,
+                relative_path TEXT NOT NULL,
+                relative_path_nfc TEXT NOT NULL,
+                device INTEGER NOT NULL,
+                inode INTEGER NOT NULL,
+                logical_size INTEGER NOT NULL,
+                modified_ns INTEGER NOT NULL,
+                changed_ns INTEGER NOT NULL,
+                current_revision_id TEXT,
+                eligibility_state TEXT NOT NULL,
+                lifecycle_state TEXT NOT NULL,
+                deleted_at TEXT
+            );
+            CREATE TABLE revisions (
+                revision_id TEXT PRIMARY KEY,
+                sha256 TEXT NOT NULL,
+                source_size INTEGER NOT NULL,
+                source_modified_ns INTEGER NOT NULL,
+                source_changed_ns INTEGER NOT NULL,
+                source_inode INTEGER NOT NULL
+            );
+            CREATE TABLE extraction_projections (
+                projection_id TEXT PRIMARY KEY,
+                revision_id TEXT NOT NULL,
+                is_active INTEGER NOT NULL,
+                adapter_id TEXT NOT NULL,
+                adapter_version TEXT NOT NULL,
+                config_hash TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            (
+                "doc_canonical",
+                "note.txt",
+                "note.txt",
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                "revision_current",
+                "supported",
+                "active",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO revisions VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "revision_current",
+                hashlib.sha256(b"indexed").hexdigest(),
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                metadata.st_ino,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO extraction_projections VALUES (?, ?, 1, ?, ?, ?)",
+            (
+                "projection_current",
+                "revision_current",
+                "document-files.builtin.text",
+                "source-units-v4",
+                "a" * 64,
+            ),
+        )
+
+    corpus = object.__new__(migration_module.LocalCorpusMigration)
+    corpus.config = state.config
+    corpus.data_root = data_root
+    corpus._catalog = {"notes": {}}
+
+    assert corpus.seed_documents(state, "notes") == {"seeded": 1, "queued": 0}
+    with state.connect() as connection:
+        row = connection.execute(
+            "SELECT adapter_id, adapter_version, config_hash FROM documents"
+        ).fetchone()
+    assert dict(row) == {
+        "adapter_id": "document-files.builtin.text",
+        "adapter_version": "source-units-v4",
+        "config_hash": "a" * 64,
+    }
 
 
 def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> None:
