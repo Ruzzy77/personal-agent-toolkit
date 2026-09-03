@@ -43,6 +43,7 @@ MEDIA_TYPES = {
 }
 
 _MAX_ANALYSIS_OUTPUT = 256 * 1024 * 1024
+_MAX_DESCRIPTOR_OUTPUT = 4 * 1024 * 1024
 _ANALYSIS_HELPER = r"""
 import json
 import sys
@@ -62,6 +63,15 @@ except Exception:
     print(json.dumps({"ok": False, "error": {"code": "local_analysis_failed", "message": "local document analysis failed"}}))
 """
 
+_DESCRIPTOR_HELPER = r"""
+import json
+
+from document_files.processor import describe_all
+
+
+print(json.dumps(describe_all(), ensure_ascii=False))
+"""
+
 
 def format_id(relative_path: str) -> str:
     suffix = Path(relative_path).suffix.lower().lstrip(".")
@@ -70,6 +80,79 @@ def format_id(relative_path: str) -> str:
             "unsupported_format", "Document Files does not support this format"
         )
     return suffix
+
+
+def local_analyzer_manifest(
+    document_files_python: Path | None,
+) -> dict[str, dict[str, str]]:
+    """Read compact current adapter identities from the pinned Document Files runtime."""
+
+    if document_files_python is None:
+        return {}
+    try:
+        completed = subprocess.run(
+            [str(document_files_python), "-c", _DESCRIPTOR_HELPER],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SyncError(
+            "local_analyzer_unavailable",
+            "the Document Files descriptor manifest could not be read",
+        ) from exc
+    if (
+        completed.returncode != 0
+        or len(completed.stdout.encode()) > _MAX_DESCRIPTOR_OUTPUT
+    ):
+        raise SyncError(
+            "local_analyzer_unavailable",
+            "the Document Files descriptor manifest could not be read",
+        )
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise SyncError(
+            "local_analyzer_unavailable",
+            "the Document Files descriptor manifest is invalid",
+        ) from exc
+    formats = payload.get("formats") if isinstance(payload, dict) else None
+    if not isinstance(formats, dict):
+        raise SyncError(
+            "local_analyzer_unavailable",
+            "the Document Files descriptor manifest is invalid",
+        )
+    manifest: dict[str, dict[str, str]] = {}
+    for selected_format, value in formats.items():
+        config = value.get("config") if isinstance(value, dict) else None
+        descriptor = config.get("route") if isinstance(config, dict) else None
+        if not isinstance(selected_format, str) or not isinstance(descriptor, dict):
+            raise SyncError(
+                "local_analyzer_unavailable",
+                "the Document Files descriptor manifest is invalid",
+            )
+        adapter_id = descriptor.get("adapter_id")
+        adapter_version = descriptor.get("adapter_version")
+        config_hash = descriptor.get("config_hash")
+        if (
+            not isinstance(adapter_id, str)
+            or not adapter_id
+            or not isinstance(adapter_version, str)
+            or not adapter_version
+            or not isinstance(config_hash, str)
+            or not config_hash
+        ):
+            raise SyncError(
+                "local_analyzer_unavailable",
+                "the Document Files descriptor manifest is invalid",
+            )
+        manifest[selected_format] = {
+            "adapter_id": adapter_id,
+            "adapter_version": adapter_version,
+            "config_hash": config_hash,
+        }
+    return manifest
 
 
 def _identifier(prefix: str, value: str) -> str:
@@ -195,6 +278,7 @@ def build_projection(
     snapshot: Snapshot,
     selected_format: str,
     result: dict[str, Any],
+    revision_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     analysis_input = _require_mapping(result.get("input"), "input")
     if (
@@ -224,7 +308,9 @@ def build_projection(
             "invalid_analysis_result", "analysis extraction envelope is invalid"
         )
     document_id = str(change["document_id"])
-    revision_id = _identifier("rev", f"{document_id}:{snapshot.sha256}")
+    if revision_id is not None and not 1 <= len(revision_id) <= 160:
+        raise SyncError("invalid_revision_id", "resolved revision id is invalid")
+    revision_id = revision_id or _identifier("rev", f"{document_id}:{snapshot.sha256}")
     projection_id = _identifier("projection", f"{revision_id}:{manifest_hash}")
     unit_ids = [
         _identifier("unit", f"{projection_id}:{index + 1}")
@@ -279,7 +365,7 @@ def build_projection(
         "document": {
             "documentId": document_id,
             "relativePath": change["relative_path_nfc"],
-            "extension": f".{selected_format}",
+            "extension": selected_format,
             "sourceState": "available",
         },
         "revision": {

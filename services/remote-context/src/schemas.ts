@@ -240,6 +240,15 @@ export const projectionBeginSchema = z
   })
   .strict();
 
+export const revisionResolveSchema = z
+  .object({
+    corpusId: z.string().min(1).max(128),
+    documentId: z.string().min(1).max(128),
+    sha256,
+    sourceSize: z.number().int().min(0).max(1_073_741_824),
+  })
+  .strict();
+
 export const corpusUnitSchema = z
   .object({
     unitId: z.string().min(1).max(192),
@@ -534,16 +543,16 @@ export const corpusFileReadSchema = z
       .number()
       .int()
       .min(1)
-      .max(16 * 1024 * 1024)
-      .default(16 * 1024 * 1024),
+      .max(2 * 1024 * 1024)
+      .default(2 * 1024 * 1024),
     neighbor_span: z.number().int().min(0).max(10).default(0),
     include_structure_context: z.boolean().default(false),
-    max_chars: z.number().int().min(1000).max(500_000).default(100_000),
+    max_chars: z.number().int().min(1000).max(200_000).default(30_000),
     start_char: z
       .number()
       .int()
       .min(0)
-      .max(16 * 1024 * 1024)
+      .max(2 * 1024 * 1024)
       .default(0),
   })
   .strict()
@@ -557,7 +566,7 @@ export const corpusFileWriteSchema = z
   .object({
     space_id: spaceId,
     relative_path: relativePath,
-    content: z.string().max(24 * 1024 * 1024),
+    content: z.string().max(6 * 1024 * 1024),
     content_encoding: z.enum(["utf8", "base64"]),
     expected_version: versionToken,
     connection_id: connectionId.nullable().optional(),

@@ -313,6 +313,20 @@ async function syncRoutes(
     return callShard(env, principal, corpusId, "/maintenance", body);
   }
 
+  const revisionResolve =
+    /^\/sync\/v1\/corpora\/([^/]+)\/revisions:resolve$/.exec(url.pathname);
+  if (request.method === "POST" && revisionResolve) {
+    const corpusId = decodeURIComponent(revisionResolve[1]!);
+    const body = (await readJson(request)) as Record<string, unknown>;
+    if (body.corpusId !== corpusId) {
+      throw new ContextError(
+        "corpus_mismatch",
+        "revision lookup corpus id does not match its route",
+      );
+    }
+    return callShard(env, principal, corpusId, "/revision/resolve", body);
+  }
+
   const begin = /^\/sync\/v1\/corpora\/([^/]+)\/projections:begin$/.exec(
     url.pathname,
   );

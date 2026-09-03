@@ -22,6 +22,7 @@ DIRECTORY_FLAGS = (
 )
 FILE_FLAGS = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
 COPY_CHUNK = 1024 * 1024
+DARWIN_PATH_BUFFER = 1024
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,10 @@ def resolve_moved_root(path: Path, device: int, inode: int) -> Path | None:
             return None
         import fcntl
 
-        encoded = fcntl.fcntl(descriptor, 50, b"\0" * 4096)
+        # F_GETPATH writes one MAXPATHLEN buffer. Python rejects larger mutable
+        # fcntl buffers before the syscall, which previously prevented recovery
+        # after a Connection root moved while Sync was stopped.
+        encoded = fcntl.fcntl(descriptor, 50, b"\0" * DARWIN_PATH_BUFFER)
         current = encoded.split(b"\0", 1)[0].decode("utf-8")
         if not current.startswith("/"):
             return None

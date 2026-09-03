@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from typing import Any
@@ -56,7 +57,7 @@ def main():
             relative_path=request.get("relative_path"),
             read_ref=None,
             encoding=request.get("encoding", "utf8"),
-            max_bytes=request.get("max_bytes", 16 * 1024 * 1024),
+            max_bytes=request.get("max_bytes", 2 * 1024 * 1024),
             neighbor_span=0,
             include_structure_context=False,
             max_chars=request.get("max_chars", 100_000),
@@ -135,6 +136,26 @@ class WorkExecutor:
                 "request": request,
             }
         )
+        if self.config.document_files_python is None:
+            raise SyncError(
+                "local_document_files_unavailable",
+                "the durable Document Files runtime is unavailable",
+            )
+        document_files_executable = (
+            self.config.document_files_python.parent / "document-files"
+        )
+        if not document_files_executable.is_file() or not os.access(
+            document_files_executable, os.X_OK
+        ):
+            raise SyncError(
+                "local_document_files_unavailable",
+                "the durable Document Files executable is unavailable",
+            )
+        # Corpus and Document Files deliberately run in separate environments.
+        # Pin the helper to the durable Sync-managed runtime instead of letting
+        # Corpus discover a mutable Codex or Claude plugin cache.
+        environment = os.environ.copy()
+        environment["DOCUMENT_FILES_EXECUTABLE"] = str(document_files_executable)
         try:
             completed = subprocess.run(
                 [
@@ -148,6 +169,7 @@ class WorkExecutor:
                 text=True,
                 check=False,
                 timeout=120,
+                env=environment,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise SyncError(

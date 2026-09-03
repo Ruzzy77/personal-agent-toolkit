@@ -14,6 +14,8 @@ on a local port and does not expose the Mac through a tunnel.
 - keep Source changes in a bounded queue and retry network or analyzer failures
   without rescanning every connected tree;
 - analyze an immutable capture through the shared Document Files job contract;
+- compare recorded adapter identities with the pinned Document Files runtime and
+  queue only known stale projections in bounded batches after an analyzer update;
 - stage and atomically commit extracted Corpus projections while leaving the
   last good remote revision readable on failure;
 - reconcile exact remote records no longer retained by a completed local
@@ -33,6 +35,8 @@ send Source state or file content.
 Corpus and Document Files run in separate helper environments. This preserves
 their independent dependency contracts; the Sync process exchanges bounded
 JSON with each helper and never imports either package in-process.
+Remote Work requests pin Corpus to the Sync-managed Document Files executable;
+they do not discover or mutate a Codex or Claude plugin cache.
 
 ## Analyzer routes
 
@@ -73,6 +77,8 @@ deployed analyzer binding; it does not reimplement document parsing.
    exact public tool-name sets before comparing durable records. The metadata
    receipt is compared with the exact locally recorded migration checkpoint,
    so later Finder scan timestamps do not invalidate a completed migration.
+   A successful full pass removes checkpoints for retired projections; an
+   interrupted pass keeps them so migration can resume safely.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.
@@ -86,6 +92,9 @@ re-analyzes unchanged bytes when explicitly requested, atomically activates the
 new projection, and removes only an unprotected superseded projection. The same
 conservative cleanup follows an ordinary content change, so unreferenced prior
 extractions do not accumulate with each saved version.
+When migrated content is unchanged, Sync first resolves and reuses the durable
+remote revision identity; an analyzer upgrade can replace its projection
+without duplicating the captured revision.
 Ordinary metadata-only filesystem changes still reuse the committed projection.
 
 `personal-agent-sync storage-report` reads the current remote shard sizes,

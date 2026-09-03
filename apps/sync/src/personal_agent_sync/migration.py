@@ -32,7 +32,7 @@ EXPECTED_REMOTE_MCP_SURFACES = {
     },
     "corpus": {
         "name": "Corpus",
-        "version": "0.21.3-remote.1",
+        "version": "0.21.3-remote.2",
         "tools": [
             "corpus_space_list",
             "corpus_space_get",
@@ -729,7 +729,8 @@ class LocalCorpusMigration:
                 """
                 SELECT d.*, r.revision_id, r.sha256, r.source_size,
                        r.source_modified_ns, r.source_changed_ns, r.source_inode,
-                       p.projection_id AS active_projection_id
+                       p.projection_id AS active_projection_id,
+                       p.adapter_id, p.adapter_version, p.config_hash
                 FROM documents d
                 LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                 LEFT JOIN extraction_projections p
@@ -873,6 +874,9 @@ class LocalCorpusMigration:
                     "changed_ns": row["changed_ns"],
                     "last_revision_sha256": row["sha256"],
                     "last_projection_id": row["active_projection_id"],
+                    "adapter_id": row["adapter_id"],
+                    "adapter_version": row["adapter_version"],
+                    "config_hash": row["config_hash"],
                     "needs_refresh": row["eligibility_state"] == "supported"
                     and (
                         row["sha256"] is None
@@ -1205,6 +1209,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
             summary[product] = cached
 
         corpus = LocalCorpusMigration(config)
+        corpus_ids = corpus.corpus_ids()
         metadata = corpus.metadata_payload()
         metadata_digest = str(metadata["sourceDigest"])
         metadata_result = state.migration_result(
@@ -1218,7 +1223,8 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
         summary["corpus_metadata"] = metadata_result
 
         corpus_summaries: dict[str, Any] = {}
-        for corpus_id in corpus.corpus_ids():
+        current_projection_keys: set[str] = set()
+        for corpus_id in corpus_ids:
             external = corpus.external_state(corpus_id)
             external_digest = _digest(external)
             external_result = state.migration_result(
@@ -1236,6 +1242,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
             headers = corpus.projection_headers(corpus_id)
             for index, header in enumerate(headers, start=1):
                 projection_id = str(header["projection"]["projectionId"])
+                current_projection_keys.add(f"{corpus_id}:{projection_id}")
                 projection_digest = _digest(header)
                 cached = state.migration_result(
                     "corpus-projection",
@@ -1280,7 +1287,7 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
         # Reapply inventories only after every durable projection is present; this
         # also repairs stores written by an earlier service version that changed
         # observation timestamps during projection import.
-        for corpus_id in corpus.corpus_ids():
+        for corpus_id in corpus_ids:
             documents = corpus.documents(corpus_id)
             document_digest = _digest(documents)
             document_result = state.migration_result(
@@ -1296,6 +1303,16 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 remote, corpus, corpus_id
             )
         summary["corpora"] = corpus_summaries
+        summary["pruned_migration_checkpoints"] = state.prune_migration_progress(
+            {
+                "sense": {"complete"},
+                "hypes": {"complete"},
+                "corpus-metadata": {"complete"},
+                "corpus-external": set(corpus_ids),
+                "corpus-documents": set(corpus_ids),
+                "corpus-projection": current_projection_keys,
+            }
+        )
         return summary
     finally:
         await remote.close()
@@ -1303,6 +1320,41 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
 
 def _verification_error(message: str) -> SyncError:
     return SyncError("migration_verification_failed", message)
+
+
+def _document_verification_record(document: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the durable document fields used for migration verification.
+
+    Finder modification time is an observation used to notice local changes. It
+    can advance while Sync is reconciling a live Source and is not a durable
+    content identity. Current revision and projection hashes are verified
+    separately below.
+    """
+
+    return {
+        "document_id": document["documentId"],
+        "relative_path": document["relativePath"],
+        "extension": document["extension"],
+        "source_state": document["sourceState"],
+        "media_type": document["mediaType"],
+        "logical_size": document["logicalSize"],
+        "residency_state": document["residencyState"],
+        "eligibility_state": document["eligibilityState"],
+        "current_revision_id": document["currentRevisionId"],
+        "first_seen_at": document["firstSeenAt"],
+        "deleted_at": document["deletedAt"],
+        "lifecycle_state": document["lifecycleState"],
+        "retention_class": document["retentionClass"],
+    }
+
+
+def _first_record_mismatch(
+    actual: Mapping[str, Any], expected: Mapping[str, Any]
+) -> str | None:
+    for key, value in expected.items():
+        if actual.get(key) != value:
+            return key
+    return None
 
 
 async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
@@ -1360,22 +1412,7 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
         verified: dict[str, Any] = {}
         for corpus_id in corpus.corpus_ids():
             expected_documents = {
-                document["documentId"]: {
-                    "document_id": document["documentId"],
-                    "relative_path": document["relativePath"],
-                    "extension": document["extension"],
-                    "source_state": document["sourceState"],
-                    "media_type": document["mediaType"],
-                    "logical_size": document["logicalSize"],
-                    "modified_ns": document["modifiedNs"],
-                    "residency_state": document["residencyState"],
-                    "eligibility_state": document["eligibilityState"],
-                    "current_revision_id": document["currentRevisionId"],
-                    "first_seen_at": document["firstSeenAt"],
-                    "deleted_at": document["deletedAt"],
-                    "lifecycle_state": document["lifecycleState"],
-                    "retention_class": document["retentionClass"],
-                }
+                document["documentId"]: _document_verification_record(document)
                 for document in corpus.documents(corpus_id)
             }
             headers = corpus.projection_headers(corpus_id)
@@ -1450,11 +1487,15 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     document_id = actual.get("document_id")
                     expected = expected_documents.pop(document_id, None)
-                    if expected is None or any(
-                        actual.get(key) != value for key, value in expected.items()
-                    ):
+                    mismatch = (
+                        "document_id"
+                        if expected is None
+                        else _first_record_mismatch(actual, expected)
+                    )
+                    if mismatch is not None:
                         raise _verification_error(
-                            f"{corpus_id} document {document_id} does not match"
+                            f"{corpus_id} document {document_id} does not match "
+                            f"field {mismatch}"
                         )
                 for actual in remote_projections:
                     if not isinstance(actual, dict):
@@ -1463,11 +1504,15 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     projection_id = actual.get("projection_id")
                     expected = expected_projections.pop(projection_id, None)
-                    if expected is None or any(
-                        actual.get(key) != value for key, value in expected.items()
-                    ):
+                    mismatch = (
+                        "projection_id"
+                        if expected is None
+                        else _first_record_mismatch(actual, expected)
+                    )
+                    if mismatch is not None:
                         raise _verification_error(
-                            f"{corpus_id} projection {projection_id} does not match"
+                            f"{corpus_id} projection {projection_id} does not match "
+                            f"field {mismatch}"
                         )
                 document_offset += len(remote_documents)
                 projection_offset += len(remote_projections)

@@ -116,6 +116,39 @@ class RemoteClient:
             },
         )
 
+    async def resolve_revision(
+        self,
+        corpus_id: str,
+        document_id: str,
+        sha256: str,
+        source_size: int,
+    ) -> str | None:
+        resolved = await self._json(
+            "POST",
+            f"/sync/v1/corpora/{corpus_id}/revisions:resolve",
+            {
+                "corpusId": corpus_id,
+                "documentId": document_id,
+                "sha256": sha256,
+                "sourceSize": source_size,
+            },
+        )
+        if (
+            resolved.get("corpusId") != corpus_id
+            or resolved.get("documentId") != document_id
+            or resolved.get("sha256") != sha256
+            or resolved.get("sourceSize") != source_size
+        ):
+            raise SyncError(
+                "remote_protocol_error", "remote revision identity is invalid"
+            )
+        revision_id = resolved.get("revisionId")
+        if revision_id is not None and (
+            not isinstance(revision_id, str) or not 1 <= len(revision_id) <= 160
+        ):
+            raise SyncError("remote_protocol_error", "remote revision id is invalid")
+        return revision_id
+
     @staticmethod
     def _unit_batches(
         units: list[dict[str, Any]],
