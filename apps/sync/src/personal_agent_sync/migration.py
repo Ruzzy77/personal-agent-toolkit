@@ -1419,6 +1419,42 @@ def _first_record_mismatch(
     return None
 
 
+def _projection_after_tracked_source_advance(
+    actual: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    tracked_projections: set[tuple[str, str]],
+) -> dict[str, Any]:
+    """Adjust only activation flags superseded by trusted live Source progress.
+
+    A document can first receive a replacement projection for unchanged bytes and
+    later advance to a new revision. Sync then retains only the newest receipt, so
+    migration verification can no longer recover the intermediate projection ID.
+    Exact durable fields remain checked; only the old revision's activation flags
+    may follow the remote history.
+    """
+
+    durable_expected = dict(expected)
+    if expected.get("is_active") != 1:
+        return durable_expected
+    alternatives = {
+        (sha256, projection_id)
+        for sha256, projection_id in tracked_projections
+        if projection_id != actual.get("projection_id")
+    }
+    if not alternatives:
+        return durable_expected
+    if any(sha256 == actual.get("sha256") for sha256, _ in alternatives):
+        durable_expected["is_active"] = 0
+    if any(sha256 != actual.get("sha256") for sha256, _ in alternatives):
+        durable_expected["is_current_revision"] = 0
+        if actual.get("is_current_revision") == 0 and actual.get("is_active") in {
+            0,
+            1,
+        }:
+            durable_expected["is_active"] = actual["is_active"]
+    return durable_expected
+
+
 def _durable_counts_cover_expected(
     actual: object,
     expected: Mapping[str, int],
@@ -1721,20 +1757,13 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                                 )
                             )
                         ):
-                            durable_expected = dict(expected)
-                            tracked_revision_sha256 = next(
-                                tracked_sha256
-                                for tracked_sha256, tracked_projection_id in (
-                                    tracked_source_projections_by_document[
-                                        str(actual.get("document_id"))
-                                    ]
-                                )
-                                if tracked_projection_id != projection_id
+                            durable_expected = _projection_after_tracked_source_advance(
+                                actual,
+                                expected,
+                                tracked_source_projections_by_document[
+                                    str(actual.get("document_id"))
+                                ],
                             )
-                            if tracked_revision_sha256 == actual.get("sha256"):
-                                durable_expected["is_active"] = 0
-                            else:
-                                durable_expected["is_current_revision"] = 0
                             mismatch = _first_record_mismatch(actual, durable_expected)
                             if mismatch is None:
                                 preserved_projection_count += 1
@@ -1779,14 +1808,21 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                             )
                         reconciled_projection_count += 1
                         continue
+                    known_migration_revision = (
+                        actual.get("document_id") in expected_document_ids
+                        and actual.get("revision_id") in expected_revision_ids
+                    )
                     if expected is None and (
-                        actual.get("is_active") == 0
-                        and (
-                            (
-                                actual.get("document_id") in expected_document_ids
-                                and actual.get("revision_id") in expected_revision_ids
+                        (
+                            known_migration_revision
+                            and (
+                                actual.get("is_active") == 0
+                                or actual.get("is_current_revision") == 0
                             )
-                            or any(
+                        )
+                        or (
+                            actual.get("is_active") == 0
+                            and any(
                                 tracked_sha256 == actual.get("sha256")
                                 and tracked_projection_id != projection_id
                                 for tracked_sha256, tracked_projection_id in (
@@ -1798,9 +1834,10 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     ):
                         # A Context link can protect an older extraction for the
-                        # same durable revision. Completed migration maintenance
-                        # already attempted exact deletion; preserving this
-                        # inactive projection is intentional, not drift.
+                        # same durable revision. A trusted replacement may remain
+                        # active inside a revision that a later Source update made
+                        # historical. Preserving either state is intentional, not
+                        # migration drift.
                         preserved_projection_count += 1
                         continue
                     raise _verification_error(

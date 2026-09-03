@@ -187,6 +187,46 @@ def test_migration_counts_allow_only_projection_history_superset() -> None:
     )
 
 
+def test_migration_projection_flags_allow_intermediate_historical_replacement() -> None:
+    expected = {
+        "projection_id": "projection_original",
+        "sha256": "a" * 64,
+        "is_active": 1,
+        "is_current_revision": 1,
+    }
+    actual = {
+        **expected,
+        "is_active": 0,
+        "is_current_revision": 0,
+    }
+
+    adjusted = migration_module._projection_after_tracked_source_advance(
+        actual,
+        expected,
+        {("b" * 64, "projection_current")},
+    )
+
+    assert adjusted == actual
+
+
+def test_migration_projection_flags_keep_exact_state_without_source_advance() -> None:
+    expected = {
+        "projection_id": "projection_original",
+        "sha256": "a" * 64,
+        "is_active": 1,
+        "is_current_revision": 1,
+    }
+    actual = {**expected, "is_active": 0}
+
+    adjusted = migration_module._projection_after_tracked_source_advance(
+        actual,
+        expected,
+        set(),
+    )
+
+    assert adjusted == expected
+
+
 def test_successful_migration_checkpoint_cleanup_keeps_only_current_items(
     tmp_path: Path,
 ) -> None:
