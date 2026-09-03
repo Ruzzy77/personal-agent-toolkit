@@ -1569,7 +1569,7 @@ describe("remote personal context service", () => {
       result: {
         mcp_surfaces: {
           sense: {
-            version: "0.3.4-remote.1",
+            version: "0.3.5-remote.1",
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {

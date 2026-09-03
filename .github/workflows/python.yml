@@ -1,0 +1,83 @@
+name: Python runtimes
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python.yml"
+      - "ruff.toml"
+      - "apps/sync/**"
+      - "plugins/corpus/**"
+      - "plugins/document-files/**"
+      - "plugins/hypes/**"
+      - "plugins/sense/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/python.yml"
+      - "ruff.toml"
+      - "apps/sync/**"
+      - "plugins/corpus/**"
+      - "plugins/document-files/**"
+      - "plugins/hypes/**"
+      - "plugins/sense/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Check shared Python formatting
+        run: >-
+          uvx ruff==0.16.5 format --check
+          plugins/sense plugins/corpus plugins/hypes apps/sync
+      - name: Check shared Python lint
+        run: >-
+          uvx ruff==0.16.5 check
+          plugins/sense plugins/corpus plugins/hypes apps/sync
+
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: Sense
+            os: ubuntu-latest
+            directory: plugins/sense
+            command: uv run --frozen pytest -q tests
+          - component: Corpus
+            os: ubuntu-latest
+            directory: plugins/corpus
+            command: uv run --frozen python -m unittest discover -s tests -q
+          - component: Document Files
+            os: macos-latest
+            directory: plugins/document-files
+            command: uv run --frozen pytest -q tests
+          - component: Hypes
+            os: ubuntu-latest
+            directory: plugins/hypes
+            command: uv run --frozen pytest -q tests
+          - component: Personal Agent Sync
+            os: macos-latest
+            directory: apps/sync
+            command: uv run --frozen --extra test pytest -q tests
+    name: Test ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "${{ matrix.directory }}/uv.lock"
+      - name: Run tests
+        run: ${{ matrix.command }}
+        working-directory: ${{ matrix.directory }}

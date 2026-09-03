@@ -1,0 +1,67 @@
+name: Remote products
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/remote-products.yml"
+      - "auth/**"
+      - "services/journal/**"
+      - "services/library/**"
+      - "services/remote-context/**"
+      - "sites/journal/**"
+      - "sites/library/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/remote-products.yml"
+      - "auth/**"
+      - "services/journal/**"
+      - "services/library/**"
+      - "services/remote-context/**"
+      - "sites/journal/**"
+      - "sites/library/**"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: Auth
+            directory: auth
+            command: npm run check
+          - component: Remote Context
+            directory: services/remote-context
+            command: npm run check
+          - component: Journal service
+            directory: services/journal
+            command: npm run check
+          - component: Library service
+            directory: services/library
+            command: npm run check
+          - component: Journal Site
+            directory: sites/journal
+            command: npm run lint && npm run build && npm test
+          - component: Library Site
+            directory: sites/library
+            command: npm test
+    name: Test ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ matrix.directory }}
+      - name: Run checks
+        run: ${{ matrix.command }}
+        working-directory: ${{ matrix.directory }}

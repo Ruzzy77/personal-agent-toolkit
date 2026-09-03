@@ -310,13 +310,19 @@ plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__v
 
 ## 개발 검사
 
-Python 소스, 스크립트와 테스트는 루트 [`ruff.toml`](./ruff.toml)의 형식을 따릅니다. 변경한 뒤 다음 검사를 실행합니다.
+Sense, Corpus, Hypes와 Sync의 Python 소스·스크립트·테스트는 루트
+[`ruff.toml`](./ruff.toml)의 형식을 따릅니다. 변경한 뒤 다음 검사를 실행합니다.
 
 ```sh
 python3 scripts/check_repository.py
 uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes apps/sync
 uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes apps/sync
 ```
+
+Pull request와 `main` 갱신에서는 저장소 계약, Python runtime, 원격 Worker·Site와 Design을 각각
+자동 검사합니다. Document Files는 자체 형식 설정과 전체 테스트를 사용하며, 형식별 native
+기능은 지원되는 운영체제에서 별도로 확인합니다. 자동 검사는 Cloudflare에 배포하거나 운영
+데이터를 읽고 쓰지 않습니다.
 
 ## License
 

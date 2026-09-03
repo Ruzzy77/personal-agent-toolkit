@@ -219,6 +219,47 @@ def check_shared_product_versions(errors: list[str]) -> None:
                 )
 
 
+def check_remote_context_versions(errors: list[str]) -> None:
+    surfaces_path = ROOT / "services" / "remote-context" / "src" / "surfaces.ts"
+    surfaces = surfaces_path.read_text(encoding="utf-8")
+    suffixes = {"sense": "remote.1", "corpus": "remote.3", "hypes": "remote.1"}
+    for name, suffix in suffixes.items():
+        base = read_json(PLUGIN_ROOT / name / ".claude-plugin" / "plugin.json")[
+            "version"
+        ]
+        match = re.search(
+            rf"(?s)\b{name}:\s*\{{.*?\bversion:\s*\"([^\"]+)\"",
+            surfaces,
+        )
+        expected = f"{base}-{suffix}"
+        if match is None or match.group(1) != expected:
+            errors.append(
+                f"{relative(surfaces_path)} {name} version must be {expected}"
+            )
+
+
+def check_sync_version(errors: list[str]) -> None:
+    root = ROOT / "apps" / "sync"
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    version = project["version"]
+    init_path = root / "src" / "personal_agent_sync" / "__init__.py"
+    package_version = PACKAGE_VERSION.search(init_path.read_text(encoding="utf-8"))
+    if package_version is None or package_version.group(1) != version:
+        errors.append(f"{relative(init_path)} package version differs from {version}")
+    packages = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8")).get(
+        "package", []
+    )
+    locked = [
+        package.get("version")
+        for package in packages
+        if package.get("name") == project["name"]
+    ]
+    if locked != [version]:
+        errors.append(f"apps/sync/uv.lock project version differs from {version}")
+
+
 def check_markdown_links(files: list[Path], errors: list[str]) -> None:
     for path in files:
         if path.suffix.casefold() != ".md":
@@ -265,6 +306,8 @@ def main() -> int:
         check_plugin(name, errors)
     check_javascript_locks(errors)
     check_shared_product_versions(errors)
+    check_remote_context_versions(errors)
+    check_sync_version(errors)
     check_markdown_links(files, errors)
     check_tracked_residue(files, errors)
 
