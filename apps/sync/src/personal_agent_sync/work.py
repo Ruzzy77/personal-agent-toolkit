@@ -6,6 +6,8 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
+from pathlib import Path
 from typing import Any
 
 from .config import SyncConfig
@@ -103,6 +105,225 @@ except CorpusError as error:
 except Exception:
     print(json.dumps({"ok": False, "error": {"code": "local_operation_failed", "message": "the local Work operation failed"}}))
 """
+
+_ROOT_REBIND_HELPER = r"""
+import json
+import sys
+from pathlib import Path
+
+from corpus.errors import CorpusError
+from corpus.service import CorpusService
+
+
+def main():
+    payload = json.load(sys.stdin)
+    service = CorpusService(Path(sys.argv[1]))
+    replacement = Path(payload["root"])
+    source_ids = []
+    workspace_ids = []
+    for requested in payload["connections"]:
+        resolved = service.spaces.resolve_connection(
+            space_id=requested["space_id"],
+            connection_id=requested["connection_id"],
+            audience="local_cli",
+            capability="read",
+        )
+        actual_roles = set(resolved["connection"]["roles"])
+        requested_roles = set(requested["roles"])
+        if actual_roles != requested_roles:
+            raise ValueError("local Corpus Connection roles do not match Sync")
+        if "source" in requested_roles:
+            corpus_id = requested.get("corpus_id")
+            resolved_source_ids = list(resolved["_source_ids"])
+            if not isinstance(corpus_id, str) or resolved_source_ids != [corpus_id]:
+                raise ValueError("local Corpus Source binding does not match Sync")
+            if corpus_id not in source_ids:
+                source_ids.append(corpus_id)
+        if "work" in requested_roles:
+            workspace_id = resolved["_workspace_id"]
+            if not isinstance(workspace_id, str):
+                raise ValueError("local Corpus Work binding is unavailable")
+            if workspace_id not in workspace_ids:
+                workspace_ids.append(workspace_id)
+
+    corpora = {item["corpus_id"]: item for item in service.corpora()}
+    source_results = []
+    for corpus_id in source_ids:
+        current = corpora.get(corpus_id)
+        if current is None or not isinstance(current.get("source_root"), str):
+            raise ValueError("local Corpus Source registration is unavailable")
+        source_results.append(
+            service.rebind_source_root(
+                corpus_id=corpus_id,
+                source_root=replacement,
+                expected_source_root=Path(current["source_root"]),
+            )
+        )
+
+    workspace_results = []
+    for workspace_id in workspace_ids:
+        current = service.workspace_status(
+            workspace_id=workspace_id, audience="local_cli"
+        )["work_folder"]
+        current_root = current.get("root_path")
+        if not isinstance(current_root, str):
+            raise ValueError("local Corpus Work registration is unavailable")
+        workspace_results.append(
+            service.workspace_rebind_root(
+                workspace_id=workspace_id,
+                root=replacement,
+                expected_root=Path(current_root),
+            )
+        )
+
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "result": {
+                    "root": str(replacement),
+                    "sources": source_results,
+                    "workspaces": workspace_results,
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+try:
+    main()
+except CorpusError as error:
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "details": error.details,
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+except Exception:
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "code": "local_root_rebind_failed",
+                    "message": "the local Corpus root rebind failed",
+                },
+            }
+        )
+    )
+"""
+
+
+def rebind_local_corpus_roots(
+    config: SyncConfig, connection_keys: set[str], root: Path
+) -> dict[str, Any]:
+    """Keep isolated local Corpus Source and Work roots aligned with Sync."""
+
+    if config.corpus_data_root is None or config.corpus_python is None:
+        raise SyncError(
+            "local_corpus_unavailable",
+            "the Corpus root authority is not configured",
+        )
+    selected = [
+        connection
+        for connection in config.connections
+        if connection.key in connection_keys
+    ]
+    if {connection.key for connection in selected} != connection_keys:
+        raise SyncError(
+            "connection_not_found",
+            "not every rebound Connection exists in config",
+        )
+    payload = canonical(
+        {
+            "root": unicodedata.normalize("NFC", str(root)),
+            "connections": [
+                {
+                    "space_id": connection.space_id,
+                    "connection_id": connection.connection_id,
+                    "roles": sorted(connection.roles),
+                    "corpus_id": connection.corpus_id,
+                }
+                for connection in selected
+            ],
+        }
+    )
+    environment = os.environ.copy()
+    if config.document_files_python is not None:
+        document_files_executable = (
+            config.document_files_python.parent / "document-files"
+        )
+        if document_files_executable.is_file() and os.access(
+            document_files_executable, os.X_OK
+        ):
+            environment["DOCUMENT_FILES_EXECUTABLE"] = str(document_files_executable)
+    try:
+        completed = subprocess.run(
+            [
+                str(config.corpus_python),
+                "-c",
+                _ROOT_REBIND_HELPER,
+                str(config.corpus_data_root),
+            ],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+            env=environment,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SyncError(
+            "local_corpus_unavailable",
+            "the Corpus root authority could not be started",
+        ) from exc
+    if completed.returncode != 0 or len(completed.stdout.encode()) > _MAX_HELPER_OUTPUT:
+        raise SyncError(
+            "local_root_rebind_failed",
+            "the local Corpus root rebind failed",
+        )
+    try:
+        response = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise SyncError(
+            "local_root_rebind_failed",
+            "the local Corpus root rebind returned invalid data",
+        ) from exc
+    if not isinstance(response, dict) or type(response.get("ok")) is not bool:
+        raise SyncError(
+            "local_root_rebind_failed",
+            "the local Corpus root rebind returned invalid data",
+        )
+    if not response["ok"]:
+        error = response.get("error")
+        if not isinstance(error, dict):
+            raise SyncError(
+                "local_root_rebind_failed",
+                "the local Corpus root rebind failed",
+            )
+        code = error.get("code")
+        message = error.get("message")
+        if not isinstance(code, str) or not isinstance(message, str):
+            raise SyncError(
+                "local_root_rebind_failed",
+                "the local Corpus root rebind failed",
+            )
+        raise SyncError(code, message)
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise SyncError(
+            "local_root_rebind_failed",
+            "the local Corpus root rebind returned invalid data",
+        )
+    return result
 
 
 class WorkExecutor:

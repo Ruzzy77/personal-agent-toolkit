@@ -47,7 +47,7 @@ Corpus의 논리 정체성과 물리 위치는 분리합니다.
 - extraction projection은 추출기와 설정을 식별합니다.
 - 검색 FTS는 위 record에서 다시 만들 수 있는 파생 투영입니다.
 
-`source_root`와 문서의 절대 경로는 현재 파일에 접근하기 위한 운영 정보일 뿐, 지식 record의 ID나 출처 anchor가 아닙니다. 같은 볼륨에서 Finder로 Source 또는 Work 폴더를 옮기면 저장된 device·inode를 macOS 파일시스템에 질의해 현재 경로를 찾고 등록값을 원자적으로 고칩니다. 다른 볼륨으로 옮겨 정체성이 바뀌었거나 운영체제가 이 조회를 지원하지 않으면 명시적 rebind가 필요합니다.
+`source_root`와 문서의 절대 경로는 현재 파일에 접근하기 위한 운영 정보일 뿐, 지식 record의 ID나 출처 anchor가 아닙니다. 같은 볼륨에서 Finder로 Source 또는 Work 폴더를 옮기면 저장된 device·inode를 macOS 파일시스템에 질의해 현재 경로를 찾고 등록값을 원자적으로 고칩니다. 복사·복원이나 새 checkout으로 정체성이 바뀌면 Sync의 명시적 rebind가 Sync 상태와 로컬 Corpus의 Source·Work 등록을 함께 갱신합니다.
 
 경로 비교와 외부 표시는 NFC로 정규화합니다. 실제 디스크 이름은 바꾸지 않으며, 같은 위치에서 NFC로 같아지는 서로 다른 이름이 관측되면 임의로 합치지 않고 충돌로 중단합니다. Codex·Claude provider record에는 세션 식별에 필요하지 않은 `cwd`와 `workspace` 절대 경로를 저장하지 않습니다. 세션 Source의 범위 선택자는 현재 경로와 디렉터리 정체성을 분리해 저장하므로, 선택한 작업 폴더가 같은 볼륨에서 이동해도 다음 갱신에서 현재 경로를 복구합니다.
 

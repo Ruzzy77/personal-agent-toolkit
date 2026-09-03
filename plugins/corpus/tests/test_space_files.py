@@ -262,6 +262,64 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertEqual(refreshed["root_device"], observed.st_dev)
         self.assertEqual(refreshed["root_inode"], observed.st_ino)
 
+    def test_work_folder_explicitly_rebinds_a_copied_root(self) -> None:
+        original = self.base / "drafts"
+        original.mkdir()
+        (original / "note.md").write_text("durable workspace", encoding="utf-8")
+        replacement = self.base / "restored-drafts"
+        replacement.mkdir()
+        (replacement / "note.md").write_text("durable workspace", encoding="utf-8")
+        self.service.register(
+            corpus_id="drafts-source",
+            source_root=original,
+            execution_policy="local_only",
+        )
+        self._create_context("drafts", ["drafts-source"])
+        connected = self.service.workspace_connect(
+            workspace_id="drafts",
+            context_id="drafts",
+            display_name="Drafts",
+            root=original,
+            execution_policy="local_only",
+        )["work_folder"]
+
+        rebound_source = self.service.rebind_source_root(
+            corpus_id="drafts-source",
+            source_root=replacement,
+            expected_source_root=original,
+        )["corpus"]
+
+        rebound = self.service.workspace_rebind_root(
+            workspace_id="drafts",
+            root=replacement,
+            expected_root=original,
+        )["work_folder"]
+
+        self.assertEqual(rebound["workspace_id"], connected["workspace_id"])
+        self.assertEqual(rebound["generation"], connected["generation"])
+        self.assertEqual(rebound["root_path"], str(replacement))
+        self.assertEqual(rebound_source["source_root"], str(replacement))
+        self.assertEqual(
+            self.service.workspaces.read(
+                workspace_id="drafts", relative_path="note.md"
+            )["content"],
+            "durable workspace",
+        )
+        self.assertFalse(
+            self.service.rebind_source_root(
+                corpus_id="drafts-source",
+                source_root=replacement,
+                expected_source_root=replacement,
+            )["changed"]
+        )
+        self.assertFalse(
+            self.service.workspace_rebind_root(
+                workspace_id="drafts",
+                root=replacement,
+                expected_root=replacement,
+            )["changed"]
+        )
+
     def test_promoted_remote_connection_uses_one_space_file_surface(self) -> None:
         root = self.base / "research-note"
         root.mkdir()

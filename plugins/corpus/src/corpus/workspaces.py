@@ -1034,6 +1034,142 @@ class WorkspaceService:
             )
         return {"work_folder": self._project(row, audience="local_cli")}
 
+    def rebind_root(
+        self,
+        *,
+        workspace_id: str,
+        root: Path,
+        expected_root: Path,
+    ) -> dict[str, Any]:
+        """Explicitly replace a copied or restored Work root.
+
+        Finder moves are resolved automatically by filesystem identity. This
+        operation is deliberately explicit because a copied directory has a
+        new identity and cannot safely be inferred from a similar name alone.
+        """
+
+        workspace_id = normalize_workspace_id(workspace_id)
+        root = _normalize_root(root)
+        if not expected_root.expanduser().is_absolute():
+            raise WorkspaceValidationError(
+                "expected workspace root must be an absolute path",
+                details={"reason": "expected_root_not_absolute"},
+            )
+        expected_root_nfc = unicodedata.normalize(
+            "NFC", str(Path(os.path.abspath(expected_root.expanduser())))
+        )
+        root_nfc = unicodedata.normalize("NFC", str(root))
+        data_root = self.data_root.expanduser().resolve(strict=False)
+        if _paths_overlap(root, data_root):
+            raise WorkspaceBoundaryError(
+                "work folder and Corpus private data must not overlap",
+                details={"reason": "data_root_overlap"},
+            )
+        identity = _root_identity(root)
+        with (
+            source_workspace_registry_lock(self.data_root),
+            workspace_writer_lock(self.data_root),
+            workspace_connection(self.data_root) as connection,
+        ):
+            row = connection.execute(
+                "SELECT * FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchone()
+            if row is None:
+                raise WorkspaceNotFoundError("work folder is not connected")
+            existing = _workspace_row(row)
+            existing_root_nfc = unicodedata.normalize("NFC", str(existing["root_path"]))
+            if existing_root_nfc != expected_root_nfc:
+                raise WorkspaceConflictError(
+                    "connected work folder does not match the expected root",
+                    details={
+                        "workspace_id": workspace_id,
+                        "reason": "expected_root_mismatch",
+                    },
+                )
+            context_state = self._context_lifecycle_state(existing)
+            if context_state != "active":
+                raise WorkspaceUnavailableError(
+                    "work folder context is not active",
+                    details={"reason": "context_archived"},
+                )
+            context = self.contexts.read(
+                context_id=existing["context_id"],
+                state="active",
+                limit=1,
+                offset=0,
+                audience="local_cli",
+            )
+            self._require_safe_source_overlap(
+                root,
+                corpora=list_corpora(self.data_root),
+                context_corpus_ids=set(context["context"]["corpus_ids"]),
+            )
+            conflict = connection.execute(
+                """
+                SELECT workspace_id FROM workspaces
+                WHERE workspace_id != ?
+                  AND (
+                      root_path_nfc = ?
+                      OR (root_device = ? AND root_inode = ?)
+                  )
+                LIMIT 1
+                """,
+                (workspace_id, root_nfc, *identity),
+            ).fetchone()
+            if conflict is not None:
+                raise WorkspaceConflictError(
+                    "replacement work folder is already connected",
+                    details={
+                        "workspace_id": workspace_id,
+                        "conflicting_workspace_id": conflict["workspace_id"],
+                        "reason": "registration_conflict",
+                    },
+                )
+            for other in connection.execute(
+                """
+                SELECT workspace_id, root_path FROM workspaces
+                WHERE workspace_id != ?
+                """,
+                (workspace_id,),
+            ).fetchall():
+                if _paths_overlap(root, Path(other["root_path"]).resolve(strict=False)):
+                    raise WorkspaceBoundaryError(
+                        "connected work folders must not overlap",
+                        details={
+                            "reason": "workspace_overlap",
+                            "workspace_id": other["workspace_id"],
+                        },
+                    )
+            updated_at = utc_now()
+            connection.execute(
+                """
+                UPDATE workspaces
+                SET root_path = ?, root_path_nfc = ?, root_device = ?,
+                    root_inode = ?, updated_at = ?
+                WHERE workspace_id = ? AND root_path_nfc = ?
+                """,
+                (
+                    str(root),
+                    root_nfc,
+                    identity[0],
+                    identity[1],
+                    updated_at,
+                    workspace_id,
+                    existing_root_nfc,
+                ),
+            )
+            refreshed = self._load_row(
+                workspace_id,
+                audience="local_cli",
+                connection=connection,
+            )
+        return {
+            "changed": existing_root_nfc != root_nfc,
+            "previous_root": existing["root_path"],
+            "work_folder": self._project(refreshed, audience="local_cli"),
+        }
+
     def disconnect(
         self,
         *,
