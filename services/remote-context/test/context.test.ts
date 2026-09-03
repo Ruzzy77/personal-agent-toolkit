@@ -246,13 +246,21 @@ describe("remote personal context service", () => {
       expect(response.status, await response.clone().text()).toBe(200);
       const payload = await mcpPayload(response);
       const result = payload.result as {
-        tools: Array<{ name: string; inputSchema: object }>;
+        tools: Array<{
+          name: string;
+          inputSchema: Record<string, unknown>;
+          outputSchema: Record<string, unknown>;
+        }>;
       };
       expect(result.tools.map((tool) => tool.name)).toEqual(
         MCP_SURFACES[kind].tools,
       );
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
+        expect(tool.outputSchema).toMatchObject({
+          type: "object",
+          properties: { ok: { const: true }, result: { type: "object" } },
+        });
       }
     }
   });
@@ -1569,17 +1577,17 @@ describe("remote personal context service", () => {
       result: {
         mcp_surfaces: {
           sense: {
-            version: "0.3.5-remote.1",
+            version: "0.3.6-remote.1",
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: "0.21.5-remote.3",
+            version: "0.21.6-remote.3",
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",
             ]),
           },
-          hypes: { version: "0.9.4-remote.1", tools: ["hypes_read", "hypes_rewrite"] },
+          hypes: { version: "0.9.5-remote.1", tools: ["hypes_read", "hypes_rewrite"] },
         },
         corpus_metadata: { source_digest: "a".repeat(64) },
       },

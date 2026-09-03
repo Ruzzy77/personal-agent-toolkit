@@ -89,6 +89,51 @@ export const uploadAssetSchema = z.object({
   base64: z.string().min(1).max(14_000_000),
 });
 
+const issueSummaryOutputSchema = z.looseObject({
+  id: z.string(),
+  collection: z.enum(["daily", "digest", "research"]),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  publishedAt: z.string(),
+  title: z.string(),
+  canonicalPath: z.string(),
+  coverPath: z.string().nullable(),
+  version: z.number().int().min(1),
+  updatedAt: z.string(),
+});
+
+export const whoamiOutputSchema = z.looseObject({
+  authenticated: z.literal(true),
+  provider: z.literal("google"),
+  email_hint: z.string().nullable(),
+  scopes: z.array(z.string()),
+  resource: z.string(),
+});
+
+export const listIssuesOutputSchema = z.looseObject({
+  issues: z.array(issueSummaryOutputSchema),
+});
+
+export const readIssueOutputSchema = issueSummaryOutputSchema.extend({
+  references: z.array(z.string()),
+  format: z.enum(["text", "source_html"]),
+  content: z.string(),
+});
+
+export const mutationOutputSchema = z.looseObject({
+  status: z.enum(["created", "updated", "unchanged"]),
+  id: z.string(),
+  title: z.string(),
+  version: z.number().int().min(1),
+  updated_at: z.string(),
+  canonical_path: z.string(),
+});
+
+export const uploadAssetOutputSchema = z.looseObject({
+  status: z.literal("stored"),
+  path: z.string(),
+  bytes: z.number().int().min(1),
+});
+
 export type LibraryCreateInput = z.infer<typeof createIssueSchema>;
 export type LibraryFragmentUpdateInput = z.infer<
   typeof updateIssueFragmentsSchema

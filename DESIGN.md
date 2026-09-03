@@ -47,6 +47,9 @@ Site ── HTTP ───┘
   제공한다.
 - **공통 contract**: Zod schema에서 입력 타입을 추론하고 MCP와 HTTP가 같은 업무 입력을
   사용한다. 호환 기간에는 기존 응답과 URL을 adapter로 유지한다.
+- **MCP 출력 contract**: 모든 공개 도구는 객체 루트 `outputSchema`를 제공하고 이에 맞는
+  `structuredContent`와 JSON text fallback을 함께 반환한다. schema는 클라이언트가 사용할 주요
+  필드만 고정하고, 제품 내부 응답 전체를 불필요하게 폐쇄하지 않는다.
 
 Design은 사용자 상태가 없는 정적 자료 제품이므로 서비스를 만들지 않는다. Document Files는
 운영 문서를 업로드하는 원격 저장소가 아니라 호출자가 허용한 로컬 문서를 처리하므로 local MCP를

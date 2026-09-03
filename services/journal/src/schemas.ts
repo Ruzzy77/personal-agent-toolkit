@@ -186,3 +186,115 @@ export const savePeriodSummarySchema = z.object({
   expectedVersion: z.number().int().min(1).nullable().default(null),
   idempotencyKey: z.string().trim().min(8).max(240),
 });
+
+const dateOutputSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const openOutputObject = () => z.looseObject({});
+
+const weekOutputSchema = z.looseObject({
+  id: dateOutputSchema,
+  status: z.enum(["open", "closed"]),
+  revision: z.number().int().min(1),
+});
+
+const itemOutputSchema = z.looseObject({
+  id: z.string().uuid(),
+  weekId: dateOutputSchema,
+  title: z.string(),
+  lane: laneSchema,
+  resolution: resolutionSchema,
+  version: z.number().int().min(1),
+});
+
+const eventOutputSchema = z.looseObject({
+  id: z.string(),
+  eventType: z.string(),
+  occurredAt: z.string(),
+});
+
+const periodSummaryOutputSchema = z.looseObject({
+  id: z.string(),
+  kind: periodKindSchema,
+  anchor: dateOutputSchema,
+  body: z.string(),
+  version: z.number().int().min(1),
+});
+
+export const getBoardOutputSchema = z.looseObject({
+  week: weekOutputSchema,
+  summary: openOutputObject(),
+  items: z.array(itemOutputSchema),
+  flow: z.array(openOutputObject()),
+});
+
+export const ingestOutputSchema = z.looseObject({
+  result: z.array(
+    z.looseObject({
+      item: itemOutputSchema,
+      created: z.boolean(),
+      duplicate: z.boolean(),
+    }),
+  ),
+});
+
+export const findItemsOutputSchema = z.looseObject({
+  items: z.array(itemOutputSchema),
+  count: z.number().int().min(0),
+});
+
+export const itemHistoryOutputSchema = z.looseObject({
+  item: itemOutputSchema,
+  relatedItems: z.array(itemOutputSchema),
+  history: z.array(eventOutputSchema),
+  corrections: z.array(eventOutputSchema),
+});
+
+export const resolutionOutputSchema = z.looseObject({
+  item: itemOutputSchema,
+  duplicate: z.boolean(),
+});
+
+export const weekClosePreparationOutputSchema = z.looseObject({
+  week: weekOutputSchema,
+  summary: openOutputObject(),
+  corpusCandidates: z.array(openOutputObject()),
+  rolloverItems: z.array(openOutputObject()),
+  preparationVersion: z.string(),
+  reflectedCandidateIds: z.array(z.string()),
+});
+
+export const weekCloseOutputSchema = z.looseObject({
+  week: weekOutputSchema,
+  summary: openOutputObject(),
+  corpusCandidates: z.array(openOutputObject()),
+  alreadyClosed: z.boolean(),
+});
+
+export const correctionOutputSchema = z.looseObject({
+  eventId: z.string(),
+  duplicate: z.boolean(),
+});
+
+export const periodOutputSchema = z.looseObject({
+  kind: periodKindSchema,
+  anchor: dateOutputSchema,
+  startsOn: dateOutputSchema,
+  endsOn: dateOutputSchema,
+  weeks: z.array(weekOutputSchema),
+  totals: openOutputObject(),
+  lanes: openOutputObject(),
+  projects: z.array(openOutputObject()),
+  highlights: z.array(openOutputObject()),
+  longRunning: z.array(openOutputObject()),
+  currentSummary: periodSummaryOutputSchema.nullable(),
+  summaryVersions: z.array(periodSummaryOutputSchema),
+});
+
+export const promotionOutputSchema = z.looseObject({
+  receiptId: z.string(),
+  duplicate: z.boolean(),
+});
+
+export const periodSummarySaveOutputSchema = z.looseObject({
+  summary: periodSummaryOutputSchema,
+  duplicate: z.boolean(),
+});

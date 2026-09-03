@@ -1,6 +1,6 @@
 {
   "name": "personal-agent-remote-context-service",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Owner-operated remote MCP and sync service for Sense, Corpus, and Hypes",

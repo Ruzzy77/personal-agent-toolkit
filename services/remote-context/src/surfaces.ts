@@ -9,7 +9,7 @@ export type McpSurface = {
 export const MCP_SURFACES = {
   sense: {
     name: "Sense",
-    version: "0.3.5-remote.1",
+    version: "0.3.6-remote.1",
     tools: [
       "sense_read",
       "sense_overview",
@@ -19,7 +19,7 @@ export const MCP_SURFACES = {
   },
   corpus: {
     name: "Corpus",
-    version: "0.21.5-remote.3",
+    version: "0.21.6-remote.3",
     tools: [
       "corpus_space_list",
       "corpus_space_get",
@@ -38,7 +38,7 @@ export const MCP_SURFACES = {
   },
   hypes: {
     name: "Hypes",
-    version: "0.9.4-remote.1",
+    version: "0.9.5-remote.1",
     tools: ["hypes_read", "hypes_rewrite"],
   },
 } as const satisfies Record<ResourceKind, McpSurface>;

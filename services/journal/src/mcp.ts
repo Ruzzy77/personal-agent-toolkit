@@ -8,16 +8,27 @@ import {
 import { JournalError, asJournalError } from "./errors";
 import {
   closeWeekToolSchema,
+  correctionOutputSchema,
   correctionRequestSchema,
+  findItemsOutputSchema,
   findItemsSchema,
+  getBoardOutputSchema,
   getBoardToolSchema,
   getItemHistorySchema,
+  ingestOutputSchema,
   ingestRequestSchema,
+  itemHistoryOutputSchema,
+  periodOutputSchema,
+  periodSummarySaveOutputSchema,
   periodToolSchema,
+  promotionOutputSchema,
   promotionRequestSchema,
   prepareWeekCloseSchema,
+  resolutionOutputSchema,
   savePeriodSummarySchema,
   setResolutionToolSchema,
+  weekCloseOutputSchema,
+  weekClosePreparationOutputSchema,
 } from "./schemas";
 import { JournalService } from "./service";
 import { currentWeekId, kstDate } from "./time";
@@ -57,7 +68,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 function buildServer(env: Env, principal: Principal): McpServer {
   const service = new JournalService(env.DB);
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.1" },
+    { name: "Personal Agent Journal", version: "0.2.2" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -74,6 +85,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Read one KST week of Journal items, status counts, and concise event flow.",
       inputSchema: getBoardToolSchema,
+      outputSchema: getBoardOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ weekId, includeResolved }) =>
@@ -90,12 +102,13 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Idempotently create or refresh concise work observations. This never changes resolution.",
       inputSchema: ingestRequestSchema,
+      outputSchema: ingestOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async ({ items }) =>
       safeTool(async () => {
         requireAnyScope(principal, ["journal.ingest", "journal.write"]);
-        return service.ingestItems(items, principal);
+        return { result: await service.ingestItems(items, principal) };
       }),
   );
 
@@ -106,6 +119,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Find Journal items by week or date range, text, project, lane, and resolution.",
       inputSchema: findItemsSchema,
+      outputSchema: findItemsOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -122,6 +136,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Read one item, its weekly instances, source references, state history, and corrections.",
       inputSchema: getItemHistorySchema,
+      outputSchema: itemHistoryOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ itemId }) =>
@@ -138,6 +153,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Confirm an item as active, held, completed, or canceled after the owner has decided.",
       inputSchema: setResolutionToolSchema,
+      outputSchema: resolutionOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async ({ itemId, ...input }) =>
@@ -154,6 +170,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Preview the frozen summary, rollover items, and explicit Corpus reflection candidates without closing the week.",
       inputSchema: prepareWeekCloseSchema,
+      outputSchema: weekClosePreparationOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ weekId }) =>
@@ -170,6 +187,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Close the prepared KST week after every Corpus reflection candidate is applied or explicitly skipped.",
       inputSchema: closeWeekToolSchema,
+      outputSchema: weekCloseOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async ({ weekId, preparationVersion, idempotencyKey, occurredAt }) =>
@@ -194,6 +212,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       inputSchema: correctionRequestSchema.extend({
         weekId: closeWeekToolSchema.shape.weekId.unwrap(),
       }),
+      outputSchema: correctionOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async ({ weekId, ...input }) =>
@@ -214,6 +233,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Read daily, weekly, monthly, quarterly, or yearly Journal totals and project rollups.",
       inputSchema: periodToolSchema,
+      outputSchema: periodOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ kind, anchor }) =>
@@ -230,6 +250,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Record that a durable Journal outcome was applied to an existing project-relative source and refreshed in Corpus.",
       inputSchema: promotionRequestSchema,
+      outputSchema: promotionOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -246,6 +267,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
       description:
         "Append an owner-edited summary version for a day, week, month, quarter, or year while preserving links to source events.",
       inputSchema: savePeriodSummarySchema,
+      outputSchema: periodSummarySaveOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>

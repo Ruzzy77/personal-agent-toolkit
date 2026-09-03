@@ -11,10 +11,15 @@ import {
 import { asLibraryError, LibraryError } from "./errors";
 import {
   createIssueSchema,
+  listIssuesOutputSchema,
   listIssuesSchema,
+  mutationOutputSchema,
+  readIssueOutputSchema,
   readIssueSchema,
   updateIssueSchema,
+  uploadAssetOutputSchema,
   uploadAssetSchema,
+  whoamiOutputSchema,
 } from "./schemas";
 import { LibraryService } from "./service";
 import type {
@@ -57,7 +62,7 @@ function createServer(
   library: LibraryService,
 ): McpServer {
   const server = new McpServer(
-    { name: "personal-library", version: "0.3.0" },
+    { name: "personal-library", version: "0.3.1" },
     {
       instructions:
         owner.scopes.includes("library.write")
@@ -71,6 +76,7 @@ function createServer(
     {
       title: "Library 인증 확인",
       description: "현재 OAuth 연결의 소유자 인증과 허용 권한을 확인합니다.",
+      outputSchema: whoamiOutputSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -96,6 +102,7 @@ function createServer(
       title: "Library 발간호 목록",
       description: "최신 Library 발간호의 제목, 날짜와 식별자를 조회합니다.",
       inputSchema: listIssuesSchema,
+      outputSchema: listIssuesOutputSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -119,6 +126,7 @@ function createServer(
       title: "Library 발간호 읽기",
       description: "발간호 식별자로 본문을 읽습니다. 윤문에는 source_html 형식을 사용합니다.",
       inputSchema: readIssueSchema,
+      outputSchema: readIssueOutputSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -164,6 +172,7 @@ function createServer(
         title: "Library 발간호 편집",
         description: "발간호의 완전한 원본 HTML과 선택한 표지 경로·공개 참고자료를 온라인 정본에 바로 저장합니다. 새 템플릿으로 만든 호는 바깥 구조와 공용 본문 클래스를 유지합니다. references를 생략하면 기존 값을 유지하고 빈 배열을 보내면 모두 지웁니다.",
         inputSchema: updateIssueSchema,
+        outputSchema: mutationOutputSchema,
         annotations: {
           readOnlyHint: false,
           destructiveHint: true,
@@ -193,6 +202,7 @@ function createServer(
         title: "Library 발간호 만들기",
         description: "새 발간호를 온라인 Library 원본에 추가합니다. 식별자는 collection:YYYY-MM-DD:HH 형식이며 HH에는 예약 발행 시각을 두 자리로 넣습니다. 제목, 도입문과 article을 보내면 바깥 구조와 화면 스타일은 통일된 색인 발간호 템플릿으로 저장됩니다.",
         inputSchema: createIssueSchema,
+        outputSchema: mutationOutputSchema,
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -223,6 +233,7 @@ function createServer(
         title: "Library 이미지 올리기",
         description: "이미지 생성으로 만든 표지나 삽화를 온라인 Library 저장소에 올립니다.",
         inputSchema: uploadAssetSchema,
+        outputSchema: uploadAssetOutputSchema,
         annotations: {
           readOnlyHint: false,
           destructiveHint: true,
