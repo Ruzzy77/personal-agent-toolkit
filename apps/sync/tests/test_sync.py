@@ -4,14 +4,18 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import Self
 
 import personal_agent_sync.analysis as analysis_module
 import personal_agent_sync.daemon as daemon_module
 import personal_agent_sync.migration as migration_module
 import personal_agent_sync.state as state_module
 import personal_agent_sync.storage as storage_module
+import personal_agent_sync.work as work_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
 from personal_agent_sync.config import load_config
@@ -536,6 +540,7 @@ def test_metadata_only_change_reuses_the_committed_projection(
 
     analysis_calls: list[str] = []
     maintenance_calls: list[dict[str, object]] = []
+    resolution_calls: list[tuple[object, ...]] = []
 
     async def analyze(
         _state: object,
@@ -582,15 +587,24 @@ def test_metadata_only_change_reuses_the_committed_projection(
     async def upload(
         _corpus_id: str, header: dict[str, object], _units: list[dict[str, object]]
     ) -> dict[str, object]:
+        revision = header["revision"]
         projection = header["projection"]
+        assert isinstance(revision, dict)
         assert isinstance(projection, dict)
+        if revision["sha256"] == digest:
+            assert revision["revisionId"] == "rev_migrated"
         return {"projectionId": projection["projectionId"]}
+
+    async def resolve(*args: object) -> str:
+        resolution_calls.append(args)
+        return "rev_migrated"
 
     async def maintain(_corpus_id: str, **options: object) -> dict[str, object]:
         maintenance_calls.append(options)
         return {"removed": {"projections": 1}}
 
     monkeypatch.setattr(daemon_module, "select_analyzer", analyze)
+    monkeypatch.setattr(daemon.remote, "resolve_revision", resolve)
     monkeypatch.setattr(daemon.remote, "upload_projection", upload)
     monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain)
 
@@ -632,6 +646,9 @@ def test_metadata_only_change_reuses_the_committed_projection(
     assert changed_result["revision_sha256"] == changed_digest
     assert changed_result["projection_id"] != result["projection_id"]
     assert analysis_calls == [digest, changed_digest]
+    assert resolution_calls == [
+        ("notes", initial["document_id"], digest, len(b"same bytes"))
+    ]
     assert maintenance_calls == [
         {
             "remove_projection_ids": ["projection_existing"],
@@ -756,9 +773,13 @@ def test_projection_mapping_contains_no_absolute_local_path(tmp_path: Path) -> N
         snapshot=snapshot,
         selected_format="txt",
         result=result,
+        revision_id="rev_migrated",
     )
     serialized = json.dumps({"header": header, "units": units})
     assert str(tmp_path) not in serialized
+    assert header["document"]["extension"] == "txt"
+    assert header["revision"]["revisionId"] == "rev_migrated"
+    assert header["projection"]["projectionId"].startswith("projection_")
     assert units[0]["sourceAnchor"] == {
         "relative_path": "folder/note.txt",
         "structure_path": {"paragraph": 1},
@@ -805,6 +826,54 @@ def test_completed_job_replay_is_identity_checked_and_bounded(
     ) == {"ok": True, "result": {"sequence": 3}}
     with pytest.raises(SyncError, match="different request"):
         state.completed_job("job_3", {"operation": "work.file.list", "sequence": 99})
+
+
+def test_broker_session_keeps_connection_after_job_ack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.closed: list[tuple[int, str]] = []
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, value: str) -> None:
+            self.sent.append(value)
+
+        async def close(self, code: int, reason: str) -> None:
+            self.closed.append((code, reason))
+
+        def __aiter__(self):
+            async def messages():
+                yield json.dumps({"type": "hello_ack"})
+                yield json.dumps(
+                    {"type": "job_ack", "jobId": "job_test", "accepted": True}
+                )
+
+            return messages()
+
+    websocket = FakeWebSocket()
+    monkeypatch.setattr(daemon_module, "connect", lambda *_args, **_kwargs: websocket)
+
+    async def run() -> None:
+        daemon = SyncDaemon(config, "token")
+        try:
+            await daemon._broker_session()
+        finally:
+            await daemon.close()
+
+    asyncio.run(run())
+    assert websocket.closed == []
+    assert json.loads(websocket.sent[0])["type"] == "hello"
 
 
 def test_work_jobs_recheck_scope_generation_and_write_permission(
@@ -892,6 +961,50 @@ def test_broker_advertises_only_executable_local_operations() -> None:
     )
     assert all(operation.startswith("work.file.") for operation in WORK_OPERATIONS)
     assert SYNC_OPERATIONS == (*WORK_OPERATIONS, "source.refresh")
+
+
+def test_work_helper_pins_sync_managed_document_files_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    runtime_bin = tmp_path / "runtimes" / "document-files" / "bin"
+    runtime_bin.mkdir(parents=True)
+    runtime_python = runtime_bin / "python"
+    runtime_python.write_text("", encoding="utf-8")
+    runtime_python.chmod(0o700)
+    executable = runtime_bin / "document-files"
+    executable.write_text("", encoding="utf-8")
+    executable.chmod(0o700)
+    config = replace(
+        load_config(write_config(tmp_path, root)),
+        corpus_data_root=tmp_path / "corpus-data",
+        corpus_python=runtime_python,
+        document_files_python=runtime_python,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        args: list[str], **options: object
+    ) -> subprocess.CompletedProcess[str]:
+        observed["args"] = args
+        observed["env"] = options.get("env")
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout='{"ok":true,"result":{"listed":true}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(work_module.subprocess, "run", fake_run)
+    result = WorkExecutor(config, SyncState(config))._invoke(
+        "work.file.list", "notes", "main", {"relative_path": "."}
+    )
+
+    assert result == {"listed": True}
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert environment["DOCUMENT_FILES_EXECUTABLE"] == str(executable)
 
 
 def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(

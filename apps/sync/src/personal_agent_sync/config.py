@@ -324,14 +324,15 @@ def load_config(path: Path | None = None) -> SyncConfig:
         )
     if (
         any(
-            "source" in connection.roles and connection.analyzer_route == "local"
+            "work" in connection.roles
+            or ("source" in connection.roles and connection.analyzer_route == "local")
             for connection in connections
         )
         and document_files_python is None
     ):
         raise SyncError(
             "invalid_configuration",
-            "document_files_python is required for local Source analysis",
+            "document_files_python is required for Work Connections and local Source analysis",
         )
     return SyncConfig(
         service_url=service_url.rstrip("/"),

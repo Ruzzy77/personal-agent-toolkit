@@ -993,7 +993,7 @@ export class CorpusService {
         connection,
         "work.file.read",
         input as Record<string, unknown>,
-        16 * 1024 * 1024,
+        2 * 1024 * 1024,
       ),
     );
   }

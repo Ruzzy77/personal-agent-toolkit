@@ -33,6 +33,8 @@ send Source state or file content.
 Corpus and Document Files run in separate helper environments. This preserves
 their independent dependency contracts; the Sync process exchanges bounded
 JSON with each helper and never imports either package in-process.
+Remote Work requests pin Corpus to the Sync-managed Document Files executable;
+they do not discover or mutate a Codex or Claude plugin cache.
 
 ## Analyzer routes
 
@@ -86,6 +88,9 @@ re-analyzes unchanged bytes when explicitly requested, atomically activates the
 new projection, and removes only an unprotected superseded projection. The same
 conservative cleanup follows an ordinary content change, so unreferenced prior
 extractions do not accumulate with each saved version.
+When migrated content is unchanged, Sync first resolves and reuses the durable
+remote revision identity; an analyzer upgrade can replace its projection
+without duplicating the captured revision.
 Ordinary metadata-only filesystem changes still reuse the committed projection.
 
 `personal-agent-sync storage-report` reads the current remote shard sizes,

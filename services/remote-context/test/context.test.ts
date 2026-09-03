@@ -13,6 +13,10 @@ import {
 import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
+import {
+  corpusFileReadSchema,
+  corpusFileWriteSchema,
+} from "../src/schemas";
 import { SenseService } from "../src/sense";
 import { MCP_SURFACES } from "../src/surfaces";
 import type { Env, Principal } from "../src/types";
@@ -23,6 +27,37 @@ const syncHeaders = {
   "X-Personal-Agent-Device": "test-mac",
   "Content-Type": "application/json",
 };
+
+it("keeps remote Work file budgets aligned with the local Corpus contract", () => {
+  expect(
+    corpusFileReadSchema.parse({ space_id: "notes" }),
+  ).toMatchObject({
+    max_bytes: 2 * 1024 * 1024,
+    max_chars: 30_000,
+    start_char: 0,
+  });
+  expect(
+    corpusFileReadSchema.safeParse({
+      space_id: "notes",
+      max_bytes: 2 * 1024 * 1024 + 1,
+    }).success,
+  ).toBe(false);
+  expect(
+    corpusFileReadSchema.safeParse({
+      space_id: "notes",
+      max_chars: 200_001,
+    }).success,
+  ).toBe(false);
+  expect(
+    corpusFileWriteSchema.safeParse({
+      space_id: "notes",
+      relative_path: "note.txt",
+      content: "x".repeat(6 * 1024 * 1024 + 1),
+      content_encoding: "utf8",
+      expected_version: "absent",
+    }).success,
+  ).toBe(false);
+});
 
 it("losslessly compacts legacy Source-anchor invariants", () => {
   const structure = { paragraph: 2, structural_only: true };
@@ -225,7 +260,7 @@ describe("remote personal context service", () => {
   it("keeps remote MCP server versions aligned with the client plugins", async () => {
     const expectedVersions = {
       sense: `${sensePlugin.version}-remote.1`,
-      corpus: `${corpusPlugin.version}-remote.1`,
+      corpus: `${corpusPlugin.version}-remote.2`,
       hypes: `${hypesPlugin.version}-remote.1`,
     } as const;
     for (const kind of ["sense", "corpus", "hypes"] as const) {
@@ -480,6 +515,79 @@ describe("remote personal context service", () => {
         })
       ).status,
     ).toBe(200);
+
+    const resolvedRevision = await syncPost(
+      `/sync/v1/corpora/${corpusId}/revisions:resolve`,
+      {
+        corpusId,
+        documentId,
+        sha256: begin.revision.sha256,
+        sourceSize: begin.revision.sourceSize,
+      },
+    );
+    expect(await body(resolvedRevision)).toMatchObject({
+      result: {
+        corpusId,
+        documentId,
+        revisionId: "rev_first",
+      },
+    });
+    const unresolvedRevision = await syncPost(
+      `/sync/v1/corpora/${corpusId}/revisions:resolve`,
+      {
+        corpusId,
+        documentId,
+        sha256: "9".repeat(64),
+        sourceSize: begin.revision.sourceSize,
+      },
+    );
+    expect(await body(unresolvedRevision)).toMatchObject({
+      result: { revisionId: null },
+    });
+    const conflictingSize = await syncPost(
+      `/sync/v1/corpora/${corpusId}/revisions:resolve`,
+      {
+        corpusId,
+        documentId,
+        sha256: begin.revision.sha256,
+        sourceSize: begin.revision.sourceSize + 1,
+      },
+    );
+    expect(conflictingSize.status).toBe(409);
+    expect(await body(conflictingSize)).toMatchObject({
+      error: { code: "revision_identity_conflict" },
+    });
+
+    const collidingBegin = {
+      ...begin,
+      uploadId: "upload_cccccccccccccccccccccccccccccccc",
+      revision: { ...begin.revision, revisionId: "rev_wrong" },
+      projection: {
+        ...begin.projection,
+        projectionId: "projection_wrong",
+        resultManifestHash: "8".repeat(64),
+        declaredUnitCount: 0,
+      },
+    };
+    await syncPost(
+      `/sync/v1/corpora/${corpusId}/projections:begin`,
+      collidingBegin,
+    );
+    const collidingCommit = await syncPost(
+      `/sync/v1/corpora/${corpusId}/projections:commit`,
+      {
+        uploadId: collidingBegin.uploadId,
+        expectedUnitCount: 0,
+        expectedManifestHash: collidingBegin.projection.resultManifestHash,
+      },
+    );
+    expect(collidingCommit.status).toBe(409);
+    expect(await body(collidingCommit)).toMatchObject({
+      error: {
+        code: "revision_identity_conflict",
+        details: { existingRevisionId: "rev_first" },
+      },
+    });
 
     const repeatedBegin = await syncPost(
       `/sync/v1/corpora/${corpusId}/projections:begin`,
@@ -1311,7 +1419,7 @@ describe("remote personal context service", () => {
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: "0.21.3-remote.1",
+            version: "0.21.3-remote.2",
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",

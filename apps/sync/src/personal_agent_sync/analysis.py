@@ -278,6 +278,7 @@ def build_projection(
     snapshot: Snapshot,
     selected_format: str,
     result: dict[str, Any],
+    revision_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     analysis_input = _require_mapping(result.get("input"), "input")
     if (
@@ -307,7 +308,9 @@ def build_projection(
             "invalid_analysis_result", "analysis extraction envelope is invalid"
         )
     document_id = str(change["document_id"])
-    revision_id = _identifier("rev", f"{document_id}:{snapshot.sha256}")
+    if revision_id is not None and not 1 <= len(revision_id) <= 160:
+        raise SyncError("invalid_revision_id", "resolved revision id is invalid")
+    revision_id = revision_id or _identifier("rev", f"{document_id}:{snapshot.sha256}")
     projection_id = _identifier("projection", f"{revision_id}:{manifest_hash}")
     unit_ids = [
         _identifier("unit", f"{projection_id}:{index + 1}")
@@ -362,7 +365,7 @@ def build_projection(
         "document": {
             "documentId": document_id,
             "relativePath": change["relative_path_nfc"],
-            "extension": f".{selected_format}",
+            "extension": selected_format,
             "sourceState": "available",
         },
         "revision": {
