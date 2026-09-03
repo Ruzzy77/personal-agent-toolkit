@@ -539,6 +539,15 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
         }
         for name, product in context_products.items()
     }
+    expected_sync_surfaces["toolkit"] = {
+        "name": OPENAI_DISTRIBUTION["mcp"]["surface_name"],
+        "version": OPENAI_DISTRIBUTION["mcp"]["surface_version"],
+        "tools": [
+            tool
+            for product_name in OPENAI_DISTRIBUTION["products"]
+            for tool in PRODUCTS[product_name]["mcp"]["tools"]
+        ],
+    }
     if sync_surfaces != expected_sync_surfaces:
         errors.append(
             f"{relative(sync_path)} expected MCP surfaces must match products.json"
