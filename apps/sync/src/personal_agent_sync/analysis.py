@@ -84,8 +84,8 @@ def format_id(relative_path: str) -> str:
 
 def local_analyzer_manifest(
     document_files_python: Path | None,
-) -> dict[str, dict[str, str]]:
-    """Read compact current adapter identities from the pinned Document Files runtime."""
+) -> dict[str, dict[str, str | int]]:
+    """Read provenance identities and explicit reanalysis generations."""
 
     if document_files_python is None:
         return {}
@@ -123,10 +123,13 @@ def local_analyzer_manifest(
             "local_analyzer_unavailable",
             "the Document Files descriptor manifest is invalid",
         )
-    manifest: dict[str, dict[str, str]] = {}
+    manifest: dict[str, dict[str, str | int]] = {}
     for selected_format, value in formats.items():
         config = value.get("config") if isinstance(value, dict) else None
         descriptor = config.get("route") if isinstance(config, dict) else None
+        reanalysis_generation = (
+            value.get("reanalysis_generation") if isinstance(value, dict) else None
+        )
         if not isinstance(selected_format, str) or not isinstance(descriptor, dict):
             raise SyncError(
                 "local_analyzer_unavailable",
@@ -142,6 +145,9 @@ def local_analyzer_manifest(
             or not adapter_version
             or not isinstance(config_hash, str)
             or not config_hash
+            or isinstance(reanalysis_generation, bool)
+            or not isinstance(reanalysis_generation, int)
+            or not 1 <= reanalysis_generation <= 2_147_483_647
         ):
             raise SyncError(
                 "local_analyzer_unavailable",
@@ -151,6 +157,7 @@ def local_analyzer_manifest(
             "adapter_id": adapter_id,
             "adapter_version": adapter_version,
             "config_hash": config_hash,
+            "reanalysis_generation": reanalysis_generation,
         }
     return manifest
 

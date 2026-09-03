@@ -110,6 +110,7 @@ class SyncState:
                     adapter_id TEXT,
                     adapter_version TEXT,
                     config_hash TEXT,
+                    reanalysis_generation INTEGER,
                     last_seen_at TEXT NOT NULL,
                     missing_since TEXT,
                     PRIMARY KEY(connection_key, document_id),
@@ -162,7 +163,7 @@ class SyncState:
                     completed_at TEXT NOT NULL,
                     PRIMARY KEY(product, item_key)
                 );
-                PRAGMA user_version = 2;
+                PRAGMA user_version = 3;
                 """
             )
             columns = {
@@ -172,6 +173,16 @@ class SyncState:
             for name in ("adapter_id", "adapter_version", "config_hash"):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE documents ADD COLUMN {name} TEXT")
+            if "reanalysis_generation" not in columns:
+                connection.execute(
+                    "ALTER TABLE documents ADD COLUMN reanalysis_generation INTEGER"
+                )
+                # Every analyzer_refresh created before this column existed was
+                # inferred from an exact adapter identity change. Retire those
+                # requests once at migration; future entries are generation based.
+                connection.execute(
+                    "DELETE FROM change_queue WHERE event_kind = 'analyzer_refresh'"
+                )
 
     def register_connections(self, values: tuple[ConnectionConfig, ...]) -> None:
         now = now_iso()
@@ -273,7 +284,7 @@ class SyncState:
 
     def seed_documents(
         self, key: str, documents: list[Mapping[str, object]]
-    ) -> dict[str, int]:
+    ) -> dict[str, int | bool]:
         seeded = 0
         queued = 0
         now = now_iso()
@@ -807,33 +818,34 @@ class SyncState:
             (key, document_id, event, relative_path, now, now, now),
         )
 
-    def enqueue_outdated_analyzers(
-        self, manifest: Mapping[str, Mapping[str, str]], limit: int = 20
-    ) -> int:
-        """Queue a bounded refresh only for projections made by stale local adapters.
+    def reconcile_analyzer_refreshes(
+        self,
+        manifest: Mapping[str, Mapping[str, str | int]],
+        limit: int = 20,
+    ) -> dict[str, int]:
+        """Adopt or queue explicit per-format reanalysis generations.
 
-        Rows without a recorded descriptor are left alone. Migration seeds those
-        identities from the existing Corpus, while every new Sync projection records
-        them at commit time. This prevents an upgrade from treating an unknown legacy
-        row as proof that all Source documents need to be reprocessed.
+        Exact adapter identities describe how a projection was produced. They do not
+        decide whether unchanged bytes need another extraction. Existing projections
+        without a generation adopt the current baseline and any queue entries created
+        by the retired identity comparison are removed. Only an explicit generation
+        increase can enqueue bounded background reanalysis.
         """
 
+        cleared = 0
         queued = 0
+        remaining = False
         now = now_iso()
         with self.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT d.connection_key, d.document_id, d.relative_path_nfc,
-                       d.adapter_id, d.adapter_version, d.config_hash
+                       d.reanalysis_generation, q.event_kind
                 FROM documents d
                 JOIN connections c USING(connection_key)
                 LEFT JOIN change_queue q USING(connection_key, document_id)
-                WHERE q.document_id IS NULL
-                  AND d.missing_since IS NULL
+                WHERE d.missing_since IS NULL
                   AND d.last_projection_id IS NOT NULL
-                  AND d.adapter_id IS NOT NULL
-                  AND d.adapter_version IS NOT NULL
-                  AND d.config_hash IS NOT NULL
                   AND c.location_state = 'available'
                   AND c.access_scope = 'remote_allowed'
                   AND c.analyzer_route = 'local'
@@ -847,12 +859,35 @@ class SyncState:
                 current = manifest.get(selected_format)
                 if current is None:
                     continue
-                previous = {
-                    "adapter_id": row["adapter_id"],
-                    "adapter_version": row["adapter_version"],
-                    "config_hash": row["config_hash"],
-                }
-                if previous == dict(current):
+                generation = current.get("reanalysis_generation")
+                if (
+                    isinstance(generation, bool)
+                    or not isinstance(generation, int)
+                    or generation < 1
+                ):
+                    raise SyncError(
+                        "local_analyzer_unavailable",
+                        "the Document Files reanalysis generation is invalid",
+                    )
+                # Rows created before the policy field existed are generation 1.
+                # Keeping NULL as that baseline avoids a one-time write per document.
+                previous_generation = row["reanalysis_generation"] or 1
+                if previous_generation >= generation:
+                    if row["event_kind"] == "analyzer_refresh":
+                        connection.execute(
+                            """
+                            DELETE FROM change_queue
+                            WHERE connection_key = ? AND document_id = ?
+                              AND event_kind = 'analyzer_refresh'
+                            """,
+                            (row["connection_key"], row["document_id"]),
+                        )
+                        cleared += 1
+                    continue
+                if row["event_kind"] is not None:
+                    continue
+                if queued >= limit:
+                    remaining = True
                     continue
                 self._enqueue(
                     connection,
@@ -863,9 +898,7 @@ class SyncState:
                     now,
                 )
                 queued += 1
-                if queued >= limit:
-                    break
-        return queued
+        return {"cleared": cleared, "queued": queued, "remaining": remaining}
 
     def mark_missing(self, key: str, seen_document_ids: set[str]) -> None:
         now = now_iso()
@@ -978,6 +1011,7 @@ class SyncState:
         adapter_id: str | None = None,
         adapter_version: str | None = None,
         config_hash: str | None = None,
+        reanalysis_generation: int | None = None,
     ) -> None:
         with self.connect() as connection:
             if adapter_id is None or adapter_version is None or config_hash is None:
@@ -994,7 +1028,8 @@ class SyncState:
                     """
                     UPDATE documents SET
                         last_revision_sha256 = ?, last_projection_id = ?,
-                        adapter_id = ?, adapter_version = ?, config_hash = ?
+                        adapter_id = ?, adapter_version = ?, config_hash = ?,
+                        reanalysis_generation = COALESCE(?, reanalysis_generation)
                     WHERE connection_key = ? AND document_id = ?
                     """,
                     (
@@ -1003,6 +1038,7 @@ class SyncState:
                         adapter_id,
                         adapter_version,
                         config_hash,
+                        reanalysis_generation,
                         key,
                         document_id,
                     ),
@@ -1022,7 +1058,8 @@ class SyncState:
                 """
                 UPDATE documents SET
                     last_revision_sha256 = ?, last_projection_id = NULL,
-                    adapter_id = NULL, adapter_version = NULL, config_hash = NULL
+                    adapter_id = NULL, adapter_version = NULL, config_hash = NULL,
+                    reanalysis_generation = NULL
                 WHERE connection_key = ? AND document_id = ?
                 """,
                 (revision_sha256, key, document_id),

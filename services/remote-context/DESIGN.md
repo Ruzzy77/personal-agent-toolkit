@@ -162,6 +162,13 @@ document and revision identity, provenance anchors, atomic activation, and
 search. Document Files owns format detection, parsing, OCR, structural units,
 coverage, and extraction issues.
 
+Exact adapter, implementation, and configuration identities remain projection
+provenance; they are not automatic freshness signals. Document Files separately
+declares one reanalysis generation per format. Sync treats legacy projections as
+the first baseline without per-document writes or uploads and queues unchanged
+documents only after an intentional generation increase for a materially different
+extraction.
+
 ## Completed migration and cutover
 
 The owner migration completed through resumable, bounded uploads. Stable IDs,

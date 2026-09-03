@@ -221,6 +221,27 @@ class DocumentFilesIntegrationTest(unittest.TestCase):
                 "jsonl_subprocess",
             )
 
+    def test_adapter_build_identity_does_not_invalidate_existing_projection(
+        self,
+    ) -> None:
+        registry = build_default_registry()
+        self.assertTrue(
+            registry.accepts_projection(
+                "txt",
+                "document-files.process.txt",
+                "retired-build-identity",
+                "0" * 64,
+            )
+        )
+        self.assertFalse(
+            registry.accepts_projection(
+                "unsupported",
+                "document-files.process.unsupported",
+                "1",
+                "0" * 64,
+            )
+        )
+
     def test_document_files_process_supplies_units_without_index_fields(self) -> None:
         registry = build_default_registry()
         with tempfile.TemporaryDirectory() as temporary:

@@ -24,8 +24,9 @@ on a local port and does not expose the Mac through a tunnel.
 - remove only old `capture-*` staging files left by interrupted runs, in bounded
   batches after a 24-hour safety delay;
 - analyze an immutable capture through the shared Document Files job contract;
-- compare recorded adapter identities with the pinned Document Files runtime and
-  queue only known stale projections in bounded batches after an analyzer update;
+- retain exact adapter identities as projection provenance, but queue existing
+  unchanged documents only when Document Files explicitly raises that format's
+  reanalysis generation;
 - process explicit refreshes and current Finder changes before maintenance-only
   analyzer refreshes, so a large upgrade batch cannot delay live Source updates;
 - stage and atomically commit extracted Corpus projections while leaving the
@@ -61,6 +62,16 @@ their independent dependency contracts; the Sync process exchanges bounded
 JSON with each helper and never imports either package in-process.
 Remote Work requests pin Corpus to the Sync-managed Document Files executable;
 they do not discover or mutate a Codex or Claude plugin cache.
+
+An adapter ID, implementation version, or configuration hash may change because
+of packaging, refactoring, a runtime update, or a setting that does not invalidate
+an existing extraction. Sync therefore records those exact values for provenance
+and deduplication but does not use them as a freshness signal. Each format also
+declares a small `reanalysis_generation`. A release increments it only when
+unchanged documents need materially different extraction results. Existing
+documents without a recorded generation are treated as the first baseline without
+per-document writes or uploads. The database upgrade also retires queue entries
+created by the former identity comparison once.
 
 ## Analyzer routes
 

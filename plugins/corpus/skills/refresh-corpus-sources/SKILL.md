@@ -1,6 +1,6 @@
 ---
 name: refresh-corpus-sources
-description: Refresh exact registered Corpus Source documents through the owner Sync app after source files or extractors change, when freshness is in doubt, or when the user asks to sync Corpus. Do not use for Context revision, Work-file editing, registration changes, or remote-file hydration.
+description: Refresh exact registered Corpus Source documents through the owner Sync app after source files change, when a materially improved extraction is explicitly needed, when freshness is in doubt, or when the user asks to sync Corpus. Do not use for Context revision, Work-file editing, registration changes, or remote-file hydration.
 ---
 
 # Refresh Corpus Sources
@@ -39,8 +39,10 @@ the prior unprotected extractor projection is removed.
 The Personal Agent Sync background service detects Finder changes, coalesces
 short event bursts, retries a bounded queue, and performs a slower safety scan.
 Do not create a recurring AI refresh task merely to keep registered files
-current. Use on-demand refresh when the task needs present-day fidelity or when
-an extractor change makes a committed projection outdated.
+current. Use on-demand refresh when the task needs present-day fidelity or a
+specific document needs materially improved extraction. Do not refresh merely
+because an analyzer build or configuration identity changed; a deliberate
+per-format reanalysis generation handles the exceptional bounded bulk case.
 
 ## Local maintenance fallback
 

@@ -623,13 +623,16 @@ def test_corpus_seed_records_active_projection_adapter_identity(tmp_path: Path) 
     }
 
 
-def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> None:
+def test_only_explicit_reanalysis_generation_queues_existing_projection(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "source"
     root.mkdir()
     current_path = root / "current.txt"
     stale_path = root / "stale.md"
     unknown_path = root / "unknown.pdf"
-    for path in (current_path, stale_path, unknown_path):
+    legacy_path = root / "legacy.html"
+    for path in (current_path, stale_path, unknown_path, legacy_path):
         path.write_text(path.stem, encoding="utf-8")
     state = SyncState(load_config(write_config(tmp_path, root)))
     reconcile_all(state)
@@ -641,8 +644,9 @@ def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> 
         hashlib.sha256(b"current").hexdigest(),
         "projection_current",
         adapter_id="document-files.process.txt",
-        adapter_version="2",
+        adapter_version="old-build-identity",
         config_hash="a" * 64,
+        reanalysis_generation=2,
     )
     state.complete_change(
         "notes:main",
@@ -652,40 +656,153 @@ def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> 
         adapter_id="document-files.process.md",
         adapter_version="1",
         config_hash="b" * 64,
+        reanalysis_generation=1,
     )
-    # A pre-upgrade row without a known descriptor is not evidence of staleness.
+    # A pre-upgrade row is treated as the first semantic baseline without writes.
     state.complete_change(
         "notes:main",
         observed["unknown.pdf"]["document_id"],
         hashlib.sha256(b"unknown").hexdigest(),
         "projection_unknown",
     )
+    state.complete_change(
+        "notes:main",
+        observed["legacy.html"]["document_id"],
+        hashlib.sha256(b"legacy").hexdigest(),
+        "projection_legacy",
+        adapter_id="document-files.process.html",
+        adapter_version="retired-identity",
+        config_hash="e" * 64,
+    )
+    with state.connect() as connection:
+        state._enqueue(
+            connection,
+            "notes:main",
+            observed["legacy.html"]["document_id"],
+            "analyzer_refresh",
+            "legacy.html",
+            "2026-01-01T00:00:00Z",
+        )
 
-    queued = state.enqueue_outdated_analyzers(
+    result = state.reconcile_analyzer_refreshes(
         {
             "txt": {
                 "adapter_id": "document-files.process.txt",
                 "adapter_version": "2",
                 "config_hash": "a" * 64,
+                "reanalysis_generation": 2,
             },
             "md": {
                 "adapter_id": "document-files.process.md",
                 "adapter_version": "2",
                 "config_hash": "c" * 64,
+                "reanalysis_generation": 2,
             },
             "pdf": {
                 "adapter_id": "document-files.process.pdf",
                 "adapter_version": "2",
                 "config_hash": "d" * 64,
+                "reanalysis_generation": 1,
+            },
+            "html": {
+                "adapter_id": "document-files.process.html",
+                "adapter_version": "2",
+                "config_hash": "f" * 64,
+                "reanalysis_generation": 1,
             },
         }
     )
 
-    assert queued == 1
+    assert result == {"cleared": 1, "queued": 1, "remaining": False}
     changes = state.due_changes()
     assert [(row["relative_path_nfc"], row["event_kind"]) for row in changes] == [
         ("stale.md", "analyzer_refresh")
     ]
+    with state.connect() as connection:
+        generations = {
+            row["relative_path_nfc"]: row["reanalysis_generation"]
+            for row in connection.execute(
+                "SELECT relative_path_nfc, reanalysis_generation FROM documents"
+            )
+        }
+    assert generations == {
+        "current.txt": 2,
+        "legacy.html": None,
+        "stale.md": 1,
+        "unknown.pdf": None,
+    }
+
+
+def test_database_upgrade_retires_identity_based_analyzer_refreshes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "legacy.txt"
+    document.write_text("legacy", encoding="utf-8")
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    reconcile_all(state)
+    observed = state.due_changes()[0]
+    state.complete_change(
+        "notes:main",
+        observed["document_id"],
+        hashlib.sha256(b"legacy").hexdigest(),
+        "projection_legacy",
+        adapter_id="document-files.process.txt",
+        adapter_version="retired-build-identity",
+        config_hash="a" * 64,
+    )
+    with state.connect() as connection:
+        state._enqueue(
+            connection,
+            "notes:main",
+            observed["document_id"],
+            "analyzer_refresh",
+            "legacy.txt",
+            "2026-01-01T00:00:00Z",
+        )
+        connection.execute("ALTER TABLE documents DROP COLUMN reanalysis_generation")
+        connection.execute("PRAGMA user_version = 2")
+
+    upgraded = SyncState(config)
+
+    assert upgraded.due_changes() == []
+    with upgraded.connect() as connection:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(documents)")
+        }
+        assert "reanalysis_generation" in columns
+
+
+def test_reanalysis_generation_refills_its_queue_in_bounded_batches(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    for name in ("first.txt", "second.txt"):
+        (root / name).write_text(name, encoding="utf-8")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    reconcile_all(state)
+    for row in state.due_changes():
+        state.complete_change(
+            "notes:main",
+            row["document_id"],
+            hashlib.sha256(row["relative_path_nfc"].encode()).hexdigest(),
+            f"projection_{row['document_id']}",
+            adapter_id="document-files.process.txt",
+            adapter_version="old-build-identity",
+            config_hash="a" * 64,
+            reanalysis_generation=1,
+        )
+    manifest = {"txt": {"reanalysis_generation": 2}}
+
+    first = state.reconcile_analyzer_refreshes(manifest, limit=1)
+    second = state.reconcile_analyzer_refreshes(manifest, limit=1)
+
+    assert first == {"cleared": 0, "queued": 1, "remaining": True}
+    assert second == {"cleared": 0, "queued": 1, "remaining": False}
+    assert len(state.due_changes()) == 2
 
 
 def test_due_changes_prioritize_explicit_and_live_source_updates_over_maintenance(
@@ -725,7 +842,7 @@ def test_due_changes_prioritize_explicit_and_live_source_updates_over_maintenanc
     ]
 
 
-def test_local_analyzer_manifest_keeps_only_durable_identity(
+def test_local_analyzer_manifest_reads_route_provenance_and_reanalysis_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Completed:
@@ -736,6 +853,7 @@ def test_local_analyzer_manifest_keeps_only_durable_identity(
                 "formats": {
                     "txt": {
                         "media_type": "text/plain",
+                        "reanalysis_generation": 3,
                         "descriptor": {
                             "adapter_id": "document-files.process.txt",
                             "adapter_version": "wrapper",
@@ -765,6 +883,7 @@ def test_local_analyzer_manifest_keeps_only_durable_identity(
             "adapter_id": "document-files.builtin.text",
             "adapter_version": "2",
             "config_hash": "a" * 64,
+            "reanalysis_generation": 3,
         }
     }
 

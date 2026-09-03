@@ -122,6 +122,11 @@ Document Files로 분석한 뒤 확정된 Corpus revision으로 원자적으로 
 현재 Connection 권한과 generation을 다시 검사한 뒤 로컬 Corpus에 위임합니다. 원문 바이트는
 원격 Corpus의 필수 보관 대상이 아닙니다.
 
+분석기와 설정의 정확한 식별자는 각 projection이 만들어진 조건을 확인하는 데 사용합니다. 이
+식별자가 달라졌다는 이유만으로 내용이 같은 문서를 다시 분석하지는 않습니다. 기존 결과를
+실제로 다시 만들어야 하는 형식만 Document Files의 명시적인 재분석 세대를 올려 제한된
+대기열에서 갱신합니다.
+
 ## 버전 갱신
 
 plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의 절차로 마칩니다. 로컬 checkout으로 등록한 marketplace는 해당 디렉터리의 현재 내용을 사용하며, 원격 배포 검증에는 GitHub marketplace를 사용합니다.
