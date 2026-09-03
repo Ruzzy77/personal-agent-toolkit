@@ -22,7 +22,7 @@ from .analysis import (
 from .config import SyncConfig
 from .errors import SyncError
 from .events import SourceEventMonitor
-from .paths import capture_snapshot, resolve_moved_root
+from .paths import capture_snapshot, cleanup_abandoned_captures, resolve_moved_root
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState, canonical, now_iso
@@ -92,6 +92,10 @@ class SyncDaemon:
                     next_full_reconcile = 0.0
                 if now >= next_full_reconcile:
                     try:
+                        await asyncio.to_thread(
+                            cleanup_abandoned_captures,
+                            self.config.data_root / "staging",
+                        )
                         await asyncio.to_thread(reconcile_all, self.state)
                         await asyncio.to_thread(monitor.refresh, self.state)
                     except asyncio.CancelledError:

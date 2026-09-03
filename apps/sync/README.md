@@ -9,10 +9,15 @@ on a local port and does not expose the Mac through a tunnel.
 - retain absolute folder locators, filesystem identities, and transfer approvals
   only in the private local database;
 - recover same-volume Finder renames and moves by directory identity on macOS;
+- explicitly rebind copied checkouts or restored folders with new filesystem
+  identities while preserving logical document IDs by safe relative path and
+  verifying the hashes of previously projected files;
 - wake reconciliation from filesystem events, coalesce short event bursts, and
   retain a slower full scan for startup, recovered roots, and missed events;
 - keep Source changes in a bounded queue and retry network or analyzer failures
   without rescanning every connected tree;
+- remove only old `capture-*` staging files left by interrupted runs, in bounded
+  batches after a 24-hour safety delay;
 - analyze an immutable capture through the shared Document Files job contract;
 - compare recorded adapter identities with the pinned Document Files runtime and
   queue only known stale projections in bounded batches after an analyzer update;
@@ -84,6 +89,18 @@ deployed analyzer binding; it does not reimplement document parsing.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.
+
+Ordinary Finder renames and moves need no configuration change. If a folder was
+copied, restored, or recreated as a new checkout, its filesystem identity is no
+longer proof that it is the same Source. Stop Sync and run
+`personal-agent-sync rebind-root SPACE:CONNECTION NEW_ROOT`. The explicit rebind
+updates every Connection that shared the old root, rewrites only those private
+local locators in the configuration, keeps the isolated local Corpus Source and
+Work registrations aligned, preserves matching document identities, and queues
+only files whose bytes actually changed. It never searches the home folder for
+a merely similar directory name. If a later step fails, rerunning the same
+command resumes from the already aligned authorities rather than guessing a
+different folder.
 
 `personal-agent-sync status` shows only opaque Connection and document IDs,
 queue state, and stable error codes. It does not print local roots.

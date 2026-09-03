@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -19,10 +20,15 @@ import personal_agent_sync.storage as storage_module
 import personal_agent_sync.work as work_module
 import pytest
 from personal_agent_sync.analysis import build_projection, select_analyzer
-from personal_agent_sync.config import load_config
+from personal_agent_sync.config import load_config, rewrite_connection_roots
 from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
-from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
+from personal_agent_sync.paths import (
+    Snapshot,
+    capture_snapshot,
+    cleanup_abandoned_captures,
+    resolve_moved_root,
+)
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
 from personal_agent_sync.storage import maintain_remote_storage, remote_storage_report
@@ -921,6 +927,123 @@ def test_configuration_rejects_http_and_root_rebind(tmp_path: Path) -> None:
     root.mkdir()
     state = SyncState(load_config(config_path))
     assert state.connection_row("notes:main")["location_state"] == "unavailable"
+
+
+def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("same bytes", encoding="utf-8")
+    config_path = write_config(tmp_path, root)
+    config = load_config(config_path)
+    state = SyncState(config)
+    metadata = note.stat()
+    document_id, _ = state.observe_file("notes:main", "note.txt", metadata)
+    digest = hashlib.sha256(note.read_bytes()).hexdigest()
+    state.complete_change("notes:main", document_id, digest, "projection_old")
+
+    replacement = tmp_path / "restored"
+    replacement.mkdir()
+    shutil.copy2(note, replacement / "note.txt")
+    result = state.rebind_connection_root("notes:main", replacement)
+    rewrite_connection_roots(config_path, set(result["connection_keys"]), replacement)
+
+    rebound = state.connection_row("notes:main")
+    with state.connect() as connection:
+        document = connection.execute(
+            "SELECT * FROM documents WHERE connection_key = ? AND document_id = ?",
+            ("notes:main", document_id),
+        ).fetchone()
+        queued = connection.execute("SELECT COUNT(*) FROM change_queue").fetchone()[0]
+    assert result["matched_documents"] == 1
+    assert result["unchanged_documents"] == 1
+    assert result["changed_documents"] == 0
+    assert result["unmatched_documents"] == 0
+    assert Path(rebound["root_path"]) == replacement
+    assert (document["device"], document["inode"]) == (
+        (replacement / "note.txt").stat().st_dev,
+        (replacement / "note.txt").stat().st_ino,
+    )
+    assert queued == 0
+    assert load_config(config_path).connections[0].root == replacement
+
+
+def test_old_interrupted_captures_are_cleaned_with_a_bounded_scope(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    old_capture = staging / "capture-old"
+    old_capture.write_text("abandoned", encoding="utf-8")
+    fresh_capture = staging / "capture-fresh"
+    fresh_capture.write_text("active", encoding="utf-8")
+    unrelated = staging / "operator-note"
+    unrelated.write_text("keep", encoding="utf-8")
+    now_ns = 2_000_000_000_000_000_000
+    old_ns = now_ns - (25 * 60 * 60 * 1_000_000_000)
+    os.utime(old_capture, ns=(old_ns, old_ns))
+    os.utime(fresh_capture, ns=(now_ns, now_ns))
+
+    result = cleanup_abandoned_captures(staging, now_ns=now_ns)
+
+    assert result == {"removed": 1, "retained": 1, "skipped": 1}
+    assert not old_capture.exists()
+    assert fresh_capture.read_text(encoding="utf-8") == "active"
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_root_rebind_updates_the_isolated_local_corpus_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    replacement = tmp_path / "restored"
+    replacement.mkdir()
+    config = replace(
+        load_config(write_config(tmp_path, root)),
+        corpus_data_root=tmp_path / "corpus-data",
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        args: list[str], **options: object
+    ) -> subprocess.CompletedProcess[str]:
+        observed["args"] = args
+        observed["payload"] = json.loads(str(options["input"]))
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "result": {
+                        "root": str(replacement),
+                        "sources": [{"changed": True}],
+                        "workspaces": [{"changed": True}],
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(work_module.subprocess, "run", fake_run)
+    result = work_module.rebind_local_corpus_roots(config, {"notes:main"}, replacement)
+
+    assert result["root"] == str(replacement)
+    assert observed["args"][-1] == str(config.corpus_data_root)
+    assert observed["payload"] == {
+        "connections": [
+            {
+                "connection_id": "main",
+                "corpus_id": "notes",
+                "roles": ["source", "work"],
+                "space_id": "notes",
+            }
+        ],
+        "root": str(replacement),
+    }
 
 
 def test_completed_job_replay_is_identity_checked_and_bounded(

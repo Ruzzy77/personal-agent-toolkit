@@ -1419,7 +1419,7 @@ describe("remote personal context service", () => {
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: "0.21.3-remote.2",
+            version: "0.21.4-remote.2",
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",

@@ -16,7 +16,7 @@ from typing import Any
 
 from .config import ConnectionConfig, SyncConfig
 from .errors import SyncError
-from .paths import resolve_moved_root
+from .paths import COPY_CHUNK, open_relative, open_root, resolve_moved_root
 
 MAX_PENDING_CHANGES = 10_000
 MAX_COMPLETED_JOBS = 2_048
@@ -473,6 +473,193 @@ class SyncState:
                 "UPDATE connections SET root_path = ?, location_state = 'available', updated_at = ? WHERE connection_key = ?",
                 (str(root), now_iso(), key),
             )
+
+    def rebind_connection_root(self, key: str, root: Path) -> dict[str, object]:
+        """Explicitly authorize a replacement root while preserving document IDs.
+
+        Finder moves retain the directory identity and are recovered without an
+        operator action.  This path is for a copied checkout or restored folder,
+        where every inode may be new even though the logical Source is the same.
+        Existing documents are matched by their safe relative paths.  Projected
+        files are hashed before their recorded identity is carried over, so a
+        changed file is queued rather than mistaken for the previous revision.
+        """
+
+        candidate = Path(os.path.abspath(root.expanduser()))
+        try:
+            metadata = candidate.lstat()
+        except OSError as exc:
+            raise SyncError(
+                "source_unavailable", "replacement Connection root is unavailable"
+            ) from exc
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise SyncError(
+                "invalid_configuration", "replacement root must be a real directory"
+            )
+        with self.connect() as connection:
+            current = connection.execute(
+                "SELECT root_device, root_inode FROM connections WHERE connection_key = ?",
+                (key,),
+            ).fetchone()
+            if current is None:
+                raise SyncError(
+                    "connection_not_found", "local Connection is not registered"
+                )
+            previous_identity = (
+                int(current["root_device"]),
+                int(current["root_inode"]),
+            )
+            sibling_rows = connection.execute(
+                """
+                SELECT connection_key FROM connections
+                WHERE root_device = ? AND root_inode = ?
+                ORDER BY connection_key
+                """,
+                previous_identity,
+            ).fetchall()
+            connection_keys = [str(row["connection_key"]) for row in sibling_rows]
+            placeholders = ",".join("?" for _ in connection_keys)
+            documents = [
+                dict(row)
+                for row in connection.execute(
+                    f"""
+                    SELECT connection_key, document_id, local_relative_path,
+                           last_revision_sha256
+                    FROM documents
+                    WHERE connection_key IN ({placeholders})
+                    ORDER BY connection_key, relative_path_nfc
+                    """,
+                    connection_keys,
+                )
+            ]
+
+        new_identity = (int(metadata.st_dev), int(metadata.st_ino))
+        root_descriptor = open_root(candidate, new_identity)
+        observations: list[dict[str, object]] = []
+        try:
+            for document in documents:
+                descriptor = -1
+                try:
+                    descriptor = open_relative(
+                        root_descriptor, str(document["local_relative_path"])
+                    )
+                    before = os.fstat(descriptor)
+                    digest: str | None = None
+                    if document["last_revision_sha256"] is not None:
+                        hasher = hashlib.sha256()
+                        while True:
+                            chunk = os.read(descriptor, COPY_CHUNK)
+                            if not chunk:
+                                break
+                            hasher.update(chunk)
+                        after = os.fstat(descriptor)
+                        if (
+                            before.st_dev,
+                            before.st_ino,
+                            before.st_size,
+                            before.st_mtime_ns,
+                            before.st_ctime_ns,
+                        ) != (
+                            after.st_dev,
+                            after.st_ino,
+                            after.st_size,
+                            after.st_mtime_ns,
+                            after.st_ctime_ns,
+                        ):
+                            raise SyncError(
+                                "source_changed",
+                                "a Source file changed during root rebinding",
+                            )
+                        digest = hasher.hexdigest()
+                    observations.append(
+                        {
+                            **document,
+                            "device": int(before.st_dev),
+                            "inode": int(before.st_ino),
+                            "size": int(before.st_size),
+                            "modified_ns": int(before.st_mtime_ns),
+                            "changed_ns": int(before.st_ctime_ns),
+                            "digest": digest,
+                        }
+                    )
+                except SyncError as error:
+                    if error.code != "source_unavailable":
+                        raise
+                finally:
+                    if descriptor >= 0:
+                        os.close(descriptor)
+        finally:
+            os.close(root_descriptor)
+
+        now = now_iso()
+        unchanged = 0
+        changed = 0
+        with self.connect() as connection:
+            # The old tree may already have been deleted, allowing its inode
+            # numbers to be reused inside the replacement checkout. Move the
+            # whole affected identity set to transaction-local sentinels before
+            # assigning any newly observed inode and avoid order-dependent
+            # UNIQUE conflicts.
+            placeholders = ",".join("?" for _ in connection_keys)
+            connection.execute(
+                f"""
+                UPDATE documents SET device = -1, inode = -rowid
+                WHERE connection_key IN ({placeholders})
+                """,
+                connection_keys,
+            )
+            for observed in observations:
+                connection.execute(
+                    """
+                    UPDATE documents SET device = ?, inode = ?, size = ?,
+                        modified_ns = ?, changed_ns = ?, last_seen_at = ?,
+                        missing_since = NULL
+                    WHERE connection_key = ? AND document_id = ?
+                    """,
+                    (
+                        observed["device"],
+                        observed["inode"],
+                        observed["size"],
+                        observed["modified_ns"],
+                        observed["changed_ns"],
+                        now,
+                        observed["connection_key"],
+                        observed["document_id"],
+                    ),
+                )
+                previous_digest = observed["last_revision_sha256"]
+                if previous_digest is None or observed["digest"] == previous_digest:
+                    unchanged += 1
+                    continue
+                self._enqueue(
+                    connection,
+                    str(observed["connection_key"]),
+                    str(observed["document_id"]),
+                    "changed",
+                    str(observed["local_relative_path"]),
+                    now,
+                )
+                changed += 1
+            connection.executemany(
+                """
+                UPDATE connections SET root_path = ?, root_device = ?,
+                    root_inode = ?, location_state = 'available', updated_at = ?
+                WHERE connection_key = ?
+                """,
+                [
+                    (str(candidate), new_identity[0], new_identity[1], now, sibling)
+                    for sibling in connection_keys
+                ],
+            )
+        return {
+            "rebound": True,
+            "connection_keys": connection_keys,
+            "root": str(candidate),
+            "matched_documents": len(observations),
+            "unchanged_documents": unchanged,
+            "changed_documents": changed,
+            "unmatched_documents": len(documents) - len(observations),
+        }
 
     def set_location_state(self, key: str, state: str) -> None:
         with self.connect() as connection:

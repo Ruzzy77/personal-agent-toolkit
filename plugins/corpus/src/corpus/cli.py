@@ -335,6 +335,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("local_only", "external_host_allowed"),
         required=True,
     )
+    workspace_rebind = workspace_commands.add_parser(
+        "rebind-root",
+        help="Replace a copied or restored work-folder root after validation.",
+    )
+    workspace_rebind.add_argument("--id", required=True, dest="workspace_id")
+    workspace_rebind.add_argument("--root", required=True, type=Path)
+    workspace_rebind.add_argument(
+        "--expected-root",
+        required=True,
+        type=Path,
+        help="Current connected root; the command stops if it does not match.",
+    )
     workspace_commands.add_parser("list", help="List connected work folders.")
 
     workspace_status = workspace_commands.add_parser(
@@ -901,6 +913,12 @@ def execute(args: argparse.Namespace) -> dict | list:
                 display_name=args.display_name,
                 root=args.root,
                 execution_policy=args.execution_policy,
+            )
+        if args.workspace_command == "rebind-root":
+            return service.workspace_rebind_root(
+                workspace_id=args.workspace_id,
+                root=args.root,
+                expected_root=args.expected_root,
             )
         if args.workspace_command == "list":
             return service.workspace_list(audience="local_cli")

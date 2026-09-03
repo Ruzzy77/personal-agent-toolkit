@@ -32,7 +32,7 @@ EXPECTED_REMOTE_MCP_SURFACES = {
     },
     "corpus": {
         "name": "Corpus",
-        "version": "0.21.3-remote.2",
+        "version": "0.21.4-remote.2",
         "tools": [
             "corpus_space_list",
             "corpus_space_get",

@@ -87,7 +87,7 @@ CORPUS_MCP_PORT=8000 \
 
 `scan`은 파일 목록과 메타데이터를 갱신하고, `ingest`는 내구성 있는 record와 검색용 Source unit을 만듭니다. `sync`는 두 작업을 이어서 실행합니다. 지원 형식은 Markdown, text, HTML, PDF, DOCX, PPTX, XLSX, HWP와 HWPX입니다. 세부 연동 규격은 [EXTRACTION_ADAPTERS.md](docs/EXTRACTION_ADAPTERS.md)에 있습니다.
 
-등록할 때 폴더 위치와 별개인 ID 및 파일시스템 정체성을 저장합니다. 같은 볼륨 안에서 Finder로 폴더 이름이나 위치를 바꾸면 다음 자동 갱신 또는 Source 접근 때 새 위치를 찾아 등록 경로를 고칩니다. 다른 볼륨으로 옮겼거나 운영체제가 정체성을 제공하지 못하면 기존 `rebind-root`를 사용합니다. 파일명과 공개 경로는 NFC로 비교·표시하지만 디스크의 실제 이름을 강제로 바꾸지 않습니다.
+등록할 때 폴더 위치와 별개인 ID 및 파일시스템 정체성을 저장합니다. 같은 볼륨 안에서 Finder로 폴더 이름이나 위치를 바꾸면 다음 자동 갱신 또는 Source 접근 때 새 위치를 찾아 등록 경로를 고칩니다. 폴더를 복사·복원하거나 새 checkout으로 다시 만들어 정체성이 달라졌다면 Sync를 멈추고 `personal-agent-sync rebind-root SPACE:CONNECTION NEW_ROOT`를 실행합니다. 이 명령은 Sync와 로컬 Corpus의 Source·Work 등록을 함께 맞춥니다. 파일명과 공개 경로는 NFC로 비교·표시하지만 디스크의 실제 이름을 강제로 바꾸지 않습니다.
 
 원자료가 삭제되거나 일시적으로 연결되지 않아도 마지막 정상 record는 검색하고 읽을 수 있습니다. 새 추출이 실패해도 정상 record를 실패 결과로 교체하지 않습니다. `source_state`는 원자료의 이용 가능성과 변경 여부를, `record_state`는 저장된 추출 결과의 이용 가능성과 추출기 현재성을 각각 나타냅니다. 따라서 원자료가 `unavailable`이어도 record가 `ready`일 수 있습니다.
 

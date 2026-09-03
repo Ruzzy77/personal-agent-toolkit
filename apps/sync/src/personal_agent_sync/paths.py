@@ -7,6 +7,7 @@ import os
 import stat
 import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ DIRECTORY_FLAGS = (
 FILE_FLAGS = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
 COPY_CHUNK = 1024 * 1024
 DARWIN_PATH_BUFFER = 1024
+ABANDONED_CAPTURE_MIN_AGE_SECONDS = 24 * 60 * 60
+ABANDONED_CAPTURE_CLEANUP_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,68 @@ class Snapshot:
     changed_ns: int
     device: int
     inode: int
+
+
+def cleanup_abandoned_captures(
+    staging_root: Path,
+    *,
+    now_ns: int | None = None,
+    min_age_seconds: int = ABANDONED_CAPTURE_MIN_AGE_SECONDS,
+    limit: int = ABANDONED_CAPTURE_CLEANUP_LIMIT,
+) -> dict[str, int]:
+    """Remove a bounded set of old capture files left by interrupted runs."""
+
+    if min_age_seconds < 0 or not 1 <= limit <= ABANDONED_CAPTURE_CLEANUP_LIMIT:
+        raise SyncError(
+            "invalid_staging_cleanup",
+            "staging cleanup limits are invalid",
+        )
+    try:
+        root_metadata = staging_root.lstat()
+    except FileNotFoundError:
+        return {"removed": 0, "retained": 0, "skipped": 0}
+    except OSError as exc:
+        raise SyncError(
+            "staging_unavailable", "local capture staging is unavailable"
+        ) from exc
+    if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode):
+        raise SyncError(
+            "unsafe_staging", "local capture staging must be a real directory"
+        )
+    cutoff_ns = (now_ns if now_ns is not None else time.time_ns()) - (
+        min_age_seconds * 1_000_000_000
+    )
+    removed = 0
+    retained = 0
+    skipped = 0
+    try:
+        entries = sorted(staging_root.iterdir(), key=lambda path: path.name)
+    except OSError as exc:
+        raise SyncError(
+            "staging_unavailable", "local capture staging could not be listed"
+        ) from exc
+    for entry in entries:
+        if not entry.name.startswith("capture-"):
+            skipped += 1
+            continue
+        try:
+            metadata = entry.lstat()
+        except OSError:
+            skipped += 1
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            skipped += 1
+            continue
+        if metadata.st_mtime_ns > cutoff_ns or removed >= limit:
+            retained += 1
+            continue
+        try:
+            entry.unlink()
+        except OSError:
+            retained += 1
+        else:
+            removed += 1
+    return {"removed": removed, "retained": retained, "skipped": skipped}
 
 
 def safe_parts(relative_path: str) -> tuple[str, ...]:
