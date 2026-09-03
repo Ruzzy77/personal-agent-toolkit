@@ -238,6 +238,8 @@ class RemoteClient:
         remove_upload_ids: list[str],
         compact_search_index_limit: int = 0,
         compact_unit_metadata_limit: int = 0,
+        apply_retention_limit: int = 0,
+        retention_dry_run: bool = False,
     ) -> dict[str, Any]:
         request: dict[str, Any] = {
             "corpusId": corpus_id,
@@ -249,6 +251,9 @@ class RemoteClient:
             request["compactSearchIndexLimit"] = compact_search_index_limit
         if compact_unit_metadata_limit:
             request["compactUnitMetadataLimit"] = compact_unit_metadata_limit
+        if apply_retention_limit:
+            request["applyRetentionLimit"] = apply_retention_limit
+            request["retentionDryRun"] = retention_dry_run
         return await self._json(
             "POST",
             f"/sync/v1/corpora/{corpus_id}/maintenance",

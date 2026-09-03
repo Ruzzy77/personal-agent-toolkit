@@ -302,6 +302,8 @@ export const corpusDocumentsImportSchema = z
             lifecycleState: z.enum(["active", "archived", "trash"]),
             retentionClass: z.string().min(1).max(64),
             lastUserAccessAt: z.string().datetime().nullable(),
+            archivedAt: z.string().datetime().nullable().default(null),
+            trashedAt: z.string().datetime().nullable().default(null),
             firstSeenAt: z.string().datetime(),
             lastSeenAt: z.string().datetime(),
             deletedAt: z.string().datetime().nullable(),

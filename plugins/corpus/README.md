@@ -10,6 +10,8 @@ Context·Source·Work를 여러 AI client에 같은 MCP로 연결합니다.
 
 Source Connection은 갱신 입력을 제공하고, Corpus record는 마지막으로 정상 추출된 본문과 구조를 원자료 위치와 별개로 유지합니다. Work Connection은 파일 생성·교체·삭제를 제공합니다.
 
+원격에서 사용하는 Source가 사라져도 마지막 정상 추출 record는 즉시 없어지지 않습니다. Sync는 전체 대조 뒤 작은 단위로 보존 정책을 적용하며, 실제 조회는 마지막 접근 시각을 갱신합니다. `protected` record와 활성 Context가 근거로 연결한 record는 자동 삭제하지 않습니다. 정리는 내용의 중요도를 추측하지 않고 Source 부재 기간과 보존 등급만으로 결정합니다.
+
 ## MCP 도구
 
 | 도구 | 기능 |

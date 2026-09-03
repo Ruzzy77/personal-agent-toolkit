@@ -277,6 +277,34 @@ def test_remote_storage_report_and_conservative_maintenance(
     assert summary["unit_metadata_bytes_saved"] == 80
     assert summary["unit_metadata_complete"] is True
 
+    daemon = SyncDaemon(config, "test-token")
+    retention_calls: list[tuple[str, dict[str, object]]] = []
+
+    async def maintain_retention(
+        corpus_id: str, **options: object
+    ) -> dict[str, object]:
+        retention_calls.append((corpus_id, options))
+        return {"retention": {"action_count": 0}}
+
+    monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain_retention)
+
+    async def exercise_retention() -> None:
+        await daemon._maintain_remote_retention()
+        await daemon.close()
+
+    asyncio.run(exercise_retention())
+    assert retention_calls == [
+        (
+            "notes",
+            {
+                "remove_projection_ids": [],
+                "remove_document_ids": [],
+                "remove_upload_ids": [],
+                "apply_retention_limit": 50,
+            },
+        )
+    ]
+
 
 def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(
     tmp_path: Path,

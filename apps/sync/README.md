@@ -25,6 +25,8 @@ on a local port and does not expose the Mac through a tunnel.
   last good remote revision readable on failure;
 - reconcile exact remote records no longer retained by a completed local
   Corpus snapshot, while preserving current and Context-linked records;
+- apply deterministic remote record retention in bounded passes after each full
+  reconciliation, without judging the semantic importance of extracted text;
 - receive bounded Work jobs, recheck current Connection policy and generation,
   and delegate actual file operations to the installed local Corpus authority;
 - receive exact Source refresh jobs, recheck local Source access and analyzer
@@ -36,6 +38,16 @@ on a local port and does not expose the Mac through a tunnel.
 Source bytes are temporary. The remote Corpus keeps extraction records and
 provenance anchors, not original document bytes. `local_only` Connections never
 send Source state or file content.
+
+When a remote-visible Source file disappears, its last good extracted record
+stays readable before entering the retention lifecycle. Managed records wait 30
+days before archive, 180 more days before trash, and 30 more days before purge;
+transient records use 7, 30, and 7 days. A successful search or Source-unit read
+renews the pre-trash access clock. Explicitly protected records and records
+linked from an active Context are restored to active state and excluded from
+automatic deletion. Each full reconciliation applies at most 50 actions per
+Corpus and stores only one rotating scan cursor, so cleanup cannot produce an
+unbounded operational history.
 
 Corpus and Document Files run in separate helper environments. This preserves
 their independent dependency contracts; the Sync process exchanges bounded
@@ -129,9 +141,9 @@ structure paths. Source-unit reads still return the full structure. Larger
 one-time compaction is explicit
 through `--unit-metadata-batches`; new uploads use the compact representation
 immediately. It never chooses
-canonical records for deletion by size; exact record removal remains part of a
-completed local-snapshot reconciliation and preserves active or Context-linked
-records.
+canonical records for deletion by size. Exact local-snapshot reconciliation and
+the bounded age-based retention pass are the only automatic canonical cleanup
+paths, and both preserve explicitly protected or active Context-linked records.
 
 Prepared migration payloads can still be uploaded with `personal-agent-sync
 import`. Remote storage contains no operational Finder locator. Source-derived

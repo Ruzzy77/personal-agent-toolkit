@@ -30,6 +30,7 @@ from .work import SYNC_OPERATIONS, WorkExecutor
 
 LOGGER = logging.getLogger(__name__)
 ANALYZER_REFRESH_BATCH = 20
+REMOTE_RETENTION_BATCH = 50
 
 
 class SyncDaemon:
@@ -41,6 +42,7 @@ class SyncDaemon:
         self.work = WorkExecutor(config, self.state)
         self.source_change_lock = asyncio.Lock()
         self.stopping = asyncio.Event()
+        self._retention_failures: set[str] = set()
 
     async def close(self) -> None:
         self.stopping.set()
@@ -91,6 +93,7 @@ class SyncDaemon:
                 if roots_changed:
                     next_full_reconcile = 0.0
                 if now >= next_full_reconcile:
+                    reconciled = False
                     try:
                         await asyncio.to_thread(
                             cleanup_abandoned_captures,
@@ -98,10 +101,13 @@ class SyncDaemon:
                         )
                         await asyncio.to_thread(reconcile_all, self.state)
                         await asyncio.to_thread(monitor.refresh, self.state)
+                        reconciled = True
                     except asyncio.CancelledError:
                         raise
                     except Exception:
                         LOGGER.exception("Source reconciliation failed; retrying later")
+                    if reconciled:
+                        await self._maintain_remote_retention()
                     next_full_reconcile = (
                         asyncio.get_running_loop().time()
                         + self.config.full_reconcile_seconds
@@ -148,6 +154,47 @@ class SyncDaemon:
                 )
         finally:
             await asyncio.to_thread(monitor.close)
+
+    async def _maintain_remote_retention(self) -> None:
+        corpus_ids = sorted(
+            {
+                connection.corpus_id
+                for connection in self.config.connections
+                if "source" in connection.roles
+                and connection.access_scope == "remote_allowed"
+                and connection.corpus_id is not None
+            }
+        )
+
+        async def maintain(corpus_id: str) -> None:
+            try:
+                await self.remote.maintain_corpus(
+                    corpus_id,
+                    remove_projection_ids=[],
+                    remove_document_ids=[],
+                    remove_upload_ids=[],
+                    apply_retention_limit=REMOTE_RETENTION_BATCH,
+                )
+            except asyncio.CancelledError:
+                raise
+            except SyncError as error:
+                if corpus_id not in self._retention_failures:
+                    LOGGER.warning(
+                        "Remote retention paused for Corpus %s: %s",
+                        corpus_id,
+                        error.code,
+                    )
+                    self._retention_failures.add(corpus_id)
+            except Exception:
+                if corpus_id not in self._retention_failures:
+                    LOGGER.exception("Remote retention paused for Corpus %s", corpus_id)
+                    self._retention_failures.add(corpus_id)
+            else:
+                if corpus_id in self._retention_failures:
+                    LOGGER.info("Remote retention resumed for Corpus %s", corpus_id)
+                    self._retention_failures.remove(corpus_id)
+
+        await asyncio.gather(*(maintain(corpus_id) for corpus_id in corpus_ids))
 
     async def _process_changes(self) -> None:
         for change in self.state.due_changes(limit=20):
