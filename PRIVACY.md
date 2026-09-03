@@ -122,21 +122,19 @@ revision, asset upload, and publication against the same data.
 - Public issue references contain reader-usable sources rather than internal prompts, private file
   paths, tool names, or production notes.
 
-## Private ChatGPT tunnel use
+## Retired ChatGPT tunnel path
 
-The gateway and Secure MCP Tunnel are transitional compatibility paths while the remote migration
-is being verified. They are not part of the target operating model.
+The former gateway and Secure MCP Tunnel compatibility path was removed after remote migration and
+client cutover verification. It is not part of the current distribution or operating model.
 
 The permanent Sense, Corpus, and Hypes endpoints run in the owner-operated remote context service.
 Codex, Claude, ChatGPT, and claude.ai connect to those HTTPS resources directly, so they do not
 receive a local launcher path or an inbound route to the Mac. Personal Agent Sync opens only an
 outbound WebSocket for authorized Source updates and Work jobs.
 
-The public gateway package contains no tunnel identifier, developer connection identifier, API key,
-product data, or absolute maintainer path. Private tunnel profiles remain outside the repository.
-The gateway and its active client connections are removed only after migration parity and client
-cutover have been verified; removing them does not delete either the remote records or the local
-source files.
+Historical gateway source remains available only in repository history. Tunnel profiles, client
+credentials, and local gateway caches are not retained by the current product. Retiring that path
+does not delete remote records or local Source files.
 
 ## Optional remote authentication template
 
@@ -176,8 +174,7 @@ Skills and the generated public reference pack, while `sites/design` contains th
 library source. `services/journal` and `services/library` contain deployable service source;
 `sites/journal` and `sites/library` contain the owner-only Sites frontends and their public
 assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
-Public resource and Site endpoints may appear in the plugin manifest. The optional gateway
-remains a separate package and follows the same repository-content boundary.
+Public resource and Site endpoints may appear in the plugin manifest.
 
 The authentication template, remote services, and Sites record their resolved JavaScript
 dependencies in `auth/package-lock.json`, `services/journal/package-lock.json`,

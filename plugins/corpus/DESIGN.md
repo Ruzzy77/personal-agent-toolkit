@@ -128,7 +128,8 @@ Connection 변경은 로컬 구성이 맡습니다. Source Connection은 원자�
 갱신 요청도 새 추출 record를 만드는 작업으로만 해석합니다.
 
 Codex, Claude와 웹 ChatGPT는 소유자 인증형 원격 MCP에서 같은 데이터와 도구 schema를
-사용합니다. Finder 권한은 outbound-only Sync 앱에 남고 private tunnel은 이관 확인 뒤 제거합니다.
+사용합니다. Finder 권한은 outbound-only Sync 앱에 남습니다. 이관에 사용한 private tunnel과
+gateway는 교차 클라이언트 검증 뒤 제거됐으며 현재 실행 경계가 아닙니다.
 중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.
 
 외부 응답에서는 로컬 절대 경로와 내부 registry ID를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.

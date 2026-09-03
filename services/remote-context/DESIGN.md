@@ -162,16 +162,16 @@ document and revision identity, provenance anchors, atomic activation, and
 search. Document Files owns format detection, parsing, OCR, structural units,
 coverage, and extraction issues.
 
-## Migration and cutover
+## Completed migration and cutover
 
-Migration is resumable. Stable IDs, document inventory, external-provider
-metadata, and current versions are uploaded first, followed by retained Corpus
-projections in bounded batches. A receipt
-records the source digest and imported counts. Local data remains authoritative
-until read and write parity has been checked in every supported client.
+The owner migration completed through resumable, bounded uploads. Stable IDs,
+document inventory, external-provider metadata, current versions, and retained
+Corpus projections were checked against migration receipts before the remote
+state became the shared read and write plane.
 
-The ChatGPT tunnel and local MCP launchers are removed from active client
-configuration only after:
+The former ChatGPT tunnel and gateway have been removed from the distribution,
+local runtime, credentials, and active client configuration. The following are
+continuing release-regression requirements rather than pending cutover steps:
 
 1. Sense, Hypes, Corpus Context, Source search/read, and Work operations pass
    contract tests against the remote endpoints;
