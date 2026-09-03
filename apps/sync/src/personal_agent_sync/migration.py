@@ -1149,6 +1149,18 @@ async def _maintain_remote_corpus(
         "remove_document_ids": sorted(remote_document_ids - local_document_ids),
         "remove_upload_ids": sorted(remote_upload_ids - local_upload_ids),
     }
+    return await _apply_remote_corpus_removals(
+        remote, corpus_id, removals, storage=storage
+    )
+
+
+async def _apply_remote_corpus_removals(
+    remote: RemoteClient,
+    corpus_id: str,
+    removals: dict[str, list[str]],
+    *,
+    storage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     totals = {
         "documents": 0,
         "revisions": 0,
@@ -1198,6 +1210,49 @@ async def _maintain_remote_corpus(
     }
 
 
+async def _cleanup_completed_corpus_migration(
+    remote: RemoteClient,
+    corpus: LocalCorpusMigration,
+    corpus_id: str,
+    late_projection_ids: set[str],
+) -> dict[str, Any]:
+    """Remove only remnants created after the initial migration completed."""
+
+    migration_upload_ids = {
+        str(header["uploadId"]) for header in corpus.projection_headers(corpus_id)
+    }
+    inventory = await remote.inventory(
+        corpus_id,
+        document_offset=0,
+        projection_offset=0,
+    )
+    staged = inventory.get("staged_uploads")
+    if (
+        not isinstance(staged, list)
+        or inventory.get("staged_uploads_truncated") is not False
+    ):
+        raise SyncError("remote_protocol_error", "remote staged uploads are invalid")
+    staged_migration_upload_ids: set[str] = set()
+    for upload in staged:
+        if not isinstance(upload, dict) or not isinstance(upload.get("upload_id"), str):
+            raise SyncError(
+                "remote_protocol_error", "remote upload identity is invalid"
+            )
+        if upload["upload_id"] in migration_upload_ids:
+            staged_migration_upload_ids.add(upload["upload_id"])
+    storage = inventory.get("storage")
+    return await _apply_remote_corpus_removals(
+        remote,
+        corpus_id,
+        {
+            "remove_projection_ids": sorted(late_projection_ids),
+            "remove_document_ids": [],
+            "remove_upload_ids": sorted(staged_migration_upload_ids),
+        },
+        storage=storage if isinstance(storage, dict) else None,
+    )
+
+
 async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
     """Migrate current stores and resume at projection boundaries after interruption."""
 
@@ -1229,6 +1284,11 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
 
         corpus_summaries: dict[str, Any] = {}
         current_projection_keys: set[str] = set()
+        completed_corpus_cleanup: dict[str, set[str]] = {}
+        document_completion_times = state.migration_completion_times("corpus-documents")
+        projection_completion_times = state.migration_completion_times(
+            "corpus-projection"
+        )
         for corpus_id in corpus_ids:
             external = corpus.external_state(corpus_id)
             external_digest = _digest(external)
@@ -1240,11 +1300,43 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 state.remember_migration(
                     "corpus-external", corpus_id, external_digest, external_result
                 )
+            document_checkpoint = state.migration_checkpoint(
+                "corpus-documents", corpus_id
+            )
+            if document_checkpoint is not None:
+                completed_at = document_completion_times[corpus_id]
+                prefix = f"{corpus_id}:"
+                initial_projection_keys = {
+                    key
+                    for key, projection_completed_at in projection_completion_times.items()
+                    if key.startswith(prefix)
+                    and projection_completed_at <= completed_at
+                }
+                late_projection_keys = {
+                    key
+                    for key, projection_completed_at in projection_completion_times.items()
+                    if key.startswith(prefix) and projection_completed_at > completed_at
+                }
+                current_projection_keys.update(initial_projection_keys)
+                completed_corpus_cleanup[corpus_id] = {
+                    key[len(prefix) :] for key in late_projection_keys
+                }
+                corpus_summaries[corpus_id] = {
+                    "documents": document_checkpoint[1],
+                    "external": external_result,
+                    "seed": {"seeded": 0, "queued": 0},
+                    "projection_count": len(initial_projection_keys),
+                    "migrated_projections": 0,
+                    "resumed_projections": len(initial_projection_keys),
+                    "retired_during_migration": 0,
+                    "initial_migration": "complete",
+                }
+                continue
+            headers = corpus.projection_headers(corpus_id)
             seeded = corpus.seed_documents(state, corpus_id)
             migrated = 0
             skipped = 0
             retired = 0
-            headers = corpus.projection_headers(corpus_id)
             for index, header in enumerate(headers, start=1):
                 projection_id = str(header["projection"]["projectionId"])
                 current_projection_keys.add(f"{corpus_id}:{projection_id}")
@@ -1293,6 +1385,16 @@ async def migrate_local(config: SyncConfig, token: str) -> dict[str, Any]:
         # also repairs stores written by an earlier service version that changed
         # observation timestamps during projection import.
         for corpus_id in corpus_ids:
+            if corpus_id in completed_corpus_cleanup:
+                corpus_summaries[corpus_id][
+                    "maintenance"
+                ] = await _cleanup_completed_corpus_migration(
+                    remote,
+                    corpus,
+                    corpus_id,
+                    completed_corpus_cleanup[corpus_id],
+                )
+                continue
             documents = corpus.documents(corpus_id)
             document_digest = _digest(documents)
             document_result = state.migration_result(

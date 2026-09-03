@@ -1208,6 +1208,19 @@ class SyncState:
             return None
         return str(row["source_digest"]), value
 
+    def migration_completion_times(self, product: str) -> dict[str, str]:
+        """Return completion times for one migration product."""
+
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT item_key, completed_at FROM migration_progress
+                WHERE product = ?
+                """,
+                (product,),
+            ).fetchall()
+        return {str(row["item_key"]): str(row["completed_at"]) for row in rows}
+
     def remember_migration(
         self,
         product: str,

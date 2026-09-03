@@ -118,8 +118,12 @@ contract. The context Worker only proxies authorized bytes to the separately dep
    exact public tool-name sets before comparing durable records. The metadata
    receipt is compared with the exact locally recorded migration checkpoint,
    so later Finder scan timestamps do not invalidate a completed migration.
-   A successful full pass removes checkpoints for retired projections; an
-   interrupted pass keeps them so migration can resume safely.
+   Once a Corpus document migration has completed, a later run does not reopen
+   that initial snapshot with projection identities created afterward. Current
+   Source changes continue through Sync, while the rerun can still update shared
+   metadata and remove only migration remnants created after completion.
+   A successful initial pass removes checkpoints for projections retired before
+   completion; an interrupted pass keeps them so migration can resume safely.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.

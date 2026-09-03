@@ -261,6 +261,138 @@ def test_successful_migration_checkpoint_cleanup_keeps_only_current_items(
     )
 
 
+def test_completed_corpus_migration_does_not_reopen_new_local_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    sense = {"profile": {"sections": []}, "skills": []}
+    hypes = {"nodes": [], "predicates": [], "edges": []}
+    metadata = {"sourceDigest": "a" * 64}
+    external = {"corpusId": "notes", "bindings": [], "runs": [], "records": []}
+    initial_header = {
+        "uploadId": "upload_initial",
+        "projection": {"projectionId": "projection_initial"},
+    }
+    later_header = {
+        "uploadId": "upload_later",
+        "projection": {"projectionId": "projection_later"},
+    }
+    state.remember_migration(
+        "sense", "complete", migration_module._digest(sense), {"cached": True}
+    )
+    state.remember_migration(
+        "hypes", "complete", migration_module._digest(hypes), {"cached": True}
+    )
+    state.remember_migration(
+        "corpus-metadata", "complete", metadata["sourceDigest"], {"cached": True}
+    )
+    state.remember_migration(
+        "corpus-external", "notes", migration_module._digest(external), {"cached": True}
+    )
+    state.remember_migration(
+        "corpus-projection",
+        "notes:projection_initial",
+        "b" * 64,
+        {"projectionId": "projection_initial"},
+    )
+    state.remember_migration(
+        "corpus-documents", "notes", "c" * 64, {"importedDocumentCount": 1}
+    )
+    state.remember_migration(
+        "corpus-projection",
+        "notes:projection_later",
+        "d" * 64,
+        {"projectionId": "projection_later"},
+    )
+
+    class FakeCorpus:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def corpus_ids(self) -> list[str]:
+            return ["notes"]
+
+        def metadata_payload(self) -> dict[str, object]:
+            return metadata
+
+        def external_state(self, _corpus_id: str) -> dict[str, object]:
+            return external
+
+        def projection_headers(self, _corpus_id: str) -> list[dict[str, object]]:
+            return [initial_header, later_header]
+
+        def documents(self, _corpus_id: str) -> list[dict[str, object]]:
+            return [{"documentId": "doc_initial"}]
+
+        def seed_documents(self, *_args: object) -> dict[str, int]:
+            raise AssertionError("a completed migration must not reseed Sync state")
+
+    maintenance_calls: list[dict[str, object]] = []
+
+    class FakeRemote:
+        def __init__(self, _config: object, _token: str) -> None:
+            pass
+
+        async def inventory(
+            self, *_args: object, **_kwargs: object
+        ) -> dict[str, object]:
+            return {
+                "documents": [{"document_id": "doc_initial"}],
+                "projections": [
+                    {"projection_id": "projection_initial"},
+                    {"projection_id": "projection_later"},
+                ],
+                "document_has_more": False,
+                "projection_has_more": False,
+                "staged_uploads": [{"upload_id": "upload_later"}],
+                "staged_uploads_truncated": False,
+                "storage": {},
+            }
+
+        async def maintain_corpus(
+            self, _corpus_id: str, **options: object
+        ) -> dict[str, object]:
+            maintenance_calls.append(options)
+            return {"removed": {"uploads": 1}, "protected": {}, "storage": {}}
+
+        async def upload_projection(self, *_args: object) -> dict[str, object]:
+            raise AssertionError("a later local projection must not reopen migration")
+
+        async def import_documents(self, *_args: object) -> dict[str, object]:
+            raise AssertionError("completed document migration must not be repeated")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(migration_module, "export_sense", lambda: sense)
+    monkeypatch.setattr(migration_module, "export_hypes", lambda: hypes)
+    monkeypatch.setattr(migration_module, "LocalCorpusMigration", FakeCorpus)
+    monkeypatch.setattr(migration_module, "RemoteClient", FakeRemote)
+
+    result = asyncio.run(migration_module.migrate_local(config, "token"))
+
+    assert result["corpora"]["notes"]["initial_migration"] == "complete"
+    assert result["corpora"]["notes"]["projection_count"] == 1
+    assert maintenance_calls == [
+        {
+            "remove_projection_ids": ["projection_later"],
+            "remove_document_ids": [],
+            "remove_upload_ids": ["upload_later"],
+        }
+    ]
+    assert (
+        state.migration_checkpoint("corpus-projection", "notes:projection_initial")
+        is not None
+    )
+    assert (
+        state.migration_checkpoint("corpus-projection", "notes:projection_later")
+        is None
+    )
+
+
 def test_remote_storage_report_and_conservative_maintenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
