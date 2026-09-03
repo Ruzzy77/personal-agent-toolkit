@@ -22,7 +22,7 @@ from .state import SyncState, canonical
 EXPECTED_REMOTE_MCP_SURFACES = {
     "sense": {
         "name": "Sense",
-        "version": "0.3.4-remote.1",
+        "version": "0.3.5-remote.1",
         "tools": [
             "sense_read",
             "sense_overview",
