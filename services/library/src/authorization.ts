@@ -3,7 +3,7 @@ import type {
   AuthServiceBinding,
 } from "./types";
 
-const DEFAULT_SCOPES = ["library.read", "library.write"];
+export const LIBRARY_SCOPES = ["library.read", "library.write"];
 
 export function extractBearerToken(request: Request): string | null {
   const value = request.headers.get("Authorization");
@@ -31,7 +31,7 @@ export function protectedResourceMetadata(
   return {
     resource,
     authorization_servers: [issuer],
-    scopes_supported: DEFAULT_SCOPES,
+    scopes_supported: LIBRARY_SCOPES,
     bearer_methods_supported: ["header"],
     resource_name: "Library",
   };
@@ -43,7 +43,7 @@ export function authorizationChallenge(
 ): string {
   const values = [
     `resource_metadata="${resourceMetadata}"`,
-    `scope="${result?.requiredScopes?.join(" ") || DEFAULT_SCOPES.join(" ")}"`,
+    `scope="${result?.requiredScopes?.join(" ") || LIBRARY_SCOPES.join(" ")}"`,
   ];
   if (result?.code === "insufficient_scope") {
     values.unshift('error="insufficient_scope"');
