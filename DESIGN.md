@@ -23,7 +23,7 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 | Document Files | local plugin | 호출자가 소유한 로컬 파일 | 로컬 문서 처리 예외 유지 |
 | Design | skill-only plugin + Site | `sites/design/designs` | 정적 자산 제품 예외 유지 |
 | Journal | remote plugin + service + Site | Journal service D1 | 기준 구조 유지 |
-| Library | remote plugin + service + Site | 운영 Site D1·R2(현재), Library service D1·R2(전환 후) | 기준 구조로 전환 중 |
+| Library | remote plugin + service + Site | Library service D1·R2 | 기준 구조 유지 |
 
 `services/remote-context`가 Sense·Corpus·Hypes를 함께 호스팅하는 것은 배포 단위의 선택이다. 각
 제품의 계약, 저장 접근과 업무 로직은 모듈 경계를 유지하며, 한 제품의 변경이 다른 제품의 공개
@@ -63,11 +63,9 @@ D1 schema는 versioned migration 파일로만 변경한다. 요청을 처리하�
 rollback 가능 기간까지만 다룬다. 별도 영구 이력 저장소를 만들지 않고 Git의 migration 기록과
 D1의 복구 기능을 사용한다.
 
-Library의 다음 release 소스는 service가 D1·R2와 version 충돌 검사를 소유하고 Site와 MCP가 같은
-service를 사용하는 기준 구조로 바뀌었다. 운영 전환 전 정본은 기존 Site 저장층이다. 전환에서는
-기존 Site의 발간호와 asset을 원문 그대로 복사·대조한 뒤 service와 새 Site를 차례로 배포한다.
-기존 MCP URL과 발간호 URL은 유지한다. 기존 Site 저장층은 전환 확인 기간에만 rollback 대상으로
-남기고 새 쓰기를 받지 않는다.
+Library는 service가 D1·R2와 version 충돌 검사를 소유하고 Site와 MCP가 같은 service를 사용한다.
+기존 Site의 발간호와 asset은 원문 그대로 복사하고 hash를 대조해 전환했으며, 기존 MCP URL과
+발간호 URL은 유지한다. 이전 Site 저장층은 rollback 확인 기간에만 남기고 새 쓰기를 받지 않는다.
 
 ## 인증과 권한
 

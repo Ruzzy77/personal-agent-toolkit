@@ -186,14 +186,14 @@
       "plugin": {
         "path": "plugins/library",
         "kind": "remote_mcp",
-        "base_version": "0.2.1"
+        "base_version": "0.3.0"
       },
       "components": [
         "plugins/library",
         "services/library",
         "sites/library"
       ],
-      "data_authority": "sites/library (production); services/library (pending cutover)",
+      "data_authority": "services/library",
       "versioned_packages": [
         "services/library/package.json",
         "sites/library/package.json"
@@ -204,7 +204,7 @@
         "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp",
         "implementation": "services/library/src/mcp.ts",
         "surface_name": "personal-library",
-        "surface_version": "0.2.1",
+        "surface_version": "0.3.0",
         "tools": [
           "library_whoami",
           "library_list_issues",

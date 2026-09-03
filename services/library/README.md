@@ -1,8 +1,8 @@
 # Personal Agent Library service
 
 Library의 발간호를 ChatGPT, Codex와 Claude에서 읽고 편집하기 위한 소유자 전용 Cloudflare
-Worker입니다. 운영 전환 뒤 이 서비스가 D1 문서, R2 asset과 저장 규칙을 소유하며, 원격 MCP와
-`sites/library`가 같은 정본을 사용합니다. 전환 전 운영 정본은 기존 Site 저장층입니다.
+Worker입니다. 이 서비스가 D1 문서, R2 asset과 저장 규칙을 소유하며, 원격 MCP와
+`sites/library`가 같은 정본을 사용합니다.
 
 - `library_whoami`: Google 소유자 인증과 scope 확인
 - `library_list_issues`: 발간호 목록 조회

@@ -293,7 +293,7 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 |---|---|
 | 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
 | 원격 Journal | 소유자 운영형 D1 |
-| Library 문서·이미지 | 운영 Site D1·R2(현재), Library service D1·R2(전환 후) |
+| Library 문서·이미지 | Library service D1·R2 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
 
@@ -313,8 +313,8 @@ bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync brok
 서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
 `services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다.
 `plugins/library`, `services/library`와 `sites/library`는 Library의 연결, 서비스 소유 저장·MCP와
-읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 운영 전환 순서는 [`DESIGN.md`](./DESIGN.md)에
-구분해 둡니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증
+읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 이전과 rollback 경계는
+[`DESIGN.md`](./DESIGN.md)에 구분해 둡니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증
 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 두 client manifest와 `products.json`을 맞춥니다. plugin 자체에

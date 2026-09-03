@@ -1,8 +1,7 @@
 # Library
 
-이 소스의 Library Site는 `services/library`의 D1·R2를 사용하는 소유자 전용 읽기·편집 화면이며
-자체 데이터 binding이나 runtime schema를 두지 않습니다. 운영 전환 전 문서와 표지·삽화의 정본은
-기존 Site D1·R2이고, 자료 대조와 service 배포가 끝난 뒤 새 구조로 전환합니다.
+Library Site는 `services/library`의 D1·R2를 사용하는 소유자 전용 읽기·편집 화면이며 자체 데이터
+binding이나 runtime schema를 두지 않습니다.
 소유자는 각 발간호 주소에서 제목, 도입문과 본문을 바로 고칠 수 있고, ChatGPT, Codex와
 Claude의 `Library` 연결에서도 같은 문서를 읽고 고칩니다.
 

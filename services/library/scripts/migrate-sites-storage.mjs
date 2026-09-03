@@ -95,7 +95,8 @@ function issueDigest(issue) {
 }
 
 function byteDigest(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
+  const data = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  return createHash("sha256").update(data).digest("hex");
 }
 
 async function readSourceIssues() {

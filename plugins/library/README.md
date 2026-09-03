@@ -1,12 +1,13 @@
 # Library
 
 Library는 Daily·Digest·Research 발간호를 읽고 고치고 발행하는 소유자 인증형 개인
-라이브러리입니다. 다음 release에서는 원격 MCP와 Library 사이트가 Library service의 D1 문서와
-R2 표지·삽화를 함께 사용합니다. 운영 전환 전 정본은 기존 Site 저장층입니다.
+라이브러리입니다. 원격 MCP와 Library 사이트는 Library service의 D1 문서와 R2 표지·삽화를
+함께 사용합니다.
 
 - 소유자 전용 Site: https://personal-edition-library.ruzzy.chatgpt.site
 - 원격 MCP: https://personal-library-mcp.hiyaq77.workers.dev/api/mcp
-- 문서·표지·삽화 정본: 운영 Site D1·R2(현재), Library service D1·R2(전환 후)
+- 문서 정본: Library service D1
+- 표지와 삽화: Library service R2
 
 ## 도구
 

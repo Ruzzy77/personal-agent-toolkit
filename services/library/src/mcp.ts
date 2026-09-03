@@ -57,7 +57,7 @@ function createServer(
   library: LibraryService,
 ): McpServer {
   const server = new McpServer(
-    { name: "personal-library", version: "0.2.1" },
+    { name: "personal-library", version: "0.3.0" },
     {
       instructions:
         owner.scopes.includes("library.write")
