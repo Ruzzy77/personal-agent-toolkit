@@ -1,6 +1,6 @@
 {
   "name": "design",
-  "version": "0.2.1+codex.20260903104213",
+  "version": "0.2.1+codex.20260903135515",
   "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
   "author": {
     "name": "Ruzzy77",
@@ -37,8 +37,7 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/icon.png",
     "defaultPrompt": [
-      "Design and implement this interface within the existing project.",
-      "Find one to three useful design reference directions for this product.",
+      "Design and implement this interface within the existing project, using one to three reference directions only if useful.",
       "Review this screen and fix the most important issues.",
       "Plan or synthesize the user research needed for this decision."
     ]
