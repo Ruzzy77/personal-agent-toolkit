@@ -64,6 +64,11 @@ def check_marketplaces(errors: list[str]) -> None:
                 f"Codex marketplace source for {name} must be local {expected}"
             )
 
+    if claude_entries["design"].get("displayName") != "Personal Design":
+        errors.append(
+            "Claude Design listing must remain distinct from Anthropic Design"
+        )
+
 
 def check_plugin(name: str, errors: list[str]) -> None:
     root = PLUGIN_ROOT / name
@@ -96,6 +101,14 @@ def check_plugin(name: str, errors: list[str]) -> None:
     elif not all(isinstance(prompt, str) and prompt.strip() for prompt in prompts):
         errors.append(
             f"{name}: Codex defaultPrompt contains an empty or non-string value"
+        )
+
+    if name == "design" and (
+        claude.get("displayName") != "Personal Design"
+        or codex.get("interface", {}).get("displayName") != "Personal Design"
+    ):
+        errors.append(
+            "design: client display names must avoid the generic Design collision"
         )
 
     skill_path = codex.get("skills")

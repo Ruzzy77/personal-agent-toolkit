@@ -1,6 +1,6 @@
 {
   "name": "design",
-  "version": "0.2.1+codex.20260903135515",
+  "version": "0.2.2+codex.20260903150252",
   "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
   "author": {
     "name": "Ruzzy77",
@@ -19,7 +19,7 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Design",
+    "displayName": "Personal Design",
     "shortDescription": "Design, review, and research product interfaces",
     "longDescription": "Design creates and refines product interfaces in the existing project, reviews usability and accessibility from available evidence, and plans or synthesizes product design research. Its optional offline library separates reusable patterns, named recipes, and example assets without replacing the project's design system.",
     "developerName": "Ruzzy77",
