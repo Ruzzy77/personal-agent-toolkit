@@ -1,0 +1,152 @@
+{
+  "schema_version": 3,
+  "id": "formwork",
+  "name": "거푸집 (Formwork)",
+  "description": "회색 패널, 청사진 파랑과 주황 강조색을 사용한다. 표와 도식으로 구성 요소 사이의 관계와 작업 순서를 설명한다.",
+  "version": "2.3",
+  "created": "2026-07-29",
+  "status": "validated",
+  "kind": "recipe",
+  "visibility": "public",
+  "pattern_refs": [
+    "structure-and-sequence"
+  ],
+  "format_support": {
+    "web": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "document": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "slides": [
+      "guidance"
+    ],
+    "image": [
+      "guidance"
+    ]
+  },
+  "provenance": {
+    "origin": "original",
+    "license": "Apache-2.0",
+    "references": []
+  },
+  "mediums": [
+    "standalone-html",
+    "print-html"
+  ],
+  "formats": [
+    "web",
+    "document",
+    "slides",
+    "image"
+  ],
+  "format_fit": {
+    "web": "supported",
+    "document": "primary",
+    "slides": "primary",
+    "image": "primary"
+  },
+  "use_for": [
+    "technical-content",
+    "structured-explanation",
+    "diagram-content"
+  ],
+  "avoid_for": [
+    "long-reading",
+    "promotional-content",
+    "dense-data"
+  ],
+  "capabilities": {
+    "dark_mode": true,
+    "print": true,
+    "charts": false,
+    "diagrams": true,
+    "long_form": false,
+    "interactive_ui": false,
+    "motion": false,
+    "image_layout": true
+  },
+  "default_profile": "doc",
+  "profiles": {
+    "min": [
+      "tokens.css",
+      "base.css"
+    ],
+    "doc": [
+      "tokens.css",
+      "base.css",
+      "doc.css"
+    ],
+    "site": [
+      "tokens.css",
+      "base.css",
+      "doc.css",
+      "site.css"
+    ]
+  },
+  "aliases": {
+    "full": "doc"
+  },
+  "gallery": {
+    "korean_name": "거푸집",
+    "purpose": "구조와 절차",
+    "note": "구성 요소 사이의 관계와 작업 순서를 표와 도식으로 설명합니다.",
+    "directions": [
+      "구성 요소와 연결 방향을 표나 도식에서 바로 이해할 수 있는지 확인",
+      "파랑과 주황이 같은 요소에서 경쟁하지 않는지 확인"
+    ],
+    "swatches": [
+      "#e8e8e5",
+      "#f3f3f0",
+      "#1d1f22",
+      "#1a4fc0",
+      "#b54e00",
+      "#16357e"
+    ],
+    "template_labels": {
+      "report": "기술 문서",
+      "document-site": "문서 사이트"
+    },
+    "use_labels": {
+      "technical-content": "기술 설명",
+      "structured-explanation": "구조 설명",
+      "diagram-content": "도식 중심 내용"
+    },
+    "avoid_labels": {
+      "long-reading": "긴 본문",
+      "promotional-content": "홍보 중심 내용",
+      "dense-data": "표와 그래프가 많은 내용"
+    },
+    "specimen": {
+      "canvas": "#1c335d",
+      "canvas_dark": "#1c335d",
+      "ink": "#f4f5f1",
+      "ink_dark": "#f4f5f1",
+      "accent": "#ff9b58",
+      "accent_dark": "#ff9b58"
+    }
+  },
+  "styleguide": "styleguide.html",
+  "design_doc": "DESIGN.md",
+  "format_guide": "formats.json",
+  "templates": {
+    "report": "templates/report.html",
+    "document-site": "templates/document-site.html"
+  },
+  "validation": {
+    "checked_on": "2026-08-27",
+    "checks": [
+      "manifest-json",
+      "wcag-aa-text",
+      "dark-mode-tokens",
+      "print-styles",
+      "responsive-layout",
+      "raster-assets",
+      "format-guide"
+    ]
+  }
+}

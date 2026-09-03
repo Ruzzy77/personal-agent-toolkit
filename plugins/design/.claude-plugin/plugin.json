@@ -1,0 +1,12 @@
+{
+  "name": "design",
+  "version": "0.2.0",
+  "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
+  "author": {
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
+  },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit/tree/main/plugins/design",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "license": "Apache-2.0"
+}

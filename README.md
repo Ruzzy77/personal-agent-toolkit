@@ -3,14 +3,15 @@
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
 Sense, Corpus, Hypes와 Journal은 소유자 인증형 상시 원격 MCP로 공유하고,
-Document Files와 Personal Agent Sync는 로컬 파일 권한 안에서 운영하는 개인용 에이전트 도구
-모음입니다.
+Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사용하는 개인용 에이전트
+도구 모음입니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
 - **Document Files**: PDF, Office와 HWP/HWPX를 포함한 문서 파일의 추출·변환·렌더링·편집
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
+- **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 선택형 디자인 참고 라이브러리
 - **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 전송 정책 검사, 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
@@ -22,6 +23,7 @@ Document Files와 Personal Agent Sync는 로컬 파일 권한 안에서 운영�
 - 이어지는 업무의 파일, 이메일, 이전 작업이나 원문이 필요하면 Corpus를 사용합니다.
 - 저장된 사용자 관계가 현재 해석·설명·선택을 바꿀 때에는 Hypes를 사용합니다.
 - 오늘과 이번 주의 진행 상태, 사용자 확정 처리와 기간별 기록이 필요하면 Journal을 사용합니다.
+- 제품 화면을 만들거나 고치고, 디자인·접근성을 검토하거나 사용자 조사를 다룰 때에는 Design을 사용합니다.
 
 단순 조회, 형식 변환과 한 단계 실행에는 관련 없는 개인 맥락을 불러오지 않습니다.
 
@@ -47,6 +49,7 @@ codex plugin add corpus@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 codex plugin add journal@personal-agent-toolkit
+codex plugin add design@personal-agent-toolkit
 ```
 
 로컬 checkout에서는 저장소 루트에서 다음 명령을 사용합니다.
@@ -64,6 +67,7 @@ claude plugin install corpus@personal-agent-toolkit --scope user
 claude plugin install document-files@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 claude plugin install journal@personal-agent-toolkit --scope user
+claude plugin install design@personal-agent-toolkit --scope user
 ```
 
 로컬 checkout은 저장소 루트에서 `claude plugin marketplace add .`로 등록합니다.
@@ -95,6 +99,10 @@ loopback server나 공개 터널은 필요하지 않습니다.
 Journal도 소유자 인증형 원격 MCP로 제공됩니다. 시각적 확인과 빠른 처리는 소유자 전용
 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 사용합니다.
 
+Design은 별도 원격 MCP 없이 Skill과 오프라인 참고 묶음으로 동작합니다. 같은 카탈로그를
+시각적으로 찾고 비교할 때에는 소유자 전용
+[Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 사용합니다.
+
 원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 화면과
 MCP endpoint는 서로 다른 배포 경계입니다.
@@ -120,10 +128,11 @@ codex plugin add corpus@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 codex plugin add journal@personal-agent-toolkit
+codex plugin add design@personal-agent-toolkit
 codex plugin list --json
 ```
 
-변경한 plugin이 활성화되어 있고 새 버전, 원격 연결 상태와 공개 MCP 도구가 보이는지 확인한 뒤
+변경한 plugin이 활성화되어 있고 새 버전, 현재 Skill 또는 원격 MCP 도구가 보이는지 확인한 뒤
 새 작업을 시작합니다.
 
 ### Claude Code
@@ -135,19 +144,20 @@ claude plugin update corpus@personal-agent-toolkit --scope user
 claude plugin update document-files@personal-agent-toolkit --scope user
 claude plugin update hypes@personal-agent-toolkit --scope user
 claude plugin update journal@personal-agent-toolkit --scope user
+claude plugin update design@personal-agent-toolkit --scope user
 claude plugin list
 ```
 
-갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전, 원격 연결 상태와 공개 MCP
+갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전, 현재 Skill 또는 원격 MCP
 도구를 확인합니다.
 
 ### Claude Desktop
 
 `Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document
-Files, Hypes와 Journal을 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이 남아 있으면
-해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을 다시
-시작하고 새 Cowork 세션에서 각 원격 MCP의 현재 도구를 확인합니다. 일반 Chat에 Skill만 나타나는
-상태를 MCP 연결 확인으로 간주하지 않습니다.
+Files, Hypes, Journal과 Design을 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이
+남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을
+다시 시작하고 새 Cowork 세션에서 Design의 세 Skill과 각 원격 MCP의 현재 도구를 확인합니다. 일반
+Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
 
 ### ChatGPT 웹
 
@@ -157,12 +167,15 @@ Tunnel과 gateway 연결은 원격 이관 검증을 통과한 뒤 제거합니�
 
 Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
 
+Design도 Skill과 정적 참고 자산으로 동작하며 ChatGPT 웹용 원격 MCP를 만들지 않습니다.
+Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름만 제공합니다.
+
 ### 완료 기준
 
-변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, Codex·Claude Code·Claude
-Desktop/Cowork·claude.ai·ChatGPT에서 같은 MCP 도구와 확정 revision을 확인해야 갱신이
-완료됩니다. 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도
-함께 검증합니다.
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, 지원하는 로컬 client에서는
+현재 Skill을, 원격 제품에서는 같은 MCP 도구와 확정 revision을 확인해야 갱신이 완료됩니다.
+로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도 함께
+검증합니다.
 
 ## Sense 시작
 
@@ -220,6 +233,17 @@ Hypes는 Node, Predicate와 Edge로 사용자 관계를 표현합니다. 공개 
 
 Hypes는 대화나 프로젝트 자료를 저장하지 않습니다. 현재 요청이 저장된 관계보다 우선하며, 모델은 이후 상호작용에서 수정될 수 있습니다.
 
+## Design 시작
+
+Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토를 다루는 `design-review`, 사용자
+조사 설계와 종합을 다루는 `design-research`의 세 Skill로 구성됩니다. `design`에는 패턴, 선택적
+레시피와 예시 자산을 담은 오프라인 참고 묶음이 포함됩니다. 현재 프로젝트의 디자인 시스템을
+우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를 골라 씁니다.
+
+시각적 탐색과 비교는 <https://personal-material-index.ruzzy.chatgpt.site>에서 할 수 있으며, 화면
+소스와 공개 라이브러리 정본은 `sites/design`에서 함께 관리합니다. 공개 묶음을 갱신하면 같은
+내용을 `plugins/design`의 오프라인 자산으로 다시 내보냅니다.
+
 ## Journal 시작
 
 Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인하며, 화면 소스는 `sites/journal`에서 관리합니다.
@@ -240,7 +264,9 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
 Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
-bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. `plugins/journal`과
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
+`plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
+서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
 `services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다. `auth`는
 원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만
 만듭니다.

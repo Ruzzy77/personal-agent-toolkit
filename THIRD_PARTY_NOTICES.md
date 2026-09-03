@@ -14,6 +14,7 @@ Direct runtime dependencies:
 | `httpx` | Optional personal gateway | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Hypes | MIT |
+| `next`, `react`, `react-dom` | Journal and Design Sites | MIT |
 | `olefile` | Corpus | BSD |
 | `openpyxl` | Corpus | MIT |
 | `pydantic` | Sense, Corpus, Hypes | MIT |
@@ -23,12 +24,14 @@ Direct runtime dependencies:
 | `rhwp` 0.8.2 (optionally provisioned command-line backend) | Corpus | MIT |
 | `starlette` | Optional personal gateway | BSD-3-Clause |
 | `uvicorn` | Optional personal gateway | BSD-3-Clause |
+| `vinext`, `@cloudflare/vite-plugin` | Journal and Design Sites | MIT |
 | `zod` | Journal request validation | MIT |
 
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
 `plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/hypes/uv.lock`, and
 `gateway/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
-`auth/package-lock.json` and `services/journal/package-lock.json`.
+`auth/package-lock.json`, `services/journal/package-lock.json`, `sites/journal/package-lock.json`,
+and `sites/design/package-lock.json`.
 
 This file is informational and does not replace the license text supplied by any dependency.

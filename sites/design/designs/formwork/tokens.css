@@ -1,0 +1,147 @@
+/* ============================================================
+   거푸집(Formwork) · Layer 1 — tokens
+   구성 요소 사이의 관계와 작업 순서를 설명하는 자료에 쓴다.
+   회색 패널, 청사진 파랑과 안전 오렌지로 구획을 나누고
+   본문은 큰 산세리프로 쓴다.
+   어두운 배경은 시스템 설정을 기본으로 따르고 data-theme이 이긴다.
+   텍스트 대비는 두 지면 모두 WCAG 4.5:1 이상 검증. (수치는 README)
+   차트 팔레트는 정의하지 않는다 — 데이터가 무거우면 한지를 쓴다.
+   ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* 지면 — 전체 바탕과 패널 ------------------------------------ */
+  --paper: #e8e8e5;          /* 전체 바탕 */
+  --paper-raised: #f3f3f0;   /* 패널. 내용을 담는 면 */
+  --paper-deep: #dcdcd8;     /* 홈: 코드, 눌린 면 */
+  --work-surface: #d6d6d1;   /* 문서 사이트의 작업면 */
+  --sheet: #f5f5f2;          /* 작업면 위의 인쇄 문서 */
+  /* 잉크 ------------------------------------------------------ */
+  --ink: #1d1f22;
+  --soft: #565a5e;
+  --faint: #63676c;          /* 작은 라벨. 두 배경 모두 4.6:1 이상 */
+
+  /* 괘선 ------------------------------------------------------ */
+  --rule: #c3c5c1;
+  --rule-strong: var(--ink);
+  --line-outer: 2px solid var(--rule-strong);
+  --line-inner: 1px solid var(--rule);
+
+  /* 안료 — 청사진 파랑과 공사장 오렌지 ------------------------- */
+  --blue: #1a4fc0;           /* 청사진. 구조·치수·링크 */
+  --orange: #b54e00;         /* 안전. 주의·강조 포인트 */
+  --accent: var(--blue);
+  --link: var(--blue);
+
+  /* 청사진 그림 지면 — .fig--blueprint 전용 -------------------- */
+  --bp-bg: #16357e;
+  --bp-line: #dbe4f8;
+  --bp-grid: rgba(219, 228, 248, 0.16);
+
+  /* 상태 — 항상 라벨과 함께. 색 단독 금지 ---------------------- */
+  --ok: #217a3c;
+  --warn: var(--orange);
+  --bad: #c62828;
+
+  /* 서체 — 산세리프 하나, 큼직하게 ----------------------------- */
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif,
+    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Noto Sans KR", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 활자 — 제목, 본문과 라벨의 차이를 분명하게 만든다 ------------- */
+  --text-display: clamp(2.3rem, 5.6vw, 3.9rem);
+  --text-title: clamp(1.55rem, 3.2vw, 2.1rem);
+  --text-section: 1.3rem;
+  --text-body: 1.125rem;     /* 18px */
+  --text-caption: 0.9rem;
+  --text-small: 0.82rem;
+  --text-micro: 0.74rem;
+  --leading-body: 1.75;
+  --leading-title: 1.2;
+  --tracking-display: -0.028em;
+  --tracking-label: 0.12em;  /* 표제란·배지 라벨 */
+
+  /* 판면·구조 -------------------------------------------------- */
+  --page-max: 960px;
+  --page-pad: 22px;
+  --panel-pad: clamp(18px, 3.4vw, 30px);
+  --joint: 3px;              /* 패널 이음 폭 */
+  --radius-panel: 2px;       /* 산업 문서 — 각을 세운다 */
+  --radius-pill: 999px;
+  --border-panel: 1px solid color-mix(in srgb, var(--ink) 24%, var(--paper));
+  --shadow-panel: 0 1px 0 rgba(29, 31, 34, 0.08);
+  --shadow-structure: 8px 8px 0 rgba(26, 79, 192, 0.72);
+  --shadow-sheet: 0 28px 58px rgba(29, 31, 34, 0.16);
+  --shadow-sheet-mobile: 0 12px 26px rgba(29, 31, 34, 0.12);
+  --shell-utility-width: 150px;
+  --sheet-width: 1070px;
+  --sheet-height: 1513px;
+
+  /* 간격 눈금 — 라이브러리 공용 (여백에서 승격) ----------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+}
+
+/* ------------------------------------------------------------
+   어두운 배경 — 시스템 설정을 기본으로 따르고,
+   data-theme="dark|light"가 항상 이긴다.
+   아래 두 블록의 값은 서로 동일하게 유지할 것.
+   ------------------------------------------------------------ */
+
+:root[data-theme="dark"] {
+  --paper: #16171a;
+  --paper-raised: #1f2125;
+  --paper-deep: #101114;
+  --work-surface: #101114;
+  --sheet: #1f2125;
+  --ink: #e9eae6;
+  --soft: #a4a7aa;
+  --faint: #8f9398;
+  --rule: #383b40;
+  --blue: #7da2ff;
+  --orange: #ff9553;
+  --bp-bg: #10275e;
+  --bp-line: #9db4e8;
+  --bp-grid: rgba(157, 180, 232, 0.14);
+  --ok: #4fbf72;
+  --bad: #ff7069;
+  --border-panel: 1px solid color-mix(in srgb, var(--ink) 26%, var(--paper));
+  --shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-structure: 8px 8px 0 rgba(125, 162, 255, 0.64);
+  --shadow-sheet: 0 28px 58px rgba(0, 0, 0, 0.46);
+  --shadow-sheet-mobile: 0 12px 26px rgba(0, 0, 0, 0.38);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #16171a;
+    --paper-raised: #1f2125;
+    --paper-deep: #101114;
+    --work-surface: #101114;
+    --sheet: #1f2125;
+    --ink: #e9eae6;
+    --soft: #a4a7aa;
+    --faint: #8f9398;
+    --rule: #383b40;
+    --blue: #7da2ff;
+    --orange: #ff9553;
+    --bp-bg: #10275e;
+    --bp-line: #9db4e8;
+    --bp-grid: rgba(157, 180, 232, 0.14);
+    --ok: #4fbf72;
+    --bad: #ff7069;
+    --border-panel: 1px solid color-mix(in srgb, var(--ink) 26%, var(--paper));
+    --shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.5);
+    --shadow-structure: 8px 8px 0 rgba(125, 162, 255, 0.64);
+    --shadow-sheet: 0 28px 58px rgba(0, 0, 0, 0.46);
+    --shadow-sheet-mobile: 0 12px 26px rgba(0, 0, 0, 0.38);
+  }
+}

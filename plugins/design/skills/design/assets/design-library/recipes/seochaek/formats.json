@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "design_id": "seochaek",
+  "shared": {
+    "palette": {
+      "background": "#F2F2EF",
+      "surface": "#FBFBF9",
+      "text": "#20211E",
+      "muted": "#5D615B",
+      "accent": "#275F55",
+      "accent2": "#9A4334"
+    },
+    "typography": {
+      "heading": "system serif 700",
+      "body": "system serif 400",
+      "label": "system sans-serif 600"
+    },
+    "shape": "각진 모서리, 얇은 구분선, 그림자 없음",
+    "image": "차분한 중립색, 넉넉한 여백, 짧은 설명을 이미지 아래에 배치"
+  },
+  "formats": {
+    "web": {
+      "canvas": "반응형 읽기 열, 본문 최대 폭 42rem",
+      "typography": "제목 35–64px, 본문 17px, 줄 간격 1.8–1.9",
+      "composition": [
+        "목차와 제목으로 위치를 표시",
+        "한 화면에 한 개의 읽기 열 유지",
+        "긴 표는 해당 영역 안에서만 가로 스크롤"
+      ]
+    },
+    "document": {
+      "canvas": "A4 또는 Letter, 바깥 여백 20–25mm, 한 열",
+      "typography": "제목 26–34pt, 본문 10.5–12pt, 줄 간격 1.55–1.75",
+      "composition": [
+        "표지 다음에 목차 배치",
+        "장과 절의 제목 체계를 일관되게 유지",
+        "각주와 참고 정보는 본문과 분리해 배치"
+      ]
+    },
+    "slides": {
+      "canvas": "16:9, 안전 여백 7%",
+      "typography": "제목 30–40pt, 본문 22pt 이상",
+      "composition": [
+        "장 제목, 짧은 인용 또는 짧은 목록 중심으로 구성",
+        "한 슬라이드에 긴 문단을 넣지 않음",
+        "연속된 슬라이드는 같은 제목 위치를 유지"
+      ]
+    },
+    "image": {
+      "canvas": "1:1, 4:5 또는 16:9, 안전 여백 8%",
+      "typography": "세리프 제목과 짧은 본문, 작은 글자는 최소화",
+      "composition": [
+        "제목이나 짧은 문장을 중심으로 배치",
+        "여백을 이미지의 주요 요소로 사용",
+        "색은 배경과 한 가지 강조색에 집중"
+      ]
+    }
+  }
+}

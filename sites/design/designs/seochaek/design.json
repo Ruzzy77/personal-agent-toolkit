@@ -1,0 +1,144 @@
+{
+  "schema_version": 3,
+  "id": "seochaek",
+  "name": "서책 (Seochaek)",
+  "description": "좁은 본문 폭과 단순한 목차를 사용한다. 긴 글과 안내 문서를 읽고 필요한 부분을 찾는 데 적합하다.",
+  "version": "3.2",
+  "created": "2026-07-29",
+  "status": "validated",
+  "kind": "recipe",
+  "visibility": "public",
+  "pattern_refs": [
+    "long-form-reading"
+  ],
+  "format_support": {
+    "web": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "document": [
+      "guidance",
+      "assets",
+      "verified"
+    ],
+    "slides": [
+      "guidance"
+    ],
+    "image": [
+      "guidance"
+    ]
+  },
+  "provenance": {
+    "origin": "original",
+    "license": "Apache-2.0",
+    "references": []
+  },
+  "mediums": [
+    "standalone-html",
+    "print-html"
+  ],
+  "formats": [
+    "web",
+    "document",
+    "slides",
+    "image"
+  ],
+  "format_fit": {
+    "web": "supported",
+    "document": "primary",
+    "slides": "supported",
+    "image": "supported"
+  },
+  "use_for": [
+    "long-reading",
+    "guide-content",
+    "book-content"
+  ],
+  "avoid_for": [
+    "dense-interface",
+    "dense-data",
+    "short-update"
+  ],
+  "capabilities": {
+    "dark_mode": true,
+    "print": true,
+    "charts": false,
+    "diagrams": false,
+    "long_form": true,
+    "interactive_ui": false,
+    "motion": false,
+    "image_layout": true
+  },
+  "default_profile": "book",
+  "profiles": {
+    "min": [
+      "tokens.css",
+      "base.css"
+    ],
+    "book": [
+      "tokens.css",
+      "base.css",
+      "book.css"
+    ]
+  },
+  "aliases": {
+    "full": "book"
+  },
+  "gallery": {
+    "korean_name": "서책",
+    "purpose": "긴 글과 안내",
+    "note": "목차로 필요한 부분을 찾고 좁은 본문 폭으로 긴 글을 읽을 수 있습니다.",
+    "directions": [
+      "목차와 제목만으로 원하는 내용을 찾을 수 있는지 확인",
+      "본문의 너비와 줄 간격이 오래 읽기 편한지 확인"
+    ],
+    "swatches": [
+      "#f2f2ef",
+      "#fbfbf9",
+      "#20211e",
+      "#275f55",
+      "#9a4334",
+      "#5d615b"
+    ],
+    "template_labels": {
+      "book": "책"
+    },
+    "use_labels": {
+      "long-reading": "긴 글",
+      "guide-content": "안내",
+      "book-content": "책"
+    },
+    "avoid_labels": {
+      "dense-interface": "항목과 조작이 매우 많은 내용",
+      "dense-data": "표와 그래프가 많은 내용",
+      "short-update": "짧은 알림"
+    },
+    "specimen": {
+      "canvas": "#fbfbfa",
+      "canvas_dark": "#1b1c19",
+      "ink": "#242521",
+      "ink_dark": "#ecece6",
+      "accent": "#275f55",
+      "accent_dark": "#79b7a8"
+    }
+  },
+  "styleguide": "styleguide.html",
+  "design_doc": "DESIGN.md",
+  "format_guide": "formats.json",
+  "templates": {
+    "book": "templates/book.html"
+  },
+  "validation": {
+    "checked_on": "2026-08-26",
+    "checks": [
+      "manifest-json",
+      "wcag-aa-text",
+      "dark-mode-tokens",
+      "print-styles",
+      "responsive-layout",
+      "semantic-svg",
+      "format-guide"
+    ]
+  }
+}
