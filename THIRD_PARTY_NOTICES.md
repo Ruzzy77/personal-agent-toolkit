@@ -10,14 +10,12 @@ Notable direct runtime dependencies:
 | Dependency | Used by | License |
 | --- | --- | --- |
 | `@cloudflare/workers-oauth-provider` | Optional Personal Agent Auth | MIT |
-| `@modelcontextprotocol/server` | Personal Agent Context and Journal remote MCP | MIT |
-| `@modelcontextprotocol/sdk` | Library remote MCP | MIT |
+| `@modelcontextprotocol/server` | Personal Agent Context, Journal, and Library remote MCP | MIT |
 | `defusedxml` | Document Files | Python Software Foundation License |
-| `drizzle-orm` | Library Site | Apache-2.0 |
 | `httpx` | Personal Agent Sync | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Document Files, and Hypes local MCP | MIT |
-| `next` | Design Site | MIT |
+| `next` | Journal, Design, and Library Sites | MIT |
 | `olefile` | Document Files | BSD |
 | `openpyxl` | Document Files | MIT |
 | `pydantic` | Sense, Corpus, Document Files, and Hypes | MIT |
@@ -28,8 +26,7 @@ Notable direct runtime dependencies:
 | `react`, `react-dom` | Journal, Design, and Library Sites | MIT |
 | `rhwp` 0.8.2 (optionally provisioned command-line backend) | Document Files | MIT |
 | `watchdog` | Corpus | Apache-2.0 |
-| `vinext`, `@cloudflare/vite-plugin` | Journal and Design Sites | MIT |
-| `vite`, `@vitejs/plugin-react` | Library Site | MIT |
+| `vinext`, `@cloudflare/vite-plugin` | Journal, Design, and Library Sites | MIT |
 | `zod` | Personal Agent Context, Journal, and Library request validation | MIT |
 
 Bundled Library webfonts:
@@ -42,8 +39,8 @@ Bundled Library webfonts:
 
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
-`plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/document-files/uv.lock`,
-`plugins/hypes/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for the authentication
+`engines/sense/uv.lock`, `engines/corpus/uv.lock`, `engines/hypes/uv.lock`,
+`plugins/document-files/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for the authentication
 template, remote services, and Sites are recorded in `auth/package-lock.json`,
 `services/remote-context/package-lock.json`, `services/journal/package-lock.json`,
 `services/library/package-lock.json`, `sites/journal/package-lock.json`,

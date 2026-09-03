@@ -1,3 +1,8 @@
+import {
+  bearerToken,
+  constantTimeEqual,
+} from "@personal-agent/remote-runtime";
+
 import { ContextError } from "./errors";
 import type { Env, Principal, ResourceKind } from "./types";
 
@@ -6,24 +11,6 @@ const RESOURCE_SCOPES: Record<ResourceKind, readonly string[]> = {
   corpus: ["corpus.read", "corpus.write", "corpus.sync"],
   hypes: ["hypes.read", "hypes.write"],
 };
-
-function bearerToken(request: Request): string | null {
-  const value = request.headers.get("Authorization");
-  if (!value) return null;
-  return /^Bearer ([^\s]+)$/i.exec(value)?.[1] ?? null;
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-  const encoder = new TextEncoder();
-  const a = encoder.encode(left);
-  const b = encoder.encode(right);
-  const length = Math.max(a.length, b.length);
-  let difference = a.length ^ b.length;
-  for (let index = 0; index < length; index += 1) {
-    difference |= (a[index] ?? 0) ^ (b[index] ?? 0);
-  }
-  return difference === 0;
-}
 
 export function resourceUrl(env: Env, kind: ResourceKind): string {
   if (kind === "sense") return env.SENSE_RESOURCE;

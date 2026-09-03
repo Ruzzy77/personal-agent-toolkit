@@ -1,3 +1,5 @@
+"use client";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registerCatalogWebMcpTools } from "./webmcp.js";
 
@@ -254,14 +256,13 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
   };
 
   return (
-    <div className="tag-dialog-backdrop" onMouseDown={onClose}>
-      <section
-        aria-labelledby="tag-dialog-title"
-        aria-modal="true"
-        className="tag-dialog"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
+    <dialog
+      aria-labelledby="tag-dialog-title"
+      aria-modal="true"
+      className="tag-dialog-backdrop"
+      open
+    >
+      <section className="tag-dialog">
         <header className="tag-dialog-header">
           <div>
             <p>개인 분류표</p>
@@ -305,7 +306,7 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
           </div>
         </form>
       </section>
-    </div>
+    </dialog>
   );
 }
 

@@ -1,8 +1,13 @@
 # Library
 
-Library의 문서 정본은 Sites D1에, 표지와 삽화는 Sites R2에 있습니다. 소유자는 각 발간호 주소에서 제목, 도입문과 본문을 바로 고칠 수 있으며 직접 입력한 내용은 잠시 뒤 자동으로 저장됩니다. ChatGPT, Codex와 Claude에서는 Personal Agent Toolkit의 `Library` 연결로 같은 문서를 읽고 고칩니다.
+Library Site는 `services/library`의 D1·R2를 사용하는 소유자 전용 읽기·편집 화면이며 자체 데이터
+binding이나 runtime schema를 두지 않습니다.
+소유자는 각 발간호 주소에서 제목, 도입문과 본문을 바로 고칠 수 있고, ChatGPT, Codex와
+Claude의 `Library` 연결에서도 같은 문서를 읽고 고칩니다.
 
-새 호는 `Library`의 이미지 업로드와 발간호 추가 기능으로 등록합니다. 이 폴더에는 사이트 화면, 문서 API와 편집기만 두고 원격 MCP는 `services/library`에서 관리합니다. 발간호 HTML, 카탈로그, 표지·삽화 원본과 제작 기록은 저장소에 보관하지 않습니다.
+새 호는 `Library`의 이미지 업로드와 발간호 추가 기능으로 등록합니다. 이 폴더에는 Vinext 화면,
+인증된 service proxy와 편집기만 두고 원격 MCP와 저장 규칙은 `services/library`에서 관리합니다.
+발간호 HTML, 카탈로그, 표지·삽화 원본과 제작 기록은 저장소에 보관하지 않습니다.
 
 새 발간호의 원본 구조는 디자인 라이브러리의 **색인 · Library 발간호 HTML 틀**을
 따릅니다. 발간 정보는 `.masthead`, 제목과 도입문은 `header`, 본문은 `article`에
@@ -37,9 +42,12 @@ WebMCP가 없는 브라우저에서도 사이트의 상시 편집과 자동 저�
 
 온라인 정본을 저장한 뒤에는 같은 발간호를 다시 읽어 본문, 제목, 날짜와 연속 번호, `references`, 표지 경로가 실제로 바뀌었는지 확인합니다. 저장 요청이 받아들여졌다는 응답만으로 발행이나 수정을 완료했다고 판단하지 않습니다.
 
-사이트 코드를 바꾼 뒤에는 다음 두 검사를 실행합니다.
+운영 환경에는 `LIBRARY_SERVICE_URL`과 secret `LIBRARY_SITE_TOKEN`을 설정합니다. 사이트 코드를
+바꾼 뒤에는 동작 경계에 필요한 다음 검사만 실행합니다.
 
 ```bash
+npm run lint
+npm run build
 npm test
 npm --prefix ../../services/library run check
 ```

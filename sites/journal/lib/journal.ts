@@ -1,3 +1,10 @@
+import {
+  serviceRequest,
+  ServiceRequestError,
+} from "@personal-agent/site-runtime";
+
+export { ServiceRequestError as JournalRequestError };
+
 export type Lane = 'today' | 'direct' | 'waiting' | 'attention';
 export type Resolution = 'active' | 'held' | 'completed' | 'canceled';
 export type Responsibility = 'user' | 'counterparty' | 'system';
@@ -171,25 +178,6 @@ export type PeriodSummaryVersion = {
   createdAt: string;
 };
 
-type JournalEnvelope<T> =
-  | { ok: true; result: T }
-  | {
-      ok: false;
-      error: { code: string; message: string; details?: Record<string, unknown> };
-    };
-
-export class JournalRequestError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status: number,
-    readonly details: Record<string, unknown> = {},
-  ) {
-    super(message);
-    this.name = 'JournalRequestError';
-  }
-}
-
 function serviceConfiguration(): { url: string; token: string } {
   const url = process.env.JOURNAL_SERVICE_URL?.replace(/\/$/, '');
   const token = process.env.JOURNAL_SITE_TOKEN;
@@ -204,31 +192,13 @@ export async function journalRequest<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const { url, token } = serviceConfiguration();
-  const headers = new Headers(init.headers);
-  headers.set('Authorization', `Bearer ${token}`);
-  if (init.body) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`${url}${path}`, {
-    ...init,
-    cache: 'no-store',
-    headers,
+  return serviceRequest<T>({
+    baseUrl: url,
+    token,
+    path,
+    serviceName: "journal",
+    init,
   });
-  const envelope = (await response.json()) as JournalEnvelope<T>;
-  if (!response.ok || !envelope.ok) {
-    if (!envelope.ok) {
-      throw new JournalRequestError(
-        envelope.error.code,
-        envelope.error.message,
-        response.status,
-        envelope.error.details,
-      );
-    }
-    throw new JournalRequestError(
-      'journal_request_failed',
-      `Journal request failed (${response.status})`,
-      response.status,
-    );
-  }
-  return envelope.result;
 }
 
 export function getBoard(week?: string): Promise<BoardResult> {

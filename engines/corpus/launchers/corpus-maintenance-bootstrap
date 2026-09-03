@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PYTHONDONTWRITEBYTECODE=1
+umask 077
+
+RUNTIME=${CORPUS_MAINTENANCE_RUNTIME:-"$HOME/Library/Application Support/Personal Agent Sync/runtimes/corpus/bin/corpus-maintenance"}
+
+if [ ! -x "$RUNTIME" ]; then
+  echo "Corpus maintenance could not find the Sync-installed Corpus runtime." >&2
+  exit 78
+fi
+
+exec "$RUNTIME"

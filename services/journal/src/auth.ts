@@ -1,3 +1,9 @@
+import {
+  bearerToken,
+  constantTimeEqual,
+  hasAnyScope,
+} from "@personal-agent/remote-runtime";
+
 import { JournalError } from "./errors";
 import type { Env, Principal } from "./types";
 
@@ -8,29 +14,6 @@ const OWNER_SCOPES = new Set([
   "journal.close",
 ]);
 const AUTOMATION_SCOPES = new Set(["journal.read", "journal.ingest"]);
-
-function bearerToken(request: Request): string | null {
-  const value = request.headers.get("Authorization");
-  if (!value) return null;
-  const match = /^Bearer ([^\s]+)$/i.exec(value);
-  return match?.[1] ?? null;
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-  const encoder = new TextEncoder();
-  const a = encoder.encode(left);
-  const b = encoder.encode(right);
-  const length = Math.max(a.length, b.length);
-  let difference = a.length ^ b.length;
-  for (let index = 0; index < length; index += 1) {
-    difference |= (a[index] ?? 0) ^ (b[index] ?? 0);
-  }
-  return difference === 0;
-}
-
-function hasAnyScope(principal: Principal, scopes: readonly string[]): boolean {
-  return scopes.some((scope) => principal.scopes.has(scope));
-}
 
 export async function authenticate(
   request: Request,
@@ -52,7 +35,7 @@ export async function authenticate(
       scopes: OWNER_SCOPES,
       auth: "site-token",
     };
-    if (hasAnyScope(principal, anyScope)) return principal;
+    if (hasAnyScope(principal.scopes, anyScope)) return principal;
   }
 
   if (
@@ -65,7 +48,7 @@ export async function authenticate(
       scopes: AUTOMATION_SCOPES,
       auth: "ingest-token",
     };
-    if (hasAnyScope(principal, anyScope)) return principal;
+    if (hasAnyScope(principal.scopes, anyScope)) return principal;
     throw new JournalError(
       "insufficient_scope",
       "the automation token cannot perform this operation",

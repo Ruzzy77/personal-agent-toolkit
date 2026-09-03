@@ -42,51 +42,5 @@ section 조회에서만 읽으며 원격 수정 대상에는 포함하지 않는
 
 ## 로컬 개발·이관 자료
 
-이관 전 데이터와 로컬 구현을 시험할 때의 기본 위치는 다음과 같다.
-
-```text
-~/Library/Application Support/Sense/
-├── sense.sqlite3
-├── runtime.lock
-└── sections/
-    └── <section-id>/
-        └── skill/
-            └── SKILL.md
-```
-
-디렉터리는 `0700`, 데이터베이스와 잠금 파일 및 Section Skill은 `0600`으로 유지한다.
-데이터베이스에는 현재 프로필 하나를 저장하고, Section Skill은 연결된 항목의 비공개 폴더에 둔다.
-대화 전문, 작업 로그, 원자료와 출처 위치는 각 원본 시스템에서 관리한다. 이전 스키마를 처음 열면
-현재 활성 프로필을 새 형식으로 옮기고 현재 데이터 모델로 정리한다.
-
-다음 launcher는 로컬 구현의 개발과 최초 이관 자료 관리용이다. 설치된 plugin의 MCP 연결은 이
-launcher를 실행하지 않으며, launcher에서 바꾼 로컬 자료가 원격 정본을 자동으로 바꾸지도 않는다.
-
-```sh
-uv sync
-./launchers/sense read --view full
-./launchers/sense status
-```
-
-프로필을 처음 가져오거나 기존 프로필을 교체할 수 있습니다.
-
-```sh
-./launchers/sense import-profile --input profile.json
-./launchers/sense import-profile --input profile.json --replace --confirm-replace
-```
-
-검토한 `SKILL.md`는 다음과 같이 한 항목에 반영한다. `expected-version`에는 새로 만들 때
-`absent`, 교체할 때 현재 Skill의 버전을 넣는다.
-
-```sh
-./launchers/sense section skill show --id conversation-and-writing
-./launchers/sense section skill set \
-  --id conversation-and-writing \
-  --skill-file /path/to/SKILL.md \
-  --expected-version absent \
-  --confirm-section-skill-write
-```
-
-로컬 항목 또는 로컬 데이터 전체의 영구 삭제에는 확인 플래그가 필요합니다. 민감 항목 수정,
-민감 Section Skill의 원격 저장, Skill 제거와 원격 데이터 영구 삭제는 공개 원격 MCP에서
-지원하지 않습니다. 로컬 명령의 성공을 원격 정본의 변경으로 보고하지 않습니다.
+로컬 SQLite 구현과 최초 이관 CLI는 [`engines/sense`](../../engines/sense/README.md)에 있습니다.
+설치 plugin에는 이를 포함하지 않으며, 로컬 명령의 성공을 원격 정본 변경으로 보지 않습니다.

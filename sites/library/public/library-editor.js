@@ -1,7 +1,8 @@
 (() => {
   const script = document.currentScript;
   const issueId = script?.dataset.libraryIssueId;
-  if (!issueId) return;
+  let currentVersion = Number(script?.dataset.libraryVersion);
+  if (!issueId || !Number.isInteger(currentVersion) || currentVersion < 1) return;
 
   const AUTOSAVE_DELAY = 1_200;
   const MIN_SAVE_INTERVAL = 3_000;
@@ -248,6 +249,7 @@
         const payload = {
           title: next.title,
           article_html: next.article_html,
+          expected_version: currentVersion,
         };
         if (lead) payload.lead_text = next.lead_text;
         const response = await fetch(`/api/library/issues/${encodeURIComponent(issueId)}`, {
@@ -256,7 +258,14 @@
           body: JSON.stringify(payload),
         });
         result = await response.json();
-        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (!response.ok) {
+          const requestError = new Error(result.error || `HTTP ${response.status}`);
+          requestError.code = result.error;
+          throw requestError;
+        }
+        currentVersion = Number(result.issue?.version);
+        document.documentElement.dataset.libraryVersion = String(currentVersion);
+        script.dataset.libraryVersion = String(currentVersion);
         lastSaved = next;
         externalBaseline = null;
         if (samePage(readPage(), lastSaved)) {
@@ -266,10 +275,15 @@
       } catch (saveError) {
         failure = saveError;
         dirty = true;
+        if (saveError?.code === "version_conflict") externalBaseline = lastSaved;
         storeDraft();
         setStatus(
           "error",
-          externalBaseline ? "저장하지 못했습니다." : "저장하지 못했습니다. 다시 시도합니다.",
+          saveError?.code === "version_conflict"
+            ? "다른 편집이 먼저 저장되었습니다. 새로고침해 확인해 주세요."
+            : externalBaseline
+              ? "저장하지 못했습니다."
+              : "저장하지 못했습니다. 다시 시도합니다.",
         );
       } finally {
         saving = false;
@@ -286,6 +300,7 @@
         status: result.status,
         id: issueId,
         title: result.issue?.title ?? next.title,
+        version: result.issue?.version ?? currentVersion,
         updated_at: result.issue?.updatedAt ?? null,
       };
     }

@@ -202,9 +202,9 @@ plugin과 원격 MCP의 소유자 인증을 마치면 모든 지원 클라이언
 
 ```sh
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
-./plugins/sense/launchers/sense import-profile --input /tmp/my-sense-profile.json
-./plugins/sense/launchers/sense read --view full
-./plugins/sense/launchers/sense status
+./engines/sense/launchers/sense import-profile --input /tmp/my-sense-profile.json
+./engines/sense/launchers/sense read --view full
+./engines/sense/launchers/sense status
 ```
 
 최초 원격 이관은 [`apps/sync`](./apps/sync/README.md)의 소유자 장치 인증 절차를 따릅니다.
@@ -222,7 +222,7 @@ Sense는 소유자별 현재 프로필 하나를 유지하고 일반 수정은 �
 Personal Agent Sync의 고정 runtime을 설치한 뒤 읽을 Source를 등록합니다.
 
 ```sh
-./plugins/corpus/launchers/corpus corpus add \
+./engines/corpus/launchers/corpus corpus add \
   --id my-work \
   --root /absolute/path/to/my-work \
   --execution-policy local_only
@@ -231,7 +231,7 @@ Personal Agent Sync의 고정 runtime을 설치한 뒤 읽을 Source를 등록�
 Chat과 로컬 작업이 함께 편집할 폴더는 Context에 Work Connection으로 연결합니다.
 
 ```sh
-./plugins/corpus/launchers/corpus workspace connect \
+./engines/corpus/launchers/corpus workspace connect \
   --id my-drafts \
   --context ACTIVE_CONTEXT_ID \
   --name "My drafts" \
@@ -293,7 +293,7 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 |---|---|
 | 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
 | 원격 Journal | 소유자 운영형 D1 |
-| Library 문서·이미지 | Sites D1·R2 |
+| Library 문서·이미지 | Library service D1·R2 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
 
@@ -301,17 +301,26 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 ## 저장소 구조
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
-Python 구현은 로컬 개발·이관 도구로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
+제품 사이의 공통 실행 경계와 통일 방향은 [`DESIGN.md`](./DESIGN.md), 현재 제품·version·공개
+MCP 목록은 [`products.json`](./products.json)을 기준으로 합니다. 제품 내부 동작은 각 plugin의
+`DESIGN.md`에 둡니다.
+
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill만 배포하며,
+`engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
+사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
 `plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
 서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
 `services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다.
-`plugins/library`, `services/library`와 `sites/library`는 Library의 연결, 원격 MCP와
-읽기·편집 화면을 나눕니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제
-계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
+`plugins/library`, `services/library`와 `sites/library`는 Library의 연결, 서비스 소유 저장·MCP와
+읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 이전과 rollback 경계는
+[`DESIGN.md`](./DESIGN.md)에 구분해 둡니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증
+구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
-plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
+plugin base version을 바꿀 때에는 두 client manifest와 `products.json`을 맞춥니다. plugin 자체에
+Python package가 있는 Document Files와 같은 제품으로 배포하는 service·Site는 package와 lockfile도
+같은 release version을 사용합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한
+plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 
 ## 개발 검사
 
@@ -320,8 +329,8 @@ Sense, Corpus, Hypes와 Sync의 Python 소스·스크립트·테스트는 루트
 
 ```sh
 python3 scripts/check_repository.py
-uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes apps/sync
-uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes apps/sync
+uvx ruff==0.16.5 format --check engines/sense engines/corpus engines/hypes apps/sync
+uvx ruff==0.16.5 check engines/sense engines/corpus engines/hypes apps/sync
 ```
 
 Pull request와 `main` 갱신에서는 저장소 계약, Python runtime, 원격 Worker·Site와 Design을 각각

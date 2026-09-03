@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "react",
+    "import",
+    "jsx-a11y",
+    "nextjs"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "options": {
+    "typeAware": true,
+    "typeCheck": true
+  },
+  "ignorePatterns": [
+    ".next/**",
+    ".vinext/**",
+    "dist/**",
+    "coverage/**",
+    "next-env.d.ts",
+    "public/library-editor.js",
+    "public/reader.js"
+  ],
+  "rules": {
+    "nextjs/no-img-element": "off",
+    "no-var": "error",
+    "prefer-const": "error",
+    "react/display-name": "error",
+    "react/no-unescaped-entities": "error",
+    "react/rules-of-hooks": "error",
+    "typescript/no-explicit-any": "error"
+  }
+}

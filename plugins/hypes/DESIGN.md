@@ -3,7 +3,7 @@
 Hypes는 에이전트가 현재 사용자를 이해하기 위해 만든 수정 가능한 관계를 Personal Agent Context
 service의 소유자별 D1 저장층에 보관한다. Codex, Claude와 ChatGPT는 같은 그래프를 읽고 고친다.
 임베딩 모델, 별도 추론 서비스나 세션 상태는 사용하지 않는다. 로컬 SQLite 구현은 개발과 최초
-이관 자료를 위한 별도 경계다.
+이관 자료를 위한 [`engines/hypes`](../../engines/hypes/README.md)의 별도 경계다.
 
 ## 구조
 

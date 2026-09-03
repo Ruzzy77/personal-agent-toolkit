@@ -117,14 +117,15 @@ direct-editing surface, while its authenticated remote MCP supports page-indepen
 revision, asset upload, and publication against the same data.
 
 - Issue HTML, titles, publication metadata, public references, and interaction state are stored in
-  the Site's D1 database. Cover and illustration assets are stored in the Site's R2 bucket.
+  the Library service's D1 database. Cover and illustration assets are stored in its R2 bucket.
 - The plugin and public repository contain the Site, service, schema, and migration source but no
   published issue records, catalog export, uploaded media, or production database.
 - The remote MCP accepts tokens only for the exact Library resource. Reading requires
   `library.read`; issue revision, publication, and asset upload require `library.write`.
-- The Library service does not keep a second document database. It verifies owner OAuth through a
-  private Service Binding and forwards authorized operations to the Site API.
-- The owner-only Site performs direct edits through its authenticated server API. Agent proposals
+- The Library service verifies owner OAuth through a private Service Binding. The owner-only Site
+  requires both authenticated identity headers and calls the same service with a separate internal
+  credential; it has no Library data binding of its own.
+- The Site performs direct edits through its authenticated server API. Agent proposals
   applied through WebMCP are not autosaved and require a separate owner-confirmed save.
 - Public issue references contain reader-usable sources rather than internal prompts, private file
   paths, tool names, or production notes.
@@ -178,7 +179,9 @@ The release repository must not contain:
 The product directories under `plugins/` are marketplace installation targets. They contain no
 build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
 Skills and the generated public reference pack, while `sites/design` contains the Site and public
-library source. `services/journal` and `services/library` contain deployable service source;
+library source. Local Sense, Corpus, and Hypes development or migration implementations live under
+`engines/` and are not part of their remote plugin bundles. `services/journal` and
+`services/library` contain deployable service source;
 `sites/journal` and `sites/library` contain the owner-only Sites frontends and their public
 assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
 Public resource and Site endpoints may appear in the plugin manifest.
