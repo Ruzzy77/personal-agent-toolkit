@@ -12,11 +12,13 @@ history.
 
 - The plugin package contains no default or active guidance and only declares the authenticated
   remote MCP endpoint and its Skills.
-- Migration copies the current local profile and approved Skills without creating revision history.
+- Migration copies the current local profile and approved ordinary Section Skills without creating revision history.
   Subsequent ordinary updates replace complete sections with conflict-safe change tokens.
 - The authenticated owner may read a sensitive section only by its explicit identifier. Ordinary
-  overview responses omit sensitive text. Sensitive revisions, sensitive Skill changes, Skill
-  removal, and permanent deletion remain restricted to the local administrative interface.
+  overview responses omit sensitive text. The public remote MCP does not provide sensitive
+  revisions, sensitive Skill storage, Skill removal, or permanent deletion. Local CLI confirmation
+  changes only the local development or migration store; production removal remains an owner
+  operation at the remote storage boundary.
 - Plugin updates do not replace the stored profile or Section Skills. Each owner identifier is part
   of every storage key, and tokens are valid only for the exact Sense resource and scopes.
 
@@ -85,7 +87,8 @@ project source material and reusable project context.
   than rewrites of the closed chronology.
 - Only an explicit durable outcome with a target project becomes a Corpus propagation candidate.
   Journal does not create a combined Journal archive in Corpus or copy transient daily activity
-  into project Context.
+  into project Context. Its propagation receipt accepts only a project-root-relative Source or Work
+  path, or a non-path status label; local absolute paths are rejected.
 - The Sites frontend keeps its service credential as a secret runtime environment variable and is
   published with owner-only access. WebMCP tools operate only on the same visible board actions.
 - The remote MCP uses the owner authentication service and exact Journal resource scopes. The

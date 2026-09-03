@@ -5,30 +5,32 @@ dependencies below according to the committed lockfiles; their source is not ven
 includes selected webfont files with their license texts. Each dependency and font remains subject
 to its own license.
 
-Direct runtime dependencies:
+Notable direct runtime dependencies:
 
 | Dependency | Used by | License |
 | --- | --- | --- |
 | `@cloudflare/workers-oauth-provider` | Optional Personal Agent Auth | MIT |
-| `@modelcontextprotocol/server` | Journal remote MCP | MIT |
+| `@modelcontextprotocol/server` | Personal Agent Context and Journal remote MCP | MIT |
 | `@modelcontextprotocol/sdk` | Library remote MCP | MIT |
-| `defusedxml` | Corpus | Python Software Foundation License |
+| `defusedxml` | Document Files | Python Software Foundation License |
 | `drizzle-orm` | Library Site | Apache-2.0 |
 | `httpx` | Personal Agent Sync | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
-| `mcp` | Sense, Corpus, Hypes | MIT |
-| `next` | Journal and Design Sites | MIT |
-| `olefile` | Corpus | BSD |
-| `openpyxl` | Corpus | MIT |
-| `pydantic` | Sense, Corpus, Hypes | MIT |
-| `pypdf` | Corpus | BSD-3-Clause |
-| `python-docx` | Corpus | MIT |
-| `python-pptx` | Corpus | MIT |
+| `mcp` | Sense, Corpus, Document Files, and Hypes local MCP | MIT |
+| `next` | Design Site | MIT |
+| `olefile` | Document Files | BSD |
+| `openpyxl` | Document Files | MIT |
+| `pydantic` | Sense, Corpus, Document Files, and Hypes | MIT |
+| `pypdf` | Document Files | BSD-3-Clause |
+| `python-docx` | Document Files | MIT |
+| `python-hwpx`, `python-hwpx-automation` | Document Files | Apache-2.0 |
+| `python-pptx` | Document Files | MIT |
 | `react`, `react-dom` | Journal, Design, and Library Sites | MIT |
-| `rhwp` 0.8.2 (optionally provisioned command-line backend) | Corpus | MIT |
+| `rhwp` 0.8.2 (optionally provisioned command-line backend) | Document Files | MIT |
+| `watchdog` | Corpus | Apache-2.0 |
 | `vinext`, `@cloudflare/vite-plugin` | Journal and Design Sites | MIT |
 | `vite`, `@vitejs/plugin-react` | Library Site | MIT |
-| `zod` | Journal and Library request validation | MIT |
+| `zod` | Personal Agent Context, Journal, and Library request validation | MIT |
 
 Bundled Library webfonts:
 

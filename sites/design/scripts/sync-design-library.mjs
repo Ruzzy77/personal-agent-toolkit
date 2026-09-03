@@ -81,10 +81,12 @@ for (const design of catalog.recipes) {
     if (existsSync(documentSource)) {
       const destination = path.join(previewDir, documentName);
       if (documentName === "README.md") {
-        const readme = readFileSync(documentSource, "utf8").replaceAll(
-          "](templates/",
-          `](/templates/${design.id}/templates/`,
-        );
+        const readme = readFileSync(documentSource, "utf8")
+          .replaceAll("](styleguide.html)", "](index.html)")
+          .replaceAll(
+            "](templates/",
+            `](/templates/${design.id}/templates/`,
+          );
         writeFileSync(destination, readme);
       } else {
         copyFileSync(documentSource, destination);

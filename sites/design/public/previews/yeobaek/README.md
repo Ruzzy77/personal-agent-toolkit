@@ -3,7 +3,7 @@
 필수 내용과 주요 행동만 남기는 디자인이다. 제목, 본문, 구분선과 버튼을
 필요한 만큼만 사용한다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - [HTML 틀](/templates/yeobaek/templates/artifact.html)
 

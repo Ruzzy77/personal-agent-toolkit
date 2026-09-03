@@ -38,7 +38,9 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 
 먼저 `journal_prepare_week_close`로 요약, 이월 항목과 Corpus 후보를 읽습니다. Corpus 후보는 관련 프로젝트 자료에 반영하거나 명시적으로 건너뛴 뒤 `journal_record_corpus_promotion`으로 결과를 기록합니다. 준비 응답의 `preparationVersion`과 사용자의 명시적 확인을 받아 `journal_confirm_week_close`를 호출합니다. 준비 뒤 항목이 달라졌다면 새 준비 결과를 다시 보여 줍니다.
 
-진행 중과 보류 항목은 같은 `logicalItemId`를 가진 다음 주 인스턴스로 이월되고, 완료와 취소 항목은 마감 주에 남습니다. 마감된 주는 항목을 다시 쓰지 않고, 사후 사실 정정만 `journal_add_correction`으로 남깁니다.
+진행 중과 보류 항목은 같은 `logicalItemId`를 가진 다음 주 인스턴스로 이월되며, 다음 주에서는
+모두 `active`로 다시 시작합니다. 완료와 취소 항목은 마감 주에 남습니다. 마감된 주는 항목을 다시
+쓰지 않고, 사후 사실 정정만 `journal_add_correction`으로 남깁니다.
 
 마감 결과의 `corpusCandidates`는 Corpus에 자동 복제할 일반 기록이 아닙니다. 대상 프로젝트에 재사용할 확정 결과만 아래 Corpus 반영 절차로 넘깁니다.
 

@@ -35,7 +35,7 @@ Hypes의 저장 관계는 해석·설명·질문·선택에 반영한다. 재사
 시작점이 없으면 이름순 목차를 보여 주며, `continuation`은 전체 모델 검토를 이어 간다. 읽기
 연결은 현재 스키마를 조회한다.
 
-`hypes_rewrite`는 `put_node`, `put_predicate`, `put_edge`, `delete` 연산을 한 SQLite 트랜잭션으로
+`hypes_rewrite`는 `put_node`, `put_predicate`, `put_edge`, `delete` 연산을 한 저장 트랜잭션으로
 적용한다. 어느 연산이든 실패하면 전체 patch를 되돌린다. Node나 Predicate를 삭제하면 연결된
 Edge도 같은 트랜잭션에서 함께 삭제하며 결과에 그 수를 포함한다.
 
@@ -54,7 +54,8 @@ https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp
 Codex, Claude Code, Claude Desktop/Cowork, claude.ai와 ChatGPT는 같은 관계 graph를 읽고
 원자적으로 고친다.
 
-`hypes-ontology.sqlite3`는 로컬 구현의 개발과 최초 이관 자료로 남는다. 이 데이터 디렉터리는
+`hypes-ontology.sqlite3`는 로컬 구현의 개발과 최초 이관 자료로 남으며 원격 정본과 자동으로
+동기화되는 사본이 아니다. 이 데이터 디렉터리는
 현재 사용자 소유의 `0700`, 데이터베이스와 보조 파일은 `0600`이어야 한다.
 심볼릭 링크, 다른 소유자나 잘못된 권한을 발견하면 파일을 열기 전에 중단한다. 스키마 생성과
 이전은 서버가 시작할 때 한 번 수행하고, 이후 읽기와 쓰기는 분리된 연결을 사용한다.

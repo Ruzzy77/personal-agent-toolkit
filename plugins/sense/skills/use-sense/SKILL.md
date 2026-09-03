@@ -23,4 +23,4 @@ An explicit user request initiates Sense revision. Read every affected section a
 
 An explicit request can also replace one ordinary Section Skill. Read the linked section and its current Skill, present the complete final Skill wording, then call `sense_skill_revise` with the current Skill `version` and complete name, description and instructions. Use `expected_version="absent"` only when the section has no Skill. A conflict preserves the current Skill.
 
-Sensitive section or Skill changes and permanent deletion use a trusted local command. `sense_overview` presents the current ordinary guidance and its linked Skills.
+Sensitive section changes, sensitive Skill storage, Skill removal, and permanent deletion are outside the public remote MCP. A local command changes only the local development or migration store, so never report it as a change to the remote canonical profile. `sense_overview` presents the current ordinary guidance and its linked Skills.

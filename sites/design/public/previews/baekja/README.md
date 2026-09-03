@@ -3,7 +3,7 @@
 밝은 중립색, 절제된 파랑과 매끈한 표면을 사용하는 디자인이다. 여러 항목을
 빠르게 훑고 선택하거나 한 개의 대상을 선명하게 보여 주는 데 어울린다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - [HTML 틀](/templates/baekja/templates/artifact.html)
 - [디자인 원칙](DESIGN.md)
