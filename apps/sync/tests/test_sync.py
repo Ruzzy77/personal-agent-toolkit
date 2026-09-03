@@ -114,6 +114,8 @@ def test_migration_verification_ignores_detached_locator_for_missing_source() ->
         "relative_path_nfc": "note.txt.detached.doc_old",
         "size": 12,
         "missing_since": "2026-09-03T01:00:00Z",
+        "last_revision_sha256": "a" * 64,
+        "last_projection_id": "projection_old",
     }
     migrated = {
         "extension": "txt",
@@ -131,7 +133,15 @@ def test_migration_verification_ignores_detached_locator_for_missing_source() ->
         "logical_size": 9,
         "deleted_at": "2026-09-03T02:00:00Z",
         "lifecycle_state": "archived",
+        "sha256": "b" * 64,
+        "projection_id": "projection_remote",
     }
+
+    selected = migration_module._select_tracked_document(
+        actual,
+        {("doc_old", "a" * 64, "projection_old"): tracked},
+        {"doc_old": tracked},
+    )
 
     assert expected == {
         "document_id": "doc_old",
@@ -142,6 +152,7 @@ def test_migration_verification_ignores_detached_locator_for_missing_source() ->
         "first_seen_at": "2026-08-01T00:00:00Z",
         "retention_class": "managed",
     }
+    assert selected is tracked
     assert migration_module._first_record_mismatch(actual, expected) is None
 
 
