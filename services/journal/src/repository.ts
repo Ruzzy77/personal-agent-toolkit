@@ -405,7 +405,7 @@ export class JournalRepository {
       createdAt: string;
     },
   ): Promise<void> {
-    await this.db.batch([
+    const results = await this.db.batch([
       this.insertItemStatement(item),
       this.insertEventForItemVersionStatement(
         event,
@@ -419,7 +419,11 @@ export class JournalRepository {
             (idempotency_key, source_kind, source_key, source_version, item_id, created_at)
            SELECT ?, ?, ?, ?, ?, ?
            FROM items
-           WHERE id = ? AND version = ? AND updated_at = ?`,
+           WHERE id = ? AND version = ? AND updated_at = ?
+             AND EXISTS (
+               SELECT 1 FROM weeks
+               WHERE id = items.week_id AND status = 'open'
+             )`,
         )
         .bind(
           receipt.idempotencyKey,
@@ -433,6 +437,13 @@ export class JournalRepository {
           item.updatedAt,
         ),
     ]);
+    if ((results[0]?.meta.changes ?? 0) !== 1) {
+      throw new JournalError(
+        "week_closed",
+        "the week closed while the item was being created",
+        409,
+      );
+    }
   }
 
   async updateItemObservation(
@@ -454,7 +465,11 @@ export class JournalRepository {
             title = ?, summary = ?, lane = ?, due_at = ?, durable_outcome = ?,
             responsibility = ?, corpus_target_space = ?,
             version = version + 1, updated_at = ?
-           WHERE id = ? AND version = ?`,
+           WHERE id = ? AND version = ?
+             AND EXISTS (
+               SELECT 1 FROM weeks
+               WHERE id = items.week_id AND status = 'open'
+             )`,
         )
         .bind(
           item.weekId,
@@ -484,7 +499,11 @@ export class JournalRepository {
             (idempotency_key, source_kind, source_key, source_version, item_id, created_at)
            SELECT ?, ?, ?, ?, ?, ?
            FROM items
-           WHERE id = ? AND version = ? AND updated_at = ?`,
+           WHERE id = ? AND version = ? AND updated_at = ?
+             AND EXISTS (
+               SELECT 1 FROM weeks
+               WHERE id = items.week_id AND status = 'open'
+             )`,
         )
         .bind(
           receipt.idempotencyKey,
@@ -499,6 +518,14 @@ export class JournalRepository {
         ),
     ]);
     if ((results[0]?.meta.changes ?? 0) !== 1) {
+      const week = await this.getWeek(item.weekId);
+      if (week?.status === "closed") {
+        throw new JournalError(
+          "week_closed",
+          "the week closed while the observation was being applied",
+          409,
+        );
+      }
       throw new JournalError(
         "version_conflict",
         "the item changed while the observation was being applied",
@@ -517,7 +544,11 @@ export class JournalRepository {
         .prepare(
           `UPDATE items
            SET resolution = ?, version = version + 1, updated_at = ?
-           WHERE id = ? AND version = ? AND resolution = ?`,
+           WHERE id = ? AND version = ? AND resolution = ?
+             AND EXISTS (
+               SELECT 1 FROM weeks
+               WHERE id = items.week_id AND status = 'open'
+             )`,
         )
         .bind(
           item.resolution,
@@ -534,6 +565,14 @@ export class JournalRepository {
       ),
     ]);
     if ((results[0]?.meta.changes ?? 0) !== 1) {
+      const week = await this.getWeek(item.weekId);
+      if (week?.status === "closed") {
+        throw new JournalError(
+          "week_closed",
+          "the week closed before the resolution was saved",
+          409,
+        );
+      }
       throw new JournalError(
         "version_conflict",
         "the item changed before the resolution was saved",
@@ -599,6 +638,10 @@ export class JournalRepository {
       item.version,
       weekId,
     ]);
+    const rolloverWeekId = rolloverItems[0]?.item.weekId ?? null;
+    const rolloverWeekGuard = rolloverWeekId
+      ? "AND EXISTS (SELECT 1 FROM weeks rollover_week WHERE rollover_week.id = ? AND rollover_week.status = 'open')"
+      : "";
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
@@ -606,7 +649,8 @@ export class JournalRepository {
            SET status = 'closed', closed_at = ?, updated_at = ?, revision = revision + 1
            WHERE id = ? AND status = 'open'
              AND (SELECT COUNT(*) FROM items current WHERE current.week_id = ?) = ?
-             ${versionGuards}`,
+             ${versionGuards}
+             ${rolloverWeekGuard}`,
         )
         .bind(
           closedAt,
@@ -615,6 +659,7 @@ export class JournalRepository {
           weekId,
           expectedItems.length,
           ...expectedBindings,
+          ...(rolloverWeekId ? [rolloverWeekId] : []),
         ),
       this.db
         .prepare(
@@ -859,19 +904,18 @@ export class JournalRepository {
       );
   }
 
-  private insertItemStatement(
-    item: ItemRecord,
-    ignoreConflict = false,
-  ): D1PreparedStatement {
-    const insert = ignoreConflict ? "INSERT OR IGNORE" : "INSERT";
+  private insertItemStatement(item: ItemRecord): D1PreparedStatement {
     return this.db
       .prepare(
-        `${insert} INTO items (
+        `INSERT INTO items (
           id, logical_item_id, week_id, source_kind, source_key, source_ref, source_version,
           project_key, title, summary, lane, resolution, due_at,
           responsibility, durable_outcome, corpus_target_space,
           version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        FROM weeks
+        WHERE id = ? AND status = 'open'`,
       )
       .bind(
         item.id,
@@ -893,6 +937,7 @@ export class JournalRepository {
         item.version,
         item.createdAt,
         item.updatedAt,
+        item.weekId,
       );
   }
 
@@ -910,8 +955,14 @@ export class JournalRepository {
           version, created_at, updated_at
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        FROM weeks
-        WHERE id = ? AND status = 'closed' AND closed_at = ?`,
+        FROM weeks source_week
+        WHERE source_week.id = ?
+          AND source_week.status = 'closed'
+          AND source_week.closed_at = ?
+          AND EXISTS (
+            SELECT 1 FROM weeks rollover_week
+            WHERE rollover_week.id = ? AND rollover_week.status = 'open'
+          )`,
       )
       .bind(
         item.id,
@@ -935,6 +986,7 @@ export class JournalRepository {
         item.updatedAt,
         sourceWeekId,
         sourceClosedAt,
+        item.weekId,
       );
   }
 
@@ -958,6 +1010,11 @@ export class JournalRepository {
           AND EXISTS (
             SELECT 1 FROM weeks
             WHERE id = ? AND status = 'closed' AND closed_at = ?
+          )
+          AND EXISTS (
+            SELECT 1 FROM weeks rollover_week
+            WHERE rollover_week.id = items.week_id
+              AND rollover_week.status = 'open'
           )`,
       )
       .bind(
@@ -993,7 +1050,11 @@ export class JournalRepository {
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         FROM items
-        WHERE id = ? AND version = ? AND updated_at = ?`,
+        WHERE id = ? AND version = ? AND updated_at = ?
+          AND EXISTS (
+            SELECT 1 FROM weeks
+            WHERE id = items.week_id AND status = 'open'
+          )`,
       )
       .bind(
         event.id,

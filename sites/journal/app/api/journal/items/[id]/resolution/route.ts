@@ -1,3 +1,4 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import {
   journalRequest,
   type JournalItem,
@@ -18,6 +19,9 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   const { id } = await context.params;
   if (!ITEM_ID.test(id)) {
     return Response.json(

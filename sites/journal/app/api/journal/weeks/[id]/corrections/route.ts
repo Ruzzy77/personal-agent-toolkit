@@ -1,3 +1,4 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import { journalRequest } from '@/lib/journal';
 
 const WEEK_ID = /^\d{4}-\d{2}-\d{2}$/;
@@ -7,6 +8,9 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   const { id } = await context.params;
   if (!WEEK_ID.test(id)) {
     return Response.json(
@@ -45,25 +49,28 @@ export async function POST(
     return Response.json(
       {
         ok: false,
-        error: { code: 'invalid_correction', message: '정정 내용이 올바르지 않습니다.' },
+        error: {
+          code: 'invalid_correction',
+          message: '정정 내용이 올바르지 않습니다.',
+        },
       },
       { status: 400 },
     );
   }
   try {
-    const result = await journalRequest<{ eventId: string; duplicate: boolean }>(
-      `/api/v1/weeks/${id}/corrections`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          itemId,
-          note,
-          sourceRef,
-          idempotencyKey: `site:correction:${itemId}:${crypto.randomUUID()}`,
-          occurredAt: null,
-        }),
-      },
-    );
+    const result = await journalRequest<{
+      eventId: string;
+      duplicate: boolean;
+    }>(`/api/v1/weeks/${id}/corrections`, {
+      method: 'POST',
+      body: JSON.stringify({
+        itemId,
+        note,
+        sourceRef,
+        idempotencyKey: `site:correction:${itemId}:${crypto.randomUUID()}`,
+        occurredAt: null,
+      }),
+    });
     return Response.json({ ok: true, result });
   } catch (error) {
     return Response.json(
@@ -72,7 +79,9 @@ export async function POST(
         error: {
           code: 'correction_failed',
           message:
-            error instanceof Error ? error.message : '정정 기록을 추가하지 못했습니다.',
+            error instanceof Error
+              ? error.message
+              : '정정 기록을 추가하지 못했습니다.',
         },
       },
       { status: 409 },

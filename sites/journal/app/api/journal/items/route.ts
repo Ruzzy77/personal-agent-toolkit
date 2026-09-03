@@ -1,3 +1,4 @@
+import { requireChatGPTApiUser } from '@/app/chatgpt-auth';
 import {
   findItems,
   journalRequest,
@@ -13,7 +14,8 @@ const RESPONSIBILITIES = new Set<Responsibility>([
   'system',
 ]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function optionalText(value: unknown, max: number): string | null | undefined {
   if (value === null || value === undefined || value === '') return null;
@@ -23,6 +25,9 @@ function optionalText(value: unknown, max: number): string | null | undefined {
 }
 
 export async function GET(request: Request) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   const input = new URL(request.url).searchParams;
   try {
     const result = await findItems({
@@ -58,6 +63,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authError = await requireChatGPTApiUser();
+  if (authError) return authError;
+
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -96,7 +104,10 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        error: { code: 'invalid_item', message: '항목 내용이 올바르지 않습니다.' },
+        error: {
+          code: 'invalid_item',
+          message: '항목 내용이 올바르지 않습니다.',
+        },
       },
       { status: 400 },
     );
@@ -138,7 +149,9 @@ export async function POST(request: Request) {
         error: {
           code: 'item_add_failed',
           message:
-            error instanceof Error ? error.message : '항목을 추가하지 못했습니다.',
+            error instanceof Error
+              ? error.message
+              : '항목을 추가하지 못했습니다.',
         },
       },
       { status: 409 },

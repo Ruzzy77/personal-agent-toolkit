@@ -341,6 +341,21 @@ describe("Journal API and MCP spike", () => {
       created: boolean;
     }>;
 
+    const holdResponse = await SELF.fetch(
+      `${ORIGIN}/api/v1/items/${first[0]?.item.id}/resolution`,
+      {
+        method: "PATCH",
+        headers: { ...SITE_AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resolution: "held",
+          idempotencyKey: "test:weekly-source:hold",
+          expectedVersion: 1,
+          occurredAt: "2026-08-18T01:00:00.000Z",
+        }),
+      },
+    );
+    expect(holdResponse.status).toBe(200);
+
     const preparation = await prepareWeek("2026-08-17");
     const closeResponse = await confirmWeek(
       "2026-08-17",
@@ -364,6 +379,7 @@ describe("Journal API and MCP spike", () => {
         id: string;
         logicalItemId: string;
         weekId: string;
+        resolution: string;
         version: number;
       }>;
     };
@@ -372,6 +388,7 @@ describe("Journal API and MCP spike", () => {
     );
     expect(rolledOver).toMatchObject({
       weekId: "2026-08-24",
+      resolution: "active",
       version: 1,
     });
 
