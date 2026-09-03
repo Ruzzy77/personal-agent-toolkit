@@ -1,7 +1,6 @@
 html {
   background: var(--paper);
 }
-
 body {
   margin: 0;
   color: var(--ink);
@@ -252,4 +251,3 @@ svg {
     break-inside: avoid;
   }
 }
-
