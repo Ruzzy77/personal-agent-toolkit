@@ -1353,6 +1353,39 @@ def _document_verification_record(document: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
+def _tracked_document_verification_record(
+    tracked: Mapping[str, Any], migrated: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """Use the live Sync ledger without treating detached local locators as remote data."""
+
+    missing = tracked["missing_since"] is not None
+    if missing:
+        current = {
+            "document_id": tracked["document_id"],
+            "source_state": "unavailable",
+        }
+    else:
+        current = {
+            "document_id": tracked["document_id"],
+            "relative_path": tracked["relative_path_nfc"],
+            "source_state": "available",
+            "logical_size": tracked["size"],
+            "residency_state": "resident",
+        }
+    if migrated is not None:
+        stable_fields = (
+            "extension",
+            "media_type",
+            "eligibility_state",
+            "first_seen_at",
+            "retention_class",
+        )
+        current.update({key: migrated[key] for key in stable_fields})
+        if not missing:
+            current["lifecycle_state"] = migrated["lifecycle_state"]
+    return current
+
+
 def _first_record_mismatch(
     actual: Mapping[str, Any], expected: Mapping[str, Any]
 ) -> str | None:
@@ -1622,28 +1655,9 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     )
                     if mismatch is not None and tracked_document:
-                        current_expected = {
-                            "document_id": tracked_document["document_id"],
-                            "relative_path": tracked_document["relative_path_nfc"],
-                            "source_state": (
-                                "unavailable"
-                                if tracked_document["missing_since"] is not None
-                                else "available"
-                            ),
-                            "logical_size": tracked_document["size"],
-                            "residency_state": "resident",
-                        }
-                        if expected is not None:
-                            current_expected.update(
-                                {
-                                    "extension": expected["extension"],
-                                    "media_type": expected["media_type"],
-                                    "eligibility_state": expected["eligibility_state"],
-                                    "first_seen_at": expected["first_seen_at"],
-                                    "lifecycle_state": expected["lifecycle_state"],
-                                    "retention_class": expected["retention_class"],
-                                }
-                            )
+                        current_expected = _tracked_document_verification_record(
+                            tracked_document, expected
+                        )
                         mismatch = _first_record_mismatch(actual, current_expected)
                         if mismatch is None and expected is None:
                             advanced_document_count += 1

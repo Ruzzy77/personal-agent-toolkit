@@ -19,6 +19,8 @@ on a local port and does not expose the Mac through a tunnel.
 - exclude operating-system metadata such as `.DS_Store`, AppleDouble sidecars,
   Finder index folders, and Windows thumbnail caches even when a Connection
   intentionally includes project dotfiles;
+- keep ordinary unsupported files as metadata-only Source records without
+  uploading their bytes or retrying document analysis until those bytes change;
 - remove only old `capture-*` staging files left by interrupted runs, in bounded
   batches after a 24-hour safety delay;
 - analyze an immutable capture through the shared Document Files job contract;
@@ -96,7 +98,9 @@ deployed analyzer binding; it does not reimplement document parsing.
    projection only when the local Sync ledger records that exact Source digest
    and committed projection. Continuously advancing observation fields such as
    last-seen, last-accessed, and repeated-capture timestamps are not treated as
-   content-identity mismatches while the local authority is live.
+   content-identity mismatches while the local authority is live. A replaced
+   file's retired identity is verified as unavailable without treating Sync's
+   private detached locator or last observed file size as remote data.
    It also checks the deployed Sense, Corpus, and Hypes server versions and
    exact public tool-name sets before comparing durable records. The metadata
    receipt is compared with the exact locally recorded migration checkpoint,

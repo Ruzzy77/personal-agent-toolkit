@@ -251,8 +251,23 @@ class SyncDaemon:
                     raise
             self.state.complete_missing(change["connection_key"], change["document_id"])
             return
+        try:
+            selected_format = format_id(change["relative_path_nfc"])
+        except SyncError as error:
+            if error.code != "unsupported_format":
+                raise
+            selected_format = None
         remote_document_missing = False
         if change["event_kind"] == "moved" and change.get("last_revision_sha256"):
+            if selected_format is None:
+                await self._complete_unsupported_change(
+                    change,
+                    corpus_id,
+                    str(change["last_revision_sha256"]),
+                    int(change["size"]),
+                    int(change["modified_ns"]),
+                )
+                return
             try:
                 await self.remote.update_source_state(
                     corpus_id,
@@ -295,6 +310,15 @@ class SyncDaemon:
             if not force_refresh and snapshot.sha256 == change.get(
                 "last_revision_sha256"
             ):
+                if selected_format is None:
+                    await self._complete_unsupported_change(
+                        change,
+                        corpus_id,
+                        snapshot.sha256,
+                        snapshot.byte_size,
+                        snapshot.modified_ns,
+                    )
+                    return
                 previous_projection = change.get("last_projection_id")
                 if isinstance(previous_projection, str):
                     if not remote_document_missing:
@@ -322,17 +346,11 @@ class SyncDaemon:
                             previous_projection,
                         )
                         return
-                else:
-                    self.state.complete_unsupported(
-                        change["connection_key"],
-                        change["document_id"],
-                        snapshot.sha256,
-                    )
-                    return
             if (
                 not remote_document_missing
                 and change.get("last_revision_sha256")
                 and snapshot.sha256 != change.get("last_revision_sha256")
+                and selected_format is not None
             ):
                 try:
                     await self.remote.update_source_state(
@@ -349,33 +367,36 @@ class SyncDaemon:
                 except SyncError as error:
                     if error.code != "document_not_found":
                         raise
+            if selected_format is None:
+                await self._complete_unsupported_change(
+                    change,
+                    corpus_id,
+                    snapshot.sha256,
+                    snapshot.byte_size,
+                    snapshot.modified_ns,
+                )
+                if force_refresh:
+                    raise SyncError(
+                        "unsupported_format",
+                        "Document Files does not support this format",
+                    )
+                return
             try:
-                selected_format = format_id(change["relative_path_nfc"])
                 result = await select_analyzer(
                     self.state, self.remote, change, snapshot, selected_format
                 )
             except SyncError as error:
                 if error.code != "unsupported_format":
                     raise
-                previous_projection = change.get("last_projection_id")
-                if force_refresh:
-                    if isinstance(previous_projection, str):
-                        self.state.complete_change(
-                            change["connection_key"],
-                            change["document_id"],
-                            snapshot.sha256,
-                            previous_projection,
-                        )
-                    else:
-                        self.state.complete_unsupported(
-                            change["connection_key"],
-                            change["document_id"],
-                            snapshot.sha256,
-                        )
-                    raise
-                self.state.complete_unsupported(
-                    change["connection_key"], change["document_id"], snapshot.sha256
+                await self._complete_unsupported_change(
+                    change,
+                    corpus_id,
+                    snapshot.sha256,
+                    snapshot.byte_size,
+                    snapshot.modified_ns,
                 )
+                if force_refresh:
+                    raise
                 return
             revision_id = None
             if snapshot.sha256 == change.get("last_revision_sha256"):
@@ -417,6 +438,64 @@ class SyncDaemon:
             adapter_id=header["projection"]["adapterId"],
             adapter_version=header["projection"]["adapterVersion"],
             config_hash=header["projection"]["configHash"],
+        )
+
+    async def _complete_unsupported_change(
+        self,
+        change: dict[str, Any],
+        corpus_id: str,
+        revision_sha256: str,
+        logical_size: int,
+        modified_ns: int,
+    ) -> None:
+        """Keep unsupported Source metadata current without retaining its bytes."""
+
+        observed_at = now_iso()
+        relative_path = str(change["relative_path_nfc"])
+        try:
+            await self.remote.update_source_state(
+                corpus_id,
+                change["document_id"],
+                "available",
+                observed_at,
+                relative_path,
+                logical_size=logical_size,
+                modified_ns=modified_ns,
+                residency_state="resident",
+                eligibility_state="unsupported",
+            )
+        except SyncError as error:
+            if error.code != "document_not_found":
+                raise
+            name = Path(relative_path).name
+            extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+            await self.remote.import_documents(
+                corpus_id,
+                [
+                    {
+                        "documentId": change["document_id"],
+                        "relativePath": relative_path,
+                        "extension": extension,
+                        "sourceState": "available",
+                        "mediaType": None,
+                        "logicalSize": logical_size,
+                        "modifiedNs": str(modified_ns),
+                        "residencyState": "resident",
+                        "eligibilityState": "unsupported",
+                        "currentRevisionId": None,
+                        "lifecycleState": "active",
+                        "retentionClass": "managed",
+                        "lastUserAccessAt": None,
+                        "archivedAt": None,
+                        "trashedAt": None,
+                        "firstSeenAt": change["first_seen_at"],
+                        "lastSeenAt": observed_at,
+                        "deletedAt": None,
+                    }
+                ],
+            )
+        self.state.complete_unsupported(
+            change["connection_key"], change["document_id"], revision_sha256
         )
 
     async def _broker_loop(self) -> None:
