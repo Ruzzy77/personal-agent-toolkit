@@ -40,6 +40,8 @@ jobs:
         run: >-
           uvx ruff==0.16.5 check
           plugins/sense plugins/corpus plugins/hypes apps/sync
+      - name: Check Sync runtime installer syntax
+        run: sh -n apps/sync/scripts/install-runtimes.sh
 
   test:
     runs-on: ${{ matrix.os }}

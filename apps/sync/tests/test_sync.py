@@ -145,6 +145,26 @@ def test_migration_verification_ignores_detached_locator_for_missing_source() ->
     assert migration_module._first_record_mismatch(actual, expected) is None
 
 
+def test_migration_matches_metadata_only_document_without_remote_hash() -> None:
+    tracked = {
+        "document_id": "doc_opaque",
+        "last_revision_sha256": "a" * 64,
+        "last_projection_id": None,
+    }
+    by_identity = {("doc_opaque", "a" * 64, None): tracked}
+    by_document_id = {"doc_opaque": tracked}
+    actual = {
+        "document_id": "doc_opaque",
+        "sha256": None,
+        "projection_id": None,
+    }
+
+    assert (
+        migration_module._select_tracked_document(actual, by_identity, by_document_id)
+        is tracked
+    )
+
+
 def test_migration_counts_allow_only_projection_history_superset() -> None:
     expected = {"documents": 2, "revisions": 2, "projections": 2, "units": 10}
 

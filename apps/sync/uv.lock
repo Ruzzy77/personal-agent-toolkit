@@ -135,7 +135,7 @@ wheels = [
 
 [[package]]
 name = "personal-agent-sync"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "." }
 dependencies = [
     { name = "httpx", extra = ["http2"] },

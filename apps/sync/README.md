@@ -77,9 +77,11 @@ deployed analyzer binding; it does not reimplement document parsing.
 
 ## Setup
 
-1. Run `scripts/install-runtimes.sh`. It installs Sync, Corpus, and Document
-   Files into three private, durable environments rather than a client plugin
-   cache or repository worktree.
+1. Run `scripts/install-runtimes.sh`. It prepares Sync, Corpus, and Document
+   Files in three private, durable environments rather than a client plugin
+   cache or repository worktree. On an update, all three environments are
+   completed before the existing background agent is briefly stopped, swapped,
+   and restarted; a failed restart restores the previous runtime set.
 2. Generate the private configuration with `personal-agent-sync
    init-from-corpus`, supplying the remote service URL and the installed Corpus
    and Document Files Python paths. The command discovers remote-visible Spaces
