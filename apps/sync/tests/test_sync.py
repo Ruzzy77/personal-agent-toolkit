@@ -23,7 +23,12 @@ from personal_agent_sync.analysis import build_projection, select_analyzer
 from personal_agent_sync.config import load_config, rewrite_connection_roots
 from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
-from personal_agent_sync.paths import Snapshot, capture_snapshot, resolve_moved_root
+from personal_agent_sync.paths import (
+    Snapshot,
+    capture_snapshot,
+    cleanup_abandoned_captures,
+    resolve_moved_root,
+)
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
 from personal_agent_sync.storage import maintain_remote_storage, remote_storage_report
@@ -963,6 +968,30 @@ def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
     )
     assert queued == 0
     assert load_config(config_path).connections[0].root == replacement
+
+
+def test_old_interrupted_captures_are_cleaned_with_a_bounded_scope(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    old_capture = staging / "capture-old"
+    old_capture.write_text("abandoned", encoding="utf-8")
+    fresh_capture = staging / "capture-fresh"
+    fresh_capture.write_text("active", encoding="utf-8")
+    unrelated = staging / "operator-note"
+    unrelated.write_text("keep", encoding="utf-8")
+    now_ns = 2_000_000_000_000_000_000
+    old_ns = now_ns - (25 * 60 * 60 * 1_000_000_000)
+    os.utime(old_capture, ns=(old_ns, old_ns))
+    os.utime(fresh_capture, ns=(now_ns, now_ns))
+
+    result = cleanup_abandoned_captures(staging, now_ns=now_ns)
+
+    assert result == {"removed": 1, "retained": 1, "skipped": 1}
+    assert not old_capture.exists()
+    assert fresh_capture.read_text(encoding="utf-8") == "active"
+    assert unrelated.read_text(encoding="utf-8") == "keep"
 
 
 def test_root_rebind_updates_the_isolated_local_corpus_authority(
