@@ -13,7 +13,12 @@ from typing import Any
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
-from .analysis import build_projection, format_id, select_analyzer
+from .analysis import (
+    build_projection,
+    format_id,
+    local_analyzer_manifest,
+    select_analyzer,
+)
 from .config import SyncConfig
 from .errors import SyncError
 from .events import SourceEventMonitor
@@ -24,6 +29,7 @@ from .state import SyncState, canonical, now_iso
 from .work import SYNC_OPERATIONS, WorkExecutor
 
 LOGGER = logging.getLogger(__name__)
+ANALYZER_REFRESH_BATCH = 20
 
 
 class SyncDaemon:
@@ -63,6 +69,15 @@ class SyncDaemon:
         changed = asyncio.Event()
         monitor = SourceEventMonitor(asyncio.get_running_loop(), changed)
         next_full_reconcile = 0.0
+        analyzer_manifest: dict[str, dict[str, str]] = {}
+        try:
+            analyzer_manifest = await asyncio.to_thread(
+                local_analyzer_manifest, self.config.document_files_python
+            )
+        except SyncError:
+            LOGGER.exception(
+                "Document Files descriptors are unavailable; automatic adapter refresh is disabled"
+            )
         try:
             while not self.stopping.is_set():
                 now = asyncio.get_running_loop().time()
@@ -88,6 +103,12 @@ class SyncDaemon:
                         + self.config.full_reconcile_seconds
                     )
 
+                if analyzer_manifest:
+                    await asyncio.to_thread(
+                        self.state.enqueue_outdated_analyzers,
+                        analyzer_manifest,
+                        ANALYZER_REFRESH_BATCH,
+                    )
                 await self._process_changes()
                 timeout = min(
                     self.config.reconcile_seconds,
@@ -153,7 +174,7 @@ class SyncDaemon:
                     )
 
     async def _process_change(self, change: dict[str, Any]) -> None:
-        force_refresh = change["event_kind"] == "refresh"
+        force_refresh = change["event_kind"] in {"refresh", "analyzer_refresh"}
         corpus_id = change.get("corpus_id")
         if not isinstance(corpus_id, str) or change["access_scope"] != "remote_allowed":
             # A local-only Source remains entirely local and does not block the bounded queue.
@@ -305,6 +326,9 @@ class SyncDaemon:
             change["document_id"],
             snapshot.sha256,
             projection_id,
+            adapter_id=header["projection"]["adapterId"],
+            adapter_version=header["projection"]["adapterVersion"],
+            config_hash=header["projection"]["configHash"],
         )
 
     async def _broker_loop(self) -> None:

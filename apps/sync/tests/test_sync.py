@@ -10,7 +10,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Self
 
+import personal_agent_sync.analysis as analysis_module
 import personal_agent_sync.daemon as daemon_module
+import personal_agent_sync.migration as migration_module
 import personal_agent_sync.state as state_module
 import personal_agent_sync.storage as storage_module
 import personal_agent_sync.work as work_module
@@ -55,6 +57,75 @@ def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
         encoding="utf-8",
     )
     return config
+
+
+def test_migration_document_verification_ignores_live_modified_time() -> None:
+    document = {
+        "documentId": "doc_1",
+        "relativePath": "notes/한글.txt",
+        "extension": ".txt",
+        "sourceState": "available",
+        "mediaType": "text/plain",
+        "logicalSize": 7,
+        "modifiedNs": "100",
+        "residencyState": "resident",
+        "eligibilityState": "supported",
+        "currentRevisionId": "rev_1",
+        "firstSeenAt": "2026-09-01T00:00:00Z",
+        "deletedAt": None,
+        "lifecycleState": "active",
+        "retentionClass": "managed",
+    }
+    expected = migration_module._document_verification_record(document)
+    actual = dict(expected, modified_ns="200")
+
+    assert "modified_ns" not in expected
+    assert migration_module._first_record_mismatch(actual, expected) is None
+
+
+def test_migration_record_verification_reports_durable_field() -> None:
+    expected = {
+        "document_id": "doc_1",
+        "relative_path": "notes/한글.txt",
+        "current_revision_id": "rev_1",
+    }
+    actual = dict(expected, relative_path="notes/moved.txt")
+
+    assert migration_module._first_record_mismatch(actual, expected) == "relative_path"
+
+
+def test_successful_migration_checkpoint_cleanup_keeps_only_current_items(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    state.remember_migration("sense", "complete", "a" * 64, {"ok": True})
+    state.remember_migration(
+        "corpus-projection", "notes:projection_current", "b" * 64, {"ok": True}
+    )
+    state.remember_migration(
+        "corpus-projection", "notes:projection_retired", "c" * 64, {"ok": True}
+    )
+    state.remember_migration("retired-product", "old", "d" * 64, {"ok": True})
+
+    removed = state.prune_migration_progress(
+        {
+            "sense": {"complete"},
+            "corpus-projection": {"notes:projection_current"},
+        }
+    )
+
+    assert removed == 2
+    assert state.migration_checkpoint("sense", "complete") is not None
+    assert (
+        state.migration_checkpoint("corpus-projection", "notes:projection_current")
+        is not None
+    )
+    assert (
+        state.migration_checkpoint("corpus-projection", "notes:projection_retired")
+        is None
+    )
 
 
 def test_remote_storage_report_and_conservative_maintenance(
@@ -260,6 +331,115 @@ def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(
         ).fetchall()
     assert [row["document_id"] for row in rows] == ["doc_canonical"]
     assert state.due_changes() == []
+
+
+def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    current_path = root / "current.txt"
+    stale_path = root / "stale.md"
+    unknown_path = root / "unknown.pdf"
+    for path in (current_path, stale_path, unknown_path):
+        path.write_text(path.stem, encoding="utf-8")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    reconcile_all(state)
+    observed = {row["relative_path_nfc"]: row for row in state.due_changes()}
+
+    state.complete_change(
+        "notes:main",
+        observed["current.txt"]["document_id"],
+        hashlib.sha256(b"current").hexdigest(),
+        "projection_current",
+        adapter_id="document-files.process.txt",
+        adapter_version="2",
+        config_hash="a" * 64,
+    )
+    state.complete_change(
+        "notes:main",
+        observed["stale.md"]["document_id"],
+        hashlib.sha256(b"stale").hexdigest(),
+        "projection_stale",
+        adapter_id="document-files.process.md",
+        adapter_version="1",
+        config_hash="b" * 64,
+    )
+    # A pre-upgrade row without a known descriptor is not evidence of staleness.
+    state.complete_change(
+        "notes:main",
+        observed["unknown.pdf"]["document_id"],
+        hashlib.sha256(b"unknown").hexdigest(),
+        "projection_unknown",
+    )
+
+    queued = state.enqueue_outdated_analyzers(
+        {
+            "txt": {
+                "adapter_id": "document-files.process.txt",
+                "adapter_version": "2",
+                "config_hash": "a" * 64,
+            },
+            "md": {
+                "adapter_id": "document-files.process.md",
+                "adapter_version": "2",
+                "config_hash": "c" * 64,
+            },
+            "pdf": {
+                "adapter_id": "document-files.process.pdf",
+                "adapter_version": "2",
+                "config_hash": "d" * 64,
+            },
+        }
+    )
+
+    assert queued == 1
+    changes = state.due_changes()
+    assert [(row["relative_path_nfc"], row["event_kind"]) for row in changes] == [
+        ("stale.md", "analyzer_refresh")
+    ]
+
+
+def test_local_analyzer_manifest_keeps_only_durable_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Completed:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "schema_version": "document-files.descriptor.v1",
+                "formats": {
+                    "txt": {
+                        "media_type": "text/plain",
+                        "descriptor": {
+                            "adapter_id": "document-files.process.txt",
+                            "adapter_version": "wrapper",
+                            "config_hash": "f" * 64,
+                            "capabilities": {"format_ids": ["txt"]},
+                        },
+                        "config": {
+                            "processor_implementation_sha256": "e" * 64,
+                            "route": {
+                                "adapter_id": "document-files.builtin.text",
+                                "adapter_version": "2",
+                                "config_hash": "a" * 64,
+                                "capabilities": {"format_ids": ["txt"]},
+                            },
+                        },
+                    }
+                },
+            }
+        )
+
+    monkeypatch.setattr(
+        analysis_module.subprocess, "run", lambda *args, **kwargs: Completed()
+    )
+
+    assert analysis_module.local_analyzer_manifest(tmp_path / "python") == {
+        "txt": {
+            "adapter_id": "document-files.builtin.text",
+            "adapter_version": "2",
+            "config_hash": "a" * 64,
+        }
+    }
 
 
 def test_deleted_unknown_remote_document_completes_idempotently(
@@ -492,10 +672,34 @@ def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(
     identity = root.stat().st_dev, root.stat().st_ino
     moved = tmp_path / "moved-source"
     root.rename(moved)
-    # Linux does not expose /.vol. A known current locator still proves that the
-    # identity check, which macOS supplies automatically, accepts the moved root.
+    # A known current locator always proves the identity check. macOS can also
+    # recover the moved path from the stale locator through the volume identity.
     assert resolve_moved_root(moved, *identity) == moved
-    assert resolve_moved_root(root, *identity) is None
+    assert resolve_moved_root(root, *identity) == (
+        moved if sys.platform == "darwin" else None
+    )
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS file identity recovery")
+def test_restart_recovers_root_after_configured_locator_moves(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "note.txt").write_text("durable", encoding="utf-8")
+    config_path = write_config(tmp_path, root)
+    config = load_config(config_path)
+    state = SyncState(config)
+    reconcile_all(state)
+
+    moved = tmp_path / "renamed-source"
+    root.rename(moved)
+
+    restarted = SyncState(load_config(config_path))
+    results = reconcile_all(restarted)
+    row = restarted.connection_row("notes:main")
+
+    assert results[0]["state"] == "available"
+    assert Path(row["root_path"]) == moved
+    assert row["location_state"] == "available"
 
 
 def test_capture_is_version_pinned_and_never_follows_symlinks(tmp_path: Path) -> None:

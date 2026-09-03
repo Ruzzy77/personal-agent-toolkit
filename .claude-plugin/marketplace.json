@@ -40,6 +40,12 @@
       "source": "./plugins/design",
       "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
       "category": "design"
+    },
+    {
+      "name": "library",
+      "source": "./plugins/library",
+      "description": "Read, edit, and publish an owner-authenticated Personal Library.",
+      "category": "productivity"
     }
   ]
 }

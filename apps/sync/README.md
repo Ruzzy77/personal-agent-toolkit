@@ -14,6 +14,8 @@ on a local port and does not expose the Mac through a tunnel.
 - keep Source changes in a bounded queue and retry network or analyzer failures
   without rescanning every connected tree;
 - analyze an immutable capture through the shared Document Files job contract;
+- compare recorded adapter identities with the pinned Document Files runtime and
+  queue only known stale projections in bounded batches after an analyzer update;
 - stage and atomically commit extracted Corpus projections while leaving the
   last good remote revision readable on failure;
 - reconcile exact remote records no longer retained by a completed local
@@ -75,6 +77,8 @@ deployed analyzer binding; it does not reimplement document parsing.
    exact public tool-name sets before comparing durable records. The metadata
    receipt is compared with the exact locally recorded migration checkpoint,
    so later Finder scan timestamps do not invalidate a completed migration.
+   A successful full pass removes checkpoints for retired projections; an
+   interrupted pass keeps them so migration can resume safely.
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.

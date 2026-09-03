@@ -1,0 +1,47 @@
+@font-face {
+  font-family: "Noto Sans KR";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans KR";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans KR";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans KR";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("/fonts/BarlowCondensed-SemiBold-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Library Brush";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("/fonts/LibraryBrush-2.2-Regular.woff2") format("woff2");
+}
