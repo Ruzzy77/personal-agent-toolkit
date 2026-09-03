@@ -83,4 +83,14 @@ describe("Library MCP authorization boundary", () => {
       'Bearer error="insufficient_scope", resource_metadata="https://library.example/.well-known/oauth-protected-resource/api/mcp", scope="library.read library.write"',
     );
   });
+
+  it("requests read and write scopes for a new owner connection", () => {
+    expect(
+      authorizationChallenge(
+        "https://library.example/.well-known/oauth-protected-resource/api/mcp",
+      ),
+    ).toBe(
+      'Bearer resource_metadata="https://library.example/.well-known/oauth-protected-resource/api/mcp", scope="library.read library.write"',
+    );
+  });
 });
