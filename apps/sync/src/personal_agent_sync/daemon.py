@@ -268,11 +268,20 @@ class SyncDaemon:
                     change["connection_key"], change["document_id"], snapshot.sha256
                 )
                 return
+            revision_id = None
+            if snapshot.sha256 == change.get("last_revision_sha256"):
+                revision_id = await self.remote.resolve_revision(
+                    corpus_id,
+                    change["document_id"],
+                    snapshot.sha256,
+                    snapshot.byte_size,
+                )
             header, units = build_projection(
                 change=change,
                 snapshot=snapshot,
                 selected_format=selected_format,
                 result=result,
+                revision_id=revision_id,
             )
             committed = await self.remote.upload_projection(corpus_id, header, units)
         projection_id = committed.get("projectionId")
@@ -347,6 +356,14 @@ class SyncDaemon:
                     await websocket.close(4002, "invalid JSON")
                     return
                 if isinstance(value, dict) and value.get("type") == "hello_ack":
+                    continue
+                if isinstance(value, dict) and value.get("type") == "job_ack":
+                    if (
+                        not isinstance(value.get("jobId"), str)
+                        or type(value.get("accepted")) is not bool
+                    ):
+                        await websocket.close(4002, "invalid broker acknowledgement")
+                        return
                     continue
                 if not isinstance(value, dict) or value.get("type") != "job":
                     await websocket.close(4002, "invalid broker message")

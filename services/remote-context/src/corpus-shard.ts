@@ -7,6 +7,7 @@ import {
   projectionBeginSchema,
   projectionCommitSchema,
   projectionUnitsSchema,
+  revisionResolveSchema,
   sourceStateSchema,
 } from "./schemas";
 import type { Env, ProjectionBeginInput } from "./types";
@@ -1905,6 +1906,57 @@ export class CorpusShard {
     return { uploadId: input.uploadId, stagedUnitCount: 0, resumed: false };
   }
 
+  private resolveRevision(
+    ownerId: string,
+    raw: unknown,
+  ): Record<string, unknown> {
+    const input = revisionResolveSchema.parse(raw);
+    this.ensureSchema();
+    const storedOwner = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'owner_id'",
+    );
+    const storedCorpus = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
+    );
+    if (storedOwner && storedOwner.value !== ownerId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard owner does not match",
+        409,
+      );
+    }
+    if (storedCorpus && storedCorpus.value !== input.corpusId) {
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "Corpus shard id does not match",
+        409,
+      );
+    }
+    const revision = this.one<{
+      revision_id: string;
+      source_size: number;
+    }>(
+      `SELECT revision_id, source_size FROM revisions
+       WHERE document_id = ? AND sha256 = ?`,
+      input.documentId,
+      input.sha256,
+    );
+    if (revision && revision.source_size !== input.sourceSize) {
+      throw new ContextError(
+        "revision_identity_conflict",
+        "captured content digest already names a different source size",
+        409,
+      );
+    }
+    return {
+      corpusId: input.corpusId,
+      documentId: input.documentId,
+      sha256: input.sha256,
+      sourceSize: input.sourceSize,
+      revisionId: revision?.revision_id ?? null,
+    };
+  }
+
   private async addUnits(raw: unknown): Promise<Record<string, unknown>> {
     const input = projectionUnitsSchema.parse(raw);
     this.ensureSchema();
@@ -2403,6 +2455,27 @@ export class CorpusShard {
         "revision_identity_conflict",
         "revision id already names different captured content",
         409,
+      );
+    }
+    const sameContentRevision = this.one<{
+      revision_id: string;
+      source_size: number;
+    }>(
+      `SELECT revision_id, source_size FROM revisions
+       WHERE document_id = ? AND sha256 = ?`,
+      header.document.documentId,
+      header.revision.sha256,
+    );
+    if (
+      sameContentRevision &&
+      (sameContentRevision.revision_id !== header.revision.revisionId ||
+        sameContentRevision.source_size !== header.revision.sourceSize)
+    ) {
+      throw new ContextError(
+        "revision_identity_conflict",
+        "captured content is already registered under another revision id",
+        409,
+        { existingRevisionId: sameContentRevision.revision_id },
       );
     }
 
@@ -3078,6 +3151,11 @@ export class CorpusShard {
       const body: unknown = await request.json();
       if (path === "/projection/begin")
         return json({ ok: true, result: this.begin(ownerId, body) });
+      if (path === "/revision/resolve")
+        return json({
+          ok: true,
+          result: this.resolveRevision(ownerId, body),
+        });
       if (path === "/documents/import") {
         return json({ ok: true, result: this.importDocuments(ownerId, body) });
       }
