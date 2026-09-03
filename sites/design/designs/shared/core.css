@@ -1,0 +1,54 @@
+/* ============================================================
+   공용 코어 — 여섯 디자인이 똑같이 쓰는 최소 규칙만 담는다.
+   bundle.py가 모든 디자인의 모든 프로필 맨 앞에 자동으로 포함하므로
+   디자인별 base.css가 언제든 덮어쓸 수 있다. 선언이 디자인마다
+   조금이라도 다른 규칙(제목, 표 괘선, 인용 등)은 여기 넣지 않는다.
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+figure {
+  margin: 0;
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

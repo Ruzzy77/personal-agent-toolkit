@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "design_id": "baekja",
+  "shared": {
+    "palette": {
+      "background": "#F5F5F7",
+      "surface": "#FFFFFF",
+      "text": "#1D1D1F",
+      "muted": "#6E6E73",
+      "accent": "#0066CC"
+    },
+    "typography": {
+      "heading": "system sans-serif 600–700",
+      "body": "system sans-serif 400",
+      "label": "system sans-serif 600"
+    },
+    "shape": "8–18px 모서리, 얕은 그림자, 표면 위쪽의 약한 빛",
+    "image": "밝은 중립색, 선명한 초점, 파랑은 한 곳의 강조에만 사용"
+  },
+  "formats": {
+    "web": {
+      "canvas": "반응형 한 열, 최대 폭 980px",
+      "typography": "제목 32–46px, 본문 17px, 설명 13–15px",
+      "composition": [
+        "목록과 카드를 빠르게 훑을 수 있게 배치",
+        "주요 동작은 한 화면에 한 가지로 정리",
+        "선택, 포커스와 비활성 상태를 형태와 문구로 표시"
+      ]
+    },
+    "document": {
+      "canvas": "A4 또는 Letter, 바깥 여백 18–22mm",
+      "typography": "제목 24–32pt, 본문 10.5–12pt, 설명 9pt 이상",
+      "composition": [
+        "제목, 요약, 항목 목록 순서로 배치",
+        "반투명 효과와 움직임은 제거",
+        "인쇄에서는 흰 표면과 얇은 선으로 구분"
+      ]
+    },
+    "slides": {
+      "canvas": "16:9, 안전 여백 6%",
+      "typography": "제목 30–40pt, 본문 20pt 이상",
+      "composition": [
+        "큰 제목과 한 개의 주요 화면 또는 항목 사용",
+        "카드 수를 줄이고 차이를 크기와 위치로 표시",
+        "파랑은 링크나 핵심 동작 한 곳에만 사용"
+      ]
+    },
+    "image": {
+      "canvas": "1:1, 4:5 또는 16:9, 안전 여백 7%",
+      "typography": "산세리프 제목과 짧은 설명, 작은 UI 글자는 넣지 않음",
+      "composition": [
+        "한 개의 대상이나 카드에 초점",
+        "밝은 표면과 약한 깊이를 유지",
+        "파랑 강조는 한 곳만 사용"
+      ]
+    }
+  }
+}

@@ -1,0 +1,200 @@
+/* ============================================================
+   거푸집(Formwork) · Layer 2 — base
+   리셋과 기본 요소. 큼직한 산세리프, 각진 모서리, 전체 격자 표
+   (구조가 분명한 표). 단어는 자르지 않는다(keep-all).
+   ============================================================ */
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background-color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  letter-spacing: -0.012em;
+  word-break: keep-all;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--blue) 24%, var(--paper-raised));
+}
+
+/* 링크 -------------------------------------------------------- */
+a {
+  color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+a:hover { text-decoration-thickness: 2px; }
+
+:focus-visible {
+  outline: 2.5px solid var(--blue);
+  outline-offset: 3px;
+}
+
+/* 제목 — 크고 무겁게 ------------------------------------------ */
+h1 {
+  margin: 0;
+  font-size: var(--text-display);
+  font-weight: 800;
+  letter-spacing: var(--tracking-display);
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+h2 {
+  margin: 0 0 16px;
+  font-size: var(--text-title);
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  line-height: var(--leading-title);
+  text-wrap: balance;
+}
+
+h3 {
+  margin: 0 0 12px;
+  font-size: var(--text-section);
+  font-weight: 700;
+  letter-spacing: -0.014em;
+  line-height: 1.34;
+}
+
+/* 본문 요소 --------------------------------------------------- */
+p { margin: 0 0 1em; }
+
+ul, ol { margin: 0.85em 0 1.05em; padding-left: 24px; }
+li { margin: 6px 0; }
+li::marker { color: var(--soft); font-weight: 700; }
+
+strong { font-weight: 700; }
+
+/* 강조는 기울임 대신 방점을 사용하는 공통 규칙 */
+em {
+  font-style: normal;
+  -webkit-text-emphasis: filled dot;
+  text-emphasis: filled dot;
+  -webkit-text-emphasis-position: over right;
+  text-emphasis-position: over right;
+}
+
+hr {
+  margin: 38px 0;
+  border: 0;
+  border-top: 1.5px dashed var(--rule);
+}
+
+blockquote {
+  margin: 1.3em 0;
+  padding: 4px 0 4px 18px;
+  border-left: 4px solid var(--blue);
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+/* 코드 -------------------------------------------------------- */
+code, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--paper-deep);
+  border-radius: 4px;
+  padding: 0.12em 0.4em;
+}
+
+pre {
+  margin: 1.1em 0;
+  padding: 14px 16px;
+  background: var(--paper-deep);
+  border: var(--border-panel);
+  border-radius: var(--radius-panel);
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* 표 — 전체 격자. 바깥 2px, 안쪽 1px --------------------------- */
+table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  border: 2px solid var(--rule-strong);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+  background: var(--paper-raised);
+}
+th, td {
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+thead th {
+  background: var(--paper-deep);
+  border-bottom: 2px solid var(--rule-strong);
+  font-size: var(--text-micro);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--soft);
+}
+
+.table-wrap, .table-scroll, .visual-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  margin: 1.3em 0;
+}
+.table-wrap:focus-visible, .table-scroll:focus-visible, .visual-scroll:focus-visible {
+  outline: 2.5px solid var(--blue);
+  outline-offset: 3px;
+}
+
+/* 인쇄 — 흰 종이로 복귀, 구획 단위 보존 ------------------------ */
+@page { size: auto; margin: 18mm 16mm 20mm; }
+
+@media print {
+  :root,
+  :root[data-theme],
+  :root:not([data-theme="light"]) {
+    color-scheme: light;
+    --paper: #fff;
+    --paper-raised: #fff;
+    --paper-deep: #f2f2f2;
+    --ink: #111;
+    --soft: #444;
+    --faint: #555;
+    --rule: #999;
+    --rule-strong: #111;
+    --blue: #17418f;
+    --orange: #9a4a00;
+    --bp-bg: #16357e;
+    --bp-line: #dbe4f8;
+    --bp-grid: rgba(219, 228, 248, 0.16);
+    --ok: #217a3c;
+    --bad: #c62828;
+    --border-panel: 1px solid #999;
+    --shadow-panel: none;
+  }
+  html, body { background: #fff; }
+  body {
+    font-size: 11pt;
+    line-height: 1.65;
+    widows: 3;
+    orphans: 3;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  a { color: inherit; }
+  h1, h2, h3 { break-after: avoid-page; page-break-after: avoid; }
+  .table-wrap, .table-scroll { overflow: visible; }
+  table { min-width: 0; }
+  thead { display: table-header-group; }
+  tr, figure, blockquote, .panel, .fig, .stat, .callout-safety {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

@@ -1,0 +1,30 @@
+/* ============================================================
+   한지(Hanji) · Layer 4 — diagram assets
+   관계 그림은 PNG, WebP나 AVIF 이미지 애셋으로 넣는다.
+   이미지의 대체 텍스트와 가까운 설명에서 관계와 상태를 함께 밝힌다.
+   ============================================================ */
+
+.diagram-image {
+  display: block;
+  max-width: none;
+  height: auto;
+  background: transparent;
+}
+
+.diagram-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin: 14px 0 0;
+  color: var(--soft);
+  font-size: var(--text-small);
+}
+
+.diagram-legend img {
+  flex: 0 0 auto;
+}

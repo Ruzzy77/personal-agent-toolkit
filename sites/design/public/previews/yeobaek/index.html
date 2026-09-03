@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>여백(Yeobaek) 디자인</title>
+  <!-- yeobaek:styles profile=core -->
+  <style>
+/* ============================================================
+   공용 코어 — 여섯 디자인이 똑같이 쓰는 최소 규칙만 담는다.
+   bundle.py가 모든 디자인의 모든 프로필 맨 앞에 자동으로 포함하므로
+   디자인별 base.css가 언제든 덮어쓸 수 있다. 선언이 디자인마다
+   조금이라도 다른 규칙(제목, 표 괘선, 인용 등)은 여기 넣지 않는다.
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+figure {
+  margin: 0;
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 여백(Yeobaek) · tokens */
+
+:root {
+  color-scheme: light dark;
+
+  --paper: #fbfbf8;
+  --surface: #ffffff;
+  --ink: #141411;
+  --soft: #5d5d57;
+  --faint: #73736c;
+  --line: #d8d8d1;
+  --line-strong: #141411;
+  --accent: #145fc4;
+  --accent-ink: #ffffff;
+  --success: #276840;
+  --warning: #875800;
+  --error: #b42318;
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-display: clamp(2.25rem, 7vw, 4.5rem);
+  --text-title: clamp(1.35rem, 3vw, 1.75rem);
+  --text-body: 1rem;
+  --text-small: 0.875rem;
+  --text-caption: 0.8125rem;
+  --leading-display: 0.98;
+  --leading-title: 1.2;
+  --leading-body: 1.62;
+  --tracking-display: -0.055em;
+  --tracking-title: -0.025em;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --page-max: 880px;
+  --measure: 64ch;
+  --gutter: clamp(18px, 5vw, 48px);
+  --control-min: 44px;
+  --radius: 0;
+  --shadow: none;
+}
+
+:root[data-theme="dark"] {
+  --paper: #10100f;
+  --surface: #181817;
+  --ink: #f3f3ef;
+  --soft: #adada5;
+  --faint: #94948d;
+  --line: #363632;
+  --line-strong: #f3f3ef;
+  --accent: #7eafff;
+  --accent-ink: #0b1526;
+  --success: #70b889;
+  --warning: #e0ad58;
+  --error: #ff8278;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10100f;
+    --surface: #181817;
+    --ink: #f3f3ef;
+    --soft: #adada5;
+    --faint: #94948d;
+    --line: #363632;
+    --line-strong: #f3f3ef;
+    --accent: #7eafff;
+    --accent-ink: #0b1526;
+    --success: #70b889;
+    --warning: #e0ad58;
+    --error: #ff8278;
+  }
+}
+
+/* 여백(Yeobaek) · base */
+
+html {
+  background: var(--paper);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.minimal-page {
+  width: min(calc(100% - (var(--gutter) * 2)), var(--page-max));
+  margin-inline: auto;
+  padding-block: clamp(40px, 8vw, 84px) var(--space-8);
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+figure,
+blockquote {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 13ch;
+  margin-bottom: var(--space-6);
+  font-size: var(--text-display);
+  font-weight: 760;
+  line-height: var(--leading-display);
+  letter-spacing: var(--tracking-display);
+}
+
+h2 {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-title);
+  font-weight: 720;
+  line-height: var(--leading-title);
+  letter-spacing: var(--tracking-title);
+}
+
+h3 {
+  margin-bottom: var(--space-2);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+p {
+  max-width: var(--measure);
+  margin-bottom: var(--space-4);
+}
+
+small,
+.caption {
+  color: var(--soft);
+  font-size: var(--text-caption);
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+strong {
+  font-weight: 700;
+}
+
+ul,
+ol {
+  max-width: var(--measure);
+  margin-bottom: var(--space-5);
+  padding-left: 1.25em;
+}
+
+li + li {
+  margin-top: var(--space-2);
+}
+
+hr {
+  margin: var(--space-7) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+code,
+pre,
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+pre {
+  max-width: 100%;
+  padding: var(--space-4);
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--text-small);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+}
+
+th,
+td {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: var(--soft);
+  font-weight: 650;
+}
+
+th:first-child,
+td:first-child {
+  padding-left: 0;
+}
+
+th:last-child,
+td:last-child {
+  padding-right: 0;
+}
+
+@page {
+  size: auto;
+  margin: 20mm 22mm;
+}
+
+@media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+    --paper: #ffffff;
+    --surface: #ffffff;
+    --ink: #111111;
+    --soft: #555555;
+    --faint: #666666;
+    --line: #cfcfcf;
+    --line-strong: #111111;
+    --accent: #111111;
+    --accent-ink: #ffffff;
+    --success: #276840;
+    --warning: #875800;
+    --error: #b42318;
+  }
+
+  body {
+    widows: 3;
+    orphans: 3;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .minimal-page {
+    width: auto;
+    padding: 0;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  .table-scroll,
+  .visual-scroll {
+    overflow: visible;
+  }
+
+  h1,
+  h2,
+  h3 {
+    break-after: avoid-page;
+  }
+
+  p,
+  li,
+  blockquote {
+    widows: 3;
+    orphans: 3;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  figure,
+  blockquote {
+    break-inside: avoid;
+  }
+}
+
+/* 여백(Yeobaek) · components */
+
+.minimal-head {
+  margin-bottom: clamp(48px, 8vw, 84px);
+}
+
+.minimal-summary {
+  max-width: 42ch;
+  margin: calc(var(--space-6) * -1) 0 0;
+  color: var(--soft);
+  font-size: clamp(1.05rem, 2vw, 1.2rem);
+  line-height: 1.55;
+}
+
+.minimal-section {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line-strong);
+}
+
+.minimal-section + .minimal-section {
+  margin-top: clamp(48px, 8vw, 72px);
+}
+
+.compact-list {
+  margin: 0;
+}
+
+.compact-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.55fr) minmax(0, 1.45fr);
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.compact-list dt,
+.compact-list dd {
+  margin: 0;
+}
+
+.compact-list dt {
+  color: var(--soft);
+  font-size: var(--text-small);
+}
+
+.compact-list dd {
+  font-weight: 600;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.button {
+  min-height: var(--control-min);
+  padding: 0 var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-small);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button:disabled {
+  border-color: var(--line);
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.field-group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.field-group label,
+.field-label {
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+
+.field,
+select.field,
+textarea.field {
+  width: 100%;
+  min-height: var(--control-min);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.inline-form {
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.notice,
+.callout {
+  max-width: var(--measure);
+  padding: var(--space-3) 0 var(--space-3) var(--space-4);
+  border-left: 3px solid var(--line-strong);
+}
+
+.notice p:last-child,
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
+.notice-success {
+  border-left-color: var(--success);
+}
+
+.notice-warning {
+  border-left-color: var(--warning);
+}
+
+.notice-error {
+  border-left-color: var(--error);
+}
+
+.table-scroll,
+.visual-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.format-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.format-list li {
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.format-list strong,
+.format-list span {
+  display: block;
+}
+
+.format-list span {
+  margin-top: var(--space-1);
+  color: var(--soft);
+  font-size: var(--text-small);
+}
+
+@media (hover: hover) {
+  .button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .button-primary:hover {
+    border-color: var(--ink);
+    background: color-mix(in srgb, var(--ink) 86%, var(--paper));
+    color: var(--paper);
+  }
+}
+
+@media (max-width: 620px) {
+  .compact-list > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .format-list {
+    grid-template-columns: 1fr;
+  }
+
+  .action-row .button,
+  .inline-form .button {
+    width: 100%;
+  }
+}
+  </style>
+  <!-- /yeobaek:styles -->
+  <style>
+    .sg-top {
+      min-height: 44px;
+      margin-bottom: clamp(52px, 9vw, 88px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sg-back {
+      color: var(--ink);
+      font-size: var(--text-small);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .sg-theme {
+      display: flex;
+      gap: var(--space-3);
+    }
+
+    .sg-theme button {
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--soft);
+      font-size: var(--text-caption);
+      cursor: pointer;
+    }
+
+    .sg-theme button[aria-pressed="true"] {
+      color: var(--ink);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    .sg-type {
+      max-width: 12ch;
+      margin: 0 0 var(--space-6);
+      font-size: clamp(2rem, 6vw, 3.75rem);
+      font-weight: 760;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .sg-colors {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-4);
+      margin: 0;
+    }
+
+    .sg-color {
+      margin: 0;
+    }
+
+    .sg-color i {
+      display: block;
+      height: 28px;
+      margin-bottom: var(--space-2);
+      border: 1px solid var(--line);
+    }
+
+    .sg-color dt,
+    .sg-color dd {
+      margin: 0;
+      font-size: var(--text-caption);
+    }
+
+    .sg-color dd {
+      color: var(--soft);
+      font-family: var(--font-mono);
+    }
+
+    .sg-form {
+      max-width: 560px;
+      display: grid;
+      gap: var(--space-4);
+    }
+
+    @media (max-width: 620px) {
+      .sg-colors {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="minimal-page">
+    <div class="sg-top">
+      <a class="sg-back" href="/" target="_top">디자인 목록</a>
+      <div class="sg-theme" role="group" aria-label="배경 선택">
+        <button type="button" data-mode="auto" aria-pressed="true">시스템</button>
+        <button type="button" data-mode="light" aria-pressed="false">밝게</button>
+        <button type="button" data-mode="dark" aria-pressed="false">어둡게</button>
+      </div>
+    </div>
+
+    <header class="minimal-head">
+      <h1>여백</h1>
+    </header>
+
+    <section class="minimal-section" aria-labelledby="content-title">
+      <h2 id="content-title">내용 제한</h2>
+      <dl class="compact-list">
+        <div><dt>제목</dt><dd>1개</dd></div>
+        <div><dt>설명</dt><dd>필요할 때 1개</dd></div>
+        <div><dt>주요 행동</dt><dd>1개</dd></div>
+        <div><dt>보조 행동</dt><dd>필요할 때 1개</dd></div>
+      </dl>
+    </section>
+
+    <section class="minimal-section" aria-labelledby="type-title">
+      <h2 id="type-title">글자와 색</h2>
+      <p class="sg-type">필수 내용만 배치한다.</p>
+      <div class="sg-colors">
+        <dl class="sg-color"><i style="background: var(--paper);"></i><dt>바탕</dt><dd>#FBFBF8</dd></dl>
+        <dl class="sg-color"><i style="background: var(--surface);"></i><dt>면</dt><dd>#FFFFFF</dd></dl>
+        <dl class="sg-color"><i style="background: var(--ink);"></i><dt>글자</dt><dd>#141411</dd></dl>
+        <dl class="sg-color"><i style="background: var(--accent);"></i><dt>링크</dt><dd>#145FC4</dd></dl>
+      </div>
+    </section>
+
+    <section class="minimal-section" aria-labelledby="form-title">
+      <h2 id="form-title">입력과 행동</h2>
+      <form class="sg-form" onsubmit="return false;">
+        <div class="field-group">
+          <label for="file-name">파일 이름</label>
+          <input class="field" id="file-name" name="file-name" value="결과물">
+        </div>
+        <div class="action-row">
+          <button class="button button-primary" type="submit">저장</button>
+          <button class="button" type="button">취소</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="minimal-section" aria-labelledby="notice-title">
+      <h2 id="notice-title">알림</h2>
+      <div class="notice">
+        <p><strong>기본</strong> — 알림은 3px 왼선과 문구로만 구분한다.</p>
+      </div>
+      <div class="notice notice-warning" style="margin-top: var(--space-3);">
+        <p><strong>주의</strong> — 저장하지 않은 변경이 있습니다.</p>
+      </div>
+      <p class="caption" style="margin-top: var(--space-4);"><code>.callout</code>은 <code>.notice</code>와 같은 배경과 왼쪽 선을 사용한다.</p>
+    </section>
+
+    <section class="minimal-section" aria-labelledby="format-title">
+      <h2 id="format-title">형식</h2>
+      <ul class="format-list">
+        <li><strong>웹·앱</strong><span>제목 · 내용 · 주요 행동</span></li>
+        <li><strong>문서</strong><span>제목 · 필요한 구획</span></li>
+        <li><strong>슬라이드</strong><span>한 가지 내용</span></li>
+        <li><strong>이미지</strong><span>제목 · 주요 대상</span></li>
+      </ul>
+    </section>
+  </main>
+  <script>
+    const root = document.documentElement;
+    document.querySelectorAll("[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.mode;
+        if (mode === "auto") delete root.dataset.theme;
+        else root.dataset.theme = mode;
+        document.querySelectorAll("[data-mode]").forEach((item) => {
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+      });
+    });
+  </script>
+</body>
+</html>

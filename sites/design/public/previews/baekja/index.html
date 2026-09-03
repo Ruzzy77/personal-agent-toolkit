@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>백자(Baekja) — 공통 화면 디자인</title>
+  <!-- baekja:styles profile=ui -->
+  <style>
+/* ============================================================
+   공용 코어 — 여섯 디자인이 똑같이 쓰는 최소 규칙만 담는다.
+   bundle.py가 모든 디자인의 모든 프로필 맨 앞에 자동으로 포함하므로
+   디자인별 base.css가 언제든 덮어쓸 수 있다. 선언이 디자인마다
+   조금이라도 다른 규칙(제목, 표 괘선, 인용 등)은 여기 넣지 않는다.
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+figure {
+  margin: 0;
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   백자(Baekja) · Layer 1 — tokens
+   여러 화면에서 함께 쓰는 디자인 값을 정의한다. 밝은 중립색 표면,
+   옅은 내부선과 절제된 파랑을 사용한다.
+   본문·표제 모두 산세리프(-apple-system 우선)이며, 다크는
+   시스템을 기본으로 따르고 data-theme이 항상 이긴다.
+   텍스트 대비는 두 지면 모두 WCAG 4.5:1 이상 검증. (수치는 README)
+   차트 팔레트는 정의하지 않는다 — 데이터가 무거우면 한지를 쓴다.
+   ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* 지면 ------------------------------------------------------ */
+  --paper: #f5f5f7;          /* 바탕. 애플의 중립 회백 */
+  --paper-raised: #ffffff;   /* 자기 표면: 카드, 바, 리스트 */
+  --paper-deep: #ececf0;     /* 가라앉은 면: 코드, 세그먼트 홈 */
+
+  /* 잉크 ------------------------------------------------------ */
+  --ink: #1d1d1f;
+  --soft: #6e6e73;           /* 부제, 설명 */
+  --faint: #707077;          /* 각주, 자리표시자. 작은 글자도 4.5:1 이상 */
+
+  /* 괘선 ------------------------------------------------------ */
+  --rule: #d2d2d7;
+  --rule-soft: rgba(0, 0, 0, 0.07);   /* 헤어라인 구분선 */
+  --rule-strong: var(--ink);
+
+  /* 강조 — 파랑 하나로 충분하다 -------------------------------- */
+  --accent: #0066cc;
+  --link: var(--accent);
+  --tint: rgba(0, 102, 204, 0.1);     /* 강조 워시: 버튼, 선택 배경 */
+
+  /* 상태 — 항상 라벨과 함께. 색 단독 금지 ---------------------- */
+  --ok: #1e7d3e;
+  --warn: #9a5b00;
+  --bad: #d70015;
+
+  /* 유광(釉光) — 카드 상단 내부선과 호버 광택 ---------------- */
+  --glaze-edge: rgba(255, 255, 255, 0.9);      /* 상단 안쪽 빛 */
+  --glaze-band: rgba(29, 29, 31, 0.045);       /* 호버 시 지나가는 광택 */
+
+  /* 깊이 ------------------------------------------------------ */
+  --shadow-1: 0 1px 2px rgba(29, 29, 31, 0.05), 0 6px 20px rgba(29, 29, 31, 0.06);
+  --shadow-2: 0 2px 6px rgba(29, 29, 31, 0.07), 0 16px 40px rgba(29, 29, 31, 0.11);
+  --blur-bar: saturate(1.8) blur(20px);
+  --bar-fill: rgba(245, 245, 247, 0.74);
+
+  /* 서체 — 순수 산세리프. 애플 기기는 SF, 그 외는 프리텐다드 ---- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Pretendard Variable", Pretendard, "Noto Sans KR", "Helvetica Neue",
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 활자 ------------------------------------------------------ */
+  --text-hero: clamp(2rem, 4.5vw, 2.9rem);
+  --text-title1: 1.7rem;
+  --text-title2: 1.3rem;
+  --text-headline: 1.0625rem;  /* 굵은 본문 */
+  --text-body: 1.0625rem;      /* 17px */
+  --text-callout: 0.9375rem;
+  --text-footnote: 0.8125rem;
+  --text-caption: 0.75rem;
+  --leading-body: 1.55;
+  --leading-title: 1.16;
+  --tracking-hero: -0.017em;
+  --tracking-title: -0.012em;
+
+  /* 판면·모서리 ------------------------------------------------ */
+  --page-max: 980px;
+  --page-pad: 22px;
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --radius-pill: 999px;
+
+  /* 간격 눈금 — 라이브러리 공용 (여백에서 승격) ----------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* 모션 — 빠르고, 감속하고, transform·opacity만 움직인다 ------- */
+  --t-fast: 140ms;
+  --t-base: 220ms;
+  --t-slow: 420ms;
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.15, 1);
+}
+
+/* ------------------------------------------------------------
+   다크 — 시스템 설정을 기본으로 따르고,
+   페이지나 뷰어가 data-theme을 지정하면 그 값이 항상 이긴다.
+   아래 두 블록의 값은 서로 동일하게 유지할 것.
+   ------------------------------------------------------------ */
+
+:root[data-theme="dark"] {
+  --paper: #0d0d0f;
+  --paper-raised: #1c1c1e;
+  --paper-deep: #161618;
+  --ink: #f5f5f7;
+  --soft: #a1a1a6;
+  --faint: #86868b;
+  --rule: #38383d;
+  --rule-soft: rgba(255, 255, 255, 0.09);
+  --accent: #409cff;
+  --tint: rgba(64, 156, 255, 0.16);
+  --ok: #4dc366;
+  --warn: #d9a03d;
+  --bad: #ff6961;
+  --glaze-edge: rgba(255, 255, 255, 0.16);
+  --glaze-band: rgba(255, 255, 255, 0.07);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.55), 0 18px 48px rgba(0, 0, 0, 0.6);
+  --bar-fill: rgba(13, 13, 15, 0.72);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d0d0f;
+    --paper-raised: #1c1c1e;
+    --paper-deep: #161618;
+    --ink: #f5f5f7;
+    --soft: #a1a1a6;
+    --faint: #86868b;
+    --rule: #38383d;
+    --rule-soft: rgba(255, 255, 255, 0.09);
+    --accent: #409cff;
+    --tint: rgba(64, 156, 255, 0.16);
+    --ok: #4dc366;
+    --warn: #d9a03d;
+    --bad: #ff6961;
+    --glaze-edge: rgba(255, 255, 255, 0.16);
+    --glaze-band: rgba(255, 255, 255, 0.07);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.55), 0 18px 48px rgba(0, 0, 0, 0.6);
+    --bar-fill: rgba(13, 13, 15, 0.72);
+  }
+}
+
+/* ============================================================
+   백자(Baekja) · Layer 2 — base
+   리셋과 기본 요소. 산세리프 하나로 위계를 만들고,
+   움직임은 transform·opacity·색만 건드린다.
+   ============================================================ */
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  letter-spacing: -0.011em;
+  word-break: keep-all;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--tint); }
+
+/* 링크 — 본문 링크만 밑줄, UI 링크는 컴포넌트가 결정한다 ------- */
+a { color: var(--link); text-decoration: none; }
+p a, li a, td a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+a:hover { text-decoration-thickness: 2px; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* 제목 -------------------------------------------------------- */
+h1 {
+  margin: 0;
+  font-size: var(--text-hero);
+  font-weight: 700;
+  letter-spacing: var(--tracking-hero);
+  line-height: var(--leading-title);
+  text-wrap: balance;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: var(--text-title1);
+  font-weight: 700;
+  letter-spacing: var(--tracking-title);
+  line-height: 1.22;
+  text-wrap: balance;
+}
+
+h3 {
+  margin: 0 0 10px;
+  font-size: var(--text-title2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* 본문 요소 --------------------------------------------------- */
+p { margin: 0 0 1em; }
+
+ul, ol { margin: 0.8em 0 1em; padding-left: 22px; }
+li { margin: 5px 0; }
+li::marker { color: var(--soft); }
+
+strong { font-weight: 600; }
+
+/* 강조는 기울임 대신 방점을 사용하는 공통 규칙 */
+em {
+  font-style: normal;
+  -webkit-text-emphasis: filled dot;
+  text-emphasis: filled dot;
+  -webkit-text-emphasis-position: over right;
+  text-emphasis-position: over right;
+}
+
+hr {
+  margin: 36px 0;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+blockquote {
+  margin: 1.3em 0;
+  padding: 4px 0 4px 18px;
+  border-left: 3px solid var(--rule);
+  color: var(--soft);
+}
+
+/* 코드 -------------------------------------------------------- */
+code, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--paper-deep);
+  border-radius: 6px;
+  padding: 0.12em 0.42em;
+}
+
+pre {
+  margin: 1.1em 0;
+  padding: 14px 16px;
+  background: var(--paper-deep);
+  border-radius: var(--radius-m);
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* 표 — 헤어라인만으로 ----------------------------------------- */
+table {
+  width: 100%;
+  min-width: 540px;
+  border-collapse: collapse;
+  font-size: var(--text-callout);
+  line-height: 1.6;
+}
+th, td {
+  padding: 11px 16px 11px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule-soft);
+}
+thead th {
+  font-size: var(--text-caption);
+  letter-spacing: 0.05em;
+  color: var(--soft);
+  font-weight: 600;
+}
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+
+.table-wrap, .table-scroll, .visual-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  margin: 1.3em 0;
+}
+.table-wrap:focus-visible, .table-scroll:focus-visible, .visual-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* 그림·이미지 -------------------------------------------------- */
+svg { max-width: 100%; height: auto; }
+
+/* 인쇄 — 화면 테마와 무관하게 밝은 값으로 뒤집는다 ------------- */
+@page {
+  size: auto;
+  margin: 18mm 16mm 20mm;
+}
+
+@media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+    --paper: #fff;
+    --paper-raised: #fff;
+    --paper-deep: #f0f0f2;
+    --ink: #1d1d1f;
+    --soft: #6e6e73;
+    --faint: #707077;
+    --rule: #d2d2d7;
+    --rule-soft: rgba(0, 0, 0, 0.12);
+    --accent: #0066cc;
+    --tint: rgba(0, 102, 204, 0.1);
+    --ok: #1e7d3e;
+    --warn: #9a5b00;
+    --bad: #d70015;
+    --glaze-edge: transparent;
+    --glaze-band: transparent;
+    --shadow-1: none;
+    --shadow-2: none;
+  }
+
+  body {
+    background: #fff;
+    widows: 3;
+    orphans: 3;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .bar, .btn, .seg { display: none !important; }
+  .card, .list, .stat { box-shadow: none; border: 1px solid var(--rule); }
+  a { color: inherit; }
+  .table-wrap, .table-scroll, .visual-scroll { overflow: visible; }
+
+  h1, h2, h3 { break-after: avoid-page; }
+  p, li, blockquote { widows: 3; orphans: 3; }
+  thead { display: table-header-group; }
+  tr, figure, blockquote { break-inside: avoid; }
+}
+
+/* ============================================================
+   백자(Baekja) · Layer 3 — ui
+   여러 화면에서 함께 쓰는 요소를 정의한다. 상태(호버·누름·포커스·
+   선택·비활성)는 여기서 정의한 것만 쓰고, 컨트롤 라벨에는 동작 결과를 적는다.
+   유광(glaze)은 카드 상단의 내부선과 호버 광택으로 제한하며 다른
+   표면 장식은 추가하지 않는다.
+   ============================================================ */
+
+/* 판면 --------------------------------------------------------- */
+main, .frame {
+  width: min(100% - 2 * var(--page-pad), var(--page-max));
+  margin: 0 auto;
+}
+
+/* 상단 바 — 반투명 유리 ---------------------------------------- */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bar-fill);
+  -webkit-backdrop-filter: var(--blur-bar);
+  backdrop-filter: var(--blur-bar);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.bar-inner {
+  width: min(100% - 2 * var(--page-pad), var(--page-max));
+  margin: 0 auto;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.bar-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-callout);
+  font-weight: 600;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bar-spacer { flex: 1; }
+
+/* 페이지 머리 -------------------------------------------------- */
+.hero { padding: 56px 0 34px; }
+.hero .eyebrow {
+  margin: 0 0 12px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+.hero .lead {
+  margin: 14px 0 0;
+  max-width: 42rem;
+  color: var(--soft);
+  font-size: var(--text-headline);
+  line-height: 1.6;
+}
+.hero--center { text-align: center; }
+.hero--center .lead { margin-inline: auto; }
+
+/* 구획 --------------------------------------------------------- */
+.section { margin: 44px 0 0; }
+.section > h2 { font-size: var(--text-title2); margin-bottom: 16px; }
+
+/* 카드 — 자기 표면 --------------------------------------------- */
+.card {
+  position: relative;
+  background: var(--paper-raised);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--glaze-edge);
+  overflow: hidden;
+  transition: transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-base) var(--ease-out);
+}
+.card-body { padding: 20px 22px; }
+.card .desc { color: var(--soft); font-size: var(--text-callout); }
+
+/* 유광 스윕 — 호버에만, transform으로만 움직인다 */
+.card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  width: 55%;
+  background: linear-gradient(105deg, transparent 8%, var(--glaze-band) 50%, transparent 92%);
+  transform: translateX(0) skewX(-12deg);
+  pointer-events: none;
+}
+.card:hover::after, .card:focus-within::after {
+  transform: translateX(320%) skewX(-12deg);
+  transition: transform 700ms var(--ease-in-out);
+}
+a.card:hover, .card--lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--glaze-edge);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* 리스트 — 둥근 홈에 담긴 행들 --------------------------------- */
+.list {
+  background: var(--paper-raised);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--glaze-edge);
+  padding: 4px 0;
+}
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+a.row:hover, .row--tap:hover { background: var(--paper-deep); }
+a.row:active { background: var(--tint); }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-size: var(--text-callout); font-weight: 600; }
+.row-sub {
+  margin-top: 1px;
+  font-size: var(--text-footnote);
+  color: var(--soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-detail { font-size: var(--text-footnote); color: var(--faint); white-space: nowrap; }
+.chev { color: var(--faint); font-size: 1rem; line-height: 1; }
+
+/* 버튼 — 라벨은 눌렀을 때 일어나는 일을 말한다 ----------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-callout);
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+.btn:active { transform: scale(0.97); }
+.btn-filled { background: var(--accent); color: #fff; }
+.btn-filled:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
+.btn-tinted { background: var(--tint); }
+.btn-tinted:hover { background: color-mix(in srgb, var(--tint) 70%, var(--accent) 14%); }
+.btn-plain:hover { background: var(--paper-deep); }
+.btn[disabled], .btn[aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* 세그먼트 컨트롤 — 라디오 기반, JS 불필요 --------------------- */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--paper-deep);
+  border-radius: 9px;
+}
+.seg label { position: relative; }
+.seg input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.seg span {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: var(--text-footnote);
+  font-weight: 600;
+  color: var(--soft);
+  transition: color var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out);
+}
+.seg input:checked + span {
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+.seg input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 칩·상태 ------------------------------------------------------ */
+.chip {
+  display: inline-block;
+  padding: 3px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--paper-deep);
+  color: var(--soft);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.chip--accent { background: var(--tint); color: var(--accent); }
+.status-good { color: var(--ok); font-weight: 600; }
+.status-warn { color: var(--warn); font-weight: 600; }
+.status-bad { color: var(--bad); font-weight: 600; }
+
+/* 스탯 타일 ---------------------------------------------------- */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+.stat {
+  background: var(--paper-raised);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--glaze-edge);
+  padding: 16px 18px;
+}
+.stat-label { font-size: var(--text-caption); font-weight: 600; color: var(--soft); }
+.stat-value {
+  margin-top: 4px;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.stat-note { margin-top: 4px; font-size: var(--text-footnote); color: var(--faint); }
+
+/* 검색·입력 ---------------------------------------------------- */
+.field {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-callout);
+  transition: border-color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out);
+}
+.field::placeholder { color: var(--faint); }
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--tint);
+}
+
+/* 안내 상자 — paper-deep 배경으로 본문과 구분하며 테두리와 강조색은
+   사용하지 않는다. 상태는 색과 라벨을 함께 사용해 구분한다. */
+.callout {
+  margin: 1.3em 0;
+  padding: 16px 18px;
+  background: var(--paper-deep);
+  border-radius: var(--radius-m);
+  font-size: var(--text-callout);
+  line-height: 1.6;
+}
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }
+.callout-title {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+/* 바닥 각주 ---------------------------------------------------- */
+.footnote {
+  margin: 56px 0 0;
+  padding: 18px 0 40px;
+  border-top: 1px solid var(--rule-soft);
+  color: var(--faint);
+  font-size: var(--text-footnote);
+  line-height: 1.7;
+}
+
+/* 등장 모션 — 페이지를 열 때 한 번 실행하며 각 요소에 짧은 시차를 둔다.
+   .reveal을 붙인 형제들을 순서대로 표시한다. reduced-motion에서는
+   base.css가 전체를 끈다. */
+@keyframes bj-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal { animation: bj-rise var(--t-slow) var(--ease-out) both; }
+.reveal:nth-child(2) { animation-delay: 60ms; }
+.reveal:nth-child(3) { animation-delay: 120ms; }
+.reveal:nth-child(4) { animation-delay: 180ms; }
+.reveal:nth-child(5) { animation-delay: 240ms; }
+.reveal:nth-child(n+6) { animation-delay: 300ms; }
+
+/* 좁은 화면 ---------------------------------------------------- */
+@media (max-width: 560px) {
+  .hero { padding: 36px 0 24px; }
+  .card-grid { grid-template-columns: 1fr; }
+  table { min-width: 500px; }
+  .bar-inner { gap: 6px; }
+  .bar .btn {
+    min-height: 44px;
+    padding-inline: 10px;
+    font-size: var(--text-footnote);
+    white-space: nowrap;
+  }
+  .seg span { min-height: 44px; }
+  .bar .seg span { padding-inline: 10px; }
+}
+  </style>
+  <!-- /baekja:styles -->
+  <style>
+    /* 스타일가이드 전용 */
+    .sg-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 18px; }
+    .sg-swatch .well { height: 46px; border-radius: var(--radius-s); border: 1px solid var(--rule-soft); }
+    .sg-swatch dt { margin-top: 7px; font-size: var(--text-footnote); font-weight: 600; }
+    .sg-swatch dd { margin: 2px 0 0; color: var(--soft); font-size: 0.68rem; font-family: var(--font-mono); line-height: 1.5; }
+    .sg-type-row { display: flex; align-items: baseline; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--rule-soft); }
+    .sg-type-row:last-child { border-bottom: 0; }
+    .sg-type-row .spec { min-width: 200px; color: var(--soft); font-size: var(--text-caption); font-family: var(--font-mono); }
+    .sg-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px 30px; }
+    .sg-demo-desk { background: var(--paper-deep); border-radius: var(--radius-m); padding: 22px; }
+    .sg-hero {
+      margin-top: 34px;
+      padding: clamp(34px, 6vw, 64px);
+      border: 1px solid var(--rule-soft);
+      border-radius: clamp(28px, 5vw, 52px);
+      background: var(--paper-raised);
+      box-shadow: var(--shadow-2), inset 0 1px 0 var(--glaze-edge);
+    }
+    .sg-hero h1 { max-width: 16ch; }
+    .sg-hero .lead { max-width: 42rem; }
+    .sg-toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 24px -8px -8px;
+    }
+    .sg-toc .btn { min-height: 44px; }
+    .section[id] { scroll-margin-top: 72px; }
+    @media (max-width: 520px) {
+      .sg-type-row { align-items: flex-start; flex-direction: column; gap: 6px; }
+      .sg-type-row .spec { min-width: 0; }
+      .sg-hero { margin-top: 20px; padding: 28px 24px; border-radius: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="bar-inner">
+      <a class="bar-title" href="/" target="_top"
+        aria-label="디자인 라이브러리로 돌아가기">‹ 디자인 목록</a>
+      <span class="bar-spacer"></span>
+      <div class="seg" role="group" aria-label="지면 테마">
+        <label><input type="radio" name="theme" value="auto" checked><span>시스템</span></label>
+        <label><input type="radio" name="theme" value="light"><span>라이트</span></label>
+        <label><input type="radio" name="theme" value="dark"><span>다크</span></label>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero sg-hero reveal">
+      <p class="eyebrow">개인 디자인 라이브러리 · 백자 v2.1</p>
+      <h1>백자 디자인</h1>
+      <p class="lead">백자는 항목을 빠르게 훑고 선택하거나 값을 바꾸는 갤러리,
+        허브와 작업 도구에 사용한다. 세부 원칙은 <a href="DESIGN.md">백자 디자인
+        원칙</a>에서 확인할 수 있다. 카드에 마우스를 올리면 상단 광택 애니메이션이
+        한 번 실행된다.</p>
+      <nav class="sg-toc" aria-label="백자 스타일가이드 목차">
+        <a class="btn btn-plain" href="#color">색</a>
+        <a class="btn btn-plain" href="#type">글자</a>
+        <a class="btn btn-plain" href="#controls">조작</a>
+        <a class="btn btn-plain" href="#surface">표면</a>
+        <a class="btn btn-plain" href="#motion">움직임</a>
+      </nav>
+    </section>
+
+    <section class="section reveal" id="color">
+      <h2>색상</h2>
+      <div class="sg-swatches">
+        <dl class="sg-swatch"><div class="well" style="background: var(--paper);"></div><dt>--paper 바탕</dt><dd>#f5f5f7 · #0d0d0f</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--paper-raised);"></div><dt>--paper-raised 자기</dt><dd>#ffffff · #1c1c1e</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--paper-deep);"></div><dt>--paper-deep 홈</dt><dd>#ececf0 · #161618</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--ink);"></div><dt>--ink</dt><dd>#1d1d1f · #f5f5f7</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--soft);"></div><dt>--soft</dt><dd>#6e6e73 · #a1a1a6</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--faint);"></div><dt>--faint</dt><dd>#707077 · #86868b</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--accent);"></div><dt>--accent</dt><dd>#0066cc · #409cff</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--ok);"></div><dt>--ok</dt><dd>#1e7d3e · #4dc366</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--warn);"></div><dt>--warn</dt><dd>#9a5b00 · #d9a03d</dd></dl>
+        <dl class="sg-swatch"><div class="well" style="background: var(--bad);"></div><dt>--bad</dt><dd>#d70015 · #ff6961</dd></dl>
+      </div>
+      <p style="margin-top: 14px; color: var(--soft); font-size: var(--text-callout);">파랑은
+        누르거나 이동할 수 있는 요소에만 사용한다. 상태색은
+        <span class="status-good">정상</span> · <span class="status-warn">주의</span> ·
+        <span class="status-bad">실패</span>처럼 라벨과 함께 쓴다.</p>
+    </section>
+
+    <section class="section reveal" id="type">
+      <h2>타이포그래피</h2>
+      <div class="card"><div class="card-body">
+        <div class="sg-type-row"><span class="spec">hero · clamp(2–2.9rem) · 700</span>
+          <span style="font-size: var(--text-hero); font-weight: 700; letter-spacing: var(--tracking-hero); line-height: 1.1;">디자인 라이브러리</span></div>
+        <div class="sg-type-row"><span class="spec">title1 · 1.7rem · 700</span>
+          <span style="font-size: var(--text-title1); font-weight: 700; letter-spacing: var(--tracking-title);">등록된 디자인</span></div>
+        <div class="sg-type-row"><span class="spec">title2 · 1.3rem · 600</span>
+          <span style="font-size: var(--text-title2); font-weight: 600;">카드 제목</span></div>
+        <div class="sg-type-row"><span class="spec">body · 17px · 1.55</span>
+          <span>본문에서는 기울임꼴 대신 <em>방점</em>이나
+            <strong>굵기</strong>로 강조한다.</span></div>
+        <div class="sg-type-row"><span class="spec">callout · footnote · caption</span>
+          <span style="font-size: var(--text-callout);">설명 <span style="font-size: var(--text-footnote); color: var(--soft);">· 부제 0.81</span> <span style="font-size: var(--text-caption); color: var(--faint);">· 각주 0.75 · 숫자 1,024</span></span></div>
+      </div></div>
+    </section>
+
+    <section class="section reveal" id="controls">
+      <h2>조작 요소</h2>
+      <div class="sg-cols">
+        <div class="card"><div class="card-body">
+          <h3>버튼</h3>
+          <p style="display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 0;">
+            <button class="btn btn-filled" type="button">등록</button>
+            <button class="btn btn-tinted" type="button">복사</button>
+            <button class="btn btn-plain" type="button">문서 열기</button>
+            <button class="btn btn-filled" type="button" disabled>등록</button>
+          </p>
+          <p style="margin: 16px 0 0; font-size: var(--text-footnote); color: var(--soft);">
+            버튼을 누르면 크기가 0.97배로 줄어든다. 비활성 버튼은 흐리게
+            표시하고 조작을 막는다. 버튼 이름은 "제출" 같은 과정이 아니라
+            "등록"처럼 결과를 나타낸다.</p>
+        </div></div>
+        <div class="card"><div class="card-body">
+          <h3>세그먼트 · 입력</h3>
+          <div class="seg" role="group" aria-label="보기 전환" style="margin-top: 12px;">
+            <label><input type="radio" name="sg-view" checked><span>전체</span></label>
+            <label><input type="radio" name="sg-view"><span>편집형</span></label>
+            <label><input type="radio" name="sg-view"><span>도구형</span></label>
+          </div>
+          <input class="field" type="search" placeholder="디자인 검색" style="margin-top: 14px;" aria-label="디자인 검색">
+          <p style="margin: 14px 0 0;"><span class="chip">2026-07-29</span>
+            <span class="chip chip--accent">공통 화면</span></p>
+        </div></div>
+      </div>
+    </section>
+
+    <section class="section reveal" id="surface">
+      <h2>카드와 목록 표면</h2>
+      <div class="sg-cols">
+        <a class="card" href="#surface" aria-label="유광 효과 예시 카드">
+          <div class="card-body">
+            <h3>카드</h3>
+            <p class="desc">카드 상단 안쪽에 1px의 밝은 선을 둔다. 마우스를
+              올리면 카드를 2px 위로 옮기고 광택 애니메이션을 한 번 실행한다.</p>
+          </div>
+        </a>
+        <div>
+          <div class="list">
+            <a class="row" href="#surface">
+              <div class="row-main">
+                <div class="row-title">리스트 행</div>
+                <div class="row-sub">둥근 배경 안에서 구분선을 왼쪽으로 들여 쓴다</div>
+              </div>
+              <span class="row-detail">세부</span>
+              <span class="chev" aria-hidden="true">›</span>
+            </a>
+            <a class="row" href="#surface">
+              <div class="row-main"><div class="row-title">마우스를 올리면 바탕색이 바뀐다</div></div>
+              <span class="chev" aria-hidden="true">›</span>
+            </a>
+          </div>
+          <div class="stat-row" style="margin-top: 14px;">
+            <div class="stat">
+              <div class="stat-label">등록된 디자인</div>
+              <div class="stat-value">4</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">최소 명암비</div>
+              <div class="stat-value">4.7+</div>
+              <div class="stat-note">모든 텍스트 조합</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section reveal" id="callout">
+      <h2>안내 상자</h2>
+      <div class="callout">
+        <strong class="callout-title">동기화 안내</strong>
+        <p style="margin: 0; color: var(--soft);">미리보기는 저장할 때마다 자동으로
+          갱신된다. 설정을 바꾸면 다음 저장부터 적용된다.</p>
+      </div>
+      <div class="callout">
+        <strong class="callout-title" style="color: var(--warn);">주의 — 저장 공간</strong>
+        <p style="margin: 0; color: var(--soft);">상태는 색과 라벨을 함께 사용해
+          구분한다.</p>
+      </div>
+      <p style="margin-top: 14px; color: var(--soft); font-size: var(--text-callout);">
+        백자의 <code>.callout</code>은 음각 배경을 사용하며 테두리와 강조색은
+        두지 않는다.</p>
+    </section>
+
+    <section class="section reveal" id="motion">
+      <h2>모션</h2>
+      <div class="card"><div class="card-body">
+        <p style="margin: 0; font-size: var(--text-callout);">상태 변화는
+          <code>--t-fast 140ms</code>, 카드 상승은 <code>--t-base 220ms</code>,
+          등장은 <code>--t-slow 420ms</code>를 쓴다. transform과 opacity만
+          움직이며, 등장은 페이지를 열 때 한 번만 실행한다.
+          <code>prefers-reduced-motion</code>이면 모든 움직임을 끈다.</p>
+        <p style="margin: 12px 0 0;"><button class="btn btn-tinted" type="button" id="replay">등장 다시 보기</button></p>
+      </div></div>
+    </section>
+
+    <section class="section reveal" id="apply">
+      <h2>HTML 틀 활용</h2>
+      <div class="card"><div class="card-body">
+        <p style="margin-top: 0;">카드·목록·수치 영역이 필요한 화면에서는
+          아래 틀을 복사해 쓸 수 있다. 필요 없는 구획은 빼고 순서는 화면의
+          내용에 맞게 바꾼다.</p>
+        <pre style="margin: 0;"><code>cp designs/baekja/templates/artifact.html work-products/새-화면.html
+python designs/tools/bundle.py --inject work-products/새-화면.html
+python designs/tools/bundle.py --check work-products/새-화면.html</code></pre>
+      </div></div>
+      <p style="margin-top: 14px; color: var(--soft); font-size: var(--text-callout);">
+        구성요소의 쓰임은 <a href="DESIGN.md">백자 디자인 원칙</a>에서 볼 수 있다.</p>
+    </section>
+
+    <p class="footnote">백자 v2.1 · 2026-08-26 · 세부 원칙과 명암비 측정값은
+      <a href="README.md">사용 안내</a>와 <a href="DESIGN.md">디자인 원칙</a>에서
+      확인한다.</p>
+  </main>
+  <script>
+    const root = document.documentElement;
+    document.querySelectorAll("input[name='theme']").forEach(input =>
+      input.addEventListener("change", () => {
+        if (input.value === "auto") delete root.dataset.theme;
+        else root.dataset.theme = input.value;
+      }));
+    document.getElementById("replay").addEventListener("click", () => {
+      document.querySelectorAll(".reveal").forEach(el => {
+        el.style.animation = "none";
+        void el.offsetWidth;
+        el.style.animation = "";
+      });
+    });
+  </script>
+</body>
+</html>

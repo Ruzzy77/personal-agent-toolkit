@@ -1,0 +1,81 @@
+/* 여백(Yeobaek) · tokens */
+
+:root {
+  color-scheme: light dark;
+
+  --paper: #fbfbf8;
+  --surface: #ffffff;
+  --ink: #141411;
+  --soft: #5d5d57;
+  --faint: #73736c;
+  --line: #d8d8d1;
+  --line-strong: #141411;
+  --accent: #145fc4;
+  --accent-ink: #ffffff;
+  --success: #276840;
+  --warning: #875800;
+  --error: #b42318;
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-display: clamp(2.25rem, 7vw, 4.5rem);
+  --text-title: clamp(1.35rem, 3vw, 1.75rem);
+  --text-body: 1rem;
+  --text-small: 0.875rem;
+  --text-caption: 0.8125rem;
+  --leading-display: 0.98;
+  --leading-title: 1.2;
+  --leading-body: 1.62;
+  --tracking-display: -0.055em;
+  --tracking-title: -0.025em;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --page-max: 880px;
+  --measure: 64ch;
+  --gutter: clamp(18px, 5vw, 48px);
+  --control-min: 44px;
+  --radius: 0;
+  --shadow: none;
+}
+
+:root[data-theme="dark"] {
+  --paper: #10100f;
+  --surface: #181817;
+  --ink: #f3f3ef;
+  --soft: #adada5;
+  --faint: #94948d;
+  --line: #363632;
+  --line-strong: #f3f3ef;
+  --accent: #7eafff;
+  --accent-ink: #0b1526;
+  --success: #70b889;
+  --warning: #e0ad58;
+  --error: #ff8278;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10100f;
+    --surface: #181817;
+    --ink: #f3f3ef;
+    --soft: #adada5;
+    --faint: #94948d;
+    --line: #363632;
+    --line-strong: #f3f3ef;
+    --accent: #7eafff;
+    --accent-ink: #0b1526;
+    --success: #70b889;
+    --warning: #e0ad58;
+    --error: #ff8278;
+  }
+}
