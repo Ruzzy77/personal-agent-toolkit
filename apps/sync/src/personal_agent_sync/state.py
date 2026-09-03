@@ -107,6 +107,9 @@ class SyncState:
                     changed_ns INTEGER NOT NULL,
                     last_revision_sha256 TEXT,
                     last_projection_id TEXT,
+                    adapter_id TEXT,
+                    adapter_version TEXT,
+                    config_hash TEXT,
                     last_seen_at TEXT NOT NULL,
                     missing_since TEXT,
                     PRIMARY KEY(connection_key, document_id),
@@ -159,9 +162,16 @@ class SyncState:
                     completed_at TEXT NOT NULL,
                     PRIMARY KEY(product, item_key)
                 );
-                PRAGMA user_version = 1;
+                PRAGMA user_version = 2;
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(documents)")
+            }
+            for name in ("adapter_id", "adapter_version", "config_hash"):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE documents ADD COLUMN {name} TEXT")
 
     def register_connections(self, values: tuple[ConnectionConfig, ...]) -> None:
         now = now_iso()
@@ -308,8 +318,9 @@ class SyncState:
                         connection_key, document_id, local_relative_path,
                         relative_path_nfc, device, inode, size, modified_ns,
                         changed_ns, last_revision_sha256, last_projection_id,
+                        adapter_id, adapter_version, config_hash,
                         last_seen_at, missing_since
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     ON CONFLICT(connection_key, document_id) DO UPDATE SET
                         local_relative_path=excluded.local_relative_path,
                         relative_path_nfc=excluded.relative_path_nfc,
@@ -318,6 +329,9 @@ class SyncState:
                         changed_ns=excluded.changed_ns,
                         last_revision_sha256=excluded.last_revision_sha256,
                         last_projection_id=excluded.last_projection_id,
+                        adapter_id=excluded.adapter_id,
+                        adapter_version=excluded.adapter_version,
+                        config_hash=excluded.config_hash,
                         last_seen_at=excluded.last_seen_at, missing_since=NULL
                     """,
                     (
@@ -332,6 +346,9 @@ class SyncState:
                         document["changed_ns"],
                         document.get("last_revision_sha256"),
                         document.get("last_projection_id"),
+                        document.get("adapter_id"),
+                        document.get("adapter_version"),
+                        document.get("config_hash"),
                         now,
                     ),
                 )
@@ -579,6 +596,66 @@ class SyncState:
             (key, document_id, event, relative_path, now, now, now),
         )
 
+    def enqueue_outdated_analyzers(
+        self, manifest: Mapping[str, Mapping[str, str]], limit: int = 20
+    ) -> int:
+        """Queue a bounded refresh only for projections made by stale local adapters.
+
+        Rows without a recorded descriptor are left alone. Migration seeds those
+        identities from the existing Corpus, while every new Sync projection records
+        them at commit time. This prevents an upgrade from treating an unknown legacy
+        row as proof that all Source documents need to be reprocessed.
+        """
+
+        queued = 0
+        now = now_iso()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT d.connection_key, d.document_id, d.relative_path_nfc,
+                       d.adapter_id, d.adapter_version, d.config_hash
+                FROM documents d
+                JOIN connections c USING(connection_key)
+                LEFT JOIN change_queue q USING(connection_key, document_id)
+                WHERE q.document_id IS NULL
+                  AND d.missing_since IS NULL
+                  AND d.last_projection_id IS NOT NULL
+                  AND d.adapter_id IS NOT NULL
+                  AND d.adapter_version IS NOT NULL
+                  AND d.config_hash IS NOT NULL
+                  AND c.location_state = 'available'
+                  AND c.access_scope = 'remote_allowed'
+                  AND c.analyzer_route = 'local'
+                ORDER BY d.connection_key, d.relative_path_nfc, d.document_id
+                """
+            ).fetchall()
+            for row in rows:
+                selected_format = (
+                    Path(row["relative_path_nfc"]).suffix.lower().lstrip(".")
+                )
+                current = manifest.get(selected_format)
+                if current is None:
+                    continue
+                previous = {
+                    "adapter_id": row["adapter_id"],
+                    "adapter_version": row["adapter_version"],
+                    "config_hash": row["config_hash"],
+                }
+                if previous == dict(current):
+                    continue
+                self._enqueue(
+                    connection,
+                    row["connection_key"],
+                    row["document_id"],
+                    "analyzer_refresh",
+                    row["relative_path_nfc"],
+                    now,
+                )
+                queued += 1
+                if queued >= limit:
+                    break
+        return queued
+
     def mark_missing(self, key: str, seen_document_ids: set[str]) -> None:
         now = now_iso()
         with self.connect() as connection:
@@ -676,16 +753,44 @@ class SyncState:
         }
 
     def complete_change(
-        self, key: str, document_id: str, revision: str, projection: str
+        self,
+        key: str,
+        document_id: str,
+        revision: str,
+        projection: str,
+        *,
+        adapter_id: str | None = None,
+        adapter_version: str | None = None,
+        config_hash: str | None = None,
     ) -> None:
         with self.connect() as connection:
-            connection.execute(
-                """
-                UPDATE documents SET last_revision_sha256 = ?, last_projection_id = ?
-                WHERE connection_key = ? AND document_id = ?
-                """,
-                (revision, projection, key, document_id),
-            )
+            if adapter_id is None or adapter_version is None or config_hash is None:
+                connection.execute(
+                    """
+                    UPDATE documents SET
+                        last_revision_sha256 = ?, last_projection_id = ?
+                    WHERE connection_key = ? AND document_id = ?
+                    """,
+                    (revision, projection, key, document_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE documents SET
+                        last_revision_sha256 = ?, last_projection_id = ?,
+                        adapter_id = ?, adapter_version = ?, config_hash = ?
+                    WHERE connection_key = ? AND document_id = ?
+                    """,
+                    (
+                        revision,
+                        projection,
+                        adapter_id,
+                        adapter_version,
+                        config_hash,
+                        key,
+                        document_id,
+                    ),
+                )
             connection.execute(
                 "DELETE FROM change_queue WHERE connection_key = ? AND document_id = ?",
                 (key, document_id),
@@ -700,7 +805,8 @@ class SyncState:
             connection.execute(
                 """
                 UPDATE documents SET
-                    last_revision_sha256 = ?, last_projection_id = NULL
+                    last_revision_sha256 = ?, last_projection_id = NULL,
+                    adapter_id = NULL, adapter_version = NULL, config_hash = NULL
                 WHERE connection_key = ? AND document_id = ?
                 """,
                 (revision_sha256, key, document_id),
@@ -869,3 +975,29 @@ class SyncState:
                 """,
                 (product, item_key, source_digest, canonical(result), now_iso()),
             )
+
+    def prune_migration_progress(self, current_items: Mapping[str, set[str]]) -> int:
+        """Remove completed migration checkpoints that no current source owns.
+
+        This runs only after a complete migration pass. Interrupted runs retain
+        every checkpoint needed for resumption, while successful runs cannot
+        accumulate entries for projections or products that were retired later.
+        """
+
+        removed = 0
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT product, item_key FROM migration_progress"
+            ).fetchall()
+            stale = [
+                (row["product"], row["item_key"])
+                for row in rows
+                if row["product"] not in current_items
+                or row["item_key"] not in current_items[row["product"]]
+            ]
+            connection.executemany(
+                "DELETE FROM migration_progress WHERE product = ? AND item_key = ?",
+                stale,
+            )
+            removed = len(stale)
+        return removed
