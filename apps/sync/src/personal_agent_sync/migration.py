@@ -1386,6 +1386,30 @@ def _tracked_document_verification_record(
     return current
 
 
+def _select_tracked_document(
+    actual: Mapping[str, Any],
+    by_identity: Mapping[tuple[object, object, object], Mapping[str, Any]],
+    by_document_id: Mapping[object, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Match projected records exactly and metadata-only records by document ID."""
+
+    exact = by_identity.get(
+        (
+            actual.get("document_id"),
+            actual.get("sha256"),
+            actual.get("projection_id"),
+        )
+    )
+    if exact is not None:
+        return exact
+    if actual.get("sha256") is not None or actual.get("projection_id") is not None:
+        return None
+    metadata_only = by_document_id.get(actual.get("document_id"))
+    if metadata_only is None or metadata_only.get("last_projection_id") is not None:
+        return None
+    return metadata_only
+
+
 def _first_record_mismatch(
     actual: Mapping[str, Any], expected: Mapping[str, Any]
 ) -> str | None:
@@ -1542,6 +1566,9 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 ): document
                 for document in tracked_documents
             }
+            tracked_document_by_id = {
+                document["document_id"]: document for document in tracked_documents
+            }
             tracked_source_projections = {
                 identity
                 for identity in tracked_document_by_identity
@@ -1647,12 +1674,10 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         if expected is None
                         else _first_record_mismatch(actual, expected)
                     )
-                    tracked_document = tracked_document_by_identity.get(
-                        (
-                            document_id,
-                            actual.get("sha256"),
-                            actual.get("projection_id"),
-                        )
+                    tracked_document = _select_tracked_document(
+                        actual,
+                        tracked_document_by_identity,
+                        tracked_document_by_id,
                     )
                     if mismatch is not None and tracked_document:
                         current_expected = _tracked_document_verification_record(
