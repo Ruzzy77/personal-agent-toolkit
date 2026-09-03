@@ -99,6 +99,10 @@ loopback server나 공개 터널은 필요하지 않습니다.
 Journal도 소유자 인증형 원격 MCP로 제공됩니다. 시각적 확인과 빠른 처리는 소유자 전용
 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 사용합니다.
 
+Design은 별도 원격 MCP 없이 Skill과 오프라인 참고 묶음으로 동작합니다. 같은 카탈로그를
+시각적으로 찾고 비교할 때에는 소유자 전용
+[Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 사용합니다.
+
 원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 화면과
 MCP endpoint는 서로 다른 배포 경계입니다.
@@ -164,6 +168,7 @@ Tunnel과 gateway 연결은 원격 이관 검증을 통과한 뒤 제거합니�
 Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
 
 Design도 Skill과 정적 참고 자산으로 동작하며 ChatGPT 웹용 원격 MCP를 만들지 않습니다.
+Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름만 제공합니다.
 
 ### 완료 기준
 
@@ -235,6 +240,10 @@ Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토�
 레시피와 예시 자산을 담은 오프라인 참고 묶음이 포함됩니다. 현재 프로젝트의 디자인 시스템을
 우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를 골라 씁니다.
 
+시각적 탐색과 비교는 <https://personal-material-index.ruzzy.chatgpt.site>에서 할 수 있으며, 화면
+소스와 공개 라이브러리 정본은 `sites/design`에서 함께 관리합니다. 공개 묶음을 갱신하면 같은
+내용을 `plugins/design`의 오프라인 자산으로 다시 내보냅니다.
+
 ## Journal 시작
 
 Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인하며, 화면 소스는 `sites/journal`에서 관리합니다.
@@ -255,8 +264,9 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
 Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
-bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. `plugins/design`은
-서비스나 사용자 저장소가 없는 Skill·정적 자산 플러그인입니다. `plugins/journal`과
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
+`plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
+서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
 `services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다. `auth`는
 원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만
 만듭니다.

@@ -1,0 +1,229 @@
+/* 색인(Saegin) · base */
+
+html {
+  min-width: 320px;
+  font-size: calc(16px * var(--reader-scale));
+  background: var(--paper);
+  scroll-behavior: smooth;
+}
+body {
+  min-width: 320px;
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  letter-spacing: -0.008em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+a {
+  color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+dl,
+figure,
+blockquote {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-wrap: balance;
+}
+
+h1 {
+  max-width: 12.5ch;
+  margin-bottom: 0;
+  font-size: var(--text-display);
+  font-weight: 790;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-display);
+}
+
+h2 {
+  margin-bottom: 0.78em;
+  font-size: var(--text-section);
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1.28;
+}
+
+h3 {
+  margin-bottom: 0.65em;
+  font-size: var(--text-subsection);
+  font-weight: 740;
+  letter-spacing: -0.018em;
+  line-height: 1.4;
+}
+
+p {
+  margin-bottom: 1.35em;
+}
+
+ul,
+ol {
+  margin-bottom: 1.35em;
+  padding-left: 1.25em;
+}
+
+li + li {
+  margin-top: 0.42em;
+}
+
+li::marker {
+  color: var(--accent);
+}
+
+strong {
+  font-weight: 760;
+}
+
+em {
+  font-style: normal;
+  font-weight: 680;
+}
+
+hr {
+  margin: 46px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+blockquote {
+  margin: 2em 0;
+  padding: 18px 0 18px 22px;
+  border-left: 8px solid var(--accent);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.reader-quote {
+  font-family: var(--font-serif);
+  font-size: 1.16em;
+  line-height: 1.72;
+}
+
+code,
+kbd {
+  padding: 0.08em 0.32em;
+  color: var(--ink);
+  background: var(--surface-strong);
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+}
+
+pre {
+  max-width: 100%;
+  margin: 1.4em 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--surface);
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+table {
+  width: 100%;
+  min-width: 580px;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+th,
+td {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: var(--text-caption);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+tbody th {
+  font-weight: 730;
+}
+
+.table-scroll,
+.diagram-scroll,
+.visual-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.reader-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}

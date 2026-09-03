@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "design_id": "yeobaek",
+  "shared": {
+    "palette": {
+      "background": "#FBFBF8",
+      "surface": "#FFFFFF",
+      "text": "#141411",
+      "muted": "#5D5D57",
+      "accent": "#145FC4",
+      "line": "#D8D8D1"
+    },
+    "typography": {
+      "heading": "system sans-serif 720–760",
+      "body": "system sans-serif 400",
+      "data": "system monospace for aligned values"
+    },
+    "shape": "각진 모서리, 그림자 없음, 실제 구분에만 선 사용",
+    "image": "한 개의 주요 대상, 중립 배경, 설명은 필요할 때만 한 줄"
+  },
+  "formats": {
+    "web": {
+      "canvas": "반응형 한 열, 최대 폭 880px",
+      "typography": "제목 36–72px, 본문 16px, 보조 글 13–14px",
+      "composition": [
+        "페이지 제목은 한 번만 사용",
+        "설명은 다음 행동에 필요한 경우에만 한 문단 사용",
+        "주요 행동 한 개와 필요한 보조 행동만 배치"
+      ]
+    },
+    "document": {
+      "canvas": "A4 또는 Letter, 바깥 여백 20–24mm, 한 열",
+      "typography": "제목 22–30pt, 본문 10.5–11.5pt, 보조 글 8.5–9pt",
+      "composition": [
+        "별도 표지는 제목과 문서 정보가 꼭 필요할 때만 사용",
+        "요약은 필요할 때만 세 줄 이내로 배치",
+        "구획은 내용이 실제로 바뀌는 지점에만 추가"
+      ]
+    },
+    "slides": {
+      "canvas": "16:9, 안전 여백 7%",
+      "typography": "제목 28–36pt, 본문 20pt 이상, 보조 글 14pt 이상",
+      "composition": [
+        "슬라이드마다 한 가지 내용만 배치",
+        "제목, 주요 내용과 선택적 보조 정보까지 세 요소 이내로 제한",
+        "반복 머리말과 꼬리말은 위치 정보가 필요할 때만 사용"
+      ]
+    },
+    "image": {
+      "canvas": "1:1, 4:5 또는 16:9, 안전 여백 8%",
+      "typography": "제목은 캔버스 높이의 5–9%, 보조 글은 최종 크기에서 읽히게 설정",
+      "composition": [
+        "제목과 한 개의 주요 대상만 배치",
+        "본문은 넣지 않고 필요한 설명만 한 줄 사용",
+        "장식용 도형, 배지와 반복 로고는 사용하지 않음"
+      ]
+    }
+  }
+}

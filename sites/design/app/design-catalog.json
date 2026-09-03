@@ -1,0 +1,1017 @@
+{
+  "catalog_schema_version": 2,
+  "library": {
+    "schema_version": 1,
+    "id": "personal-agent-design-library",
+    "name": "Design Reference Library",
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "제품과 콘텐츠의 맥락에 맞춰 조형 원리, 선택적 레시피와 재사용 자산을 찾는 디자인 참고 라이브러리",
+    "source_title": "디자인 라이브러리"
+  },
+  "patterns": [
+    {
+      "id": "scan-and-select",
+      "name": "탐색과 선택",
+      "use_when": "여러 항목을 빠르게 훑고 비교하거나 한 항목을 선택해야 할 때",
+      "principles": [
+        "주요 항목과 다음 행동을 첫 화면에서 구분한다.",
+        "반복되는 항목은 같은 정보 순서와 상태 표현을 사용한다.",
+        "선택 상태는 색뿐 아니라 문구와 형태로 함께 표시한다."
+      ],
+      "checks": [
+        "목록을 훑는 동안 항목의 차이와 현재 선택을 구분할 수 있는가",
+        "키보드와 좁은 화면에서도 탐색과 선택 순서가 유지되는가"
+      ]
+    },
+    {
+      "id": "long-form-reading",
+      "name": "장문 읽기",
+      "use_when": "긴 본문을 편하게 읽고 원하는 절을 다시 찾아야 할 때",
+      "principles": [
+        "본문 측정폭과 줄 간격을 먼저 안정시킨다.",
+        "목차와 절 표지는 위치를 찾는 데 필요한 정보만 제공한다.",
+        "보조 내용은 본문 흐름을 끊지 않는 한 가지 표현 체계로 구분한다."
+      ],
+      "checks": [
+        "긴 문단과 목록을 이어 읽을 때 시선이 불필요하게 흔들리지 않는가",
+        "작은 화면과 인쇄에서도 제목, 본문과 보조 정보의 관계가 유지되는가"
+      ]
+    },
+    {
+      "id": "summary-and-evidence",
+      "name": "요약과 자료 설명",
+      "use_when": "주요 판단을 먼저 보여 주고 표, 그래프나 근거 자료를 이어 설명할 때",
+      "principles": [
+        "요약과 근거 자료의 순서를 분명하게 나눈다.",
+        "수치, 표와 그래프를 설명 가까이에 둔다.",
+        "색상 계열 외에도 라벨과 모양으로 자료를 구분한다."
+      ],
+      "checks": [
+        "요약이 자료가 말하는 범위를 넘어서지 않는가",
+        "단위, 범례와 자료 설명을 결과 가까이에서 확인할 수 있는가"
+      ]
+    },
+    {
+      "id": "structure-and-sequence",
+      "name": "구조와 절차",
+      "use_when": "구성 요소의 관계, 작업 순서나 기술 구조를 설명할 때",
+      "principles": [
+        "구획과 연결 방향만으로 전체 구조를 파악할 수 있게 한다.",
+        "선, 번호와 강조색은 실제 관계나 주의 지점을 나타낼 때 사용한다.",
+        "표와 도식의 제목, 단위와 캡션을 가까이 둔다."
+      ],
+      "checks": [
+        "구성 요소와 연결 방향을 설명문 없이도 따라갈 수 있는가",
+        "표와 도식이 좁은 화면에서 주변 레이아웃을 밀어내지 않는가"
+      ]
+    },
+    {
+      "id": "single-purpose",
+      "name": "한 가지 목적",
+      "use_when": "필수 정보와 한 가지 주요 행동에 집중해야 할 때",
+      "principles": [
+        "제목, 설명과 본문이 같은 내용을 되풀이하지 않게 한다.",
+        "정보 위계는 먼저 크기, 정렬과 간격으로 만든다.",
+        "카드, 배지와 구분선은 실제 경계나 상태가 있을 때만 사용한다."
+      ],
+      "checks": [
+        "주요 행동과 실행 결과를 바로 이해할 수 있는가",
+        "장식 요소를 빼도 내용과 상태가 분명한가"
+      ]
+    },
+    {
+      "id": "archive-reading",
+      "name": "아카이브 읽기",
+      "use_when": "발간물이나 연구 기록을 목록에서 골라 긴 내용으로 이동할 때",
+      "principles": [
+        "아카이브 이동, 발간 정보와 본문 읽기 도구의 역할을 분리한다.",
+        "도입부의 메타데이터는 본문 제목과 되풀이하지 않는다.",
+        "현재 위치와 읽기 설정은 본문보다 앞서지 않게 지속적으로 제공한다."
+      ],
+      "checks": [
+        "목록과 본문 사이를 오갈 때 현재 발간물과 위치를 잃지 않는가",
+        "발간 정보가 달라져도 제목과 본문의 시작선이 안정적으로 유지되는가"
+      ]
+    }
+  ],
+  "recipes": [
+    {
+      "schema_version": 3,
+      "id": "baekja",
+      "name": "백자 (Baekja)",
+      "description": "밝은 중립색과 절제된 파랑, 매끈한 표면을 사용한다. 여러 항목을 빠르게 훑고 선택하는 구성에 어울린다.",
+      "version": "2.1",
+      "created": "2026-07-29",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "scan-and-select"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": []
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "primary",
+        "document": "supported",
+        "slides": "primary",
+        "image": "primary"
+      },
+      "use_for": [
+        "interactive-content",
+        "collection-content",
+        "tool-content"
+      ],
+      "avoid_for": [
+        "long-reading",
+        "dense-data"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": false,
+        "diagrams": false,
+        "long_form": false,
+        "interactive_ui": true,
+        "motion": true,
+        "image_layout": true
+      },
+      "default_profile": "ui",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "ui": [
+          "tokens.css",
+          "base.css",
+          "ui.css"
+        ]
+      },
+      "aliases": {
+        "full": "ui"
+      },
+      "gallery": {
+        "korean_name": "백자",
+        "purpose": "탐색과 조작",
+        "note": "여러 항목을 빠르게 훑고 선택하거나 한 개의 대상을 집중해서 살펴보는 화면에 어울립니다.",
+        "directions": [
+          "가장 중요한 항목과 동작이 먼저 보이는지 확인",
+          "파랑 강조가 한 곳에 집중되고 표면 효과가 내용을 가리지 않는지 확인"
+        ],
+        "swatches": [
+          "#f5f5f7",
+          "#ffffff",
+          "#1d1d1f",
+          "#0066cc",
+          "#86868b",
+          "#d2d2d7"
+        ],
+        "template_labels": {
+          "artifact": "기본"
+        },
+        "use_labels": {
+          "interactive-content": "탐색과 조작",
+          "collection-content": "항목 모음",
+          "tool-content": "작업 도구"
+        },
+        "avoid_labels": {
+          "long-reading": "긴 본문",
+          "dense-data": "표와 그래프가 많은 내용"
+        },
+        "specimen": {
+          "canvas": "#f7f8fa",
+          "canvas_dark": "#14161a",
+          "ink": "#15171b",
+          "ink_dark": "#f2f4f7",
+          "accent": "#1767df",
+          "accent_dark": "#1767df"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "design_doc": "DESIGN.md",
+      "format_guide": "formats.json",
+      "templates": {
+        "artifact": "templates/artifact.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-26",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "reduced-motion",
+          "visual-review",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    },
+    {
+      "schema_version": 3,
+      "id": "formwork",
+      "name": "거푸집 (Formwork)",
+      "description": "회색 패널, 청사진 파랑과 주황 강조색을 사용한다. 표와 도식으로 구성 요소 사이의 관계와 작업 순서를 설명한다.",
+      "version": "2.3",
+      "created": "2026-07-29",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "structure-and-sequence"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": []
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "supported",
+        "document": "primary",
+        "slides": "primary",
+        "image": "primary"
+      },
+      "use_for": [
+        "technical-content",
+        "structured-explanation",
+        "diagram-content"
+      ],
+      "avoid_for": [
+        "long-reading",
+        "promotional-content",
+        "dense-data"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": false,
+        "diagrams": true,
+        "long_form": false,
+        "interactive_ui": false,
+        "motion": false,
+        "image_layout": true
+      },
+      "default_profile": "doc",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "doc": [
+          "tokens.css",
+          "base.css",
+          "doc.css"
+        ],
+        "site": [
+          "tokens.css",
+          "base.css",
+          "doc.css",
+          "site.css"
+        ]
+      },
+      "aliases": {
+        "full": "doc"
+      },
+      "gallery": {
+        "korean_name": "거푸집",
+        "purpose": "구조와 절차",
+        "note": "구성 요소 사이의 관계와 작업 순서를 표와 도식으로 설명합니다.",
+        "directions": [
+          "구성 요소와 연결 방향을 표나 도식에서 바로 이해할 수 있는지 확인",
+          "파랑과 주황이 같은 요소에서 경쟁하지 않는지 확인"
+        ],
+        "swatches": [
+          "#e8e8e5",
+          "#f3f3f0",
+          "#1d1f22",
+          "#1a4fc0",
+          "#b54e00",
+          "#16357e"
+        ],
+        "template_labels": {
+          "report": "기술 문서",
+          "document-site": "문서 사이트"
+        },
+        "use_labels": {
+          "technical-content": "기술 설명",
+          "structured-explanation": "구조 설명",
+          "diagram-content": "도식 중심 내용"
+        },
+        "avoid_labels": {
+          "long-reading": "긴 본문",
+          "promotional-content": "홍보 중심 내용",
+          "dense-data": "표와 그래프가 많은 내용"
+        },
+        "specimen": {
+          "canvas": "#1c335d",
+          "canvas_dark": "#1c335d",
+          "ink": "#f4f5f1",
+          "ink_dark": "#f4f5f1",
+          "accent": "#ff9b58",
+          "accent_dark": "#ff9b58"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "design_doc": "DESIGN.md",
+      "format_guide": "formats.json",
+      "templates": {
+        "report": "templates/report.html",
+        "document-site": "templates/document-site.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-27",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "responsive-layout",
+          "raster-assets",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    },
+    {
+      "schema_version": 3,
+      "id": "hanji",
+      "name": "한지 (Hanji)",
+      "description": "따뜻한 바탕과 산세리프를 사용한다. 요약을 먼저 두고 표와 그래프를 이어 배치한다.",
+      "version": "3.3",
+      "created": "2026-07-29",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "summary-and-evidence"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": []
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "supported",
+        "document": "primary",
+        "slides": "primary",
+        "image": "primary"
+      },
+      "use_for": [
+        "summary-content",
+        "data-content",
+        "visual-explanation"
+      ],
+      "avoid_for": [
+        "dense-interface",
+        "long-reading"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": true,
+        "diagrams": true,
+        "long_form": false,
+        "interactive_ui": false,
+        "motion": false,
+        "image_layout": true
+      },
+      "default_profile": "brief",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "brief": [
+          "tokens.css",
+          "base.css",
+          "components.css",
+          "diagram.css"
+        ],
+        "artifact": [
+          "tokens.css",
+          "base.css",
+          "components.css",
+          "diagram.css",
+          "charts.css"
+        ]
+      },
+      "aliases": {
+        "full": "artifact"
+      },
+      "gallery": {
+        "korean_name": "한지",
+        "purpose": "요약과 자료",
+        "note": "요약을 먼저 제시하고 표와 그래프를 이어 배치합니다.",
+        "directions": [
+          "요약, 자료와 설명의 순서가 한눈에 구분되는지 확인",
+          "표와 그래프의 라벨이 색 없이도 읽히는지 확인"
+        ],
+        "swatches": [
+          "#f3efe5",
+          "#faf7f0",
+          "#1c1c18",
+          "#a23e28",
+          "#275d6b",
+          "#625e55"
+        ],
+        "template_labels": {
+          "brief": "보고서",
+          "artifact": "기본"
+        },
+        "use_labels": {
+          "summary-content": "요약",
+          "data-content": "자료 설명",
+          "visual-explanation": "시각 설명"
+        },
+        "avoid_labels": {
+          "dense-interface": "항목과 조작이 매우 많은 내용",
+          "long-reading": "긴 본문"
+        },
+        "specimen": {
+          "canvas": "#f2eee4",
+          "canvas_dark": "#211f19",
+          "ink": "#28261f",
+          "ink_dark": "#eee8dc",
+          "accent": "#a23e28",
+          "accent_dark": "#e1785f"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "design_doc": "DESIGN.md",
+      "format_guide": "formats.json",
+      "templates": {
+        "brief": "templates/brief.html",
+        "artifact": "templates/artifact.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-26",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "responsive-layout",
+          "raster-assets",
+          "redundant-state-encoding",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    },
+    {
+      "schema_version": 3,
+      "id": "saegin",
+      "name": "색인 (Saegin)",
+      "description": "짙은 코발트 판면과 네온 노란색 표식을 사용한다. 디지털 아카이브의 긴 발간물을 읽다가 목록이나 원문으로 이동하기 쉬운 구성이다.",
+      "version": "1.6",
+      "created": "2026-08-21",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "archive-reading",
+        "long-form-reading"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": []
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "primary",
+        "document": "primary",
+        "slides": "supported",
+        "image": "supported"
+      },
+      "use_for": [
+        "long-reading",
+        "digital-archive",
+        "publication-content",
+        "research-content"
+      ],
+      "avoid_for": [
+        "promotional-content",
+        "decorative-content",
+        "multi-step-workflow"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": true,
+        "diagrams": true,
+        "long_form": true,
+        "interactive_ui": true,
+        "motion": false,
+        "image_layout": true,
+        "minimal_content": true
+      },
+      "default_profile": "reader",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "reader": [
+          "tokens.css",
+          "base.css",
+          "reader.css"
+        ]
+      },
+      "aliases": {
+        "full": "reader"
+      },
+      "gallery": {
+        "korean_name": "색인",
+        "purpose": "아카이브와 발간물",
+        "note": "긴 발간물을 읽다가 목록이나 원문으로 바로 이동할 수 있습니다.",
+        "directions": [
+          "표식과 강조가 네온 노랑 한 곳에 집중되는지 확인",
+          "제목이 배경이나 테두리 없이 제목 영역에 직접 놓이는지 확인",
+          "도입문이 제목 옆이 아니라 제목 아래에 배치되는지 확인",
+          "진행 상태와 재확인 조건이 별도 색상 상자 대신 공용 강조 상자를 쓰는지 확인",
+          "좁은 화면에서 발간 정보와 본문이 한 열로 배치되는지 확인",
+          "발간 정보가 유형·호수·예약 시각과 날짜의 두 행으로 유지되는지 확인"
+        ],
+        "swatches": [
+          "#081747",
+          "#0c1d54",
+          "#f4f2e9",
+          "#c9ed12",
+          "#b2bcda",
+          "#354877"
+        ],
+        "template_labels": {
+          "reader": "발간물"
+        },
+        "use_labels": {
+          "long-reading": "긴 글",
+          "digital-archive": "디지털 아카이브",
+          "publication-content": "발간물",
+          "research-content": "연구 기록"
+        },
+        "avoid_labels": {
+          "promotional-content": "홍보 중심 내용",
+          "decorative-content": "장식 중심 내용",
+          "multi-step-workflow": "단계가 많은 작업"
+        },
+        "specimen": {
+          "canvas": "#081747",
+          "canvas_dark": "#081747",
+          "ink": "#f4f2e9",
+          "ink_dark": "#f4f2e9",
+          "accent": "#c9ed12",
+          "accent_dark": "#c9ed12"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "design_doc": "DESIGN.md",
+      "format_guide": "formats.json",
+      "templates": {
+        "reader": "templates/reader.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-29",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "responsive-layout",
+          "focus-visible",
+          "visual-review",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    },
+    {
+      "schema_version": 3,
+      "id": "seochaek",
+      "name": "서책 (Seochaek)",
+      "description": "좁은 본문 폭과 단순한 목차를 사용한다. 긴 글과 안내 문서를 읽고 필요한 부분을 찾는 데 적합하다.",
+      "version": "3.2",
+      "created": "2026-07-29",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "long-form-reading"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": []
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "supported",
+        "document": "primary",
+        "slides": "supported",
+        "image": "supported"
+      },
+      "use_for": [
+        "long-reading",
+        "guide-content",
+        "book-content"
+      ],
+      "avoid_for": [
+        "dense-interface",
+        "dense-data",
+        "short-update"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": false,
+        "diagrams": false,
+        "long_form": true,
+        "interactive_ui": false,
+        "motion": false,
+        "image_layout": true
+      },
+      "default_profile": "book",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "book": [
+          "tokens.css",
+          "base.css",
+          "book.css"
+        ]
+      },
+      "aliases": {
+        "full": "book"
+      },
+      "gallery": {
+        "korean_name": "서책",
+        "purpose": "긴 글과 안내",
+        "note": "목차로 필요한 부분을 찾고 좁은 본문 폭으로 긴 글을 읽을 수 있습니다.",
+        "directions": [
+          "목차와 제목만으로 원하는 내용을 찾을 수 있는지 확인",
+          "본문의 너비와 줄 간격이 오래 읽기 편한지 확인"
+        ],
+        "swatches": [
+          "#f2f2ef",
+          "#fbfbf9",
+          "#20211e",
+          "#275f55",
+          "#9a4334",
+          "#5d615b"
+        ],
+        "template_labels": {
+          "book": "책"
+        },
+        "use_labels": {
+          "long-reading": "긴 글",
+          "guide-content": "안내",
+          "book-content": "책"
+        },
+        "avoid_labels": {
+          "dense-interface": "항목과 조작이 매우 많은 내용",
+          "dense-data": "표와 그래프가 많은 내용",
+          "short-update": "짧은 알림"
+        },
+        "specimen": {
+          "canvas": "#fbfbfa",
+          "canvas_dark": "#1b1c19",
+          "ink": "#242521",
+          "ink_dark": "#ecece6",
+          "accent": "#275f55",
+          "accent_dark": "#79b7a8"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "design_doc": "DESIGN.md",
+      "format_guide": "formats.json",
+      "templates": {
+        "book": "templates/book.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-26",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "responsive-layout",
+          "semantic-svg",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    },
+    {
+      "schema_version": 3,
+      "id": "yeobaek",
+      "name": "여백 (Yeobaek)",
+      "description": "한 화면에 필수 내용과 주요 동작 한 개만 배치한다. 정보 위계는 글자 크기, 정렬과 간격으로 구분한다.",
+      "version": "1.1",
+      "created": "2026-08-19",
+      "status": "validated",
+      "kind": "recipe",
+      "visibility": "public",
+      "pattern_refs": [
+        "single-purpose"
+      ],
+      "format_support": {
+        "web": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "document": [
+          "guidance",
+          "assets",
+          "verified"
+        ],
+        "slides": [
+          "guidance"
+        ],
+        "image": [
+          "guidance"
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "license": "Apache-2.0",
+        "references": [
+          {
+            "title": "Vercel Geist Typography",
+            "url": "https://vercel.com/geist/typography",
+            "adopted": "역할별 글자 체계"
+          },
+          {
+            "title": "Vercel Web Interface Guidelines",
+            "url": "https://vercel.com/design/guidelines",
+            "adopted": "정렬, 직접적인 도움말과 의미 구조"
+          },
+          {
+            "title": "Linear UI redesign",
+            "url": "https://linear.app/now/how-we-redesigned-the-linear-ui",
+            "adopted": "시각적 잡음 축소와 정렬"
+          },
+          {
+            "title": "GOV.UK spacing",
+            "url": "https://design-system.service.gov.uk/styles/spacing/",
+            "adopted": "반응형 간격 체계"
+          }
+        ]
+      },
+      "mediums": [
+        "standalone-html",
+        "print-html"
+      ],
+      "formats": [
+        "web",
+        "document",
+        "slides",
+        "image"
+      ],
+      "format_fit": {
+        "web": "primary",
+        "document": "primary",
+        "slides": "primary",
+        "image": "primary"
+      },
+      "use_for": [
+        "concise-content",
+        "single-purpose-content",
+        "essential-information"
+      ],
+      "avoid_for": [
+        "long-reading",
+        "dense-data",
+        "multi-step-workflow",
+        "decorative-content"
+      ],
+      "capabilities": {
+        "dark_mode": true,
+        "print": true,
+        "charts": true,
+        "diagrams": true,
+        "long_form": false,
+        "interactive_ui": true,
+        "motion": false,
+        "image_layout": true,
+        "minimal_content": true
+      },
+      "default_profile": "core",
+      "profiles": {
+        "min": [
+          "tokens.css",
+          "base.css"
+        ],
+        "core": [
+          "tokens.css",
+          "base.css",
+          "components.css"
+        ]
+      },
+      "aliases": {
+        "full": "core"
+      },
+      "gallery": {
+        "korean_name": "여백",
+        "purpose": "최소 구성",
+        "note": "한 화면에 필수 내용과 주요 동작 하나만 배치합니다.",
+        "directions": [
+          "제목, 설명과 본문이 같은 내용을 반복하지 않는지 확인",
+          "카드, 배지, 아이콘과 구분선이 없어도 내용과 행동을 이해할 수 있는지 확인"
+        ],
+        "swatches": [
+          "#fbfbf8",
+          "#ffffff",
+          "#141411",
+          "#5d5d57",
+          "#d8d8d1",
+          "#145fc4"
+        ],
+        "template_labels": {
+          "artifact": "기본"
+        },
+        "use_labels": {
+          "concise-content": "간결한 내용",
+          "single-purpose-content": "한 가지 목적",
+          "essential-information": "필수 정보"
+        },
+        "avoid_labels": {
+          "long-reading": "긴 본문",
+          "dense-data": "표와 그래프가 많은 내용",
+          "multi-step-workflow": "단계가 많은 작업",
+          "decorative-content": "장식 중심 내용"
+        },
+        "specimen": {
+          "canvas": "#fbfbf8",
+          "canvas_dark": "#10100f",
+          "ink": "#141411",
+          "ink_dark": "#f3f3ef",
+          "accent": "#141411",
+          "accent_dark": "#f3f3ef"
+        }
+      },
+      "styleguide": "styleguide.html",
+      "format_guide": "formats.json",
+      "templates": {
+        "artifact": "templates/artifact.html"
+      },
+      "validation": {
+        "checked_on": "2026-08-26",
+        "checks": [
+          "manifest-json",
+          "wcag-aa-text",
+          "dark-mode-tokens",
+          "print-styles",
+          "responsive-layout",
+          "focus-visible",
+          "format-guide"
+        ]
+      },
+      "selection_ready": true
+    }
+  ]
+}

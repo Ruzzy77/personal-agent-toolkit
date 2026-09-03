@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "personal-agent-design-library",
+  "name": "Design Reference Library",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "제품과 콘텐츠의 맥락에 맞춰 조형 원리, 선택적 레시피와 재사용 자산을 찾는 디자인 참고 라이브러리"
+}

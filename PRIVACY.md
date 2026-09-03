@@ -100,7 +100,8 @@ server, external account connection, background process, or product data store. 
 contains reusable patterns, optional recipes, example assets, and source attribution; it contains
 no project-only extensions or user content. Design can read or edit project files only through the
 host agent's current tools and permissions, and the plugin does not retain those files or task
-history.
+history. The owner-only Design Site renders the same public catalog and keeps no user content;
+its WebMCP tools only update the visible finder, comparison, and request-preparation state.
 
 ## Private ChatGPT tunnel use
 
@@ -151,7 +152,8 @@ The release repository must not contain:
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
 build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
-Skills and the generated public reference pack. `services/journal` contains the
+Skills and the generated public reference pack, while `sites/design` contains the Site and public
+library source. `services/journal` contains the
 deployable schema and service source, and `sites/journal` contains the owner-only Sites frontend;
 runtime values and secrets stay in ignored configuration or the hosting environment. Public
 resource and Site endpoints may appear in the plugin manifest. The optional gateway remains a

@@ -3,7 +3,7 @@
 ## 소스와 실행 경계
 
 - 저장소 루트와 변경 대상 제품의 `README.md`, `DESIGN.md`와 manifest를 파일과 구성의 역할을 정하는 기준으로 삼는다.
-- `plugins/sense`, `plugins/corpus`와 `plugins/hypes`는 제품 계약과 배포 plugin의 소스, `services/remote-context`는 세 제품이 공유하는 상시 원격 MCP, `apps/sync`는 Finder 자료에 접근하는 로컬 실행 구성으로 다룬다. `gateway`는 이관 검증이 끝날 때까지만 유지하는 기존 터널 경계다. `plugins/design`은 서비스와 사용자 저장소가 없는 Skill·정적 자산 플러그인으로 다룬다. `plugins/journal`은 원격 Journal 연결과 운영 Skill, `services/journal`은 D1 기반 서비스, `sites/journal`은 소유자 전용 화면, `auth`는 공통 소유자 인증 구성으로 다룬다.
+- `plugins/sense`, `plugins/corpus`와 `plugins/hypes`는 제품 계약과 배포 plugin의 소스, `services/remote-context`는 세 제품이 공유하는 상시 원격 MCP, `apps/sync`는 Finder 자료에 접근하는 로컬 실행 구성으로 다룬다. `gateway`는 이관 검증이 끝날 때까지만 유지하는 기존 터널 경계다. Design은 `plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며 서비스와 사용자 저장소를 만들지 않는다. `sites/design/designs`를 공개 라이브러리의 정본으로 삼고 plugin 묶음은 여기에서 생성한다. `plugins/journal`은 원격 Journal 연결과 운영 Skill, `services/journal`은 D1 기반 서비스, `sites/journal`은 소유자 전용 화면, `auth`는 공통 소유자 인증 구성으로 다룬다.
 - 제품 기능과 manifest는 해당 소스 폴더에서 수정한다. 설치본, plugin cache, 생성된 배포 복사본과 임시 환경을 원본처럼 수정하지 않는다.
 - 사용자 데이터, 자격 증명, runtime database와 운영 설정은 private runtime이나 배포 환경에 두고 공개 저장소에 넣지 않는다.
 - Python 소스, 스크립트와 테스트는 루트 `ruff.toml`을 따른다. 변경 뒤 `uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes gateway`와 같은 범위의 `ruff check`를 통과시킨다.
