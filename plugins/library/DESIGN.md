@@ -7,7 +7,7 @@ Library는 Daily·Digest·Research 발간호와 표지·삽화를 읽고 편집�
 
 ## 소스 구성
 
-- `plugins/library`: 원격 MCP 연결과 편집·발행 Skill
+- `plugins/library`: 편집·발행 Skill과 클라이언트별 원격 연결
 - `services/library`: owner 인증, MCP, HTTP API, D1 문서와 R2 asset 정본
 - `sites/library`: 읽기·직접 편집 UI와 service client
 

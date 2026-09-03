@@ -34,7 +34,8 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-Sense·Corpus·Hypes·Journal·Library plugin은 Skill과 원격 MCP 주소를 배포합니다. 로컬 Source와 Work를 연결하는
+Sense·Corpus·Hypes·Journal·Library는 OpenAI에서 Skill과 등록 app 연결을 한 plugin으로 배포하고,
+Claude에서는 Skill과 원격 MCP 주소를 한 plugin으로 배포합니다. 로컬 Source와 Work를 연결하는
 Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
 plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
 
@@ -42,20 +43,24 @@ plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하�
 
 ## 설치
 
-### Codex
+### ChatGPT와 Codex
+
+Sense·Corpus·Hypes·Journal·Library는 ChatGPT의 plugin directory에 비공개 workspace plugin으로
+발행하고 설치합니다. 같은 설치 항목이 ChatGPT와 Codex에 나타나며, 각 plugin의 Skill과 등록 app을
+함께 사용합니다. 같은 제품을 Codex의 저장소 marketplace나 별도 `Created by me` 원격 plugin으로
+동시에 설치하지 않습니다.
+
+Document Files와 Design처럼 로컬 실행이나 정적 자산이 필요한 plugin만 Codex의 저장소
+marketplace에서 설치합니다.
 
 ```sh
 codex plugin marketplace add Ruzzy77/personal-agent-toolkit
-codex plugin add sense@personal-agent-toolkit
-codex plugin add corpus@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
-codex plugin add hypes@personal-agent-toolkit
-codex plugin add journal@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
-codex plugin add library@personal-agent-toolkit
 ```
 
-로컬 checkout에서는 저장소 루트에서 다음 명령을 사용합니다.
+로컬 checkout에서는 저장소 루트에서 다음 명령으로 marketplace 소스를 등록할 수 있습니다.
+원격 제품 항목은 발행 전 검증용이며 정상 사용 설치와 병행하지 않습니다.
 
 ```sh
 codex plugin marketplace add .
@@ -98,9 +103,10 @@ Ruzzy77/personal-agent-toolkit
 | Journal | `https://personal-agent-journal.hiyaq77.workers.dev/mcp` |
 | Library | `https://personal-library-mcp.hiyaq77.workers.dev/api/mcp` |
 
-Codex·Claude plugin은 이 주소를 내장하고 각 client에서 소유자 OAuth 로그인을 시작합니다.
-ChatGPT와 claude.ai에서는 같은 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의
-loopback server나 공개 터널은 필요하지 않습니다.
+OpenAI plugin은 등록 app을 통해 이 주소의 MCP를 사용하고, Claude plugin은 주소를 직접 내장합니다.
+ChatGPT와 Codex는 같은 OpenAI plugin 설치와 app 인증을 공유합니다. claude.ai에서는 같은 주소를
+사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
+필요하지 않습니다.
 
 Journal과 Library의 시각 화면은 각각 소유자 전용
 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)와
@@ -129,24 +135,28 @@ Document Files로 분석한 뒤 확정된 Corpus revision으로 원자적으로 
 
 ## 버전 갱신
 
-plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의 절차로 마칩니다. 로컬 checkout으로 등록한 marketplace는 해당 디렉터리의 현재 내용을 사용하며, 원격 배포 검증에는 GitHub marketplace를 사용합니다.
+plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의
+절차로 마칩니다. OpenAI 원격 제품은 workspace plugin revision을 새로 발행하고, Claude와 Codex의
+로컬 plugin은 GitHub marketplace를 갱신합니다. 로컬 checkout marketplace는 발행 전 시험에만
+사용합니다.
 
-### Codex
+### ChatGPT와 Codex
+
+Sense·Corpus·Hypes·Journal·Library의 변경은 각 비공개 workspace plugin에 새 revision으로
+발행합니다. plugin directory에서 설치된 항목의 현재 Skill과 등록 app 도구를 ChatGPT와 Codex의
+새 작업에서 확인합니다. 원격 app을 별도 설치 항목으로 중복 설치하지 않습니다.
+
+Document Files와 Design은 Codex marketplace에서 갱신합니다.
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
-codex plugin add sense@personal-agent-toolkit
-codex plugin add corpus@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
-codex plugin add hypes@personal-agent-toolkit
-codex plugin add journal@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
-codex plugin add library@personal-agent-toolkit
 codex plugin list --json
 ```
 
-변경한 plugin이 활성화되어 있고 새 버전, 현재 Skill 또는 원격 MCP 도구가 보이는지 확인한 뒤
-새 작업을 시작합니다.
+변경한 plugin이 활성화되어 있고 새 버전과 현재 Skill 또는 도구가 보이는지 확인한 뒤 새 작업을
+시작합니다.
 
 ### Claude Code
 
@@ -173,7 +183,7 @@ Files, Hypes, Journal, Design과 Library를 업데이트합니다. 업데이트 
 다시 시작하고 새 Cowork 세션에서 Design의 세 Skill과 각 원격 MCP의 현재 도구를 확인합니다. 일반
 Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
 
-### 웹 ChatGPT와 claude.ai
+### claude.ai
 
 Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 현재 endpoint로 등록하거나 갱신하고
 소유자 인증을 마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure
@@ -187,8 +197,8 @@ Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름�
 
 ### 완료 기준
 
-변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, 지원하는 로컬 client에서는
-현재 Skill을, 원격 제품에서는 같은 MCP 도구와 확정 revision을 확인해야 갱신이 완료됩니다.
+변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, OpenAI workspace plugin과 Claude
+plugin이 각각 갱신된 뒤 지원 client에서 현재 Skill과 같은 MCP 도구를 확인해야 갱신이 완료됩니다.
 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도 함께
 검증합니다.
 

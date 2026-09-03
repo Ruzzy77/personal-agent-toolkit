@@ -8,7 +8,7 @@ Journal은 현재 주의 간결한 진행 상태, 사용자가 확정한 해결 
 
 ## 구성과 실행
 
-- `plugins/journal`: 원격 MCP 연결, Skill과 제한된 로컬 모니터 launcher
+- `plugins/journal`: Skill, 클라이언트별 원격 연결과 제한된 로컬 모니터 launcher
 - `services/journal`: 인증, MCP·HTTP API, 업무 규칙과 D1 저장
 - `sites/journal`: 같은 service API를 사용하는 소유자 전용 UI
 

@@ -1,6 +1,6 @@
 {
   "name": "library",
-  "version": "0.3.1+codex.20260903220200",
+  "version": "0.3.1+codex.20260903234339",
   "description": "Read, edit, and publish an owner-authenticated Personal Library.",
   "author": {
     "name": "Ruzzy77",
@@ -16,12 +16,7 @@
     "writing"
   ],
   "skills": "./skills/",
-  "mcpServers": {
-    "library": {
-      "type": "http",
-      "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp"
-    }
-  },
+  "apps": "./.app.json",
   "interface": {
     "displayName": "Library",
     "shortDescription": "Read, edit, and publish your Personal Library",

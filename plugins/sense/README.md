@@ -30,7 +30,8 @@ Sense 개정은 관련 항목의 `section_sha256`와 최종 항목 전체를 한
 
 ## 원격 저장과 연결
 
-plugin은 다음 상시 원격 MCP에 연결한다.
+OpenAI plugin은 Skill과 등록 app을 함께 배포하고, Claude plugin은 다음 상시 원격 MCP를 직접
+선언한다.
 
 ```text
 https://personal-agent-context.hiyaq77.workers.dev/sense/mcp

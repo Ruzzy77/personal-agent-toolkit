@@ -1,6 +1,6 @@
 {
   "name": "hypes",
-  "version": "0.9.5+codex.20260903220200",
+  "version": "0.9.5+codex.20260903234339",
   "description": "Give the assistant a private, revisable relationship model of the user.",
   "author": {
     "name": "Ruzzy77",
@@ -16,12 +16,7 @@
     "ontology"
   ],
   "skills": "./skills/",
-  "mcpServers": {
-    "hypes": {
-      "type": "http",
-      "url": "https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp"
-    }
-  },
+  "apps": "./.app.json",
   "interface": {
     "displayName": "Hypes",
     "shortDescription": "A revisable relationship model of the user",

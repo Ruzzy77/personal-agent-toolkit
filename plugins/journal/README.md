@@ -7,6 +7,9 @@ Journal은 여러 AI 클라이언트와 함께 쓰는 개인용 불릿저널입�
 - 원격 MCP: `https://personal-agent-journal.hiyaq77.workers.dev/mcp`
 - 저장: 소유자의 Cloudflare D1
 
+OpenAI plugin은 Skill과 등록 app을 함께 배포하고, Claude plugin은 원격 MCP endpoint를 직접
+선언합니다.
+
 Journal에는 진행 판단에 필요한 요약과 원본 참조만 저장합니다. 이메일과 문서 원문은 원래 서비스나 파일에 남습니다.
 
 ## 도구

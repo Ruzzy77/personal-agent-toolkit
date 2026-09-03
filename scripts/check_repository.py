@@ -174,11 +174,54 @@ def check_plugin(name: str, errors: list[str]) -> None:
         errors.append(f"{name}: Codex skills path does not exist")
 
     claude_mcp_path = root / ".mcp.json"
+    codex_app_path = root / ".app.json"
     codex_servers = codex.get("mcpServers", {})
+    codex_apps = codex.get("apps")
     if name in SKILL_ONLY_PLUGINS:
-        if claude_mcp_path.exists() or codex_servers:
-            errors.append(f"{name}: Skill-only plugin must not declare an MCP server")
-    else:
+        if claude_mcp_path.exists() or codex_servers or codex_apps:
+            errors.append(
+                f"{name}: Skill-only plugin must not declare an MCP server or app"
+            )
+    elif name in REMOTE_PLUGINS:
+        if not claude_mcp_path.is_file():
+            errors.append(f"{name}: .mcp.json is required")
+        else:
+            claude_servers = read_json(claude_mcp_path).get("mcpServers", {})
+            server_key = product["mcp"]["server_key"]
+            if set(claude_servers) != {server_key}:
+                errors.append(f"{name}: Claude MCP server name differs")
+            else:
+                expected_url = product["mcp"]["url"]
+                claude_server = claude_servers[server_key]
+                if (
+                    claude_server.get("type") != "http"
+                    or claude_server.get("url") != expected_url
+                ):
+                    errors.append(f"{name}: remote MCP URL differs from products.json")
+
+        if "mcpServers" in codex or codex_servers:
+            errors.append(f"{name}: Codex remote plugin must use its registered app")
+        if codex_apps != "./.app.json" or not codex_app_path.is_file():
+            errors.append(f"{name}: Codex registered app mapping is required")
+        else:
+            app_entries = read_json(codex_app_path).get("apps", {})
+            if not isinstance(app_entries, dict) or len(app_entries) != 1:
+                errors.append(f"{name}: .app.json must contain exactly one app")
+            else:
+                app_key, app_entry = next(iter(app_entries.items()))
+                app_id = app_entry.get("id") if isinstance(app_entry, dict) else None
+                if not (
+                    isinstance(app_key, str)
+                    and app_key.startswith("dev-")
+                    and isinstance(app_id, str)
+                    and app_id.startswith("asdk_app_")
+                    and app_key.removeprefix("dev-")
+                    == app_id.removeprefix("asdk_app_")
+                ):
+                    errors.append(f"{name}: .app.json has an invalid registered app")
+    elif name in LOCAL_MCP_PLUGINS:
+        if codex_apps or codex_app_path.exists():
+            errors.append(f"{name}: local MCP plugin must not declare a remote app")
         if not claude_mcp_path.is_file():
             errors.append(f"{name}: .mcp.json is required")
         else:
@@ -188,18 +231,7 @@ def check_plugin(name: str, errors: list[str]) -> None:
                 server_key
             }:
                 errors.append(f"{name}: MCP server names differ across clients")
-            elif name in REMOTE_PLUGINS:
-                expected_url = product["mcp"]["url"]
-                claude_server = claude_servers[server_key]
-                codex_server = codex_servers[server_key]
-                if (
-                    claude_server.get("type") != "http"
-                    or codex_server.get("type") != "http"
-                    or claude_server.get("url") != expected_url
-                    or codex_server.get("url") != expected_url
-                ):
-                    errors.append(f"{name}: remote MCP URL differs from products.json")
-            elif name in LOCAL_MCP_PLUGINS and (
+            elif (
                 "command" not in claude_servers[server_key]
                 or "command" not in codex_servers[server_key]
             ):
