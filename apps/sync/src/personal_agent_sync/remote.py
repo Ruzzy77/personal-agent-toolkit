@@ -265,6 +265,10 @@ class RemoteClient:
         state: str,
         observed_at: str,
         relative_path: str | None = None,
+        logical_size: int | None = None,
+        modified_ns: int | None = None,
+        residency_state: str | None = None,
+        eligibility_state: str | None = None,
     ) -> dict[str, Any]:
         value: dict[str, Any] = {
             "corpusId": corpus_id,
@@ -274,6 +278,14 @@ class RemoteClient:
         }
         if relative_path is not None:
             value["relativePath"] = relative_path
+        if logical_size is not None:
+            value["logicalSize"] = logical_size
+        if modified_ns is not None:
+            value["modifiedNs"] = str(modified_ns)
+        if residency_state is not None:
+            value["residencyState"] = residency_state
+        if eligibility_state is not None:
+            value["eligibilityState"] = eligibility_state
         return await self._json(
             "POST",
             f"/sync/v1/corpora/{corpus_id}/documents/{document_id}/source-state",

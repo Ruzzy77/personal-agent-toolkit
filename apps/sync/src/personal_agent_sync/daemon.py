@@ -187,6 +187,10 @@ class SyncDaemon:
                     change["document_id"],
                     "unavailable",
                     now_iso(),
+                    change["relative_path_nfc"],
+                    logical_size=int(change["size"]),
+                    modified_ns=int(change["modified_ns"]),
+                    residency_state="resident",
                 )
             except SyncError as error:
                 # Absence already satisfies deletion. This also drains stale
@@ -203,6 +207,10 @@ class SyncDaemon:
                 "available",
                 now_iso(),
                 change["relative_path_nfc"],
+                logical_size=int(change["size"]),
+                modified_ns=int(change["modified_ns"]),
+                residency_state="resident",
+                eligibility_state="supported",
             )
             self.state.complete_change(
                 change["connection_key"],
@@ -237,6 +245,10 @@ class SyncDaemon:
                         "available",
                         now_iso(),
                         change["relative_path_nfc"],
+                        logical_size=snapshot.byte_size,
+                        modified_ns=snapshot.modified_ns,
+                        residency_state="resident",
+                        eligibility_state="supported",
                     )
                     self.state.complete_change(
                         change["connection_key"],
@@ -260,6 +272,10 @@ class SyncDaemon:
                     "changed",
                     now_iso(),
                     change["relative_path_nfc"],
+                    logical_size=snapshot.byte_size,
+                    modified_ns=snapshot.modified_ns,
+                    residency_state="resident",
+                    eligibility_state="supported",
                 )
             try:
                 selected_format = format_id(change["relative_path_nfc"])

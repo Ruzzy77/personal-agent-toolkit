@@ -367,6 +367,10 @@ def build_projection(
             "relativePath": change["relative_path_nfc"],
             "extension": selected_format,
             "sourceState": "available",
+            "logicalSize": snapshot.byte_size,
+            "modifiedNs": str(snapshot.modified_ns),
+            "residencyState": "resident",
+            "eligibilityState": "supported",
         },
         "revision": {
             "revisionId": revision_id,
