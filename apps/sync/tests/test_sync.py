@@ -35,7 +35,13 @@ from personal_agent_sync.storage import maintain_remote_storage, remote_storage_
 from personal_agent_sync.work import SYNC_OPERATIONS, WORK_OPERATIONS, WorkExecutor
 
 
-def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
+def write_config(
+    tmp_path: Path,
+    root: Path,
+    *,
+    route: str = "local",
+    include_hidden: bool = False,
+) -> Path:
     data = tmp_path / "private"
     config = tmp_path / "config.toml"
     config.write_text(
@@ -59,6 +65,7 @@ def write_config(tmp_path: Path, root: Path, *, route: str = "local") -> Path:
                 f'analyzer_route = "{route}"',
                 "max_transfer_bytes = 1048576",
                 "generation = 3",
+                f"include_hidden = {str(include_hidden).lower()}",
             ]
         ),
         encoding="utf-8",
@@ -341,6 +348,43 @@ def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(
     assert moved["document_id"] == document_id
     assert moved["relative_path_nfc"] == "renamed.txt"
     assert moved["event_kind"] == "moved"
+
+
+def test_reconcile_excludes_system_artifacts_but_keeps_intentional_hidden_files(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "note.txt").write_text("ordinary", encoding="utf-8")
+    (root / ".DS_Store").write_bytes(b"finder metadata")
+    (root / "._note.txt").write_bytes(b"appledouble metadata")
+    (root / "Thumbs.db").write_bytes(b"windows metadata")
+    (root / "desktop.ini").write_text("windows metadata", encoding="utf-8")
+    hidden = root / ".github"
+    hidden.mkdir()
+    (hidden / "instructions.md").write_text("keep", encoding="utf-8")
+    for directory_name in (
+        ".fseventsd",
+        ".Spotlight-V100",
+        ".TemporaryItems",
+        ".Trashes",
+        "__MACOSX",
+    ):
+        directory = root / directory_name
+        directory.mkdir()
+        (directory / "metadata.txt").write_text("ignore", encoding="utf-8")
+
+    state = SyncState(load_config(write_config(tmp_path, root, include_hidden=True)))
+
+    assert reconcile_all(state)[0] == {
+        "state": "available",
+        "observed": 2,
+        "changed": 2,
+    }
+    assert {row["relative_path_nfc"] for row in state.due_changes()} == {
+        ".github/instructions.md",
+        "note.txt",
+    }
 
 
 def test_corpus_seed_adopts_canonical_id_for_the_same_observed_file(

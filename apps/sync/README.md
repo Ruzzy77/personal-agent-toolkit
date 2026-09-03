@@ -16,6 +16,9 @@ on a local port and does not expose the Mac through a tunnel.
   retain a slower full scan for startup, recovered roots, and missed events;
 - keep Source changes in a bounded queue and retry network or analyzer failures
   without rescanning every connected tree;
+- exclude operating-system metadata such as `.DS_Store`, AppleDouble sidecars,
+  Finder index folders, and Windows thumbnail caches even when a Connection
+  intentionally includes project dotfiles;
 - remove only old `capture-*` staging files left by interrupted runs, in bounded
   batches after a 24-hour safety delay;
 - analyze an immutable capture through the shared Document Files job contract;
@@ -154,3 +157,9 @@ was part of the record; it is treated as content, never as filesystem authority.
 events are coalesced for `event_debounce_seconds`; `full_reconcile_seconds`
 controls the missed-event safety scan. The defaults are 15 seconds, 2 seconds,
 and 15 minutes respectively.
+
+`include_hidden = true` includes intentional hidden project content such as
+`.github` or `.claude`. It never includes known operating-system metadata
+artifacts. Connection-specific directory names and relative path prefixes can
+be removed from the scan with `exclude_directory_names` and
+`exclude_path_prefixes`.

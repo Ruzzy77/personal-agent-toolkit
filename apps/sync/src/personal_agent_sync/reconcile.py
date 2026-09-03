@@ -11,6 +11,26 @@ from .config import ConnectionConfig
 from .paths import resolve_moved_root
 from .state import SyncState
 
+SYSTEM_FILE_NAMES = frozenset({".ds_store", "desktop.ini", "thumbs.db"})
+SYSTEM_DIRECTORY_NAMES = frozenset(
+    {
+        ".fseventsd",
+        ".spotlight-v100",
+        ".temporaryitems",
+        ".trashes",
+        "__macosx",
+    }
+)
+
+
+def is_system_artifact(name: str, *, directory: bool) -> bool:
+    """Exclude operating-system metadata without hiding intentional dotfiles."""
+
+    normalized = unicodedata.normalize("NFC", name).casefold()
+    if directory:
+        return normalized in SYSTEM_DIRECTORY_NAMES
+    return normalized in SYSTEM_FILE_NAMES or normalized.startswith("._")
+
 
 def current_root(state: SyncState, connection: ConnectionConfig) -> Path | None:
     row = state.connection_row(connection.key)
@@ -56,12 +76,17 @@ def reconcile_connection(
         retained_directories = []
         for name in directory_names:
             relative = (base_relative / name).as_posix()
+            if is_system_artifact(name, directory=True):
+                continue
             if excluded(relative, directory_name=name):
                 continue
             if not connection.include_hidden and name.startswith("."):
                 continue
             retained_directories.append(name)
         directory_names[:] = retained_directories
+        file_names = [
+            name for name in file_names if not is_system_artifact(name, directory=False)
+        ]
         if not connection.include_hidden:
             file_names = [name for name in file_names if not name.startswith(".")]
         for name in file_names:

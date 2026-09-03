@@ -389,6 +389,8 @@ def write_discovered_config(
                 'analyzer_route = "local"',
                 "max_transfer_bytes = 1073741824",
                 f"generation = {value['generation']}",
+                # Legacy Corpus scans include intentional dotfiles such as project
+                # instructions. Reconciliation still excludes OS metadata artifacts.
                 "include_hidden = true",
                 "exclude_directory_names = "
                 + json.dumps(value["exclude_directory_names"], ensure_ascii=False),

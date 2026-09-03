@@ -49,8 +49,10 @@ Only sources and Work folders that the owner explicitly connects are represented
   rechecks the Connection's role, generation, and read or write permission before delegating to the
   local Corpus authority. Replacements and destructive operations require the expected current
   version and the product-specific confirmation fields.
-- Hidden, temporary, linked, special, and policy-excluded files are not captured. Temporary Source
-  snapshots use private local storage and are deleted after analysis or failure.
+- Known operating-system metadata, linked files, special files, and policy-excluded paths are not
+  captured. A Connection may intentionally include hidden project files, while Sync still rejects
+  Finder indexes, AppleDouble sidecars, thumbnail caches, and similar system artifacts. Temporary
+  Source snapshots use private local storage and are deleted after analysis or failure.
 
 ## Hypes
 
