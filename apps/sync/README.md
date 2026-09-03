@@ -16,6 +16,8 @@ on a local port and does not expose the Mac through a tunnel.
   retain a slower full scan for startup, recovered roots, and missed events;
 - keep Source changes in a bounded queue and retry network or analyzer failures
   without rescanning every connected tree;
+- remove only old `capture-*` staging files left by interrupted runs, in bounded
+  batches after a 24-hour safety delay;
 - analyze an immutable capture through the shared Document Files job contract;
 - compare recorded adapter identities with the pinned Document Files runtime and
   queue only known stale projections in bounded batches after an analyzer update;
