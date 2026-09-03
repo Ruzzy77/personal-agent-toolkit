@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   authorizationChallenge,
   authorizeRequest,
+  LIBRARY_SCOPES,
   protectedResourceMetadata,
 } from "./authorization";
 import { SitesLibraryClient, SitesLibraryError } from "./sites-client";
@@ -333,7 +334,7 @@ export default {
       request,
       env.AUTH_SERVICE,
       env.RESOURCE_URI,
-      ["library.read"],
+      LIBRARY_SCOPES,
     );
     if (!authorization.ok) {
       const headers = new Headers({
