@@ -1383,12 +1383,20 @@ def _durable_counts_cover_expected(
             )
         ):
             return False
+    # A trusted analyzer replacement can preserve one projection identity per
+    # document while producing fewer structural units. Exact projection and
+    # replacement identities are checked below, so that aggregate is not a
+    # monotonic invariant once live Source advances are allowed.
     for key in ("projections", "units"):
         value = actual.get(key)
         if (
             isinstance(value, bool)
             or not isinstance(value, int)
-            or value < expected.get(key, 0)
+            or value < 0
+            or (
+                not (allow_source_advances and key == "units")
+                and value < expected.get(key, 0)
+            )
         ):
             return False
     return True
