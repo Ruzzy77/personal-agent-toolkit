@@ -53,14 +53,17 @@ jobs:
             command: npm test
     name: Test ${{ matrix.component }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
       - name: Install dependencies
         run: npm ci
+        working-directory: ${{ matrix.directory }}
+      - name: Check high-severity dependency advisories
+        run: npm audit --audit-level=high
         working-directory: ${{ matrix.directory }}
       - name: Run checks
         run: ${{ matrix.command }}
