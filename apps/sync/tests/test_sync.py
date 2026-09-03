@@ -116,6 +116,11 @@ def test_migration_counts_allow_only_projection_history_superset() -> None:
         {"documents": 2, "revisions": 2, "projections": 1, "units": 9},
         expected,
     )
+    assert migration_module._durable_counts_cover_expected(
+        {"documents": 2, "revisions": 2, "projections": 2, "units": 9},
+        expected,
+        allow_source_advances=True,
+    )
 
 
 def test_successful_migration_checkpoint_cleanup_keeps_only_current_items(
