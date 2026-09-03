@@ -2,7 +2,7 @@
 
 Sense는 여러 작업에서 계속 적용되는 사용자 통제형 작업 프로필 하나를 소유자별 원격 저장층에
 보관한다. Codex, Claude와 ChatGPT는 플랫폼별 사본이 아니라 같은 현재 프로필을 읽는다. 로컬
-SQLite 구현은 개발과 최초 이관 자료를 위한 별도 경계다.
+SQLite 구현은 [`engines/sense`](../../engines/sense/README.md)에 둔 개발·최초 이관용 별도 경계다.
 
 ## 소유 경계
 

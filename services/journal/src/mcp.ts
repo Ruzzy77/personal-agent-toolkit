@@ -1,4 +1,9 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import {
+  mcpTextError,
+  mcpTextResult,
+  shortLivedMcpAuth,
+} from "@personal-agent/remote-runtime";
 
 import { JournalError, asJournalError } from "./errors";
 import {
@@ -29,10 +34,7 @@ function requireAnyScope(principal: Principal, scopes: string[]): void {
 }
 
 function result(value: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(value) }],
-    structuredContent: value as Record<string, unknown>,
-  };
+  return mcpTextResult(value);
 }
 
 async function safeTool(operation: () => Promise<unknown>) {
@@ -40,20 +42,15 @@ async function safeTool(operation: () => Promise<unknown>) {
     return result(await operation());
   } catch (error) {
     const journalError = asJournalError(error);
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({
-            error: {
-              code: journalError.code,
-              message: journalError.message,
-            },
-          }),
+    return mcpTextError(
+      {
+        error: {
+          code: journalError.code,
+          message: journalError.message,
         },
-      ],
-      isError: true,
-    };
+      },
+      false,
+    );
   }
 }
 
@@ -268,11 +265,10 @@ export async function handleMcp(
 ): Promise<Response> {
   const handler = createMcpHandler(() => buildServer(env, principal));
   return handler.fetch(request, {
-    authInfo: {
+    authInfo: shortLivedMcpAuth({
       token: principal.id,
       clientId: principal.auth,
-      scopes: [...principal.scopes],
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    },
+      scopes: principal.scopes,
+    }),
   });
 }

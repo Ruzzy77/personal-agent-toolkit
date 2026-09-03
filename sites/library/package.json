@@ -4,25 +4,41 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "wrangler dev --config dist/server/wrangler.json",
     "font:build": "scripts/rebuild-library-brush-font.sh",
-    "db:generate": "drizzle-kit generate",
-    "preview": "vite preview",
-    "test": "npm run build && node --test tests/*.test.mjs",
-    "test:sites": "node --test tests/sites-worker.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "lint": "oxlint",
+    "format": "oxfmt"
   },
   "dependencies": {
+    "@personal-agent/site-runtime": "file:../../packages/site-runtime",
     "@fontsource/noto-sans-kr": "^5.3.0",
     "@fontsource/noto-serif-kr": "^5.3.0",
-    "@vitejs/plugin-react": "5.0.4",
-    "drizzle-orm": "^0.45.2",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "vite": "6.4.3"
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-server-dom-webpack": "19.2.8",
+    "vinext": "1.0.0-beta.9"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.10",
-    "esbuild": "0.25.12"
+    "@cloudflare/vite-plugin": "1.54.3",
+    "@cloudflare/workers-types": "5.20260903.1",
+    "@openai/sites-vite-plugin": "0.2.0",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.34",
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "wrangler": "4.128.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

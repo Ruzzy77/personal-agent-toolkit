@@ -8,19 +8,21 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm test",
+    "migrate:sites": "node scripts/migrate-sites-storage.mjs",
     "deploy": "npm run check && wrangler deploy"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "4.4.3"
+    "@modelcontextprotocol/server": "2.0.0",
+    "@personal-agent/remote-runtime": "file:../../packages/remote-runtime",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.0.0",
-    "@cloudflare/workers-types": "5.20260825.1",
-    "@types/node": "26.3.0",
+    "@cloudflare/vitest-plugin": "1.1.3",
+    "@cloudflare/workers-types": "5.20260902.1",
+    "@types/node": "26.4.1",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
-    "wrangler": "4.125.0"
+    "wrangler": "4.128.0"
   },
   "engines": {
     "node": ">=24"

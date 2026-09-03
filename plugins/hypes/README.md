@@ -54,8 +54,6 @@ https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp
 Codex, Claude Code, Claude Desktop/Cowork, claude.ai와 ChatGPT는 같은 관계 graph를 읽고
 원자적으로 고친다.
 
-`hypes-ontology.sqlite3`는 로컬 구현의 개발과 최초 이관 자료로 남으며 원격 정본과 자동으로
-동기화되는 사본이 아니다. 이 데이터 디렉터리는
-현재 사용자 소유의 `0700`, 데이터베이스와 보조 파일은 `0600`이어야 한다.
-심볼릭 링크, 다른 소유자나 잘못된 권한을 발견하면 파일을 열기 전에 중단한다. 스키마 생성과
-이전은 서버가 시작할 때 한 번 수행하고, 이후 읽기와 쓰기는 분리된 연결을 사용한다.
+로컬 SQLite 구현과 최초 이관 도구는
+[`engines/hypes`](../../engines/hypes/README.md)에 있습니다. 설치 plugin에는 이를 포함하지 않으며,
+로컬 자료는 원격 정본과 자동으로 동기화되지 않습니다.

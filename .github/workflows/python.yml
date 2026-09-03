@@ -6,6 +6,7 @@ on:
       - ".github/workflows/python.yml"
       - "ruff.toml"
       - "apps/sync/**"
+      - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
       - "plugins/hypes/**"
@@ -17,6 +18,7 @@ on:
       - ".github/workflows/python.yml"
       - "ruff.toml"
       - "apps/sync/**"
+      - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
       - "plugins/hypes/**"
@@ -35,11 +37,11 @@ jobs:
       - name: Check shared Python formatting
         run: >-
           uvx ruff==0.16.5 format --check
-          plugins/sense plugins/corpus plugins/hypes apps/sync
+          engines/sense engines/corpus engines/hypes apps/sync
       - name: Check shared Python lint
         run: >-
           uvx ruff==0.16.5 check
-          plugins/sense plugins/corpus plugins/hypes apps/sync
+          engines/sense engines/corpus engines/hypes apps/sync
       - name: Check Sync runtime installer syntax
         run: sh -n apps/sync/scripts/install-runtimes.sh
 
@@ -52,11 +54,11 @@ jobs:
         include:
           - component: Sense
             os: ubuntu-latest
-            directory: plugins/sense
+            directory: engines/sense
             command: uv run --frozen pytest -q tests
           - component: Corpus
             os: ubuntu-latest
-            directory: plugins/corpus
+            directory: engines/corpus
             command: uv run --frozen python -m unittest discover -s tests -q
           - component: Document Files
             os: macos-latest
@@ -64,7 +66,7 @@ jobs:
             command: uv run --frozen pytest -q tests
           - component: Hypes
             os: ubuntu-latest
-            directory: plugins/hypes
+            directory: engines/hypes
             command: uv run --frozen pytest -q tests
           - component: Personal Agent Sync
             os: macos-latest

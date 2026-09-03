@@ -1,7 +1,12 @@
-import { cloudflareTest } from "@cloudflare/vitest-plugin";
-import { defineConfig } from "vitest/config";
+import {
+  cloudflareTest,
+  readD1Migrations,
+} from "@cloudflare/vitest-plugin";
+import { defineProject } from "vitest/config";
 
-export default defineConfig({
+const migrations = await readD1Migrations("./migrations");
+
+export default defineProject({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.test.jsonc" },
@@ -9,5 +14,8 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    setupFiles: ["./test/setup.ts"],
+    maxWorkers: 1,
+    provide: { migrations },
   },
 });

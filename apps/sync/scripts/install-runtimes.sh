@@ -49,7 +49,7 @@ install_runtime() {
 }
 
 install_runtime sync "$REPOSITORY_ROOT/apps/sync"
-install_runtime corpus "$REPOSITORY_ROOT/plugins/corpus"
+install_runtime corpus "$REPOSITORY_ROOT/engines/corpus"
 install_runtime document-files "$REPOSITORY_ROOT/plugins/document-files"
 
 if [ "$RUNTIME_ROOT" = "$DEFAULT_RUNTIME_ROOT" ] &&

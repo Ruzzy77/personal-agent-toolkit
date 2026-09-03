@@ -24,8 +24,9 @@ Local CLI / Finder ── Personal Agent Sync ── capture / Work authority
 
 원격 `CorpusService`가 Codex, Claude, 웹 ChatGPT와 claude.ai에 같은 Context, Source record와 확정
 revision을 제공합니다. 로컬 Personal Agent Sync만 Finder 위치와 권한을 가지며, 원격에서 받은
-작업도 현재 Connection 정책을 다시 확인한 뒤 수행합니다. 로컬 개발·이관용 Corpus 구현은 같은
-데이터 계약을 사용하지만 클라이언트별 Context 복사본이나 별도 색인 세대를 만들지 않습니다.
+작업도 현재 Connection 정책을 다시 확인한 뒤 수행합니다. [`engines/corpus`](../../engines/corpus/README.md)의
+로컬 개발·이관 구현은 같은 데이터 계약을 사용하지만 클라이언트별 Context 복사본이나 별도 색인
+세대를 만들지 않습니다.
 
 ### 원격 정본과 로컬 권한 저장소
 

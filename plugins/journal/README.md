@@ -38,6 +38,8 @@ Journal에는 진행 판단에 필요한 요약과 원본 참조만 저장합니
 
 Keychain service 이름은 `personal-agent-journal-ingest`입니다. 운영 자격 증명은 저장소 밖에서 배포자가 설정합니다.
 
+서비스·Site·plugin의 실행 경계는 [DESIGN.md](./DESIGN.md)에 있습니다.
+
 ## 라이선스
 
 [Apache License 2.0](LICENSE). [NOTICE](NOTICE)를 함께 따릅니다.

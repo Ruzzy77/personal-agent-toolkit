@@ -1,6 +1,13 @@
-node_modules/
-dist/
-qa/
-.runtime/
+/node_modules/
+/.next/
+/.vinext/
+/dist/
+/.wrangler/
+/coverage/
+/qa/
+/.runtime/
+.env*
 .DS_Store
+next-env.d.ts
 *.log
+npm-debug.log*

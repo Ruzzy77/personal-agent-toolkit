@@ -29,11 +29,14 @@ ChatGPT ──OAuth──▶ Personal Agent Auth Worker
    └────MCP request────▶ Library MCP Worker
 
 Browser ──────────────▶ Library Sites frontend
+                              │
+                              └────internal request────▶ Library service
 ```
 
-Sites 화면과 Library MCP Worker는 서로 다른 역할을 맡습니다. `services/library`의 Worker는
-비공개 `AuthService`로 사용자를 확인하고 Sites의 문서·이미지 API에 요청을 전달합니다. Sites
-안에 별도 MCP endpoint를 두거나 공개 HTTPS token inspection을 추가하지 않습니다.
+Sites 화면과 Library service는 서로 다른 역할을 맡습니다. `services/library`의 Worker는 비공개
+`AuthService`로 MCP 사용자를 확인하고 D1·R2 정본을 관리합니다. Site는 자체 저장층 없이 별도
+내부 token으로 같은 service를 호출합니다. Sites 안에 별도 MCP endpoint를 두거나 공개 HTTPS
+token inspection을 추가하지 않습니다.
 
 ## 운영 설정
 

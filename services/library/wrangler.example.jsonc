@@ -5,6 +5,20 @@
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-agent-library",
+      "database_id": "replace-with-d1-database-id",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "personal-agent-library-media"
+    }
+  ],
   "services": [
     {
       "binding": "AUTH_SERVICE",
@@ -14,8 +28,7 @@
   ],
   "vars": {
     "AUTH_ISSUER": "https://personal-agent-auth.YOUR_SUBDOMAIN.workers.dev",
-    "RESOURCE_URI": "https://personal-library-mcp.YOUR_SUBDOMAIN.workers.dev/api/mcp",
-    "SITES_ORIGIN": "https://YOUR_SITE.ruzzy.chatgpt.site"
+    "RESOURCE_URI": "https://personal-library-mcp.YOUR_SUBDOMAIN.workers.dev/api/mcp"
   },
   "observability": {
     "enabled": true,

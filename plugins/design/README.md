@@ -55,6 +55,8 @@ Design plugin은 Skill과 정적 참고 자산만 포함하며 MCP 서버나 외
 작업 중 읽고 쓰는 파일과 사용하는 도구의 권한은 현재 실행 환경과 프로젝트의 규칙을
 따릅니다.
 
+구성 요소와 정적 자산 정본은 [DESIGN.md](./DESIGN.md)에 있습니다.
+
 ## License
 
 [Apache License 2.0](./LICENSE)

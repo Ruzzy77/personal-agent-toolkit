@@ -1,37 +1,12 @@
+import type { AuthServiceBinding } from "@personal-agent/remote-runtime";
+
+export type {
+  AccessValidationResult,
+  AuthenticatedOwner,
+  AuthServiceBinding,
+} from "@personal-agent/remote-runtime";
+
 export type ResourceKind = "sense" | "corpus" | "hypes";
-
-export interface AuthenticatedOwner {
-  userId: string;
-  provider: "google";
-  subject: string;
-  email?: string;
-  displayName?: string;
-  resource: string;
-  scopes: string[];
-  clientId: string;
-  expiresAt: number;
-}
-
-export type AccessValidationResult =
-  | { ok: true; owner: AuthenticatedOwner }
-  | {
-      ok: false;
-      code:
-        | "invalid_token"
-        | "invalid_target"
-        | "invalid_scope"
-        | "insufficient_scope";
-      status: 401 | 403 | 500;
-      requiredScopes?: string[];
-    };
-
-export interface AuthServiceBinding {
-  validateAccessToken(
-    token: string,
-    resource: string,
-    requiredScopes: string[],
-  ): Promise<AccessValidationResult>;
-}
 
 export interface Env {
   STATE_DB: D1Database;

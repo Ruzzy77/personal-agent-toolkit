@@ -1,4 +1,9 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import {
+  mcpTextError,
+  mcpTextResult,
+  shortLivedMcpAuth,
+} from "@personal-agent/remote-runtime";
 
 import { CorpusService } from "./corpus";
 import { asContextError, ContextError } from "./errors";
@@ -39,10 +44,7 @@ function requireScope(principal: Principal, scope: string): void {
 
 function success(value: unknown) {
   const wrapped = { ok: true as const, result: value };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(wrapped) }],
-    structuredContent: wrapped,
-  };
+  return mcpTextResult(wrapped);
 }
 
 async function safeTool(operation: () => Promise<unknown>) {
@@ -58,11 +60,7 @@ async function safeTool(operation: () => Promise<unknown>) {
         details: normalized.details,
       },
     };
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(wrapped) }],
-      structuredContent: wrapped,
-      isError: true,
-    };
+    return mcpTextError(wrapped);
   }
 }
 
@@ -406,11 +404,10 @@ export async function handleMcp(
     return corpusServer(env, principal);
   });
   return handler.fetch(request, {
-    authInfo: {
+    authInfo: shortLivedMcpAuth({
       token: `${principal.auth}:${principal.ownerId}`,
       clientId: principal.clientId,
-      scopes: [...principal.scopes],
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    },
+      scopes: principal.scopes,
+    }),
   });
 }

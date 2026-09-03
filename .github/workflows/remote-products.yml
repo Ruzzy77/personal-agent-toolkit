@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/remote-products.yml"
       - "auth/**"
+      - "packages/remote-runtime/**"
+      - "packages/site-runtime/**"
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
@@ -16,6 +18,8 @@ on:
     paths:
       - ".github/workflows/remote-products.yml"
       - "auth/**"
+      - "packages/remote-runtime/**"
+      - "packages/site-runtime/**"
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
@@ -50,7 +54,7 @@ jobs:
             command: npm run lint && npm run build && npm test
           - component: Library Site
             directory: sites/library
-            command: npm test
+            command: npm run lint && npm run build && npm test
     name: Test ${{ matrix.component }}
     steps:
       - uses: actions/checkout@v7

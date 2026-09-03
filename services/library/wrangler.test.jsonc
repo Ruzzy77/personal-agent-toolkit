@@ -4,11 +4,23 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["global_fetch_strictly_public"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-agent-library-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "personal-agent-library-media-test"
+    }
+  ],
   "vars": {
     "AUTH_ISSUER": "https://auth.example",
     "RESOURCE_URI": "https://library.example/api/mcp",
-    "SITES_ORIGIN": "https://site.example",
-    "SITES_BYPASS_TOKEN": "test-sites-token",
-    "LIBRARY_BRIDGE_SECRET": "test-bridge-secret"
+    "LIBRARY_SITE_TOKEN": "test-site-token"
   }
 }

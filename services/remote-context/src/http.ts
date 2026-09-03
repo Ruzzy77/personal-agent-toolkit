@@ -1,3 +1,5 @@
+import { protectedResourceMetadata } from "@personal-agent/remote-runtime";
+
 import {
   authenticateMcp,
   authenticateSync,
@@ -45,13 +47,13 @@ function protectedMetadata(
   env: Env,
   kind: ResourceKind,
 ): Record<string, unknown> {
-  return {
+  const resource = resourceUrl(env, kind);
+  return protectedResourceMetadata({
     resource: resourceUrl(env, kind),
-    authorization_servers: [env.AUTH_ISSUER],
-    scopes_supported: supportedScopes(kind),
-    bearer_methods_supported: ["header"],
-    resource_documentation: `${new URL(resourceUrl(env, kind)).origin}/`,
-  };
+    authorizationServer: env.AUTH_ISSUER,
+    scopes: supportedScopes(kind),
+    documentation: `${new URL(resource).origin}/`,
+  });
 }
 
 function metadataKind(path: string): ResourceKind | null {

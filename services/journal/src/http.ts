@@ -1,4 +1,5 @@
 import { ZodError, type ZodType } from "zod/v4";
+import { protectedResourceMetadata } from "@personal-agent/remote-runtime";
 
 import { authenticate } from "./auth";
 import { asJournalError, JournalError } from "./errors";
@@ -105,18 +106,17 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       request.method === "GET" &&
       url.pathname === "/.well-known/oauth-protected-resource"
     ) {
-      return jsonResponse(request, env, {
+      return jsonResponse(request, env, protectedResourceMetadata({
         resource: env.JOURNAL_RESOURCE,
-        authorization_servers: [env.AUTH_ISSUER],
-        scopes_supported: [
+        authorizationServer: env.AUTH_ISSUER,
+        scopes: [
           "journal.read",
           "journal.write",
           "journal.ingest",
           "journal.close",
         ],
-        bearer_methods_supported: ["header"],
-        resource_documentation: `${new URL(env.JOURNAL_RESOURCE).origin}/`,
-      });
+        documentation: `${new URL(env.JOURNAL_RESOURCE).origin}/`,
+      }));
     }
 
     const service = new JournalService(env.DB);

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
+    "@personal-agent/remote-runtime": "file:../../packages/remote-runtime",
     "zod": "4.5.4"
   },
   "devDependencies": {
@@ -27,4 +28,3 @@
     "node": ">=24"
   }
 }
-

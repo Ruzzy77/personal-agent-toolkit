@@ -15,13 +15,14 @@ describe("Library MCP connection scopes", () => {
       AUTH_SERVICE: { validateAccessToken },
       AUTH_ISSUER: "https://auth.example",
       RESOURCE_URI: "https://library.example/api/mcp",
-      SITES_ORIGIN: "https://site.example",
-      SITES_BYPASS_TOKEN: "sites-token",
-      LIBRARY_BRIDGE_SECRET: "bridge-secret",
+      LIBRARY_SITE_TOKEN: "site-token",
     } as unknown as Env;
 
     const request = new Request("https://library.example/api/mcp", {
-      headers: { Authorization: "Bearer read-only-token" },
+      headers: {
+        Authorization: "Bearer read-only-token",
+        Host: "library.example",
+      },
     }) as unknown as Parameters<typeof worker.fetch>[0];
 
     const response = await worker.fetch(

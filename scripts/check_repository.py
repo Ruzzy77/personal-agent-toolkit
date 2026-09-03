@@ -13,13 +13,29 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
-REMOTE_PLUGINS = {"sense", "corpus", "hypes", "journal", "library"}
-LOCAL_MCP_PLUGINS = {"document-files"}
-SKILL_ONLY_PLUGINS = {"design"}
-REQUIRED_PLUGINS = REMOTE_PLUGINS | LOCAL_MCP_PLUGINS | SKILL_ONLY_PLUGINS
+PRODUCT_REGISTRY = json.loads((ROOT / "products.json").read_text(encoding="utf-8"))
+PRODUCTS: dict[str, dict[str, Any]] = PRODUCT_REGISTRY["products"]
+REMOTE_PLUGINS = {
+    name
+    for name, product in PRODUCTS.items()
+    if product["plugin"]["kind"] == "remote_mcp"
+}
+LOCAL_MCP_PLUGINS = {
+    name
+    for name, product in PRODUCTS.items()
+    if product["plugin"]["kind"] == "local_mcp"
+}
+SKILL_ONLY_PLUGINS = {
+    name
+    for name, product in PRODUCTS.items()
+    if product["plugin"]["kind"] == "skill_only"
+}
+REQUIRED_PLUGINS = set(PRODUCTS)
 CODEX_SUFFIX = re.compile(r"^(?P<base>\d+\.\d+\.\d+)\+codex\.\d{14}$")
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 PACKAGE_VERSION = re.compile(r"(?:PACKAGE_VERSION|__version__)\s*=\s*[\"']([^\"']+)")
+REGISTERED_TS_TOOL = re.compile(r'server\.registerTool\(\s*"([a-z][a-z0-9_]*)"')
+REGISTERED_PYTHON_TOOL = re.compile(r'@server\.tool\(\s*name="([a-z][a-z0-9_]*)"')
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -33,6 +49,42 @@ def relative(path: Path) -> str:
 def tracked_files() -> list[Path]:
     output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT, text=False)
     return [ROOT / item.decode() for item in output.split(b"\0") if item]
+
+
+def check_product_registry(errors: list[str]) -> None:
+    if PRODUCT_REGISTRY.get("schema_version") != 1:
+        errors.append("products.json schema_version must be 1")
+
+    valid_kinds = {"remote_mcp", "local_mcp", "skill_only"}
+    for name, product in PRODUCTS.items():
+        plugin = product.get("plugin", {})
+        plugin_path = ROOT / str(plugin.get("path", ""))
+        if plugin_path != PLUGIN_ROOT / name:
+            errors.append(f"{name}: products.json plugin path must be plugins/{name}")
+        if plugin.get("kind") not in valid_kinds:
+            errors.append(f"{name}: products.json has an invalid plugin kind")
+        if not re.fullmatch(r"\d+\.\d+\.\d+", str(plugin.get("base_version", ""))):
+            errors.append(f"{name}: products.json has an invalid base version")
+
+        for component in product.get("components", []):
+            if not (ROOT / component).exists():
+                errors.append(f"{name}: missing registered component {component}")
+
+        mcp = product.get("mcp")
+        if plugin.get("kind") == "skill_only":
+            if mcp is not None:
+                errors.append(f"{name}: Skill-only product must not register MCP")
+            continue
+        if not isinstance(mcp, dict):
+            errors.append(f"{name}: MCP product is missing its public contract")
+            continue
+        if mcp.get("server_key") != name:
+            errors.append(f"{name}: MCP server key must match the product name")
+        if not (ROOT / str(mcp.get("implementation", ""))).is_file():
+            errors.append(f"{name}: registered MCP implementation is missing")
+        tools = mcp.get("tools", [])
+        if not tools or len(tools) != len(set(tools)):
+            errors.append(f"{name}: MCP tools must be a non-empty unique list")
 
 
 def check_marketplaces(errors: list[str]) -> None:
@@ -72,11 +124,14 @@ def check_marketplaces(errors: list[str]) -> None:
 
 
 def check_plugin(name: str, errors: list[str]) -> None:
-    root = PLUGIN_ROOT / name
+    product = PRODUCTS[name]
+    plugin = product["plugin"]
+    root = ROOT / plugin["path"]
     claude_path = root / ".claude-plugin" / "plugin.json"
     codex_path = root / ".codex-plugin" / "plugin.json"
     for required in (
         root / "README.md",
+        root / "DESIGN.md",
         root / "LICENSE",
         root / "NOTICE",
         claude_path,
@@ -92,6 +147,8 @@ def check_plugin(name: str, errors: list[str]) -> None:
         errors.append(f"{name}: manifest name differs from its directory")
 
     base = claude.get("version")
+    if base != plugin["base_version"]:
+        errors.append(f"{name}: manifest version differs from products.json")
     match = CODEX_SUFFIX.fullmatch(str(codex.get("version", "")))
     if match is None or match.group("base") != base:
         errors.append(f"{name}: Claude and Codex base versions differ")
@@ -126,24 +183,36 @@ def check_plugin(name: str, errors: list[str]) -> None:
             errors.append(f"{name}: .mcp.json is required")
         else:
             claude_servers = read_json(claude_mcp_path).get("mcpServers", {})
-            if set(claude_servers) != {name} or set(codex_servers) != {name}:
+            server_key = product["mcp"]["server_key"]
+            if set(claude_servers) != {server_key} or set(codex_servers) != {
+                server_key
+            }:
                 errors.append(f"{name}: MCP server names differ across clients")
             elif name in REMOTE_PLUGINS:
-                claude_server = claude_servers[name]
-                codex_server = codex_servers[name]
+                expected_url = product["mcp"]["url"]
+                claude_server = claude_servers[server_key]
+                codex_server = codex_servers[server_key]
                 if (
                     claude_server.get("type") != "http"
                     or codex_server.get("type") != "http"
-                    or claude_server.get("url") != codex_server.get("url")
+                    or claude_server.get("url") != expected_url
+                    or codex_server.get("url") != expected_url
                 ):
-                    errors.append(f"{name}: remote MCP URLs differ across clients")
+                    errors.append(f"{name}: remote MCP URL differs from products.json")
             elif name in LOCAL_MCP_PLUGINS and (
-                "command" not in claude_servers[name]
-                or "command" not in codex_servers[name]
+                "command" not in claude_servers[server_key]
+                or "command" not in codex_servers[server_key]
             ):
                 errors.append(f"{name}: local MCP commands are missing")
 
     pyproject = root / "pyproject.toml"
+    if name in REMOTE_PLUGINS:
+        for local_runtime in (pyproject, root / "src", root / "uv.lock"):
+            if local_runtime.exists():
+                errors.append(
+                    f"{name}: remote plugin must keep local runtime outside its bundle"
+                )
+                break
     if pyproject.is_file():
         project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
         if project.get("version") != base:
@@ -211,47 +280,49 @@ def check_dependency_documentation(errors: list[str]) -> None:
                 )
 
 
-def check_shared_product_versions(errors: list[str]) -> None:
-    source_files = {
-        "journal": [
-            ROOT / "services" / "journal" / "src" / "http.ts",
-            ROOT / "services" / "journal" / "src" / "mcp.ts",
-        ],
-        "library": [ROOT / "services" / "library" / "src" / "worker.ts"],
-    }
-    for name, files in source_files.items():
-        plugin_version = read_json(
-            PLUGIN_ROOT / name / ".claude-plugin" / "plugin.json"
-        )["version"]
-        service_version = read_json(ROOT / "services" / name / "package.json")[
-            "version"
-        ]
-        site_version = read_json(ROOT / "sites" / name / "package.json")["version"]
-        if len({plugin_version, service_version, site_version}) != 1:
-            errors.append(
-                f"{name}: plugin, service, and Site versions must describe one product release"
-            )
-        for path in files:
-            if f'version: "{service_version}"' not in path.read_text(encoding="utf-8"):
+def check_product_versions(errors: list[str]) -> None:
+    for name, product in PRODUCTS.items():
+        expected = product["plugin"]["base_version"]
+        for package_file in product.get("versioned_packages", []):
+            path = ROOT / package_file
+            if read_json(path).get("version") != expected:
                 errors.append(
-                    f"{relative(path)} does not expose service version {service_version}"
+                    f"{name}: {package_file} version must match product version {expected}"
                 )
 
+        mcp = product.get("mcp")
+        if not mcp or "surface_version" not in mcp:
+            continue
+        implementation = ROOT / mcp["implementation"]
+        if implementation == ROOT / "services/remote-context/src/mcp.ts":
+            continue
+        source = implementation.read_text(encoding="utf-8")
+        identity = re.compile(
+            rf'name:\s*"{re.escape(mcp["surface_name"])}"\s*,\s*'
+            rf'version:\s*"{re.escape(mcp["surface_version"])}"'
+        )
+        if identity.search(source) is None:
+            errors.append(
+                f"{name}: MCP implementation identity differs from products.json"
+            )
 
-def check_remote_context_versions(errors: list[str]) -> None:
+
+def check_public_mcp_contracts(errors: list[str]) -> None:
     surfaces_path = ROOT / "services" / "remote-context" / "src" / "surfaces.ts"
     surfaces = surfaces_path.read_text(encoding="utf-8")
     remote_surfaces: dict[str, dict[str, Any]] = {}
-    suffixes = {"sense": "remote.1", "corpus": "remote.3", "hypes": "remote.1"}
-    for name, suffix in suffixes.items():
-        base = read_json(PLUGIN_ROOT / name / ".claude-plugin" / "plugin.json")[
-            "version"
-        ]
+    context_products = {
+        name: product
+        for name, product in PRODUCTS.items()
+        if product.get("mcp", {}).get("implementation")
+        == "services/remote-context/src/mcp.ts"
+    }
+    for name, product in context_products.items():
+        mcp = product["mcp"]
         block_match = re.search(
             rf"(?s)\b{name}:\s*\{{(?P<body>.*?)\n\s*\}},",
             surfaces,
         )
-        expected = f"{base}-{suffix}"
         if block_match is None:
             errors.append(f"{relative(surfaces_path)} is missing {name} surface")
             continue
@@ -259,10 +330,6 @@ def check_remote_context_versions(errors: list[str]) -> None:
         display_name = re.search(r'\bname:\s*"([^\"]+)"', body)
         version = re.search(r'\bversion:\s*"([^\"]+)"', body)
         tools = re.search(r"(?s)\btools:\s*\[(.*?)\]", body)
-        if version is None or version.group(1) != expected:
-            errors.append(
-                f"{relative(surfaces_path)} {name} version must be {expected}"
-            )
         if display_name is None or tools is None:
             errors.append(
                 f"{relative(surfaces_path)} {name} surface is missing its name or tools"
@@ -273,6 +340,32 @@ def check_remote_context_versions(errors: list[str]) -> None:
             "version": version.group(1) if version is not None else "",
             "tools": re.findall(r'"([^\"]+)"', tools.group(1)),
         }
+
+        expected_surface = {
+            "name": mcp["surface_name"],
+            "version": mcp["surface_version"],
+            "tools": mcp["tools"],
+        }
+        if remote_surfaces[name] != expected_surface:
+            errors.append(
+                f"{relative(surfaces_path)} {name} surface differs from products.json"
+            )
+
+    context_implementation = ROOT / "services/remote-context/src/mcp.ts"
+    actual_context_tools = REGISTERED_TS_TOOL.findall(
+        context_implementation.read_text(encoding="utf-8")
+    )
+    expected_context_tools = [
+        tool
+        for product in context_products.values()
+        for tool in product["mcp"]["tools"]
+    ]
+    if len(actual_context_tools) != len(set(actual_context_tools)) or set(
+        actual_context_tools
+    ) != set(expected_context_tools):
+        errors.append(
+            f"{relative(context_implementation)} tool registrations differ from products.json"
+        )
 
     sync_path = ROOT / "apps" / "sync" / "src" / "personal_agent_sync" / "migration.py"
     sync_tree = ast.parse(sync_path.read_text(encoding="utf-8"))
@@ -291,10 +384,35 @@ def check_remote_context_versions(errors: list[str]) -> None:
                     f"{relative(sync_path)} expected MCP surfaces must remain literal data"
                 )
             break
-    if sync_surfaces != remote_surfaces:
+    expected_sync_surfaces = {
+        name: {
+            "name": product["mcp"]["surface_name"],
+            "version": product["mcp"]["surface_version"],
+            "tools": product["mcp"]["tools"],
+        }
+        for name, product in context_products.items()
+    }
+    if sync_surfaces != expected_sync_surfaces:
         errors.append(
-            f"{relative(sync_path)} expected MCP surfaces must match {relative(surfaces_path)}"
+            f"{relative(sync_path)} expected MCP surfaces must match products.json"
         )
+
+    for name, product in PRODUCTS.items():
+        mcp = product.get("mcp")
+        if not mcp or name in context_products:
+            continue
+        implementation = ROOT / mcp["implementation"]
+        source = implementation.read_text(encoding="utf-8")
+        pattern = (
+            REGISTERED_PYTHON_TOOL
+            if implementation.suffix == ".py"
+            else REGISTERED_TS_TOOL
+        )
+        actual_tools = pattern.findall(source)
+        if actual_tools != mcp["tools"]:
+            errors.append(
+                f"{relative(implementation)} tool registrations differ from products.json"
+            )
 
 
 def check_sync_version(errors: list[str]) -> None:
@@ -360,13 +478,14 @@ def check_tracked_residue(files: list[Path], errors: list[str]) -> None:
 def main() -> int:
     errors: list[str] = []
     files = tracked_files()
+    check_product_registry(errors)
     check_marketplaces(errors)
     for name in sorted(REQUIRED_PLUGINS):
         check_plugin(name, errors)
     check_javascript_locks(errors)
     check_dependency_documentation(errors)
-    check_shared_product_versions(errors)
-    check_remote_context_versions(errors)
+    check_product_versions(errors)
+    check_public_mcp_contracts(errors)
     check_sync_version(errors)
     check_markdown_links(files, errors)
     check_tracked_residue(files, errors)

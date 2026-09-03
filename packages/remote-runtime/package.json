@@ -1,0 +1,8 @@
+{
+  "name": "@personal-agent/remote-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared remote authentication and MCP response primitives for Personal Agent Toolkit",
+  "exports": "./src/index.ts"
+}

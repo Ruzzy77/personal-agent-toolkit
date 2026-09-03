@@ -320,8 +320,14 @@ input:focus-visible {
   inset: 0;
   z-index: 10;
   display: grid;
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: none;
   place-items: center;
+  margin: 0;
   padding: 20px;
+  border: 0;
   background: rgba(2, 5, 25, 0.82);
 }
 
