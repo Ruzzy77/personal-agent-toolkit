@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "library": {
+      "type": "http",
+      "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp"
+    }
+  }
+}

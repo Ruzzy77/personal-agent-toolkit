@@ -1,6 +1,6 @@
 # Privacy boundary
 
-Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, and Journal use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy. Design has no product data store.
+Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, Journal, and Library use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy. Design has no product data store.
 
 ## Sense
 
@@ -103,6 +103,25 @@ host agent's current tools and permissions, and the plugin does not retain those
 history. The owner-only Design Site renders the same public catalog and keeps no user content;
 its WebMCP tools only update the visible finder, comparison, and request-preparation state.
 
+## Library
+
+Library is an owner-operated publication service. The Library Site is the canonical reading and
+direct-editing surface, while its authenticated remote MCP supports page-independent reading,
+revision, asset upload, and publication against the same data.
+
+- Issue HTML, titles, publication metadata, public references, and interaction state are stored in
+  the Site's D1 database. Cover and illustration assets are stored in the Site's R2 bucket.
+- The plugin and public repository contain the Site, service, schema, and migration source but no
+  published issue records, catalog export, uploaded media, or production database.
+- The remote MCP accepts tokens only for the exact Library resource. Reading requires
+  `library.read`; issue revision, publication, and asset upload require `library.write`.
+- The Library service does not keep a second document database. It verifies owner OAuth through a
+  private Service Binding and forwards authorized operations to the Site API.
+- The owner-only Site performs direct edits through its authenticated server API. Agent proposals
+  applied through WebMCP are not autosaved and require a separate owner-confirmed save.
+- Public issue references contain reader-usable sources rather than internal prompts, private file
+  paths, tool names, or production notes.
+
 ## Private ChatGPT tunnel use
 
 The gateway and Secure MCP Tunnel are transitional compatibility paths while the remote migration
@@ -121,8 +140,8 @@ source files.
 
 ## Optional remote authentication template
 
-The `auth` directory is a self-deploy template for one owner to authorize the remote context and
-Journal services.
+The `auth` directory is a self-deploy template for one owner to authorize the remote context,
+Journal, and Library services.
 
 - The public repository contains no Google client secret, Cloudflare credential, owner identifier,
   production token, grant, or session.
@@ -143,7 +162,8 @@ Journal services.
 
 The release repository must not contain:
 
-- Sense, Corpus, Hypes, or Journal runtime databases, or any Hypes relationship-model data;
+- Sense, Corpus, Hypes, Journal, or Library runtime databases, uploaded Library media, or any Hypes
+  relationship-model data;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;
@@ -153,11 +173,13 @@ The release repository must not contain:
 The product directories under `plugins/` are marketplace installation targets. They contain no
 build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
 Skills and the generated public reference pack, while `sites/design` contains the Site and public
-library source. `services/journal` contains the
-deployable schema and service source, and `sites/journal` contains the owner-only Sites frontend;
-runtime values and secrets stay in ignored configuration or the hosting environment. Public
-resource and Site endpoints may appear in the plugin manifest. The optional gateway remains a
-separate package and follows the same repository-content boundary.
+library source. `services/journal` and `services/library` contain deployable service source;
+`sites/journal` and `sites/library` contain the owner-only Sites frontends and their public
+assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
+Public resource and Site endpoints may appear in the plugin manifest. The optional gateway
+remains a separate package and follows the same repository-content boundary.
 
-The authentication template and Journal service record their resolved JavaScript dependencies in
-`auth/package-lock.json` and `services/journal/package-lock.json`.
+The authentication template, remote services, and Sites record their resolved JavaScript
+dependencies in `auth/package-lock.json`, `services/journal/package-lock.json`,
+`services/library/package-lock.json`, `sites/journal/package-lock.json`,
+`sites/design/package-lock.json`, and `sites/library/package-lock.json`.

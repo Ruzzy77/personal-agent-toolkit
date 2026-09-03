@@ -1,0 +1,28 @@
+{
+  "name": "personal-agent-library-service",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Owner-authenticated remote MCP for Library",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "deploy": "npm run check && wrangler deploy"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.0.0",
+    "@cloudflare/workers-types": "5.20260825.1",
+    "@types/node": "26.3.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.125.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
