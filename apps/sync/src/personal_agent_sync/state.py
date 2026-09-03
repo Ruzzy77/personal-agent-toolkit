@@ -898,7 +898,12 @@ class SyncState:
                 JOIN documents d USING(connection_key, document_id)
                 JOIN connections c USING(connection_key)
                 WHERE q.next_attempt_at <= ?
-                ORDER BY q.first_seen_at LIMIT ?
+                ORDER BY CASE q.event_kind
+                    WHEN 'refresh' THEN 0
+                    WHEN 'analyzer_refresh' THEN 2
+                    ELSE 1
+                END, q.first_seen_at
+                LIMIT ?
                 """,
                 (now_iso(), limit),
             ).fetchall()

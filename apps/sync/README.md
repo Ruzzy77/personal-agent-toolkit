@@ -24,6 +24,8 @@ on a local port and does not expose the Mac through a tunnel.
 - analyze an immutable capture through the shared Document Files job contract;
 - compare recorded adapter identities with the pinned Document Files runtime and
   queue only known stale projections in bounded batches after an analyzer update;
+- process explicit refreshes and current Finder changes before maintenance-only
+  analyzer refreshes, so a large upgrade batch cannot delay live Source updates;
 - stage and atomically commit extracted Corpus projections while leaving the
   last good remote revision readable on failure;
 - reconcile exact remote records no longer retained by a completed local

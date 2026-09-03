@@ -600,6 +600,43 @@ def test_analyzer_change_queues_only_known_stale_projections(tmp_path: Path) -> 
     ]
 
 
+def test_due_changes_prioritize_explicit_and_live_source_updates_over_maintenance(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    for name in ("maintenance.txt", "deleted.txt", "changed.txt", "refresh.txt"):
+        (root / name).write_text(name, encoding="utf-8")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    reconcile_all(state)
+    changes = {row["relative_path_nfc"]: row for row in state.due_changes()}
+
+    assignments = (
+        ("analyzer_refresh", "2026-01-01T00:00:00Z", "maintenance.txt"),
+        ("deleted", "2026-01-02T00:00:00Z", "deleted.txt"),
+        ("changed", "2026-01-03T00:00:00Z", "changed.txt"),
+        ("refresh", "2026-01-04T00:00:00Z", "refresh.txt"),
+    )
+    with state.connect() as connection:
+        connection.executemany(
+            """
+            UPDATE change_queue SET event_kind = ?, first_seen_at = ?
+            WHERE connection_key = 'notes:main' AND document_id = ?
+            """,
+            [
+                (event, first_seen, changes[path]["document_id"])
+                for event, first_seen, path in assignments
+            ],
+        )
+
+    assert [row["event_kind"] for row in state.due_changes(limit=4)] == [
+        "refresh",
+        "deleted",
+        "changed",
+        "analyzer_refresh",
+    ]
+
+
 def test_local_analyzer_manifest_keeps_only_durable_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
