@@ -1541,7 +1541,7 @@ def _select_tracked_document(
     by_identity: Mapping[tuple[object, object, object], Mapping[str, Any]],
     by_document_id: Mapping[object, Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    """Match projected records exactly and metadata-only records by document ID."""
+    """Match exact projections, detached documents, and metadata-only records."""
 
     exact = by_identity.get(
         (
@@ -1552,12 +1552,14 @@ def _select_tracked_document(
     )
     if exact is not None:
         return exact
+    tracked = by_document_id.get(actual.get("document_id"))
+    if tracked is not None and tracked.get("missing_since") is not None:
+        return tracked
     if actual.get("sha256") is not None or actual.get("projection_id") is not None:
         return None
-    metadata_only = by_document_id.get(actual.get("document_id"))
-    if metadata_only is None or metadata_only.get("last_projection_id") is not None:
+    if tracked is None or tracked.get("last_projection_id") is not None:
         return None
-    return metadata_only
+    return tracked
 
 
 def _first_record_mismatch(
@@ -1755,6 +1757,11 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             tracked_document_by_id = {
                 document["document_id"]: document for document in tracked_documents
             }
+            detached_document_ids = {
+                document["document_id"]
+                for document in tracked_documents
+                if document["missing_since"] is not None
+            }
             tracked_source_projections = {
                 identity
                 for identity in tracked_document_by_identity
@@ -1790,7 +1797,11 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             preserved_projection_count = 0
             reconciled_projection_count = 0
             advanced_document_count = 0
-            superseded_projection_ids: set[str] = set()
+            superseded_projection_ids = {
+                projection_id
+                for projection_id, projection in expected_projections.items()
+                if projection["document_id"] in detached_document_ids
+            }
             inflight_upload_ids: set[str] = set()
             while not (document_done and projection_done):
                 inventory = await remote.inventory(
@@ -1963,7 +1974,8 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         and actual.get("revision_id") in expected_revision_ids
                     )
                     if expected is None and (
-                        (
+                        actual.get("document_id") in detached_document_ids
+                        or (
                             known_migration_revision
                             and (
                                 actual.get("is_active") == 0
@@ -1983,11 +1995,10 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                             )
                         )
                     ):
-                        # A Context link can protect an older extraction for the
-                        # same durable revision. A trusted replacement may remain
-                        # active inside a revision that a later Source update made
-                        # historical. Preserving either state is intentional, not
-                        # migration drift.
+                        # A detached Source can retain remote history captured
+                        # before it disappeared. A Context link can also protect
+                        # an older extraction, including a trusted replacement
+                        # inside a revision that later became historical.
                         preserved_projection_count += 1
                         continue
                     raise _verification_error(
