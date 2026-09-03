@@ -251,25 +251,32 @@ class SyncDaemon:
                     raise
             self.state.complete_missing(change["connection_key"], change["document_id"])
             return
+        remote_document_missing = False
         if change["event_kind"] == "moved" and change.get("last_revision_sha256"):
-            await self.remote.update_source_state(
-                corpus_id,
-                change["document_id"],
-                "available",
-                now_iso(),
-                change["relative_path_nfc"],
-                logical_size=int(change["size"]),
-                modified_ns=int(change["modified_ns"]),
-                residency_state="resident",
-                eligibility_state="supported",
-            )
-            self.state.complete_change(
-                change["connection_key"],
-                change["document_id"],
-                change["last_revision_sha256"],
-                change["last_projection_id"],
-            )
-            return
+            try:
+                await self.remote.update_source_state(
+                    corpus_id,
+                    change["document_id"],
+                    "available",
+                    now_iso(),
+                    change["relative_path_nfc"],
+                    logical_size=int(change["size"]),
+                    modified_ns=int(change["modified_ns"]),
+                    residency_state="resident",
+                    eligibility_state="supported",
+                )
+            except SyncError as error:
+                if error.code != "document_not_found":
+                    raise
+                remote_document_missing = True
+            else:
+                self.state.complete_change(
+                    change["connection_key"],
+                    change["document_id"],
+                    change["last_revision_sha256"],
+                    change["last_projection_id"],
+                )
+                return
 
         root = resolve_moved_root(
             Path(change["root_path"]),
@@ -290,10 +297,48 @@ class SyncDaemon:
             ):
                 previous_projection = change.get("last_projection_id")
                 if isinstance(previous_projection, str):
+                    if not remote_document_missing:
+                        try:
+                            await self.remote.update_source_state(
+                                corpus_id,
+                                change["document_id"],
+                                "available",
+                                now_iso(),
+                                change["relative_path_nfc"],
+                                logical_size=snapshot.byte_size,
+                                modified_ns=snapshot.modified_ns,
+                                residency_state="resident",
+                                eligibility_state="supported",
+                            )
+                        except SyncError as error:
+                            if error.code != "document_not_found":
+                                raise
+                            remote_document_missing = True
+                    if not remote_document_missing:
+                        self.state.complete_change(
+                            change["connection_key"],
+                            change["document_id"],
+                            snapshot.sha256,
+                            previous_projection,
+                        )
+                        return
+                else:
+                    self.state.complete_unsupported(
+                        change["connection_key"],
+                        change["document_id"],
+                        snapshot.sha256,
+                    )
+                    return
+            if (
+                not remote_document_missing
+                and change.get("last_revision_sha256")
+                and snapshot.sha256 != change.get("last_revision_sha256")
+            ):
+                try:
                     await self.remote.update_source_state(
                         corpus_id,
                         change["document_id"],
-                        "available",
+                        "changed",
                         now_iso(),
                         change["relative_path_nfc"],
                         logical_size=snapshot.byte_size,
@@ -301,33 +346,9 @@ class SyncDaemon:
                         residency_state="resident",
                         eligibility_state="supported",
                     )
-                    self.state.complete_change(
-                        change["connection_key"],
-                        change["document_id"],
-                        snapshot.sha256,
-                        previous_projection,
-                    )
-                else:
-                    self.state.complete_unsupported(
-                        change["connection_key"],
-                        change["document_id"],
-                        snapshot.sha256,
-                    )
-                return
-            if change.get("last_revision_sha256") and snapshot.sha256 != change.get(
-                "last_revision_sha256"
-            ):
-                await self.remote.update_source_state(
-                    corpus_id,
-                    change["document_id"],
-                    "changed",
-                    now_iso(),
-                    change["relative_path_nfc"],
-                    logical_size=snapshot.byte_size,
-                    modified_ns=snapshot.modified_ns,
-                    residency_state="resident",
-                    eligibility_state="supported",
-                )
+                except SyncError as error:
+                    if error.code != "document_not_found":
+                        raise
             try:
                 selected_format = format_id(change["relative_path_nfc"])
                 result = await select_analyzer(

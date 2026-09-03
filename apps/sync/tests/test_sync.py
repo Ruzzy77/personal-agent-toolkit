@@ -822,6 +822,121 @@ def test_metadata_only_change_reuses_the_committed_projection(
     assert daemon.state.due_changes() == []
 
 
+@pytest.mark.parametrize("content_changed", [False, True])
+def test_pruned_remote_document_is_recreated_from_local_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content_changed: bool,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "restored.txt"
+    document.write_text("before", encoding="utf-8")
+    daemon = SyncDaemon(load_config(write_config(tmp_path, root)), "test-token")
+    reconcile_all(daemon.state)
+    initial = daemon.state.due_changes()[0]
+    initial_digest = hashlib.sha256(b"before").hexdigest()
+    daemon.state.complete_change(
+        initial["connection_key"],
+        initial["document_id"],
+        initial_digest,
+        "projection_pruned_remotely",
+    )
+
+    if content_changed:
+        document.write_text("after", encoding="utf-8")
+    else:
+        metadata = document.stat()
+        os.utime(
+            document,
+            ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 1_000_000),
+        )
+    reconcile_all(daemon.state)
+    change = daemon.state.due_changes()[0]
+    analyzed: list[str] = []
+    uploaded: list[dict[str, object]] = []
+
+    async def missing(*args: object, **kwargs: object) -> dict[str, object]:
+        raise SyncError("document_not_found", "remote retention removed the document")
+
+    async def analyze(
+        _state: object,
+        _remote: object,
+        _change: dict[str, object],
+        snapshot: Snapshot,
+        selected_format: str,
+    ) -> dict[str, object]:
+        analyzed.append(snapshot.sha256)
+        descriptor = {
+            "adapter_id": "document-files.text",
+            "adapter_version": "2",
+            "config_hash": "a" * 64,
+            "capabilities": {"format_ids": ["txt"], "supports_ocr": False},
+        }
+        return {
+            "input": {
+                "format_id": selected_format,
+                "byte_size": snapshot.byte_size,
+                "sha256": snapshot.sha256,
+            },
+            "analyzer": descriptor,
+            "extraction": {
+                "descriptor": descriptor,
+                "completeness": "complete",
+                "coverage": {"text_content": "complete"},
+                "units": [
+                    {
+                        "unit_type": "paragraph",
+                        "structure_path": {"paragraph": 1},
+                        "content": document.read_text(encoding="utf-8"),
+                        "derivation_method": "native_text",
+                        "geometry": {},
+                        "confidence": 1,
+                        "quality_flags": [],
+                        "issues": [],
+                    }
+                ],
+                "issues": [],
+                "manifest_hash": "b" * 64,
+            },
+        }
+
+    async def resolve(*args: object) -> None:
+        return None
+
+    async def upload(
+        _corpus_id: str,
+        header: dict[str, object],
+        _units: list[dict[str, object]],
+    ) -> dict[str, object]:
+        uploaded.append(header)
+        projection = header["projection"]
+        assert isinstance(projection, dict)
+        return {"projectionId": projection["projectionId"]}
+
+    async def maintain(*args: object, **kwargs: object) -> dict[str, object]:
+        return {"removed": {"projections": 0}}
+
+    monkeypatch.setattr(daemon.remote, "update_source_state", missing)
+    monkeypatch.setattr(daemon.remote, "resolve_revision", resolve)
+    monkeypatch.setattr(daemon.remote, "upload_projection", upload)
+    monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain)
+    monkeypatch.setattr(daemon_module, "select_analyzer", analyze)
+
+    async def exercise() -> None:
+        await daemon._process_change(change)
+        await daemon.close()
+
+    asyncio.run(exercise())
+    expected_digest = hashlib.sha256(document.read_bytes()).hexdigest()
+    result = daemon.state.refresh_result("notes", "main", initial["document_id"])
+    assert analyzed == [expected_digest]
+    assert len(uploaded) == 1
+    assert result["revision_sha256"] == expected_digest
+    assert result["projection_id"] != "projection_pruned_remotely"
+    assert daemon.state.due_changes() == []
+
+
 def test_root_move_is_recovered_by_current_identity_when_locator_is_updated(
     tmp_path: Path,
 ) -> None:
