@@ -11,5 +11,6 @@
 - plugin base version을 바꾼 작업은 소스 커밋과 원격 저장소 반영 뒤 Codex, Claude Code, Claude Desktop과 ChatGPT 웹까지 같은 작업에서 갱신한다. Codex·Claude Code·Claude Desktop에서는 Sense, Corpus, Document Files, Hypes, Journal, Design과 Library를 업데이트하거나 다시 설치하고 새 세션에서 현재 Skill 또는 공개 MCP 도구를 확인한다.
 - ChatGPT 웹과 claude.ai는 Sense·Corpus·Hypes·Journal·Library의 상시 원격 MCP를 각각 연결하고 소유자 인증, 현재 작업 목록과 권한을 확인한다. 로컬 서비스를 다시 공개 터널로 연결하거나 원격 MCP와 병행하지 않는다.
 - Document Files는 로컬 문서 작업용 plugin으로 유지하고 ChatGPT 웹에 별도 MCP로 노출하지 않는다. 로컬 Source 갱신은 Sync가 Connection 정책에 따라 설치된 Document Files를 호출하거나, 같은 분석 계약을 구현한 별도 원격 analyzer에 권한이 확인된 임시 자료를 보낸다.
+- 분석기의 정확한 구현·설정 식별자는 projection의 재현 근거로 보존하되 자동 재분석 조건으로 사용하지 않는다. 내용이 바뀌지 않은 기존 문서까지 다시 분석해야 하는 경우에만 형식별 `reanalysis_generation`을 명시적으로 올린다. 코드 정리, 패키징, 실행 환경이나 일반 구성 변경만으로 이 값을 바꾸지 않는다.
 - 배포 완료는 변경한 plugin이 시작되고 현재 Skill 또는 공개 MCP 도구와 입력 구조가 실제 세션에 노출되며 위 실행 환경의 갱신을 모두 확인한 상태를 뜻한다.
 - 로컬 launcher, Sync, marketplace 배포본, 원격 MCP와 원격 인증의 역할을 섞지 않는다.

@@ -36,7 +36,7 @@ registered Source
   -> searchable Source units
 ```
 
-Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`를 호출해 형식별 descriptor와 config를 읽습니다. descriptor가 바뀌면 동일 revision도 새 projection으로 다시 추출합니다. 이전 명칭이나 호환 도구로 우회하지 않습니다.
+Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`를 호출해 형식별 descriptor와 config를 읽습니다. descriptor는 정확한 실행 조건과 새 projection의 중복 여부를 식별하지만, 값이 달라졌다는 이유만으로 동일 revision을 다시 추출하지 않습니다. 내용이 같은 기존 문서를 다시 분석해야 하는 변경은 별도의 `reanalysis_generation`으로 선언하며, Sync가 이 세대의 증가만 제한된 자동 갱신 대상으로 삼습니다. 이전 명칭이나 호환 도구로 우회하지 않습니다.
 
 실행 파일은 다음 순서로 찾습니다.
 
@@ -56,6 +56,7 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
   "formats": {
     "pdf": {
       "media_type": "application/pdf",
+      "reanalysis_generation": 1,
       "descriptor": {
         "adapter_id": "document-files.process.pdf",
         "adapter_version": "1.0.0+process.<digest>.route.<digest>",
@@ -82,7 +83,7 @@ Corpus는 활성화된 `document-files` 실행 파일에서 `process --describe`
 }
 ```
 
-Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confidence 선언과 config hash를 다시 검증합니다.
+Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confidence 선언과 config hash를 다시 검증합니다. `reanalysis_generation`은 1 이상의 정수이며, 코드 정리·패키징·실행 환경이나 일반 구성 변경에는 올리지 않습니다.
 
 ## Request
 

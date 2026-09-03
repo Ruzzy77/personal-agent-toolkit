@@ -50,7 +50,7 @@ Corpus의 논리 정체성과 물리 위치는 분리합니다.
 - Source 등록은 불변 `location_id`와 현재 `source_root`를 함께 가집니다.
 - 문서는 경로 해시가 아닌 불변 UUID `document_id`를 가집니다.
 - revision은 캡처한 내용과 당시 관측값을 식별합니다.
-- extraction projection은 추출기와 설정을 식별합니다.
+- extraction projection은 추출기와 설정을 식별하지만 그 식별자를 자동 재분석 조건으로 사용하지 않습니다.
 - 검색 FTS는 위 record에서 다시 만들 수 있는 파생 투영입니다.
 
 `source_root`와 문서의 절대 경로는 현재 파일에 접근하기 위한 운영 정보일 뿐, 지식 record의 ID나 출처 anchor가 아닙니다. 같은 볼륨에서 Finder로 Source 또는 Work 폴더를 옮기면 저장된 device·inode를 macOS 파일시스템에 질의해 현재 경로를 찾고 등록값을 원자적으로 고칩니다. 복사·복원이나 새 checkout으로 정체성이 바뀌면 Sync의 명시적 rebind가 Sync 상태와 로컬 Corpus의 Source·Work 등록을 함께 갱신합니다.
@@ -71,7 +71,7 @@ Corpus의 논리 정체성과 물리 위치는 분리합니다.
 
 형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는 unit type, geometry, confidence, OCR 여부와 품질 표지를 검증한 뒤 revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고 원문에 없는 제목·번호나 배치를 Source unit에 덧붙이지 않습니다.
 
-Corpus는 `document-files process --describe`에서 adapter identity와 capability를 읽습니다. identity가 바뀌면 같은 revision도 새 projection 대상으로 분류합니다. 입력은 private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID와 권한 정보는 전달하지 않습니다. 처리 후 원본 바이트 사본은 지우고 구조화된 record를 남깁니다. Document Files를 사용할 수 없으면 자체 parser, OCR이나 renderer로 대체하지 않습니다.
+Corpus는 `document-files process --describe`에서 adapter identity와 capability를 읽습니다. identity는 새 projection의 재현 근거와 중복 판정에 사용하며, 기존 projection을 오래된 결과로 분류하는 조건은 아닙니다. `extractor_outdated`는 현재 실행기가 해당 형식을 더 이상 지원하지 않는 경우를 위한 호환 상태로만 남깁니다. 내용이 같은 기존 문서의 자동 재분석은 Sync가 형식별 `reanalysis_generation`의 명시적 증가를 확인한 경우에만 수행합니다. 입력은 private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID와 권한 정보는 전달하지 않습니다. 처리 후 원본 바이트 사본은 지우고 구조화된 record를 남깁니다. Document Files를 사용할 수 없으면 자체 parser, OCR이나 renderer로 대체하지 않습니다.
 
 ## 자동 갱신과 변경 대기열
 

@@ -176,8 +176,18 @@ def _load_routes(
             raise ExtractionError("Document Files format descriptor is invalid")
         descriptor_raw = route.get("descriptor")
         config = route.get("config")
+        reanalysis_generation = route.get("reanalysis_generation")
         if not isinstance(descriptor_raw, Mapping) or not isinstance(config, Mapping):
             raise ExtractionError("Document Files format descriptor is incomplete")
+        if (
+            isinstance(reanalysis_generation, bool)
+            or not isinstance(reanalysis_generation, int)
+            or not 1 <= reanalysis_generation <= 2_147_483_647
+        ):
+            raise ExtractionError(
+                "Document Files reanalysis generation is invalid",
+                details={"format_id": format_id},
+            )
         capabilities = _descriptor_capabilities(
             descriptor_raw.get("capabilities"), format_id=format_id
         )
@@ -236,15 +246,19 @@ class AdapterRegistry:
         adapter_version: str,
         config_hash: str,
     ) -> bool:
+        """Return whether an active projection remains usable for this format.
+
+        The exact identity is retained in the projection as provenance. It is not
+        a freshness signal: Personal Agent Sync separately applies Document Files'
+        explicit per-format reanalysis generation.
+        """
+
+        del adapter_id, adapter_version, config_hash
         try:
-            current = self.resolve(format_id).descriptor
+            self.resolve(format_id)
         except ExtractionError:
             return False
-        return (adapter_id, adapter_version, config_hash) == (
-            current.adapter_id,
-            current.adapter_version,
-            current.config_hash,
-        )
+        return True
 
 
 def build_default_registry(

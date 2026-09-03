@@ -43,6 +43,7 @@ class SyncDaemon:
         self.source_change_lock = asyncio.Lock()
         self.stopping = asyncio.Event()
         self._retention_failures: set[str] = set()
+        self.analyzer_manifest: dict[str, dict[str, str | int]] = {}
 
     async def close(self) -> None:
         self.stopping.set()
@@ -71,15 +72,15 @@ class SyncDaemon:
         changed = asyncio.Event()
         monitor = SourceEventMonitor(asyncio.get_running_loop(), changed)
         next_full_reconcile = 0.0
-        analyzer_manifest: dict[str, dict[str, str]] = {}
         try:
-            analyzer_manifest = await asyncio.to_thread(
+            self.analyzer_manifest = await asyncio.to_thread(
                 local_analyzer_manifest, self.config.document_files_python
             )
         except SyncError:
             LOGGER.exception(
-                "Document Files descriptors are unavailable; automatic adapter refresh is disabled"
+                "Document Files descriptors are unavailable; automatic reanalysis is disabled"
             )
+        reanalysis_scan_pending = bool(self.analyzer_manifest)
         try:
             while not self.stopping.is_set():
                 now = asyncio.get_running_loop().time()
@@ -113,12 +114,13 @@ class SyncDaemon:
                         + self.config.full_reconcile_seconds
                     )
 
-                if analyzer_manifest:
-                    await asyncio.to_thread(
-                        self.state.enqueue_outdated_analyzers,
-                        analyzer_manifest,
+                if reanalysis_scan_pending:
+                    reanalysis = await asyncio.to_thread(
+                        self.state.reconcile_analyzer_refreshes,
+                        self.analyzer_manifest,
                         ANALYZER_REFRESH_BATCH,
                     )
+                    reanalysis_scan_pending = bool(reanalysis["remaining"])
                 await self._process_changes()
                 timeout = min(
                     self.config.reconcile_seconds,
@@ -438,6 +440,13 @@ class SyncDaemon:
             adapter_id=header["projection"]["adapterId"],
             adapter_version=header["projection"]["adapterVersion"],
             config_hash=header["projection"]["configHash"],
+            reanalysis_generation=(
+                self.analyzer_manifest.get(selected_format, {}).get(
+                    "reanalysis_generation"
+                )
+                if change["analyzer_route"] == "local"
+                else None
+            ),
         )
 
     async def _complete_unsupported_change(

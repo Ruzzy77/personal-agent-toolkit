@@ -19,7 +19,7 @@ export const MCP_SURFACES = {
   },
   corpus: {
     name: "Corpus",
-    version: "0.21.4-remote.3",
+    version: "0.21.5-remote.3",
     tools: [
       "corpus_space_list",
       "corpus_space_get",
