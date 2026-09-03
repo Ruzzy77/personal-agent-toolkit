@@ -95,6 +95,23 @@ def test_migration_record_verification_reports_durable_field() -> None:
     assert migration_module._first_record_mismatch(actual, expected) == "relative_path"
 
 
+def test_migration_counts_allow_only_projection_history_superset() -> None:
+    expected = {"documents": 2, "revisions": 2, "projections": 2, "units": 10}
+
+    assert migration_module._durable_counts_cover_expected(
+        {"documents": 2, "revisions": 2, "projections": 3, "units": 14},
+        expected,
+    )
+    assert not migration_module._durable_counts_cover_expected(
+        {"documents": 3, "revisions": 2, "projections": 3, "units": 14},
+        expected,
+    )
+    assert not migration_module._durable_counts_cover_expected(
+        {"documents": 2, "revisions": 2, "projections": 1, "units": 9},
+        expected,
+    )
+
+
 def test_successful_migration_checkpoint_cleanup_keeps_only_current_items(
     tmp_path: Path,
 ) -> None:
