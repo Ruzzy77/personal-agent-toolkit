@@ -64,8 +64,8 @@ Corpus의 논리 정체성과 물리 위치는 분리합니다.
 
 새 원자료 추출이 실패하면 실패 시도와 문제만 기록하고 기존의 마지막 정상 projection을 유지합니다. 파일이 사라지거나 내용이 달라져도 해당 record를 검색 결과에서 즉시 버리지 않습니다. 결과에는 다음 상태와 시간이 함께 나갑니다.
 
-- `source_state`: `unknown`, `available`, `changed`, `partially_available`, `unavailable`
-- `record_state`: `empty`, `ready`, `partial`, `extractor_outdated`, `archived`, `unavailable`
+- `source_state`: `unknown`, `available`, `changed`, `partially_available`, `unavailable`. Connection 요약에서는 현재 Source 목록을 기준으로 하며, 삭제 후 보존 중인 record는 현재 원자료의 가용성을 낮추지 않습니다.
+- `record_state`: `empty`, `ready`, `partial`, `extractor_outdated`, `archived`, `unavailable`. 삭제된 항목도 정상 projection이 보존되어 있으면 record 요약에 포함하지만, projection 없이 삭제된 과거 항목은 현재 record를 `partial`로 만들지 않습니다.
 - `captured_at`: record가 원자료에서 캡처된 시점
 
 검색은 입력 문구와 같은 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가 들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며 내용은 선택한 unit에서 읽습니다. 원자료가 없어도 active record는 검색·조회할 수 있습니다. 최신 정보나 현재 원문 인용에는 `source_state`, `captured_at`과 필요 시 갱신 결과를 함께 확인합니다.
