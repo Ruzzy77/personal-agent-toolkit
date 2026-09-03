@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .config import default_config_path, load_config
+from .config import default_config_path, load_config, rewrite_connection_roots
 from .credentials import read_token, store_token
 from .daemon import SyncDaemon
 from .errors import SyncError
@@ -31,6 +31,12 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("run", help="run the outbound Sync daemon")
     commands.add_parser("validate", help="validate local configuration and storage")
     commands.add_parser("reconcile", help="run one local Source reconciliation")
+    rebind = commands.add_parser(
+        "rebind-root",
+        help="authorize a copied or restored Connection root with a new identity",
+    )
+    rebind.add_argument("connection_key")
+    rebind.add_argument("root", type=Path)
     commands.add_parser("status", help="show local queue and Connection status")
     storage_report = commands.add_parser(
         "storage-report", help="show current remote Corpus storage use"
@@ -233,6 +239,17 @@ def main() -> None:
             result = {"valid": True, "device_id": config.device_id}
         elif arguments.command == "reconcile":
             result = {"connections": reconcile_all(SyncState(config))}
+        elif arguments.command == "rebind-root":
+            state = SyncState(config)
+            result = state.rebind_connection_root(
+                arguments.connection_key, arguments.root
+            )
+            rewrite_connection_roots(
+                arguments.config,
+                set(result["connection_keys"]),
+                Path(str(result["root"])),
+            )
+            result["config_updated"] = True
         elif arguments.command == "status":
             result = _status(SyncState(config))
         elif arguments.command == "storage-report":

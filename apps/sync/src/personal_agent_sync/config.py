@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import stat
+import tempfile
 import tomllib
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -110,6 +114,81 @@ def default_config_path() -> Path:
         / "Personal Agent Sync"
         / "config.toml"
     )
+
+
+def rewrite_connection_roots(
+    path: Path | None, connection_keys: set[str], root: Path
+) -> dict[str, object]:
+    """Atomically replace local-only root locators for selected Connections.
+
+    The generated Sync configuration is intentionally kept human-readable.  A
+    targeted text edit preserves comments and unrelated settings instead of
+    round-tripping the whole TOML document through a serializer.
+    """
+
+    source = (path or default_config_path()).expanduser()
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SyncError(
+            "invalid_configuration", "Sync configuration could not be read"
+        ) from exc
+    starts = [
+        match.start() for match in re.finditer(r"(?m)^\[\[connections\]\]\s*$", text)
+    ]
+    if not starts:
+        raise SyncError(
+            "invalid_configuration", "Sync configuration has no Connections"
+        )
+    starts.append(len(text))
+    replacement = unicodedata.normalize("NFC", str(root))
+    chunks: list[str] = [text[: starts[0]]]
+    updated: set[str] = set()
+    for index in range(len(starts) - 1):
+        chunk = text[starts[index] : starts[index + 1]]
+        try:
+            parsed = tomllib.loads(chunk)["connections"][0]
+        except (KeyError, IndexError, TypeError, tomllib.TOMLDecodeError) as exc:
+            raise SyncError(
+                "invalid_configuration", "a Connection configuration is invalid"
+            ) from exc
+        key = f"{parsed.get('space_id')}:{parsed.get('connection_id')}"
+        if key in connection_keys:
+            root_line = re.compile(r"(?m)^(\s*root\s*=\s*).*$")
+            if root_line.search(chunk) is None:
+                raise SyncError("invalid_configuration", "a Connection root is missing")
+            chunk = root_line.sub(
+                lambda match: (
+                    match.group(1) + json.dumps(replacement, ensure_ascii=False)
+                ),
+                chunk,
+                count=1,
+            )
+            updated.add(key)
+        chunks.append(chunk)
+    if updated != connection_keys:
+        raise SyncError(
+            "connection_not_found", "not every rebound Connection exists in config"
+        )
+    rewritten = "".join(chunks)
+    mode = stat.S_IMODE(source.stat().st_mode)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{source.name}.", suffix=".tmp", dir=source.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            stream.write(rewritten)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, source)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "updated_connections": sorted(updated),
+        "root": replacement,
+    }
 
 
 def load_config(path: Path | None = None) -> SyncConfig:
