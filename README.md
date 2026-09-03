@@ -168,15 +168,16 @@ Files, Hypes, Journal, Design과 Library를 업데이트합니다. 업데이트 
 다시 시작하고 새 Cowork 세션에서 Design의 세 Skill과 각 원격 MCP의 현재 도구를 확인합니다. 일반
 Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
 
-### ChatGPT 웹
+### 웹 ChatGPT와 claude.ai
 
-Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 새 endpoint로 등록하거나 갱신하고 소유자 인증을
-마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure MCP Tunnel과
-로컬 gateway를 사용하던 이관은 완료됐으며, 현재 구성에는 다시 추가하지 않습니다.
+Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 현재 endpoint로 등록하거나 갱신하고
+소유자 인증을 마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure
+MCP Tunnel과 로컬 gateway를 사용하던 이관은 완료됐으며, 현재 구성에는 다시 추가하지 않습니다.
 
-Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
+Document Files는 로컬 문서 처리 plugin이며 웹 클라이언트에 별도 원격 MCP로 노출하지 않습니다.
+Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
 
-Design도 Skill과 정적 참고 자산으로 동작하며 ChatGPT 웹용 원격 MCP를 만들지 않습니다.
+Design도 Skill과 정적 참고 자산으로 동작하며 웹 클라이언트용 원격 MCP를 만들지 않습니다.
 Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름만 제공합니다.
 
 ### 완료 기준
@@ -188,7 +189,11 @@ Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름�
 
 ## Sense 시작
 
-예시 프로필을 편집한 뒤 가져옵니다.
+plugin과 원격 MCP의 소유자 인증을 마치면 모든 지원 클라이언트가 같은 현재 프로필을
+읽습니다. 일반 항목과 Section Skill은 현재 버전을 대조해 대화에서 수정합니다.
+
+아래 launcher는 로컬 구현을 시험하거나 최초 이관 자료를 준비할 때만 사용합니다. 여기서
+바꾼 내용은 원격 정본을 자동으로 바꾸지 않습니다.
 
 ```sh
 cp examples/sense-profile.example.json /tmp/my-sense-profile.json
@@ -197,16 +202,19 @@ cp examples/sense-profile.example.json /tmp/my-sense-profile.json
 ./plugins/sense/launchers/sense status
 ```
 
-Sense는 소유자별 현재 프로필 하나를 유지합니다. 일반 수정은 관련 section을 원자적으로
-교체합니다. 민감 section은 원격 조회와 Chat 수정에서 제외합니다.
+최초 원격 이관은 [`apps/sync`](./apps/sync/README.md)의 소유자 장치 인증 절차를 따릅니다.
+Sense는 소유자별 현재 프로필 하나를 유지하고 일반 수정은 관련 section을 원자적으로
+교체합니다. 민감 section 본문은 명시적인 조회에서만 읽을 수 있으며 공개 원격 MCP로
+수정할 수 없습니다.
 각 section에는 검토한 `SKILL.md`를 하나까지 연결할 수 있습니다. 색인에는 Skill의 이름과 설명이
 나타나고, 해당 section을 읽으면 전체 작업 방법을 함께 불러옵니다. 일반 Section Skill은 사용자가
 명시적으로 요청하면 현재 버전과 전체 교체안을 대조해 Chat에서 수정할 수 있습니다. 민감 Skill의
-반영과 Skill 제거는 Sense의 로컬 명령에서 처리합니다.
+원격 저장, Skill 제거와 원격 데이터 영구 삭제는 공개 MCP 범위에 포함하지 않습니다.
 
-## Corpus 시작
+## 로컬 Corpus 연결 시작
 
-읽을 Source를 등록합니다.
+원격 Corpus 조회만 할 때에는 아래 로컬 명령이 필요하지 않습니다. Finder 자료를 연결할 Mac에
+Personal Agent Sync의 고정 runtime을 설치한 뒤 읽을 Source를 등록합니다.
 
 ```sh
 ./plugins/corpus/launchers/corpus corpus add \
@@ -257,7 +265,11 @@ Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토�
 
 Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인하며, 화면 소스는 `sites/journal`에서 관리합니다.
 
-Daily Monitoring 같은 로컬 자동화는 `plugins/journal/launchers/journal`을 사용해 달라진 항목만 반영합니다. 읽기·ingest 전용 토큰은 macOS Keychain의 `personal-agent-journal-ingest` service에 두며 저장소나 자동화 프롬프트에 넣지 않습니다.
+인증된 원격 MCP를 호출할 수 있는 자동화는 `manage-journal` Skill과
+`journal_ingest_items`로 달라진 항목만 반영합니다. MCP client가 아닌 별도 로컬 모니터가
+필요할 때에만 `plugins/journal/launchers/journal`과 읽기·ingest 전용 자격 증명을 사용합니다.
+이 토큰은 macOS Keychain의 `personal-agent-journal-ingest` service에 두며 저장소나 자동화
+프롬프트에 넣지 않습니다.
 
 ## Library 시작
 
@@ -278,14 +290,14 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 | 원격 Journal | 소유자 운영형 D1 |
 | Library 문서·이미지 | Sites D1·R2 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
-| 이관 전 로컬 Sense·Corpus·Hypes | 각 제품의 기존 `Application Support` 폴더 |
+| 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
 
 Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVACY.md](./PRIVACY.md)에 있습니다.
 
 ## 저장소 구조
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`는 원격 MCP 연결과 Skill을 배포하며, 각 폴더의
-Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
+Python 구현은 로컬 개발·이관 도구로 남습니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
 `plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
 서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
@@ -301,6 +313,7 @@ plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__v
 Python 소스, 스크립트와 테스트는 루트 [`ruff.toml`](./ruff.toml)의 형식을 따릅니다. 변경한 뒤 다음 검사를 실행합니다.
 
 ```sh
+python3 scripts/check_repository.py
 uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes apps/sync
 uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes apps/sync
 ```

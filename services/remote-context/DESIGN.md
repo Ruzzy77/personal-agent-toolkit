@@ -59,7 +59,7 @@ Each Corpus Source has one SQLite-backed Durable Object named from the owner
 and `corpus_id`. A shard stores document identity, retained revisions,
 extraction projections, Source units, external-provider binding/run/record
 metadata, and its FTS5 projection. Per-Corpus
-sharding avoids making the current multi-gigabyte source fabric depend on one
+sharding avoids making the current gigabyte-scale source fabric depend on one
 database's size or write serialization.
 
 A projection upload is staged under an `upload_id`. The existing active

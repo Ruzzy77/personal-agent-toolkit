@@ -1,6 +1,7 @@
 # Journal
 
-Journal은 GPT와 함께 쓰는 개인용 불릿저널입니다. 한 주의 항목을 계속 갱신하고, 완료·보류·취소는 사용자가 확정하며, 마감된 주간 기록에서 월·분기·연 단위 흐름을 읽습니다.
+Journal은 여러 AI 클라이언트와 함께 쓰는 개인용 불릿저널입니다. 한 주의 항목을 계속 갱신하고,
+완료·보류·취소는 사용자가 확정하며, 마감된 주간 기록에서 월·분기·연 단위 흐름을 읽습니다.
 
 - 소유자 전용 Site: <https://personal-journal.ruzzy.chatgpt.site>
 - 원격 MCP: `https://personal-agent-journal.hiyaq77.workers.dev/mcp`
@@ -22,9 +23,12 @@ Journal에는 진행 판단에 필요한 요약과 원본 참조만 저장합니
 - `journal_save_period_summary`: 사용자가 다듬은 기간 요약의 새 버전 저장
 - `journal_record_corpus_promotion`: 프로젝트 Corpus 반영 receipt
 
-## 자동 모니터링용 로컬 클라이언트
+## 외부 모니터용 로컬 클라이언트
 
-`launchers/journal`은 읽기와 ingest 전용 자격 증명을 환경 변수 또는 macOS Keychain에서 읽습니다. 토큰은 저장소와 자동화 프롬프트에 넣지 않습니다.
+원격 MCP를 직접 호출할 수 없는 별도 모니터에서만 `launchers/journal`을 사용합니다. 인증된 MCP를
+쓸 수 있는 자동화는 `manage-journal` Skill과 `journal_ingest_items`를 사용합니다.
+`launchers/journal`은 읽기와 ingest 전용 자격 증명을 환경 변수 또는 macOS Keychain에서 읽으며,
+토큰은 저장소와 자동화 프롬프트에 넣지 않습니다.
 
 ```sh
 ./plugins/journal/launchers/journal health
@@ -33,3 +37,7 @@ Journal에는 진행 판단에 필요한 요약과 원본 참조만 저장합니
 ```
 
 Keychain service 이름은 `personal-agent-journal-ingest`입니다. 운영 자격 증명은 저장소 밖에서 배포자가 설정합니다.
+
+## 라이선스
+
+[Apache License 2.0](LICENSE). [NOTICE](NOTICE)를 함께 따릅니다.

@@ -60,7 +60,10 @@ uv sync --frozen
 CORPUS_DATA_DIR=/absolute/private/path ./launchers/corpus-mcp
 ```
 
-macOS에서는 설치된 Corpus plugin을 찾아 자동 갱신을 계속하는 사용자 LaunchAgent를 한 번 설치할 수 있습니다. 이 실행기는 특정 Agent-Workspace 절대 경로를 저장하지 않으므로 저장소 폴더를 Finder에서 옮겨도 설치된 plugin을 다시 찾습니다.
+Sync에 연결하지 않은 로컬 Corpus 구현을 단독으로 시험할 때에만, 설치된 Corpus plugin을 찾아
+자동 갱신하는 사용자 LaunchAgent를 설치할 수 있습니다. 운영 구성에서는 Personal Agent Sync가
+이 역할을 맡으므로 두 LaunchAgent를 함께 실행하지 않습니다. 이 로컬 시험용 실행기는 특정
+Agent-Workspace 절대 경로를 저장하지 않습니다.
 
 ```sh
 ./launchers/install-maintenance install

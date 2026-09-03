@@ -76,7 +76,7 @@ function createServer(
   library: SitesLibraryClient,
 ): McpServer {
   const server = new McpServer(
-    { name: "personal-library", version: "0.2.0" },
+    { name: "personal-library", version: "0.2.1" },
     {
       instructions:
         owner.scopes.includes("library.write")

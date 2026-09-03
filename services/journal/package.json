@@ -1,6 +1,6 @@
 {
   "name": "personal-agent-journal-service",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Owner-operated Journal API and MCP service for Personal Agent Toolkit",

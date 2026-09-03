@@ -3,7 +3,7 @@
 요약, 자료와 설명을 빠르게 읽게 하는 디자인이다. 따뜻한 바탕, 산세리프
 활자와 가는 구분선을 사용한다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - HTML 틀: [간단한 보고서](/templates/hanji/templates/brief.html) · [표를 포함한 보고서](/templates/hanji/templates/artifact.html)
 - [디자인 원칙](DESIGN.md)

@@ -1,6 +1,6 @@
 {
   "name": "journal",
-  "version": "0.2.0+codex.20260902155500",
+  "version": "0.2.1+codex.20260903143747",
   "description": "Keep a private daily and weekly work journal with owner-confirmed status changes.",
   "author": {
     "name": "Ruzzy77",
@@ -24,7 +24,7 @@
   },
   "interface": {
     "displayName": "Journal",
-    "shortDescription": "Daily capture and weekly progress with GPT",
+    "shortDescription": "Daily capture and weekly progress across AI tools",
     "longDescription": "Journal is a private bullet-journal companion for daily monitoring, owner-confirmed completion, a reusable Monday-to-Sunday board, weekly close, and month, quarter, and year review. It stores concise work state and source references rather than raw email or document bodies. Project-specific durable outcomes can be reflected into the relevant Corpus project without turning Corpus into an activity log.",
     "developerName": "Ruzzy77",
     "category": "Productivity",

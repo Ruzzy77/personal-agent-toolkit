@@ -3,7 +3,7 @@
 회색 패널, 청사진 파랑과 주황 강조색을 사용하는 디자인이다. 구성 요소,
 연결 관계와 절차를 보여 주는 데 어울린다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - [HTML 틀](/templates/formwork/templates/report.html)
 - [문서 사이트 HTML 틀](/templates/formwork/templates/document-site.html)

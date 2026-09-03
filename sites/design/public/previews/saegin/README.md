@@ -3,7 +3,7 @@
 짙은 코발트 판면과 네온 노란색 표식을 사용하는 장문 발간물 디자인이다. 홈 링크와
 발간 정보는 별도 영역에 두고 제목과 본문은 한 열로 배치한다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - [HTML 틀](/templates/saegin/templates/reader.html)
 - [디자인 원칙](DESIGN.md)

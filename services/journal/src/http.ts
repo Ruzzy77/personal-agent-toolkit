@@ -98,7 +98,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       return jsonResponse(request, env, {
         ok: true,
         service: "personal-agent-journal",
-        version: "0.2.0",
+        version: "0.2.1",
       });
     }
     if (

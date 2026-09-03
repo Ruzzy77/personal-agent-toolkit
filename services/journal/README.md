@@ -57,6 +57,10 @@ npx wrangler deploy
 
 ## 데이터 경계
 
-Journal은 원문 이메일이나 문서 bytes를 저장하지 않습니다. 항목 title, 짧은 summary, source reference, lane, resolution, append-only event, week closure와 Corpus promotion receipt만 보관합니다. 닫힌 주는 correction event 외에는 수정하지 않습니다.
+Journal은 원문 이메일이나 문서 bytes를 저장하지 않습니다. 항목 title, 짧은 summary, source
+reference, lane, resolution, append-only event, week closure와 Corpus promotion receipt만
+보관합니다. Corpus receipt의 `sourcePath`는 프로젝트 root 기준 상대 경로나 비경로 표식만
+허용하며 로컬 절대 경로를 저장하지 않습니다. 닫힌 주는 correction event 외에는 수정하지
+않습니다.
 
 보존, 삭제, 장애 대응과 배포 전후 확인은 [OPERATIONS.md](./OPERATIONS.md)를 따릅니다.

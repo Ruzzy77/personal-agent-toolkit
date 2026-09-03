@@ -25,3 +25,7 @@ Library는 Daily·Digest·Research 발간호를 읽고 고치고 발행하는 �
 Context Skill을 현재 작업에 연결합니다. Library 사이트에서는 소유자가 읽기 화면을 직접
 고칠 수 있고, ChatGPT나 Codex가 WebMCP로 화면에 반영한 수정안은 사용자가 검토한 뒤에만
 저장됩니다.
+
+## 라이선스
+
+[Apache License 2.0](LICENSE). [NOTICE](NOTICE)를 함께 따릅니다.

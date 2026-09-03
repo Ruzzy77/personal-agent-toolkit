@@ -22,12 +22,18 @@ Local CLI / Finder ── Personal Agent Sync ── capture / Work authority
                                   └── Document Files analysis
 ```
 
-원격 `CorpusService`가 Codex, Claude와 웹 ChatGPT에 같은 Context, Source record와 확정
+원격 `CorpusService`가 Codex, Claude, 웹 ChatGPT와 claude.ai에 같은 Context, Source record와 확정
 revision을 제공합니다. 로컬 Personal Agent Sync만 Finder 위치와 권한을 가지며, 원격에서 받은
 작업도 현재 Connection 정책을 다시 확인한 뒤 수행합니다. 로컬 개발·이관용 Corpus 구현은 같은
 데이터 계약을 사용하지만 클라이언트별 Context 복사본이나 별도 색인 세대를 만들지 않습니다.
 
-### Private storage
+### 원격 정본과 로컬 권한 저장소
+
+원격 Context·Connection metadata는 소유자별 D1에, 각 Source의 내구성 있는 record와 검색 투영은
+SQLite-backed Durable Object에 둡니다. 자세한 배치와 원자적 업로드 계약은
+[`services/remote-context`](../../services/remote-context/DESIGN.md)가 맡습니다.
+
+다음 파일은 Finder 권한, 로컬 실행과 최초 이관을 위한 비공개 로컬 저장소입니다.
 
 - `catalog.sqlite`: Source의 논리 ID, 현재 위치 힌트와 파일시스템 정체성
 - `corpora/<id>/corpus.sqlite`: 문서·revision·extraction projection·Source unit과 제한된 변경 대기열
@@ -71,7 +77,11 @@ Corpus는 `document-files process --describe`에서 adapter identity와 capabili
 
 파일 감시 이벤트는 곧바로 장기 이력이 되지 않습니다. 같은 경로의 이벤트를 잠시 모아 하나로 합치고, private `source_change_queue`에 최대 2,048개만 둡니다. 한도를 넘거나 root 수준 변화가 생기면 전체 대조 항목 하나로 축약합니다. 성공한 전체 scan과 필요한 extraction이 끝난 뒤 대기열을 비웁니다. 실패 항목은 재시도를 위해 오류와 횟수만 갱신하며, 완료된 이벤트 기록을 누적하지 않습니다.
 
-maintenance worker는 시작 시와 기본 15분 간격으로 전체 대조합니다. 따라서 파일 감시가 누락되거나 Source root 자체가 이동해도 다음 대조에서 복구합니다. 동시에 여러 클라이언트가 실행해도 private worker lock을 얻은 한 프로세스만 갱신합니다. 별도 전역 색인 세대나 클라이언트별 동기화 상태는 두지 않습니다.
+운영 구성에서는 Personal Agent Sync가 시작 시와 기본 15분 간격으로 전체 대조합니다. 따라서 파일
+감시가 누락되거나 Source root 자체가 이동해도 다음 대조에서 복구합니다. Sync에 연결하지 않은
+로컬 Corpus 단독 시험에서는 maintenance worker가 같은 안전망을 맡습니다. 어느 경우에도 로컬
+worker lock을 얻은 한 프로세스만 갱신하며, 별도 전역 색인 세대나 클라이언트별 동기화 상태는
+두지 않습니다.
 
 원격 MCP는 정확한 `document_id`에 대해 `source.refresh` 작업을 보낼 수 있습니다. Sync 앱은
 파일 내용이 이전 revision과 같더라도 Document Files를 다시 실행하므로 추출기 변경을 반영할 수
@@ -80,7 +90,9 @@ projection만 정리합니다. 이 정리는 명시적 재분석과 실제 파�
 참조되지 않는 과거 추출 결과가 파일 저장 횟수만큼 누적되지 않습니다. 분석이 오래 걸리면 원격
 작업 상태로 완료 여부를 확인합니다.
 
-worker 상태는 `maintenance-state.json` 단일 스냅샷으로 원자적으로 교체합니다. 변경 이벤트와 보존 전환의 상세 목록을 장기 실행 기록으로 남기지 않습니다.
+로컬 단독 시험의 worker 상태는 `maintenance-state.json` 단일 스냅샷으로 원자적으로 교체합니다.
+Sync의 운영 상태도 회전하는 현재 상태와 제한된 대기열만 유지합니다. 변경 이벤트와 보존 전환의
+상세 목록을 장기 실행 기록으로 남기지 않습니다.
 
 ## Context
 
@@ -127,7 +139,7 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 Connection 변경은 로컬 구성이 맡습니다. Source Connection은 원자료를 수정하지 않으며,
 갱신 요청도 새 추출 record를 만드는 작업으로만 해석합니다.
 
-Codex, Claude와 웹 ChatGPT는 소유자 인증형 원격 MCP에서 같은 데이터와 도구 schema를
+Codex, Claude, 웹 ChatGPT와 claude.ai는 소유자 인증형 원격 MCP에서 같은 데이터와 도구 schema를
 사용합니다. Finder 권한은 outbound-only Sync 앱에 남습니다. 이관에 사용한 private tunnel과
 gateway는 교차 클라이언트 검증 뒤 제거됐으며 현재 실행 경계가 아닙니다.
 중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.

@@ -23,6 +23,30 @@ export const periodKindSchema = z.enum([
 const nullableText = (max: number) =>
   z.string().trim().min(1).max(max).nullable().default(null);
 
+const corpusReceiptSourcePath = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1000)
+  .refine(
+    (value) => {
+      if (
+        value.startsWith("/") ||
+        value.startsWith("\\") ||
+        value.startsWith("~") ||
+        /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value) ||
+        /^[A-Za-z]:[\\/]/.test(value)
+      ) {
+        return false;
+      }
+      return !value.split(/[\\/]+/).includes("..");
+    },
+    "sourcePath must be project-root-relative or a non-path receipt label",
+  )
+  .describe(
+    "A project-root-relative Corpus Source or Work path, or a non-path receipt label; never a local absolute path.",
+  );
+
 export const ingestItemSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(240),
   sourceKind: z.string().trim().min(1).max(48),
@@ -74,7 +98,7 @@ export const promotionRequestSchema = z.object({
   weekId: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   itemId: z.string().uuid().nullable().default(null),
   targetSpace: z.string().trim().min(1).max(120),
-  sourcePath: z.string().trim().min(1).max(1000),
+  sourcePath: corpusReceiptSourcePath,
   contentHash: z.string().trim().min(8).max(160),
   status: z.enum(["applied", "skipped", "failed"]),
   details: nullableText(1000),

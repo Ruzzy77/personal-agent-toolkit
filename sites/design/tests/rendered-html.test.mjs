@@ -118,6 +118,19 @@ test("디자인 카탈로그와 모든 미리보기를 함께 패키징한다", 
     ]),
   );
 
+  for (const recipe of catalog.recipes) {
+    const readme = await readFile(
+      new URL(`../public/previews/${recipe.id}/README.md`, import.meta.url),
+      "utf8",
+    );
+    assert.match(readme, /\]\(index\.html\)/, `${recipe.id}: 미리보기 링크가 없습니다`);
+    assert.doesNotMatch(
+      readme,
+      /\]\(styleguide\.html\)/,
+      `${recipe.id}: 배포되지 않는 원본 파일을 가리킵니다`,
+    );
+  }
+
   await Promise.all([
     access(new URL("../public/previews/hanji/assets/chart-bars-light.png", import.meta.url)),
     access(new URL("../public/previews/hanji/assets/chart-bars-dark.png", import.meta.url)),

@@ -3,7 +3,7 @@
 긴 내용을 차분하게 읽고 원하는 부분을 찾기 쉽게 하는 디자인이다. 좁은 읽기
 폭, 명조 본문과 단순한 목차를 사용한다.
 
-- [미리보기](styleguide.html)
+- [미리보기](index.html)
 - [형식별 규칙](formats.json)
 - [HTML 틀](/templates/seochaek/templates/book.html)
 - [디자인 원칙](DESIGN.md)

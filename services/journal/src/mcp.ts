@@ -60,7 +60,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 function buildServer(env: Env, principal: Principal): McpServer {
   const service = new JournalService(env.DB);
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.0" },
+    { name: "Personal Agent Journal", version: "0.2.1" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -231,7 +231,7 @@ function buildServer(env: Env, principal: Principal): McpServer {
     {
       title: "Record Corpus Reflection",
       description:
-        "Record that a durable Journal outcome was applied to an existing project source and refreshed in Corpus.",
+        "Record that a durable Journal outcome was applied to an existing project-relative source and refreshed in Corpus.",
       inputSchema: promotionRequestSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },

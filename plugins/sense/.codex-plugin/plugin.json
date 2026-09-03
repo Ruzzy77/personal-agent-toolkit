@@ -1,6 +1,6 @@
 {
   "name": "sense",
-  "version": "0.3.4+codex.20260902183000",
+  "version": "0.3.5+codex.20260903143747",
   "description": "Keep private guidance for important choices available across AI tools.",
   "author": {
     "name": "Ruzzy77",
@@ -13,7 +13,7 @@
     "personalization",
     "collaboration",
     "guidance",
-    "local"
+    "privacy"
   ],
   "skills": "./skills/",
   "mcpServers": {
