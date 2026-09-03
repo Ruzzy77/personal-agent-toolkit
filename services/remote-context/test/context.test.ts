@@ -260,7 +260,7 @@ describe("remote personal context service", () => {
   it("keeps remote MCP server versions aligned with the client plugins", async () => {
     const expectedVersions = {
       sense: `${sensePlugin.version}-remote.1`,
-      corpus: `${corpusPlugin.version}-remote.2`,
+      corpus: `${corpusPlugin.version}-remote.3`,
       hypes: `${hypesPlugin.version}-remote.1`,
     } as const;
     for (const kind of ["sense", "corpus", "hypes"] as const) {
@@ -1289,6 +1289,59 @@ describe("remote personal context service", () => {
     expect(JSON.stringify(await body(currentSearch))).toContain(
       "unit_history_new",
     );
+    let lastUserAccessAt: string | null = null;
+    await runInDurableObject(shard, (_instance, state) => {
+      const rows = [
+        ...state.storage.sql.exec<{ last_user_access_at: string | null }>(
+          "SELECT last_user_access_at FROM documents WHERE document_id = ?",
+          documentId,
+        ),
+      ];
+      lastUserAccessAt = rows[0]?.last_user_access_at ?? null;
+      state.storage.sql.exec(
+        `UPDATE documents SET lifecycle_state = 'archived',
+           archived_at = '2020-01-01T00:00:00.000Z'
+         WHERE document_id = ?`,
+        documentId,
+      );
+    });
+    expect(lastUserAccessAt).not.toBeNull();
+
+    const restoredSource = await syncPost(
+      `/sync/v1/corpora/${corpusId}/documents/${documentId}/source-state`,
+      {
+        corpusId,
+        documentId,
+        sourceState: "available",
+        observedAt: "2026-09-02T01:00:00.000Z",
+      },
+    );
+    expect(await body(restoredSource)).toMatchObject({
+      result: { changed: true },
+    });
+    let restoredLifecycle: {
+      lifecycle_state: string;
+      archived_at: string | null;
+      trashed_at: string | null;
+    } | null = null;
+    await runInDurableObject(shard, (_instance, state) => {
+      restoredLifecycle = [
+        ...state.storage.sql.exec<{
+          lifecycle_state: string;
+          archived_at: string | null;
+          trashed_at: string | null;
+        }>(
+          `SELECT lifecycle_state, archived_at, trashed_at
+           FROM documents WHERE document_id = ?`,
+          documentId,
+        ),
+      ][0] ?? null;
+    });
+    expect(restoredLifecycle).toEqual({
+      lifecycle_state: "active",
+      archived_at: null,
+      trashed_at: null,
+    });
 
     const maintained = await syncPost(
       `/sync/v1/corpora/${corpusId}/maintenance`,
@@ -1308,6 +1361,107 @@ describe("remote personal context service", () => {
         removed: { projections: 1, revisions: 1, units: 1 },
         protected: { projections: 1 },
         storage: { database_size_bytes: expect.any(Number) },
+      },
+    });
+
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE documents SET source_state = 'unavailable',
+           deleted_at = '2020-01-01T00:00:00.000Z',
+           lifecycle_state = 'archived', retention_class = 'protected',
+           last_user_access_at = NULL,
+           archived_at = '2020-01-01T00:00:00.000Z', trashed_at = NULL
+         WHERE document_id = ?`,
+        documentId,
+      );
+    });
+    const protectedRetention = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      {
+        corpusId,
+        removeProjectionIds: [],
+        removeDocumentIds: [documentId],
+        removeUploadIds: [],
+        applyRetentionLimit: 10,
+      },
+    );
+    expect(await body(protectedRetention)).toMatchObject({
+      result: {
+        retention: {
+          actions: [{ document_id: documentId, action: "restore_protected" }],
+          action_count: 1,
+          purged: { documents: 0 },
+        },
+        protected: { documents: 1 },
+      },
+    });
+
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE documents SET lifecycle_state = 'active',
+           retention_class = 'managed', archived_at = NULL, trashed_at = NULL
+         WHERE document_id = ?`,
+        documentId,
+      );
+    });
+    const retentionRequest = {
+      corpusId,
+      removeProjectionIds: [],
+      removeDocumentIds: [],
+      removeUploadIds: [],
+      applyRetentionLimit: 10,
+    };
+    const retentionPreview = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      { ...retentionRequest, retentionDryRun: true },
+    );
+    expect(await body(retentionPreview)).toMatchObject({
+      result: {
+        retention: {
+          dry_run: true,
+          actions: [{ document_id: documentId, action: "archive" }],
+        },
+      },
+    });
+
+    const archived = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      retentionRequest,
+    );
+    expect(await body(archived)).toMatchObject({
+      result: { retention: { actions: [{ action: "archive" }] } },
+    });
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE documents SET archived_at = ? WHERE document_id = ?",
+        "2020-01-01T00:00:00.000Z",
+        documentId,
+      );
+    });
+    const trashed = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      retentionRequest,
+    );
+    expect(await body(trashed)).toMatchObject({
+      result: { retention: { actions: [{ action: "trash" }] } },
+    });
+    await runInDurableObject(shard, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE documents SET trashed_at = ? WHERE document_id = ?",
+        "2020-01-01T00:00:00.000Z",
+        documentId,
+      );
+    });
+    const purged = await syncPost(
+      `/sync/v1/corpora/${corpusId}/maintenance`,
+      retentionRequest,
+    );
+    expect(await body(purged)).toMatchObject({
+      result: {
+        retention: {
+          actions: [{ action: "purge" }],
+          purged: { documents: 1, revisions: 1, projections: 1, units: 1 },
+        },
       },
     });
   });
@@ -1419,7 +1573,7 @@ describe("remote personal context service", () => {
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: "0.21.4-remote.2",
+            version: "0.21.4-remote.3",
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",

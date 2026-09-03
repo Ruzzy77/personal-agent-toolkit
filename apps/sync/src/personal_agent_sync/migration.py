@@ -32,7 +32,7 @@ EXPECTED_REMOTE_MCP_SURFACES = {
     },
     "corpus": {
         "name": "Corpus",
-        "version": "0.21.4-remote.2",
+        "version": "0.21.4-remote.3",
         "tools": [
             "corpus_space_list",
             "corpus_space_get",
@@ -753,6 +753,8 @@ class LocalCorpusMigration:
                 "lifecycleState": row["lifecycle_state"],
                 "retentionClass": row["retention_class"],
                 "lastUserAccessAt": _iso(row["last_user_access_at"]),
+                "archivedAt": _iso(row["archived_at"]),
+                "trashedAt": _iso(row["trashed_at"]),
                 "firstSeenAt": _iso(row["first_seen_at"]),
                 "lastSeenAt": _iso(row["last_seen_at"]),
                 "deletedAt": _iso(row["deleted_at"]),

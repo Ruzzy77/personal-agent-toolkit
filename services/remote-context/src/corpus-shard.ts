@@ -130,12 +130,16 @@ CREATE TABLE IF NOT EXISTS documents (
   lifecycle_state TEXT NOT NULL DEFAULT 'active'
     CHECK (lifecycle_state IN ('active', 'archived', 'trash')),
   retention_class TEXT NOT NULL DEFAULT 'managed',
-  last_user_access_at TEXT
+  last_user_access_at TEXT,
+  archived_at TEXT,
+  trashed_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(relative_path);
 CREATE INDEX IF NOT EXISTS idx_documents_state
   ON documents(lifecycle_state, source_state, last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_documents_retention
+  ON documents(lifecycle_state, retention_class, deleted_at, last_user_access_at);
 
 CREATE TABLE IF NOT EXISTS revisions (
   revision_id TEXT PRIMARY KEY,
@@ -388,7 +392,29 @@ const STRUCTURE_PATH_STORAGE_CURSOR = "structure_path_storage_cursor_v1";
 const STRUCTURE_PATH_STORAGE_VERSION_KEY = "structure_path_storage_version";
 const SEARCH_INDEX_STORAGE_VERSION_KEY = "search_index_storage_version";
 const STRUCTURE_PATH_STORAGE_VERSION = 1;
+const RETENTION_SCAN_CURSOR_KEY = "retention_scan_cursor_v1";
+const RETENTION_SCAN_BATCH = 200;
+const RETENTION_POLICIES = {
+  managed: { archive_days: 30, trash_days: 180, purge_days: 30 },
+  transient: { archive_days: 7, trash_days: 30, purge_days: 7 },
+} as const;
 const UTF8_ENCODER = new TextEncoder();
+
+function retentionTimestamp(value: string | null): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function latestRetentionTimestamp(
+  first: string | null,
+  second: string | null,
+): number | null {
+  const values = [retentionTimestamp(first), retentionTimestamp(second)].filter(
+    (value): value is number => value !== null,
+  );
+  return values.length > 0 ? Math.max(...values) : null;
+}
 
 const TABLE_CELL_CONTAINER_KEYS = [
   "cell",
@@ -696,6 +722,8 @@ export class CorpusShard {
       ["eligibility_state", "TEXT NOT NULL DEFAULT 'supported'"],
       ["retention_class", "TEXT NOT NULL DEFAULT 'managed'"],
       ["last_user_access_at", "TEXT"],
+      ["archived_at", "TEXT"],
+      ["trashed_at", "TEXT"],
     ];
     for (const [name, declaration] of additions) {
       if (!this.documentColumns.has(name)) {
@@ -705,6 +733,8 @@ export class CorpusShard {
         this.documentColumns.add(name);
       }
     }
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_documents_retention
+      ON documents(lifecycle_state, retention_class, deleted_at, last_user_access_at)`);
     for (const row of this.sql.exec<{ name: string }>(
       "PRAGMA table_info(projections)",
     )) {
@@ -1209,7 +1239,39 @@ export class CorpusShard {
       revisions.add(unit.revision_id);
       projections.add(unit.projection_id);
     }
+    for (const revisionId of revisions) {
+      const revision = this.one<{ document_id: string }>(
+        "SELECT document_id FROM revisions WHERE revision_id = ?",
+        revisionId,
+      );
+      if (revision) documents.add(revision.document_id);
+    }
+    for (const projectionId of projections) {
+      const projection = this.one<{ document_id: string; revision_id: string }>(
+        `SELECT revision.document_id, projection.revision_id
+         FROM projections AS projection
+         JOIN revisions AS revision
+           ON revision.revision_id = projection.revision_id
+         WHERE projection.projection_id = ?`,
+        projectionId,
+      );
+      if (!projection) continue;
+      documents.add(projection.document_id);
+      revisions.add(projection.revision_id);
+    }
     return { documents, revisions, projections };
+  }
+
+  private touchDocumentAccess(documentIds: Iterable<string>): void {
+    const ids = [...new Set(documentIds)];
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
+    this.sql.exec(
+      `UPDATE documents SET last_user_access_at = ?
+       WHERE document_id IN (${placeholders})`,
+      nowIso(),
+      ...ids,
+    );
   }
 
   private static maintenanceIds(
@@ -1276,6 +1338,10 @@ export class CorpusShard {
       value.compactUnitMetadataLimit === undefined
         ? 0
         : value.compactUnitMetadataLimit;
+    const applyRetentionLimit =
+      value.applyRetentionLimit === undefined ? 0 : value.applyRetentionLimit;
+    const retentionDryRun =
+      value.retentionDryRun === undefined ? false : value.retentionDryRun;
     if (
       !Number.isInteger(compactSearchIndexLimit) ||
       Number(compactSearchIndexLimit) < 0 ||
@@ -1297,6 +1363,18 @@ export class CorpusShard {
       );
     }
     if (
+      !Number.isInteger(applyRetentionLimit) ||
+      Number(applyRetentionLimit) < 0 ||
+      Number(applyRetentionLimit) > 50 ||
+      typeof retentionDryRun !== "boolean" ||
+      (retentionDryRun && Number(applyRetentionLimit) === 0)
+    ) {
+      throw new ContextError(
+        "invalid_maintenance_request",
+        "Corpus retention maintenance options are invalid",
+      );
+    }
+    if (
       Object.keys(value).some(
         (key) =>
           ![
@@ -1306,6 +1384,8 @@ export class CorpusShard {
             "removeUploadIds",
             "compactSearchIndexLimit",
             "compactUnitMetadataLimit",
+            "applyRetentionLimit",
+            "retentionDryRun",
           ].includes(key),
       )
     ) {
@@ -1325,14 +1405,27 @@ export class CorpusShard {
         409,
       );
     }
-    const protectedIds =
-      projectionIds.length > 0 || documentIds.length > 0
-        ? await this.protectedRecordIds(ownerId, corpusId)
-        : {
-            documents: new Set<string>(),
-            revisions: new Set<string>(),
-            projections: new Set<string>(),
-          };
+    const needsProtectedIds =
+      projectionIds.length > 0 ||
+      documentIds.length > 0 ||
+      Number(applyRetentionLimit) > 0;
+    const contextProtectedIds = needsProtectedIds
+      ? await this.protectedRecordIds(ownerId, corpusId)
+      : {
+          documents: new Set<string>(),
+          revisions: new Set<string>(),
+          projections: new Set<string>(),
+        };
+    const protectedIds = {
+      documents: new Set(contextProtectedIds.documents),
+      revisions: new Set(contextProtectedIds.revisions),
+      projections: new Set(contextProtectedIds.projections),
+    };
+    for (const row of this.sql.exec<{ document_id: string }>(
+      "SELECT document_id FROM documents WHERE retention_class = 'protected'",
+    )) {
+      protectedIds.documents.add(row.document_id);
+    }
     const removed = { documents: 0, revisions: 0, projections: 0, units: 0, uploads: 0 };
     const protectedCounts = { documents: 0, projections: 0 };
     const candidateRevisionIds = new Set<string>();
@@ -1362,8 +1455,217 @@ export class CorpusShard {
       structure_path_complete: Number(compactUnitMetadataLimit) === 0,
       complete: Number(compactUnitMetadataLimit) === 0,
     };
+    const retentionObservedAt = nowIso();
+    const retentionActions: Array<{
+      document_id: string;
+      relative_path: string;
+      action: string;
+    }> = [];
+    const retentionPurgeIds = new Set<string>();
+    const retentionPurged = {
+      documents: 0,
+      revisions: 0,
+      projections: 0,
+      units: 0,
+    };
+    let retentionScanned = 0;
+    let retentionScanWrapped = false;
+    let retentionLifecycleCounts: Record<string, number> = {};
 
     this.state.storage.transactionSync(() => {
+      if (Number(applyRetentionLimit) > 0) {
+        const limit = Number(applyRetentionLimit);
+        const observedAtMs = Date.parse(retentionObservedAt);
+        const protectedToRestore = new Set<string>(
+          [...protectedIds.documents].sort(),
+        );
+        for (const documentId of protectedToRestore) {
+          if (retentionActions.length >= limit) break;
+          const document = this.one<{
+            document_id: string;
+            relative_path: string;
+            lifecycle_state: string;
+          }>(
+            `SELECT document_id, relative_path, lifecycle_state
+             FROM documents WHERE document_id = ?`,
+            documentId,
+          );
+          if (!document || document.lifecycle_state === "active") continue;
+          retentionActions.push({
+            document_id: document.document_id,
+            relative_path: document.relative_path,
+            action: "restore_protected",
+          });
+          if (!retentionDryRun) {
+            this.sql.exec(
+              `UPDATE documents SET lifecycle_state = 'active',
+                 archived_at = NULL, trashed_at = NULL
+               WHERE document_id = ?`,
+              documentId,
+            );
+          }
+        }
+
+        let scanCursor =
+          this.one<{ value: string }>(
+            "SELECT value FROM shard_meta WHERE key = ?",
+            RETENTION_SCAN_CURSOR_KEY,
+          )?.value ?? "";
+        let candidates = [
+          ...this.sql.exec<{
+            document_id: string;
+            relative_path: string;
+            deleted_at: string | null;
+            lifecycle_state: "active" | "archived" | "trash";
+            retention_class: string;
+            last_user_access_at: string | null;
+            archived_at: string | null;
+            trashed_at: string | null;
+          }>(
+            `SELECT document_id, relative_path, deleted_at, lifecycle_state,
+                    retention_class, last_user_access_at, archived_at, trashed_at
+             FROM documents
+             WHERE source_state = 'unavailable'
+               AND retention_class != 'protected'
+               AND document_id > ?
+             ORDER BY document_id LIMIT ?`,
+            scanCursor,
+            RETENTION_SCAN_BATCH,
+          ),
+        ];
+        if (candidates.length === 0 && scanCursor !== "") {
+          scanCursor = "";
+          retentionScanWrapped = true;
+          candidates = [
+            ...this.sql.exec<{
+              document_id: string;
+              relative_path: string;
+              deleted_at: string | null;
+              lifecycle_state: "active" | "archived" | "trash";
+              retention_class: string;
+              last_user_access_at: string | null;
+              archived_at: string | null;
+              trashed_at: string | null;
+            }>(
+              `SELECT document_id, relative_path, deleted_at, lifecycle_state,
+                      retention_class, last_user_access_at, archived_at, trashed_at
+               FROM documents
+               WHERE source_state = 'unavailable'
+                 AND retention_class != 'protected'
+               ORDER BY document_id LIMIT ?`,
+              RETENTION_SCAN_BATCH,
+            ),
+          ];
+        }
+
+        let nextCursor = scanCursor;
+        for (const document of candidates) {
+          if (retentionActions.length >= limit) break;
+          nextCursor = document.document_id;
+          retentionScanned += 1;
+          if (protectedIds.documents.has(document.document_id)) continue;
+          const policy =
+            RETENTION_POLICIES[
+              document.retention_class as keyof typeof RETENTION_POLICIES
+            ];
+          if (!policy || document.deleted_at === null) continue;
+
+          let action: string | null = null;
+          if (document.lifecycle_state === "active") {
+            const base = latestRetentionTimestamp(
+              document.deleted_at,
+              document.last_user_access_at,
+            );
+            if (
+              base !== null &&
+              observedAtMs - base >= policy.archive_days * 86_400_000
+            ) {
+              action = "archive";
+            }
+          } else if (document.lifecycle_state === "archived") {
+            if (document.archived_at === null) {
+              action = "start_archive_retention";
+            } else {
+              const base = latestRetentionTimestamp(
+                document.archived_at,
+                document.last_user_access_at,
+              );
+              if (
+                base !== null &&
+                observedAtMs - base >= policy.trash_days * 86_400_000
+              ) {
+                action = "trash";
+              }
+            }
+          } else if (document.trashed_at === null) {
+            action = "start_trash_retention";
+          } else {
+            const base = retentionTimestamp(document.trashed_at);
+            if (
+              base !== null &&
+              observedAtMs - base >= policy.purge_days * 86_400_000
+            ) {
+              action = "purge";
+            }
+          }
+          if (action === null) continue;
+          retentionActions.push({
+            document_id: document.document_id,
+            relative_path: document.relative_path,
+            action,
+          });
+          if (retentionDryRun) continue;
+          if (action === "archive") {
+            this.sql.exec(
+              `UPDATE documents SET lifecycle_state = 'archived',
+                 archived_at = ?, trashed_at = NULL
+               WHERE document_id = ?`,
+              retentionObservedAt,
+              document.document_id,
+            );
+          } else if (action === "start_archive_retention") {
+            this.sql.exec(
+              "UPDATE documents SET archived_at = ? WHERE document_id = ?",
+              retentionObservedAt,
+              document.document_id,
+            );
+          } else if (action === "trash") {
+            this.sql.exec(
+              `UPDATE documents SET lifecycle_state = 'trash', trashed_at = ?
+               WHERE document_id = ?`,
+              retentionObservedAt,
+              document.document_id,
+            );
+          } else if (action === "start_trash_retention") {
+            this.sql.exec(
+              "UPDATE documents SET trashed_at = ? WHERE document_id = ?",
+              retentionObservedAt,
+              document.document_id,
+            );
+          } else {
+            retentionPurgeIds.add(document.document_id);
+          }
+        }
+        if (!retentionDryRun) {
+          if (
+            candidates.length < RETENTION_SCAN_BATCH &&
+            retentionActions.length < limit
+          ) {
+            this.sql.exec(
+              "DELETE FROM shard_meta WHERE key = ?",
+              RETENTION_SCAN_CURSOR_KEY,
+            );
+          } else if (nextCursor !== "") {
+            this.sql.exec(
+              `INSERT INTO shard_meta(key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+              RETENTION_SCAN_CURSOR_KEY,
+              nextCursor,
+            );
+          }
+        }
+      }
+
       for (const projectionId of projectionIds) {
         const projection = this.one<{
           revision_id: string;
@@ -1385,6 +1687,7 @@ export class CorpusShard {
         if (!projection) continue;
         if (
           protectedIds.projections.has(projectionId) ||
+          protectedIds.documents.has(projection.document_id) ||
           (projection.is_active === 1 &&
             projection.revision_id === projection.current_revision_id)
         ) {
@@ -1411,7 +1714,12 @@ export class CorpusShard {
         removed.units += projection.unit_count;
       }
 
-      for (const documentId of documentIds) {
+      for (const documentId of new Set([
+        ...documentIds,
+        ...retentionPurgeIds,
+      ])) {
+        const retentionPurge = retentionPurgeIds.has(documentId);
+        const removedBefore = { ...removed };
         const exists = this.one<{ document_id: string }>(
           "SELECT document_id FROM documents WHERE document_id = ?",
           documentId,
@@ -1494,6 +1802,15 @@ export class CorpusShard {
         this.sql.exec("DELETE FROM documents WHERE document_id = ?", documentId);
         removed.revisions += revisionCount;
         removed.documents += 1;
+        if (retentionPurge) {
+          retentionPurged.documents +=
+            removed.documents - removedBefore.documents;
+          retentionPurged.revisions +=
+            removed.revisions - removedBefore.revisions;
+          retentionPurged.projections +=
+            removed.projections - removedBefore.projections;
+          retentionPurged.units += removed.units - removedBefore.units;
+        }
       }
 
       for (const revisionId of candidateRevisionIds) {
@@ -1812,6 +2129,14 @@ export class CorpusShard {
           unitMetadata.source_anchor_complete &&
           unitMetadata.structure_path_complete;
       }
+      retentionLifecycleCounts = Object.fromEntries(
+        [
+          ...this.sql.exec<{ lifecycle_state: string; count: number }>(
+            `SELECT lifecycle_state, COUNT(*) AS count
+             FROM documents GROUP BY lifecycle_state ORDER BY lifecycle_state`,
+          ),
+        ].map((row) => [row.lifecycle_state, row.count]),
+      );
     });
     return {
       corpusId,
@@ -1819,6 +2144,22 @@ export class CorpusShard {
       protected: protectedCounts,
       search_index: searchIndex,
       unit_metadata: unitMetadata,
+      retention: {
+        observed_at: retentionObservedAt,
+        dry_run: retentionDryRun,
+        limit: Number(applyRetentionLimit),
+        policies: RETENTION_POLICIES,
+        protected_documents: protectedIds.documents.size,
+        scanned_documents: retentionScanned,
+        scan_wrapped: retentionScanWrapped,
+        actions: retentionActions,
+        action_count: retentionActions.length,
+        limit_reached:
+          Number(applyRetentionLimit) > 0 &&
+          retentionActions.length >= Number(applyRetentionLimit),
+        purged: retentionPurged,
+        lifecycle_counts: retentionLifecycleCounts,
+      },
       storage: this.storageSummary(),
     };
   }
@@ -2101,7 +2442,8 @@ export class CorpusShard {
         `SELECT document_id, relative_path, extension, source_state, media_type,
                 logical_size, modified_ns, residency_state, eligibility_state,
                 current_revision_id, first_seen_at, last_seen_at, deleted_at,
-                lifecycle_state, retention_class, last_user_access_at
+                lifecycle_state, retention_class, last_user_access_at,
+                archived_at, trashed_at
          FROM documents WHERE document_id = ?`,
         document.documentId,
       );
@@ -2121,7 +2463,9 @@ export class CorpusShard {
         current.deleted_at !== document.deletedAt ||
         current.lifecycle_state !== document.lifecycleState ||
         current.retention_class !== document.retentionClass ||
-        current.last_user_access_at !== document.lastUserAccessAt
+        current.last_user_access_at !== document.lastUserAccessAt ||
+        current.archived_at !== document.archivedAt ||
+        current.trashed_at !== document.trashedAt
       );
     });
     if (changedDocuments.length === 0) {
@@ -2146,8 +2490,9 @@ export class CorpusShard {
              document_id, relative_path, extension, source_state, media_type,
              logical_size, modified_ns, residency_state, eligibility_state,
              current_revision_id, first_seen_at, last_seen_at, deleted_at,
-             lifecycle_state, retention_class, last_user_access_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             lifecycle_state, retention_class, last_user_access_at,
+             archived_at, trashed_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(document_id) DO UPDATE SET
              relative_path = excluded.relative_path,
              extension = excluded.extension,
@@ -2163,7 +2508,9 @@ export class CorpusShard {
              deleted_at = excluded.deleted_at,
              lifecycle_state = excluded.lifecycle_state,
              retention_class = excluded.retention_class,
-             last_user_access_at = excluded.last_user_access_at
+             last_user_access_at = excluded.last_user_access_at,
+             archived_at = excluded.archived_at,
+             trashed_at = excluded.trashed_at
            WHERE documents.relative_path IS NOT excluded.relative_path
               OR documents.extension IS NOT excluded.extension
               OR documents.source_state IS NOT excluded.source_state
@@ -2178,7 +2525,9 @@ export class CorpusShard {
               OR documents.deleted_at IS NOT excluded.deleted_at
               OR documents.lifecycle_state IS NOT excluded.lifecycle_state
               OR documents.retention_class IS NOT excluded.retention_class
-              OR documents.last_user_access_at IS NOT excluded.last_user_access_at`,
+              OR documents.last_user_access_at IS NOT excluded.last_user_access_at
+              OR documents.archived_at IS NOT excluded.archived_at
+              OR documents.trashed_at IS NOT excluded.trashed_at`,
           document.documentId,
           document.relativePath.normalize("NFC"),
           document.extension,
@@ -2195,6 +2544,8 @@ export class CorpusShard {
           document.lifecycleState,
           document.retentionClass,
           document.lastUserAccessAt,
+          document.archivedAt,
+          document.trashedAt,
         );
       }
     });
@@ -2711,6 +3062,7 @@ export class CorpusShard {
         404,
       );
     }
+    this.ensureSchema();
     const corpus = this.one<{ value: string }>(
       "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
     );
@@ -2730,9 +3082,10 @@ export class CorpusShard {
       residency_state: string;
       eligibility_state: string;
       deleted_at: string | null;
+      lifecycle_state: "active" | "archived" | "trash";
     }>(
       `SELECT document_id, relative_path, source_state, logical_size, modified_ns,
-              residency_state, eligibility_state, deleted_at
+              residency_state, eligibility_state, deleted_at, lifecycle_state
        FROM documents WHERE document_id = ?`,
       input.documentId,
     );
@@ -2749,10 +3102,14 @@ export class CorpusShard {
       input.sourceState === "unavailable"
         ? document.deleted_at === null
         : document.deleted_at !== null;
+    const lifecycleChanged =
+      input.sourceState !== "unavailable" &&
+      document.lifecycle_state !== "active";
     const changed =
       document.source_state !== input.sourceState ||
       pathChanged ||
       deletionChanged ||
+      lifecycleChanged ||
       (input.logicalSize !== undefined &&
         document.logical_size !== input.logicalSize) ||
       (input.modifiedNs !== undefined &&
@@ -2772,7 +3129,13 @@ export class CorpusShard {
              residency_state = COALESCE(?, residency_state),
              eligibility_state = COALESCE(?, eligibility_state),
              last_seen_at = ?,
-             deleted_at = CASE WHEN ? = 'unavailable' THEN ? ELSE NULL END
+             deleted_at = CASE WHEN ? = 'unavailable' THEN ? ELSE NULL END,
+             lifecycle_state = CASE
+               WHEN ? = 'unavailable' THEN lifecycle_state ELSE 'active' END,
+             archived_at = CASE
+               WHEN ? = 'unavailable' THEN archived_at ELSE NULL END,
+             trashed_at = CASE
+               WHEN ? = 'unavailable' THEN trashed_at ELSE NULL END
            WHERE document_id = ?`,
           input.sourceState,
           relativePath,
@@ -2783,6 +3146,9 @@ export class CorpusShard {
           input.observedAt,
           input.sourceState,
           input.observedAt,
+          input.sourceState,
+          input.sourceState,
+          input.sourceState,
           input.documentId,
         );
         if (pathChanged) {
@@ -2887,6 +3253,7 @@ export class CorpusShard {
           left.ordinal - right.ordinal,
       )
       .slice(0, limit);
+    this.touchDocumentAccess(rows.map((row) => row.document_id));
     return {
       query,
       count: rows.length,
@@ -2983,6 +3350,9 @@ export class CorpusShard {
     )) {
       results.push(unitResult(row));
     }
+    this.touchDocumentAccess(
+      [...selectedRows.values()].map((row) => row.document_id),
+    );
     return { count: results.length, units: results, missing_unit_ids: missing };
   }
 
@@ -3061,6 +3431,8 @@ export class CorpusShard {
                 d.deleted_at, d.lifecycle_state,
                 ${this.documentField("d", "retention_class", "'managed'")},
                 ${this.documentField("d", "last_user_access_at", "NULL")},
+                ${this.documentField("d", "archived_at", "NULL")},
+                ${this.documentField("d", "trashed_at", "NULL")},
                 r.sha256, r.source_size, r.captured_at,
                 p.projection_id, p.result_manifest_hash, p.completeness_state,
                 p.assurance_state,
