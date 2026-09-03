@@ -8,11 +8,12 @@
         "corpus",
         "hypes",
         "journal",
-        "library"
+        "library",
+        "design"
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.0.0"
+        "base_version": "1.1.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd"
@@ -23,7 +24,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.0.0"
+        "surface_version": "1.1.0"
       }
     }
   },
@@ -131,10 +132,13 @@
         "base_version": "1.3.2"
       },
       "components": [
-        "plugins/document-files"
+        "plugins/document-files",
+        "services/document-analyzer"
       ],
-      "data_authority": "caller-owned local files",
-      "versioned_packages": [],
+      "data_authority": "caller-owned document bytes; analyzers do not persist them",
+      "versioned_packages": [
+        "services/document-analyzer/package.json"
+      ],
       "mcp": {
         "server_key": "document-files",
         "transport": "stdio",
@@ -157,17 +161,35 @@
       "display_name": "Personal Design",
       "plugin": {
         "path": "plugins/design",
-        "kind": "skill_only",
-        "base_version": "0.2.2"
+        "kind": "remote_mcp",
+        "base_version": "0.3.0"
       },
       "components": [
         "plugins/design",
+        "services/design",
         "sites/design"
       ],
-      "data_authority": "sites/design/designs",
+      "data_authority": "services/design",
       "versioned_packages": [
+        "services/design/package.json",
         "sites/design/package.json"
-      ]
+      ],
+      "mcp": {
+        "server_key": "design",
+        "transport": "http",
+        "url": "https://personal-agent-design.hiyaq77.workers.dev/mcp",
+        "implementation": "services/design/src/mcp.ts",
+        "surface_name": "personal-design",
+        "surface_version": "0.3.0",
+        "tools": [
+          "design_list_recipes",
+          "design_read_recipe",
+          "design_read_asset",
+          "design_create_recipe",
+          "design_update_recipe",
+          "design_upload_asset"
+        ]
+      }
     },
     "journal": {
       "display_name": "Journal",

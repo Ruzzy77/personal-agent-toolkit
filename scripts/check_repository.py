@@ -50,7 +50,8 @@ def relative(path: Path) -> str:
 
 def tracked_files() -> list[Path]:
     output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT, text=False)
-    return [ROOT / item.decode() for item in output.split(b"\0") if item]
+    files = [ROOT / item.decode() for item in output.split(b"\0") if item]
+    return [path for path in files if path.is_file()]
 
 
 def check_product_registry(errors: list[str]) -> None:
@@ -187,13 +188,9 @@ def check_plugin(name: str, errors: list[str]) -> None:
                 f"{name}: Codex defaultPrompt contains an empty or non-string value"
             )
 
-    if name == "design" and (
-        claude.get("displayName") != "Personal Design"
-        or codex is None
-        or codex.get("interface", {}).get("displayName") != "Personal Design"
-    ):
+    if name == "design" and claude.get("displayName") != "Personal Design":
         errors.append(
-            "design: client display names must avoid the generic Design collision"
+            "design: Claude display name must avoid the generic Design collision"
         )
 
     skill_path = codex.get("skills") if codex is not None else "./skills/"

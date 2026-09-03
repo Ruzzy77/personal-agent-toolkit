@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "design": {
+      "type": "http",
+      "url": "https://personal-agent-design.hiyaq77.workers.dev/mcp"
+    }
+  }
+}

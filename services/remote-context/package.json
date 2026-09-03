@@ -1,6 +1,6 @@
 {
   "name": "personal-agent-remote-context-service",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Owner-operated MCP and sync service with a unified OpenAI surface",
@@ -14,6 +14,7 @@
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
     "@personal-agent/remote-runtime": "file:../../packages/remote-runtime",
+    "personal-agent-design-service": "file:../design",
     "personal-agent-journal-service": "file:../journal",
     "personal-agent-library-service": "file:../library",
     "zod": "4.5.4"

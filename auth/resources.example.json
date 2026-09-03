@@ -15,7 +15,9 @@
         "journal.write",
         "journal.close",
         "library.read",
-        "library.write"
+        "library.write",
+        "design.read",
+        "design.write"
       ],
       "baselineScopes": [
         "sense.read",
@@ -24,6 +26,13 @@
         "journal.read",
         "library.read"
       ]
+    },
+    {
+      "id": "design",
+      "name": "Design",
+      "resource": "https://design.example.com/mcp",
+      "scopes": ["design.read", "design.write"],
+      "baselineScopes": ["design.read"]
     },
     {
       "id": "library",

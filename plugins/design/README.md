@@ -18,14 +18,13 @@ Personal Agent Toolkit 플러그인입니다. 특정 디자인 제품이나 한 
 감사에서는 확인 범위와 성공 기준을 따로 기록합니다. 조사 설계와 종합은 같은 제품 결정을
 잇는 두 방식으로 한 Skill에서 구분합니다.
 
-`design` Skill에는 패턴, 선택적 레시피와 예시 자산으로 구성된 공개 참고 묶음이 함께
-들어 있습니다. 이 묶음은 시각 방향을 탐색하거나 현재 프로젝트에 없는 재료가 필요할 때만
-읽으며, 프로젝트의 브랜드·토큰·컴포넌트보다 우선하지 않습니다. 별도 사이트나 네트워크
-연결 없이도 `catalog.json`에서 후보를 고르고 필요한 자산만 사용할 수 있습니다.
+`design` Skill은 소유자 전용 디자인 라이브러리에서 패턴, 선택적 레시피와 예시 자산을 필요한
+만큼만 읽을 수 있습니다. 개인 자산은 plugin이나 공개 저장소에 포함되지 않으며, 프로젝트의
+브랜드·토큰·컴포넌트보다 우선하지 않습니다.
 
 시각적으로 후보를 찾고 비교하거나 요청문을 준비할 때에는 소유자 전용
 [Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 사용할 수
-있습니다. Site와 오프라인 묶음은 `sites/design/designs`의 같은 공개 카탈로그에서 생성됩니다.
+있습니다. Site와 MCP는 `services/design`이 소유하는 같은 비공개 D1·R2 자료를 읽습니다.
 
 ## 작업 원칙
 
@@ -50,12 +49,13 @@ Personal Agent Toolkit 플러그인입니다. 특정 디자인 제품이나 한 
 
 ## 데이터와 연결
 
-Design plugin은 Skill과 정적 참고 자산만 포함하며 MCP 서버나 외부 계정 연결, 사용자 데이터
-저장소를 만들지 않습니다. Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비만 수행합니다.
-작업 중 읽고 쓰는 파일과 사용하는 도구의 권한은 현재 실행 환경과 프로젝트의 규칙을
-따릅니다.
+Claude에서는 Design plugin이 소유자 인증 원격 MCP를 연결합니다. ChatGPT와 Codex에서는 별도
+Design 설치 항목을 만들지 않고 **Personal Agent Toolkit** 하나에 Design Skill과 도구가 함께
+나타납니다. 레시피와 메타데이터는 D1, 템플릿·CSS·이미지는 비공개 R2에 저장됩니다. Site의
+화면 도구는 탐색·비교·요청 준비만 수행하며, 작업 파일 권한은 현재 실행 환경과 프로젝트의
+규칙을 따릅니다.
 
-구성 요소와 정적 자산 정본은 [DESIGN.md](./DESIGN.md)에 있습니다.
+구성 요소와 데이터 정본은 [DESIGN.md](./DESIGN.md)에 있습니다.
 
 ## License
 

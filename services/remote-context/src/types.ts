@@ -13,6 +13,8 @@ export interface Env {
   JOURNAL_DB: D1Database;
   LIBRARY_DB: D1Database;
   LIBRARY_MEDIA: R2Bucket;
+  DESIGN_DB: D1Database;
+  DESIGN_ASSETS: R2Bucket;
   CORPUS_SHARDS: DurableObjectNamespace;
   SYNC_BROKERS: DurableObjectNamespace;
   AUTH_SERVICE?: AuthServiceBinding;

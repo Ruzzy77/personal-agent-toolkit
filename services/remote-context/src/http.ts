@@ -15,6 +15,7 @@ import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 
 const JSON_BODY_LIMIT = 16 * 1024 * 1024;
+const REMOTE_ANALYSIS_BODY_LIMIT = 32 * 1024 * 1024;
 
 function json(
   body: unknown,
@@ -154,7 +155,7 @@ async function analysisProxy(request: Request, env: Env, principal: Principal) {
   if (
     !Number.isInteger(declared) ||
     declared < 0 ||
-    declared > 1024 * 1024 * 1024 ||
+    declared > REMOTE_ANALYSIS_BODY_LIMIT ||
     (Number.isFinite(actualLength) && actualLength !== declared)
   ) {
     throw new ContextError(
@@ -413,7 +414,7 @@ export async function handleHttp(
       return json({
         ok: true,
         service: "personal-agent-context",
-        version: "0.1.1",
+        version: "0.2.0",
         resources: ["toolkit", "sense", "corpus", "hypes"],
       });
     }

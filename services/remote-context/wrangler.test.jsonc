@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "personal-agent-context-test",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-09-02",
+  "compatibility_date": "2026-08-31",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     {
@@ -20,12 +20,21 @@
       "binding": "LIBRARY_DB",
       "database_name": "personal-agent-library-test",
       "database_id": "00000000-0000-0000-0000-000000000002"
+    },
+    {
+      "binding": "DESIGN_DB",
+      "database_name": "personal-agent-design-test",
+      "database_id": "00000000-0000-0000-0000-000000000003"
     }
   ],
   "r2_buckets": [
     {
       "binding": "LIBRARY_MEDIA",
       "bucket_name": "personal-agent-library-media-test"
+    },
+    {
+      "binding": "DESIGN_ASSETS",
+      "bucket_name": "personal-agent-design-assets-test"
     }
   ],
   "durable_objects": {

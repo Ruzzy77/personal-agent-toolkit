@@ -10,8 +10,11 @@ Notable direct runtime dependencies:
 | Dependency | Used by | License |
 | --- | --- | --- |
 | `@cloudflare/workers-oauth-provider` | Optional Personal Agent Auth | MIT |
-| `@modelcontextprotocol/server` | Personal Agent Context, Journal, and Library remote MCP | MIT |
+| `@modelcontextprotocol/server` | Personal Agent Context, Journal, Library, and Design remote MCP | MIT |
+| `@ssabrojs/hwpxjs` | Document Files remote HWP analysis | MIT |
 | `defusedxml` | Document Files | Python Software Foundation License |
+| `fflate` | Document Files remote ZIP-based analysis | MIT |
+| `htmlparser2` | Document Files remote HTML and XML analysis | MIT |
 | `httpx` | Personal Agent Sync | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Document Files, and Hypes local MCP | MIT |
@@ -27,7 +30,8 @@ Notable direct runtime dependencies:
 | `rhwp` 0.8.2 (optionally provisioned command-line backend) | Document Files | MIT |
 | `watchdog` | Corpus | Apache-2.0 |
 | `vinext`, `@cloudflare/vite-plugin` | Journal, Design, and Library Sites | MIT |
-| `zod` | Personal Agent Context, Journal, and Library request validation | MIT |
+| `unpdf` | Document Files remote PDF text extraction | MIT |
+| `zod` | Personal Agent Context, Journal, Library, and Design request validation | MIT |
 
 Bundled Library webfonts:
 
@@ -42,7 +46,8 @@ resolved package names, versions, source hashes, and platform markers are record
 `engines/sense/uv.lock`, `engines/corpus/uv.lock`, `engines/hypes/uv.lock`,
 `plugins/document-files/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for the authentication
 template, remote services, and Sites are recorded in `auth/package-lock.json`,
-`services/remote-context/package-lock.json`, `services/journal/package-lock.json`,
+`services/remote-context/package-lock.json`, `services/document-analyzer/package-lock.json`,
+`services/design/package-lock.json`, `services/journal/package-lock.json`,
 `services/library/package-lock.json`, `sites/journal/package-lock.json`,
 `sites/design/package-lock.json`, and `sites/library/package-lock.json`.
 

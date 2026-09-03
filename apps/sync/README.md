@@ -83,8 +83,8 @@ created by the former identity comparison once.
   content digest, and byte ceiling have been approved locally.
 
 Both analyzer routes consume and return the same `document-files.analysis-job.v1`
-contract. The remote Worker only proxies authorized bytes to the separately
-deployed analyzer binding; it does not reimplement document parsing.
+contract. The context Worker only proxies authorized bytes to the separately deployed
+`services/document-analyzer` binding; it does not reimplement document parsing or retain the bytes.
 
 ## Setup
 

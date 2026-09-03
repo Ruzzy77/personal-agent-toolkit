@@ -32,6 +32,8 @@ import {
 import { SenseService } from "./sense";
 import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
+import { registerDesignTools } from "personal-agent-design-service/mcp";
+import { DesignService } from "personal-agent-design-service/service";
 import { registerJournalTools } from "personal-agent-journal-service/mcp";
 import { JournalService } from "personal-agent-journal-service/service";
 import type { Principal as JournalPrincipal } from "personal-agent-journal-service/types";
@@ -53,6 +55,36 @@ function success(value: unknown) {
   return mcpTextResult(wrapped);
 }
 
+const LEGACY_TOOLKIT_READ_SCOPES = [
+  "sense.read",
+  "corpus.read",
+  "hypes.read",
+  "journal.read",
+  "library.read",
+] as const;
+
+const LEGACY_TOOLKIT_WRITE_SCOPES = [
+  "sense.write",
+  "corpus.write",
+  "hypes.write",
+  "journal.write",
+  "library.write",
+] as const;
+
+function designOwner(principal: Principal) {
+  const owner = principal.owner!;
+  const scopes = new Set(owner.scopes);
+  // The single-owner toolkit predates Design. Preserve that installed bundle's
+  // entitlement while new grants use the explicit Design scopes.
+  if (LEGACY_TOOLKIT_READ_SCOPES.every((scope) => scopes.has(scope))) {
+    scopes.add("design.read");
+  }
+  if (LEGACY_TOOLKIT_WRITE_SCOPES.every((scope) => scopes.has(scope))) {
+    scopes.add("design.write");
+  }
+  return { ...owner, scopes: [...scopes] };
+}
+
 function toolkitServer(env: Env, principal: Principal): McpServer {
   if (!principal.owner) {
     throw new ContextError(
@@ -69,7 +101,8 @@ function toolkitServer(env: Env, principal: Principal): McpServer {
     {
       instructions:
         "Personal Agent Toolkit combines Sense guidance, Corpus knowledge and Work files, " +
-        "the Hypes relationship model, Journal progress, and Library publishing in one " +
+        "the Hypes relationship model, Journal progress, Library publishing, and private " +
+        "Design assets in one " +
         "owner-authenticated connection. Use only the product tools relevant to the request.",
     },
   );
@@ -90,6 +123,11 @@ function toolkitServer(env: Env, principal: Principal): McpServer {
     server,
     principal.owner,
     new LibraryService({ DB: env.LIBRARY_DB, MEDIA: env.LIBRARY_MEDIA }),
+  );
+  registerDesignTools(
+    server,
+    designOwner(principal),
+    new DesignService({ DB: env.DESIGN_DB, ASSETS: env.DESIGN_ASSETS }),
   );
   return server;
 }

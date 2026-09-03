@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -313,19 +314,34 @@ class RemoteClient:
             "X-Format-Id": format_id,
             "X-Source-Size": str(byte_size),
         }
-        with snapshot.open("rb") as source:
-            response = await self.http.post(
-                "/sync/v1/analysis",
-                headers=headers,
-                content=source,
-            )
+
+        async def content():
+            with snapshot.open("rb") as source:
+                while chunk := await asyncio.to_thread(source.read, 1024 * 1024):
+                    yield chunk
+
+        response = await self.http.post(
+            "/sync/v1/analysis",
+            headers=headers,
+            content=content(),
+        )
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
             raise SyncError(
                 "remote_analyzer_error", "remote analyzer returned invalid JSON"
             ) from exc
-        if not response.is_success or not isinstance(payload, dict):
+        if not isinstance(payload, dict):
+            raise SyncError(
+                "remote_analyzer_error", "remote analyzer rejected the document"
+            )
+        if not response.is_success:
+            error = payload.get("error")
+            if isinstance(error, dict):
+                code = error.get("code")
+                message = error.get("message")
+                if isinstance(code, str) and isinstance(message, str):
+                    raise SyncError(code, message)
             raise SyncError(
                 "remote_analyzer_error", "remote analyzer rejected the document"
             )

@@ -19,6 +19,8 @@ const RESOURCE_SCOPES: Record<ResourceKind, readonly string[]> = {
     "journal.close",
     "library.read",
     "library.write",
+    "design.read",
+    "design.write",
   ],
   sense: ["sense.read", "sense.write"],
   corpus: ["corpus.read", "corpus.write", "corpus.sync"],

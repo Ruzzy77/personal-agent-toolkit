@@ -1,6 +1,6 @@
 # Privacy boundary
 
-Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, Journal, and Library use owner-operated remote services; Personal Agent Sync and Document Files keep Finder access under the owner’s local policy. Design has no product data store.
+Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, Journal, Library, and Design use owner-operated remote services. Personal Agent Sync alone keeps Finder access under the owner’s local policy, and Document Files analyzers do not become document stores.
 
 ## Sense
 
@@ -102,13 +102,36 @@ project source material and reusable project context.
 
 ## Design
 
-Design is a Skill-only plugin with a static, publicly licensed reference pack. It has no MCP
-server, external account connection, background process, or product data store. The reference pack
-contains reusable patterns, optional recipes, example assets, and source attribution; it contains
-no project-only extensions or user content. Design can read or edit project files only through the
-host agent's current tools and permissions, and the plugin does not retain those files or task
-history. The owner-only Design Site renders the same public catalog and keeps no user content;
-its WebMCP tools only update the visible finder, comparison, and request-preparation state.
+Design is an owner-operated private asset and template service used by its MCP and owner-only Site.
+
+- Recipe, pattern, revision, and file metadata is stored in the Design service's owner-scoped D1
+  database. Template, stylesheet, image, and example bytes are stored in its private R2 bucket.
+- The plugin, public repository, and Site source contain no personal recipe records or asset copies.
+  They contain only Skills, service and UI source, migrations, and connection metadata.
+- The remote MCP accepts tokens only for the exact Design resource. Reading requires
+  `design.read`; creating or updating recipes and assets requires `design.write` and the expected
+  current revision where applicable.
+- The owner-only Site requires authenticated identity and calls the same Design service with a
+  separate internal credential. It has no Design data binding of its own. HTML and SVG assets are
+  served through a private, sandboxed preview boundary.
+- Design can read or edit project files only through the host agent's current tools and project
+  permissions. The Design service does not retain project files or task history.
+
+## Document Files analysis
+
+Document Files keeps its local MCP for files that the caller explicitly selects. Its
+`AnalysisJob v1` and `AnalysisResult v1` contracts are path- and transport-independent, so Corpus
+Sync may choose a local backend or the private remote analyzer for the same captured bytes.
+
+- Sync checks the Connection's local, remote, or approval-required route, exact revision digest,
+  declared size, and transfer limit before sending bytes remotely.
+- The remote analyzer is reached only through the authenticated Corpus Sync endpoint and a private
+  Cloudflare Service Binding. It receives the exact bytes for one job, processes them in memory,
+  returns the extraction, and stores neither input nor result.
+- Remote extraction covers stored text and portable structure. Native application rendering and
+  editing, OCR, and structure not preserved by the remote implementation remain local operations.
+- Corpus stores only the accepted extraction projection and its provenance. Original document
+  bytes remain with the owner and are not added to the remote Corpus database.
 
 ## Library
 
@@ -147,7 +170,7 @@ does not delete remote records or local Source files.
 ## Optional remote authentication template
 
 The `auth` directory is a self-deploy template for one owner to authorize the remote context,
-Journal, and Library services.
+Journal, Library, and Design services.
 
 - The public repository contains no Google client secret, Cloudflare credential, owner identifier,
   production token, grant, or session.
@@ -168,8 +191,8 @@ Journal, and Library services.
 
 The release repository must not contain:
 
-- Sense, Corpus, Hypes, Journal, or Library runtime databases, uploaded Library media, or any Hypes
-  relationship-model data;
+- Sense, Corpus, Hypes, Journal, Library, or Design runtime databases, uploaded Library or Design
+  media, or any Hypes relationship-model data;
 - registered source contents or provider messages;
 - `.env` files, credentials, tokens, or private keys;
 - absolute paths from the maintainer's machine;
@@ -178,16 +201,17 @@ The release repository must not contain:
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
 build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
-Skills and the generated public reference pack, while `sites/design` contains the Site and public
-library source. Local Sense, Corpus, and Hypes development or migration implementations live under
-`engines/` and are not part of their remote plugin bundles. `services/journal` and
-`services/library` contain deployable service source;
-`sites/journal` and `sites/library` contain the owner-only Sites frontends and their public
-assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
+Skills and connection metadata, while `services/design` and `sites/design` contain service and UI
+source. Local Sense, Corpus, and Hypes development or migration implementations live under
+`engines/` and are not part of their remote plugin bundles. `services/journal`,
+`services/library`, `services/design`, and `services/document-analyzer` contain deployable service
+source; `sites/journal`, `sites/library`, and `sites/design` contain owner-only Sites frontends and
+their public UI assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
 Public resource and Site endpoints may appear in the plugin manifest.
 
 The authentication template, remote services, and Sites record their resolved JavaScript
 dependencies in `auth/package-lock.json`, `services/remote-context/package-lock.json`,
+`services/document-analyzer/package-lock.json`, `services/design/package-lock.json`,
 `services/journal/package-lock.json`, `services/library/package-lock.json`,
 `sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
 `sites/library/package-lock.json`.

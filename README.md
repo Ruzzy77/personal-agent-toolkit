@@ -2,16 +2,16 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus, Hypes, Journal과 Library는 소유자 인증형 상시 원격 MCP로 공유하고,
-Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사용하는 개인용 에이전트
-도구 모음입니다.
+Sense, Corpus, Hypes, Journal, Library와 Design은 소유자 인증형 상시 원격 MCP로 공유하고,
+Document Files는 로컬 파일 작업과 선택형 원격 분석을 함께 제공하는 개인용 에이전트 도구
+모음입니다. Personal Agent Sync는 허용된 Finder 자료와 원격 서비스를 연결합니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
 - **Document Files**: PDF, Office와 HWP/HWPX를 포함한 문서 파일의 추출·변환·렌더링·편집
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
-- **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 선택형 디자인 참고 라이브러리
+- **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 개인 디자인 자산·템플릿 라이브러리
 - **Library**: Daily·Digest·Research 발간호의 읽기, 편집, 이미지 업로드와 발행
 - **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 전송 정책 검사, 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
@@ -34,7 +34,7 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-Sense·Corpus·Hypes·Journal·Library는 OpenAI에서 하나의 등록 app과 plugin으로 함께 배포하고,
+Sense·Corpus·Hypes·Journal·Library·Design은 OpenAI에서 하나의 등록 app과 plugin으로 함께 배포하고,
 Claude에서는 제품별 Skill과 원격 MCP 주소를 한 plugin으로 배포합니다. 로컬 Source와 Work를 연결하는
 Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
 plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
@@ -47,16 +47,15 @@ plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하�
 
 개인 계정에서는 ChatGPT의 **Personal**에 `Personal Agent Toolkit` app 하나를 만들고 설치합니다.
 Codex에서는 같은 등록 app을 참조하는 `Personal Agent Toolkit` plugin 하나를 저장소 marketplace에서
-설치합니다. 설치 항목만 이 이름을 쓰며 내부 제품과 기능은 Sense, Corpus, Hypes, Journal과 Library의
+설치합니다. 설치 항목만 이 이름을 쓰며 내부 제품과 기능은 Sense, Corpus, Hypes, Journal, Library와 Design의
 짧은 이름을 유지합니다. 제품별 `Created by me` app이나 제품별 Codex plugin을 함께 설치하지 않습니다.
 
-Document Files와 Design도 Codex의 같은 저장소 marketplace에서 별도 설치합니다.
+Document Files만 Codex의 같은 저장소 marketplace에서 별도 설치합니다.
 
 ```sh
 codex plugin marketplace add Ruzzy77/personal-agent-toolkit
 codex plugin add personal-agent-toolkit@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
-codex plugin add design@personal-agent-toolkit
 ```
 
 로컬 checkout에서는 저장소 루트에서 다음 명령으로 marketplace 소스를 등록할 수 있습니다.
@@ -102,18 +101,16 @@ OpenAI 통합 app과 Claude의 제품별 plugin은 다음 상시 HTTPS endpoint�
 | Hypes | `https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp` |
 | Journal | `https://personal-agent-journal.hiyaq77.workers.dev/mcp` |
 | Library | `https://personal-library-mcp.hiyaq77.workers.dev/api/mcp` |
+| Design | `https://personal-agent-design.hiyaq77.workers.dev/mcp` |
 
 OpenAI plugin은 등록 app을 통해 통합 endpoint를 사용하고, Claude plugin은 제품별 endpoint를 직접
 내장합니다. ChatGPT와 Codex는 같은 등록 app과 소유자 인증을 사용합니다. claude.ai에서는 제품별
 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
 필요하지 않습니다.
 
-Journal과 Library의 시각 화면은 각각 소유자 전용
+Journal, Library와 Design의 시각 화면은 각각 소유자 전용
 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)와
-[Library Site](https://personal-edition-library.ruzzy.chatgpt.site)를 사용합니다.
-
-Design은 별도 원격 MCP 없이 Skill과 오프라인 참고 묶음으로 동작합니다. 같은 카탈로그를
-시각적으로 찾고 비교할 때에는 소유자 전용
+[Library Site](https://personal-edition-library.ruzzy.chatgpt.site),
 [Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 사용합니다.
 
 원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
@@ -124,9 +121,14 @@ MCP endpoint는 서로 다른 배포 경계입니다.
 
 로컬 자료를 연결할 Mac에는 [`apps/sync`](./apps/sync/README.md)를 설치합니다. Sync 앱만 Finder
 경로와 파일시스템 정체성을 보유하고 외부 방향 연결을 유지합니다. 허용된 Source의 변경은
-Document Files로 분석한 뒤 확정된 Corpus revision으로 원자적으로 반영하며, 허용된 Work 요청은
+Document Files의 local 또는 remote backend로 분석한 뒤 확정된 Corpus revision으로 원자적으로 반영하며, 허용된 Work 요청은
 현재 Connection 권한과 generation을 다시 검사한 뒤 로컬 Corpus에 위임합니다. 원문 바이트는
 원격 Corpus의 필수 보관 대상이 아닙니다.
+
+원격 분석은 Connection이 `remote`이거나 해당 revision에 대해 승인을 받은 경우에만 사용합니다.
+Sync가 크기·해시·형식과 전송 한도를 확인하고 비공개 Service Binding으로 바이트를 전달합니다.
+분석기는 결과를 반환한 뒤 원문과 결과를 저장하지 않습니다. 로컬 backend는 오프라인 처리,
+네이티브 렌더링·편집과 원격에서 보존하지 못하는 세부 구조를 계속 담당합니다.
 
 분석기와 설정의 정확한 식별자는 각 projection이 만들어진 조건을 확인하는 데 사용합니다. 이
 식별자가 달라졌다는 이유만으로 내용이 같은 문서를 다시 분석하지는 않습니다. 기존 결과를
@@ -142,17 +144,16 @@ Claude와 Codex의 GitHub marketplace를 갱신합니다. 로컬 checkout market
 
 ### ChatGPT와 Codex
 
-Sense·Corpus·Hypes·Journal·Library의 변경은 통합 app과 `Personal Agent Toolkit` plugin에 한 번
+Sense·Corpus·Hypes·Journal·Library·Design의 변경은 통합 app과 `Personal Agent Toolkit` plugin에 한 번
 반영합니다. ChatGPT에서는 app의 현재 도구를 새로 고치고, Codex에서는 통합 plugin의 packaging
-revision을 갱신합니다. 새 작업에서 현재 Skill과 다섯 제품의 등록 app 도구를 확인합니다.
+revision을 갱신합니다. 새 작업에서 현재 Skill과 여섯 제품의 등록 app 도구를 확인합니다.
 
-Document Files와 Design은 Codex marketplace에서 갱신합니다.
+Document Files는 Codex marketplace에서 별도로 갱신합니다.
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
 codex plugin add personal-agent-toolkit@personal-agent-toolkit
 codex plugin add document-files@personal-agent-toolkit
-codex plugin add design@personal-agent-toolkit
 codex plugin list --json
 ```
 
@@ -186,15 +187,12 @@ Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않
 
 ### claude.ai
 
-Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 현재 endpoint로 등록하거나 갱신하고
+Sense·Corpus·Hypes·Journal·Library·Design의 사용자 MCP 연결을 각각 현재 endpoint로 등록하거나 갱신하고
 소유자 인증을 마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure
 MCP Tunnel과 로컬 gateway를 사용하던 이관은 완료됐으며, 현재 구성에는 다시 추가하지 않습니다.
 
-Document Files는 로컬 문서 처리 plugin이며 웹 클라이언트에 별도 원격 MCP로 노출하지 않습니다.
-Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
-
-Design도 Skill과 정적 참고 자산으로 동작하며 웹 클라이언트용 원격 MCP를 만들지 않습니다.
-Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름만 제공합니다.
+Document Files의 파일 조작 도구는 로컬 plugin으로 유지하며 웹 클라이언트에 별도 MCP로 노출하지
+않습니다. Corpus Source 분석은 Connection 정책에 따라 비저장 원격 analyzer를 사용할 수 있습니다.
 
 ### 완료 기준
 
@@ -273,13 +271,14 @@ Hypes는 대화나 프로젝트 자료를 저장하지 않습니다. 현재 요�
 ## Design 시작
 
 Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토를 다루는 `design-review`, 사용자
-조사 설계와 종합을 다루는 `design-research`의 세 Skill로 구성됩니다. `design`에는 패턴, 선택적
-레시피와 예시 자산을 담은 오프라인 참고 묶음이 포함됩니다. 현재 프로젝트의 디자인 시스템을
-우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를 골라 씁니다.
+조사 설계와 종합을 다루는 `design-research`의 세 Skill과 개인 디자인 자산 서비스를 함께
+제공합니다. 레시피·패턴 메타데이터는 Design D1, 템플릿과 예시 파일은 Design R2가 정본입니다.
+현재 프로젝트의 디자인 시스템을 우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를
+골라 씁니다.
 
 시각적 탐색과 비교는 <https://personal-material-index.ruzzy.chatgpt.site>에서 할 수 있으며, 화면
-소스와 공개 라이브러리 정본은 `sites/design`에서 함께 관리합니다. 공개 묶음을 갱신하면 같은
-내용을 `plugins/design`의 오프라인 자산으로 다시 내보냅니다.
+소스는 `sites/design`, 저장과 MCP는 `services/design`에서 관리합니다. 개인 자산은 공개 저장소나
+plugin 묶음에 복사하지 않습니다.
 
 ## Journal 시작
 
@@ -309,6 +308,8 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 | 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
 | 원격 Journal | 소유자 운영형 D1 |
 | Library 문서·이미지 | Library service D1·R2 |
+| Design 레시피·템플릿 | Design service D1·R2 |
+| Document Files 입력 | 호출자 소유; remote analyzer는 비저장 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
 
@@ -320,15 +321,15 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합니다. 제품 내부 동작은 각
 plugin의 `DESIGN.md`에 둡니다.
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`는 제품 계약과
-Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/personal-agent-toolkit`은 이 다섯 제품의
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
+Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/personal-agent-toolkit`은 이 여섯 제품의
 현재 Skill과 통합 등록 app을 담는 OpenAI 배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
-bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 다섯 제품의 OpenAI 통합
-MCP를 제공합니다. Design은
-`plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
-서비스나 사용자 저장소를 만들지 않습니다. `services/journal`은 Journal 서비스이고,
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 제품의 OpenAI 통합
+MCP를 제공합니다. `services/document-analyzer`는 Sync가 선택하는 비저장 Document Files backend입니다.
+Design은 `plugins/design`, `services/design`, `sites/design`으로 구성하며 개인 데이터는 service의
+D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고,
 `sites/journal`은 소유자 전용 화면입니다. `services/library`와 `sites/library`는 Library의 서비스
 소유 저장·MCP와
 읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 이전과 rollback 경계는
@@ -352,8 +353,8 @@ uvx ruff==0.16.5 format --check engines/sense engines/corpus engines/hypes apps/
 uvx ruff==0.16.5 check engines/sense engines/corpus engines/hypes apps/sync
 ```
 
-Pull request와 `main` 갱신에서는 저장소 계약, Python runtime, 원격 Worker·Site와 Design을 각각
-자동 검사합니다. Document Files는 자체 형식 설정과 전체 테스트를 사용하며, 형식별 native
+Pull request와 `main` 갱신에서는 저장소 계약, Python runtime과 원격 Worker·Site를 검사합니다.
+Document Files는 자체 형식 설정과 전체 테스트를 사용하며, 형식별 native
 기능은 지원되는 운영체제에서 별도로 확인합니다. 자동 검사는 Cloudflare에 배포하거나 운영
 데이터를 읽고 쓰지 않습니다.
 

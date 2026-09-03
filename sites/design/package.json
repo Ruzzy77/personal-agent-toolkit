@@ -1,44 +1,41 @@
 {
   "name": "personal-agent-design-site",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "sync:designs": "node scripts/sync-design-library.mjs",
-    "export:plugin": "python3 designs/tools/bundle.py --export-public ../../plugins/design/skills/design/assets/design-library",
-    "check:plugin-export": "node scripts/check-plugin-export.mjs",
-    "predev": "npm run sync:designs",
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
-    "prebuild": "npm run sync:designs",
-    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
-    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "check": "npm run lint && npm test && npm run check:plugin-export"
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "wrangler dev --config dist/server/wrangler.json",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "check": "npm run lint && npm run build"
   },
   "dependencies": {
     "next": "16.3.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "@personal-agent/site-runtime": "file:../../packages/site-runtime"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.54.3",
-    "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
-    "@vitejs/plugin-react": "6.1.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.34",
-    "eslint": "9.39.4",
-    "eslint-config-next": "16.3.4",
     "react-server-dom-webpack": "19.2.8",
-    "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.9",
     "vite": "8.2.2",
-    "wrangler": "4.128.0"
+    "wrangler": "4.128.0",
+    "@cloudflare/workers-types": "5.20260903.1",
+    "@openai/sites-vite-plugin": "0.2.0",
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0",
+    "oxlint-tsgolint": "7.0.2001"
   },
   "type": "module"
 }
