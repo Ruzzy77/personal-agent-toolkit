@@ -406,6 +406,7 @@ class CorpusService:
                     FROM documents d
                     LEFT JOIN revisions r ON r.revision_id = d.current_revision_id
                     WHERE d.lifecycle_state = 'active'
+                      AND d.deleted_at IS NULL
                     """
                 ).fetchone()
         except (CorpusError, OSError):
@@ -447,6 +448,7 @@ class CorpusService:
                       ON p.revision_id = d.current_revision_id AND p.is_active = 1
                     WHERE d.lifecycle_state = 'active'
                       AND d.eligibility_state = 'supported'
+                      AND (d.deleted_at IS NULL OR p.projection_id IS NOT NULL)
                     """
                 ).fetchone()
                 adapter_rows = connection.execute(
@@ -457,6 +459,7 @@ class CorpusService:
                       ON p.revision_id = d.current_revision_id AND p.is_active = 1
                     WHERE d.lifecycle_state = 'active'
                       AND d.eligibility_state = 'supported'
+                      AND (d.deleted_at IS NULL OR p.projection_id IS NOT NULL)
                     """
                 ).fetchall()
                 archived = int(

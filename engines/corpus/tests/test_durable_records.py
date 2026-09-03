@@ -67,6 +67,22 @@ class DurableRecordTest(unittest.TestCase):
             1,
         )
 
+    def test_removed_unindexed_file_does_not_make_current_connection_partial(
+        self,
+    ) -> None:
+        self._register_text("current marker")
+        removed = self.root / "removed-before-indexing.txt"
+        removed.write_text("never indexed", encoding="utf-8")
+        self.service.scan("durable")
+        removed.unlink()
+        self.service.scan("durable")
+
+        connection = self.service.space_get(space_id="durable")["space"]["connections"][
+            0
+        ]
+        self.assertEqual(connection["source_state"], "available")
+        self.assertEqual(connection["record_state"], "ready")
+
     def test_rename_preserves_document_and_projection_identity(self) -> None:
         document, hit = self._register_text("rename marker")
         renamed = self.root / "renamed.txt"
