@@ -75,9 +75,11 @@ deployed analyzer binding; it does not reimplement document parsing.
    copied, it removes only exact remote-minus-local record IDs in bounded
    batches and reports the resulting shard size.
    `verify-migration` compares durable identities, content hashes, lifecycle
-   state, and extraction metadata. Continuously advancing observation fields
-   such as last-seen, last-accessed, and repeated-capture timestamps are not
-   treated as content-identity mismatches while the local authority is live.
+   state, and extraction metadata. It recognizes a newer revision or analyzer
+   projection only when the local Sync ledger records that exact Source digest
+   and committed projection. Continuously advancing observation fields such as
+   last-seen, last-accessed, and repeated-capture timestamps are not treated as
+   content-identity mismatches while the local authority is live.
    It also checks the deployed Sense, Corpus, and Hypes server versions and
    exact public tool-name sets before comparing durable records. The metadata
    receipt is compared with the exact locally recorded migration checkpoint,
@@ -113,6 +115,8 @@ When migrated content is unchanged, Sync first resolves and reuses the durable
 remote revision identity; an analyzer upgrade can replace its projection
 without duplicating the captured revision.
 Ordinary metadata-only filesystem changes still reuse the committed projection.
+That reuse updates path, size, modification time, residency, and eligibility in
+one metadata request without re-uploading extracted units.
 
 `personal-agent-sync storage-report` reads the current remote shard sizes,
 record counts, derived-index state, and largest logical projections. It is an

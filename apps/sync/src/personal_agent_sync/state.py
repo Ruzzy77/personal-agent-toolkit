@@ -379,6 +379,22 @@ class SyncState:
     def connection_for_scope(self, space_id: str, connection_id: str) -> sqlite3.Row:
         return self.connection_row(f"{space_id}:{connection_id}")
 
+    def tracked_document_records(self, corpus_id: str) -> list[dict[str, Any]]:
+        """Return current Source state successfully observed by this Sync device."""
+
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT d.document_id, d.relative_path_nfc, d.size, d.modified_ns,
+                       d.last_revision_sha256, d.last_projection_id, d.missing_since
+                FROM documents d
+                JOIN connections c USING(connection_key)
+                WHERE c.corpus_id = ?
+                """,
+                (corpus_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def request_refresh(
         self,
         space_id: str,

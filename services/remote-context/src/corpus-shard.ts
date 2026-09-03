@@ -2725,9 +2725,14 @@ export class CorpusShard {
       document_id: string;
       relative_path: string;
       source_state: string;
+      logical_size: number | null;
+      modified_ns: string | null;
+      residency_state: string;
+      eligibility_state: string;
       deleted_at: string | null;
     }>(
-      `SELECT document_id, relative_path, source_state, deleted_at
+      `SELECT document_id, relative_path, source_state, logical_size, modified_ns,
+              residency_state, eligibility_state, deleted_at
        FROM documents WHERE document_id = ?`,
       input.documentId,
     );
@@ -2747,18 +2752,34 @@ export class CorpusShard {
     const changed =
       document.source_state !== input.sourceState ||
       pathChanged ||
-      deletionChanged;
+      deletionChanged ||
+      (input.logicalSize !== undefined &&
+        document.logical_size !== input.logicalSize) ||
+      (input.modifiedNs !== undefined &&
+        document.modified_ns !== input.modifiedNs) ||
+      (input.residencyState !== undefined &&
+        document.residency_state !== input.residencyState) ||
+      (input.eligibilityState !== undefined &&
+        document.eligibility_state !== input.eligibilityState);
     if (changed) {
       this.state.storage.transactionSync(() => {
         this.sql.exec(
           `UPDATE documents SET
              source_state = ?,
              relative_path = COALESCE(?, relative_path),
+             logical_size = COALESCE(?, logical_size),
+             modified_ns = COALESCE(?, modified_ns),
+             residency_state = COALESCE(?, residency_state),
+             eligibility_state = COALESCE(?, eligibility_state),
              last_seen_at = ?,
              deleted_at = CASE WHEN ? = 'unavailable' THEN ? ELSE NULL END
            WHERE document_id = ?`,
           input.sourceState,
           relativePath,
+          input.logicalSize ?? null,
+          input.modifiedNs ?? null,
+          input.residencyState ?? null,
+          input.eligibilityState ?? null,
           input.observedAt,
           input.sourceState,
           input.observedAt,

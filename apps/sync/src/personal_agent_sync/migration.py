@@ -32,7 +32,7 @@ EXPECTED_REMOTE_MCP_SURFACES = {
     },
     "corpus": {
         "name": "Corpus",
-        "version": "0.21.3-remote.2",
+        "version": "0.21.4-remote.2",
         "tools": [
             "corpus_space_list",
             "corpus_space_get",
@@ -1358,13 +1358,28 @@ def _first_record_mismatch(
     return None
 
 
-def _durable_counts_cover_expected(actual: object, expected: Mapping[str, int]) -> bool:
-    """Allow only preserved historical projections beyond the local snapshot."""
+def _durable_counts_cover_expected(
+    actual: object,
+    expected: Mapping[str, int],
+    *,
+    allow_source_advances: bool = False,
+) -> bool:
+    """Allow trusted Source revisions and projection history beyond migration."""
 
     if not isinstance(actual, dict):
         return False
     for key in ("documents", "revisions"):
-        if actual.get(key) != expected.get(key):
+        value = actual.get(key)
+        expected_value = expected.get(key, 0)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or (
+                value < expected_value
+                if allow_source_advances
+                else value != expected_value
+            )
+        ):
             return False
     for key in ("projections", "units"):
         value = actual.get(key)
@@ -1464,6 +1479,40 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                 }
                 for header in headers
             }
+            local_active_projection_by_revision = {
+                projection["revision_id"]: projection
+                for projection in expected_projections.values()
+                if projection["is_active"] == 1
+            }
+            local_active_projection_by_document = {
+                projection["document_id"]: projection
+                for projection in local_active_projection_by_revision.values()
+            }
+            tracked_documents = state.tracked_document_records(corpus_id)
+            tracked_document_by_identity = {
+                (
+                    document["document_id"],
+                    document["last_revision_sha256"],
+                    document["last_projection_id"],
+                ): document
+                for document in tracked_documents
+            }
+            tracked_source_projections = {
+                identity
+                for identity in tracked_document_by_identity
+                if identity[1] is not None and identity[2] is not None
+            }
+            tracked_source_projections_by_document: defaultdict[
+                str, set[tuple[str, str]]
+            ] = defaultdict(set)
+            for (
+                document_id,
+                revision_sha256,
+                projection_id,
+            ) in tracked_source_projections:
+                tracked_source_projections_by_document[document_id].add(
+                    (revision_sha256, projection_id)
+                )
             expected_document_ids = set(expected_documents)
             expected_revision_ids = {
                 str(header["revision"]["revisionId"]) for header in headers
@@ -1481,6 +1530,10 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
             projection_done = False
             observed_counts: dict[str, Any] | None = None
             preserved_projection_count = 0
+            reconciled_projection_count = 0
+            advanced_document_count = 0
+            superseded_projection_ids: set[str] = set()
+            inflight_upload_ids: set[str] = set()
             while not (document_done and projection_done):
                 inventory = await remote.inventory(
                     corpus_id,
@@ -1488,7 +1541,9 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     projection_offset=projection_offset,
                 )
                 counts = inventory.get("counts")
-                if not _durable_counts_cover_expected(counts, expected_counts):
+                if not _durable_counts_cover_expected(
+                    counts, expected_counts, allow_source_advances=True
+                ):
                     raise _verification_error(
                         f"{corpus_id} durable counts do not match"
                     )
@@ -1497,8 +1552,38 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                     raise _verification_error(
                         f"{corpus_id} external Source counts do not match"
                     )
-                if inventory.get("staged_upload_count") != 0:
-                    raise _verification_error(f"{corpus_id} has an abandoned upload")
+                staged_upload_count = inventory.get("staged_upload_count")
+                staged_uploads = inventory.get("staged_uploads")
+                if (
+                    isinstance(staged_upload_count, bool)
+                    or not isinstance(staged_upload_count, int)
+                    or not isinstance(staged_uploads, list)
+                    or len(staged_uploads) != staged_upload_count
+                    or inventory.get("staged_uploads_truncated") is not False
+                ):
+                    raise _verification_error(
+                        f"{corpus_id} staged upload inventory is invalid"
+                    )
+                for upload in staged_uploads:
+                    if not isinstance(upload, dict) or not isinstance(
+                        upload.get("upload_id"), str
+                    ):
+                        raise _verification_error(
+                            f"{corpus_id} staged upload inventory is invalid"
+                        )
+                    try:
+                        created_at = datetime.fromisoformat(
+                            str(upload.get("created_at"))
+                        )
+                    except ValueError as error:
+                        raise _verification_error(
+                            f"{corpus_id} staged upload inventory is invalid"
+                        ) from error
+                    if (datetime.now(UTC) - created_at).total_seconds() >= 86_400:
+                        raise _verification_error(
+                            f"{corpus_id} has an abandoned upload"
+                        )
+                    inflight_upload_ids.add(upload["upload_id"])
                 remote_documents = inventory.get("documents")
                 remote_projections = inventory.get("projections")
                 if not isinstance(remote_documents, list) or not isinstance(
@@ -1517,6 +1602,39 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         if expected is None
                         else _first_record_mismatch(actual, expected)
                     )
+                    tracked_document = tracked_document_by_identity.get(
+                        (
+                            document_id,
+                            actual.get("sha256"),
+                            actual.get("projection_id"),
+                        )
+                    )
+                    if mismatch is not None and tracked_document:
+                        current_expected = {
+                            "document_id": tracked_document["document_id"],
+                            "relative_path": tracked_document["relative_path_nfc"],
+                            "source_state": (
+                                "unavailable"
+                                if tracked_document["missing_since"] is not None
+                                else "available"
+                            ),
+                            "logical_size": tracked_document["size"],
+                            "residency_state": "resident",
+                        }
+                        if expected is not None:
+                            current_expected.update(
+                                {
+                                    "extension": expected["extension"],
+                                    "media_type": expected["media_type"],
+                                    "eligibility_state": expected["eligibility_state"],
+                                    "first_seen_at": expected["first_seen_at"],
+                                    "lifecycle_state": expected["lifecycle_state"],
+                                    "retention_class": expected["retention_class"],
+                                }
+                            )
+                        mismatch = _first_record_mismatch(actual, current_expected)
+                        if mismatch is None and expected is None:
+                            advanced_document_count += 1
                     if mismatch is not None:
                         raise _verification_error(
                             f"{corpus_id} document {document_id} does not match "
@@ -1529,10 +1647,104 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         )
                     projection_id = actual.get("projection_id")
                     expected = expected_projections.pop(projection_id, None)
+                    tracked_replacement = (
+                        actual.get("document_id"),
+                        actual.get("sha256"),
+                        projection_id,
+                    ) in tracked_source_projections
+                    local_active = local_active_projection_by_revision.get(
+                        actual.get("revision_id")
+                    )
+                    if expected is not None:
+                        mismatch = _first_record_mismatch(actual, expected)
+                        if (
+                            mismatch in {"is_active", "is_current_revision"}
+                            and expected["is_active"] == 1
+                            and local_active is expected
+                            and any(
+                                tracked_projection_id != projection_id
+                                for _tracked_sha256, tracked_projection_id in (
+                                    tracked_source_projections_by_document.get(
+                                        str(actual.get("document_id")), set()
+                                    )
+                                )
+                            )
+                        ):
+                            durable_expected = dict(expected)
+                            tracked_revision_sha256 = next(
+                                tracked_sha256
+                                for tracked_sha256, tracked_projection_id in (
+                                    tracked_source_projections_by_document[
+                                        str(actual.get("document_id"))
+                                    ]
+                                )
+                                if tracked_projection_id != projection_id
+                            )
+                            if tracked_revision_sha256 == actual.get("sha256"):
+                                durable_expected["is_active"] = 0
+                            else:
+                                durable_expected["is_current_revision"] = 0
+                            mismatch = _first_record_mismatch(actual, durable_expected)
+                            if mismatch is None:
+                                preserved_projection_count += 1
+                        if mismatch is not None:
+                            raise _verification_error(
+                                f"{corpus_id} projection {projection_id} does not "
+                                f"match field {mismatch}"
+                            )
+                        continue
+                    if tracked_replacement:
+                        local_document_projection = (
+                            local_active_projection_by_document.get(
+                                actual.get("document_id")
+                            )
+                        )
+                        durable_expected = {
+                            "document_id": actual.get("document_id"),
+                            "sha256": actual.get("sha256"),
+                            "is_active": 1,
+                            "is_current_revision": 1,
+                        }
+                        if local_active is not None:
+                            durable_expected.update(
+                                {
+                                    key: local_active[key]
+                                    for key in (
+                                        "revision_id",
+                                        "source_size",
+                                        "predecessor_revision_id",
+                                    )
+                                }
+                            )
+                        mismatch = _first_record_mismatch(actual, durable_expected)
+                        if mismatch is not None:
+                            raise _verification_error(
+                                f"{corpus_id} reconciled projection {projection_id} "
+                                f"does not match field {mismatch}"
+                            )
+                        if local_document_projection is not None:
+                            superseded_projection_ids.add(
+                                local_document_projection["projection_id"]
+                            )
+                        reconciled_projection_count += 1
+                        continue
                     if expected is None and (
                         actual.get("is_active") == 0
-                        and actual.get("document_id") in expected_document_ids
-                        and actual.get("revision_id") in expected_revision_ids
+                        and (
+                            (
+                                actual.get("document_id") in expected_document_ids
+                                and actual.get("revision_id") in expected_revision_ids
+                            )
+                            or any(
+                                tracked_sha256 == actual.get("sha256")
+                                and tracked_projection_id != projection_id
+                                for tracked_sha256, tracked_projection_id in (
+                                    tracked_source_projections_by_document.get(
+                                        str(actual.get("document_id")), set()
+                                    )
+                                )
+                            )
+                        )
                     ):
                         # A Context link can protect an older extraction for the
                         # same durable revision. Completed migration maintenance
@@ -1540,26 +1752,25 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
                         # inactive projection is intentional, not drift.
                         preserved_projection_count += 1
                         continue
-                    mismatch = (
-                        "projection_id"
-                        if expected is None
-                        else _first_record_mismatch(actual, expected)
+                    raise _verification_error(
+                        f"{corpus_id} projection {projection_id} does not match "
+                        "field projection_id"
                     )
-                    if mismatch is not None:
-                        raise _verification_error(
-                            f"{corpus_id} projection {projection_id} does not match "
-                            f"field {mismatch}"
-                        )
                 document_offset += len(remote_documents)
                 projection_offset += len(remote_projections)
                 document_done = inventory.get("document_has_more") is False
                 projection_done = inventory.get("projection_has_more") is False
+            for projection_id in superseded_projection_ids:
+                expected_projections.pop(projection_id, None)
             if expected_documents or expected_projections or observed_counts is None:
                 raise _verification_error(f"{corpus_id} inventory is incomplete")
             verified[corpus_id] = {
                 "counts": observed_counts,
                 "external": expected_external,
+                "advanced_source_documents": advanced_document_count,
+                "inflight_uploads": len(inflight_upload_ids),
                 "preserved_historical_projections": preserved_projection_count,
+                "reconciled_source_projections": reconciled_projection_count,
             }
         return {
             "verified": True,

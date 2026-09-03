@@ -396,6 +396,15 @@ export const sourceStateSchema = z
     ]),
     observedAt: z.string().datetime(),
     relativePath: z.string().min(1).max(4096).optional(),
+    logicalSize: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
+    modifiedNs: z.string().regex(/^[0-9]{1,30}$/).optional(),
+    residencyState: z.string().min(1).max(64).optional(),
+    eligibilityState: z.string().min(1).max(64).optional(),
   })
   .strict();
 
