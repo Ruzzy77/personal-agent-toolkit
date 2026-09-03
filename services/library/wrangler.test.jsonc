@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-library-mcp-test",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "vars": {
+    "AUTH_ISSUER": "https://auth.example",
+    "RESOURCE_URI": "https://library.example/api/mcp",
+    "SITES_ORIGIN": "https://site.example",
+    "SITES_BYPASS_TOKEN": "test-sites-token",
+    "LIBRARY_BRIDGE_SECRET": "test-bridge-secret"
+  }
+}

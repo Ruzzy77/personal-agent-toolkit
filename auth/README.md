@@ -31,7 +31,9 @@ ChatGPT ──OAuth──▶ Personal Agent Auth Worker
 Browser ──────────────▶ Library Sites frontend
 ```
 
-Sites 화면과 Library MCP Worker는 서로 다른 역할을 맡습니다. 편집 정본에 접근하는 API는 다음 단계에서 MCP Worker에 연결합니다. Sites 안에 MCP endpoint를 유지하려면 공개 HTTPS token inspection과 서비스 자격 증명이 추가로 필요하므로 현재 구성에는 포함하지 않습니다.
+Sites 화면과 Library MCP Worker는 서로 다른 역할을 맡습니다. `services/library`의 Worker는
+비공개 `AuthService`로 사용자를 확인하고 Sites의 문서·이미지 API에 요청을 전달합니다. Sites
+안에 별도 MCP endpoint를 두거나 공개 HTTPS token inspection을 추가하지 않습니다.
 
 ## 운영 설정
 
@@ -83,7 +85,8 @@ Google token endpoint와 JWKS는 시험 안에서 대체합니다. 실제 Google
 3. Cloudflare KV namespace와 인증 Worker를 만듭니다.
 4. Google 자격 증명과 소유자 허용 목록을 Worker secret으로 등록합니다.
 5. 인증 Worker를 배포하고 OAuth metadata와 Google callback을 확인합니다.
-6. Library와 Personal Agent Context Worker에 `AuthService` Service Binding을 연결합니다.
+6. Library, Journal과 Personal Agent Context Worker에 `AuthService` Service Binding을 연결합니다.
 7. 각 리소스의 읽기 scope로 먼저 연결한 뒤 필요한 쓰기 scope를 별도로 확인합니다. Context Worker에서는 Sense·Corpus·Hypes가 서로 다른 resource URI와 scope를 사용하므로 한 리소스의 토큰으로 다른 리소스를 열 수 없습니다.
 
-인증 배포가 끝나도 Library 저장소 이전은 별도 작업으로 남습니다.
+각 제품의 데이터와 서비스 코드는 인증 저장소와 분리하며, `plugins`, `services`와 `sites`
+아래의 제품별 경계를 따릅니다.

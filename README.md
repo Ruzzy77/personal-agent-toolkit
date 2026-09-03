@@ -2,7 +2,7 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus, Hypes와 Journal은 소유자 인증형 상시 원격 MCP로 공유하고,
+Sense, Corpus, Hypes, Journal과 Library는 소유자 인증형 상시 원격 MCP로 공유하고,
 Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사용하는 개인용 에이전트
 도구 모음입니다.
 
@@ -12,6 +12,7 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
 - **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 선택형 디자인 참고 라이브러리
+- **Library**: Daily·Digest·Research 발간호의 읽기, 편집, 이미지 업로드와 발행
 - **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 전송 정책 검사, 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
@@ -24,6 +25,7 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - 저장된 사용자 관계가 현재 해석·설명·선택을 바꿀 때에는 Hypes를 사용합니다.
 - 오늘과 이번 주의 진행 상태, 사용자 확정 처리와 기간별 기록이 필요하면 Journal을 사용합니다.
 - 제품 화면을 만들거나 고치고, 디자인·접근성을 검토하거나 사용자 조사를 다룰 때에는 Design을 사용합니다.
+- 기존 Library 발간호를 읽거나 고치고 새 호를 발행할 때에는 Library를 사용합니다.
 
 단순 조회, 형식 변환과 한 단계 실행에는 관련 없는 개인 맥락을 불러오지 않습니다.
 
@@ -32,7 +34,7 @@ Document Files, Design과 Personal Agent Sync는 로컬 실행 환경에서 사�
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-Sense·Corpus·Hypes plugin은 Skill과 원격 MCP 주소를 배포합니다. 로컬 Source와 Work를 연결하는
+Sense·Corpus·Hypes·Journal·Library plugin은 Skill과 원격 MCP 주소를 배포합니다. 로컬 Source와 Work를 연결하는
 Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
 plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
 
@@ -50,6 +52,7 @@ codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 codex plugin add journal@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
+codex plugin add library@personal-agent-toolkit
 ```
 
 로컬 checkout에서는 저장소 루트에서 다음 명령을 사용합니다.
@@ -68,6 +71,7 @@ claude plugin install document-files@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 claude plugin install journal@personal-agent-toolkit --scope user
 claude plugin install design@personal-agent-toolkit --scope user
+claude plugin install library@personal-agent-toolkit --scope user
 ```
 
 로컬 checkout은 저장소 루트에서 `claude plugin marketplace add .`로 등록합니다.
@@ -84,20 +88,23 @@ Ruzzy77/personal-agent-toolkit
 
 ## 원격 MCP 연결
 
-Sense·Corpus·Hypes는 다음 상시 HTTPS endpoint를 사용합니다.
+원격 제품은 다음 상시 HTTPS endpoint를 사용합니다.
 
 | 제품 | endpoint |
 |---|---|
 | Sense | `https://personal-agent-context.hiyaq77.workers.dev/sense/mcp` |
 | Corpus | `https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp` |
 | Hypes | `https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp` |
+| Journal | `https://personal-agent-journal.hiyaq77.workers.dev/mcp` |
+| Library | `https://personal-library-mcp.hiyaq77.workers.dev/api/mcp` |
 
 Codex·Claude plugin은 이 주소를 내장하고 각 client에서 소유자 OAuth 로그인을 시작합니다.
 ChatGPT와 claude.ai에서는 같은 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의
 loopback server나 공개 터널은 필요하지 않습니다.
 
-Journal도 소유자 인증형 원격 MCP로 제공됩니다. 시각적 확인과 빠른 처리는 소유자 전용
-[Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 사용합니다.
+Journal과 Library의 시각 화면은 각각 소유자 전용
+[Journal Site](https://personal-journal.ruzzy.chatgpt.site)와
+[Library Site](https://personal-edition-library.ruzzy.chatgpt.site)를 사용합니다.
 
 Design은 별도 원격 MCP 없이 Skill과 오프라인 참고 묶음으로 동작합니다. 같은 카탈로그를
 시각적으로 찾고 비교할 때에는 소유자 전용
@@ -129,6 +136,7 @@ codex plugin add document-files@personal-agent-toolkit
 codex plugin add hypes@personal-agent-toolkit
 codex plugin add journal@personal-agent-toolkit
 codex plugin add design@personal-agent-toolkit
+codex plugin add library@personal-agent-toolkit
 codex plugin list --json
 ```
 
@@ -145,6 +153,7 @@ claude plugin update document-files@personal-agent-toolkit --scope user
 claude plugin update hypes@personal-agent-toolkit --scope user
 claude plugin update journal@personal-agent-toolkit --scope user
 claude plugin update design@personal-agent-toolkit --scope user
+claude plugin update library@personal-agent-toolkit --scope user
 claude plugin list
 ```
 
@@ -154,14 +163,14 @@ claude plugin list
 ### Claude Desktop
 
 `Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document
-Files, Hypes, Journal과 Design을 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이
+Files, Hypes, Journal, Design과 Library를 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이
 남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을
 다시 시작하고 새 Cowork 세션에서 Design의 세 Skill과 각 원격 MCP의 현재 도구를 확인합니다. 일반
 Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
 
 ### ChatGPT 웹
 
-Sense·Corpus·Hypes의 사용자 MCP 연결을 각각 새 endpoint로 등록하거나 갱신하고 소유자 인증을
+Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 새 endpoint로 등록하거나 갱신하고 소유자 인증을
 마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. 기존 Secure MCP
 Tunnel과 gateway 연결은 원격 이관 검증을 통과한 뒤 제거합니다.
 
@@ -250,11 +259,24 @@ Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이�
 
 Daily Monitoring 같은 로컬 자동화는 `plugins/journal/launchers/journal`을 사용해 달라진 항목만 반영합니다. 읽기·ingest 전용 토큰은 macOS Keychain의 `personal-agent-journal-ingest` service에 두며 저장소나 자동화 프롬프트에 넣지 않습니다.
 
+## Library 시작
+
+Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily·Digest·Research 발간호를
+대화에서 읽고 고치거나 새 호를 발행할 수 있습니다. 읽기와 직접 편집은
+<https://personal-edition-library.ruzzy.chatgpt.site>에서 이어지며, 화면 소스는
+`sites/library`, 원격 MCP는 `services/library`에서 관리합니다.
+
+본문이나 시각물을 만들고 개작할 때에는 `manage-library` Skill이 Corpus의
+`library-editorial` Context와 현재 발간호를 연결합니다. 온라인 정본을 바꾼 뒤에는 같은
+발간호를 다시 읽어 HTML, 참고자료, 표지와 발행 정보가 실제로 저장됐는지 확인합니다.
+
 ## 저장 위치
 
 | 제품 | 기본 위치 |
 |---|---|
 | 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
+| 원격 Journal | 소유자 운영형 D1 |
+| Library 문서·이미지 | Sites D1·R2 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 이관 전 로컬 Sense·Corpus·Hypes | 각 제품의 기존 `Application Support` 폴더 |
 
@@ -267,9 +289,10 @@ Python 구현은 로컬 개발·이관 정본으로 남습니다. `apps/sync`는
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker입니다. Design은
 `plugins/design`의 Skill·정적 자산과 `sites/design`의 소유자 전용 참고 화면으로 구성하며,
 서비스나 사용자 저장소를 만들지 않습니다. `plugins/journal`과
-`services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다. `auth`는
-원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만
-만듭니다.
+`services/journal`은 Journal 연결과 서비스이고, `sites/journal`은 소유자 전용 화면입니다.
+`plugins/library`, `services/library`와 `sites/library`는 Library의 연결, 원격 MCP와
+읽기·편집 화면을 나눕니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증 구성입니다. 실제
+계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__version__`와 lockfile에 같은 버전을 반영합니다. 배포본은 각 plugin 폴더의 현재 소스에서 만들며, 갱신한 plugin이 시작되고 공개 MCP 도구를 내보내는 상태까지 이어서 다룹니다.
 

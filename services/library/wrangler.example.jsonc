@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-library-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "workers_dev": true,
+  "services": [
+    {
+      "binding": "AUTH_SERVICE",
+      "service": "personal-agent-auth",
+      "entrypoint": "AuthService"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://personal-agent-auth.YOUR_SUBDOMAIN.workers.dev",
+    "RESOURCE_URI": "https://personal-library-mcp.YOUR_SUBDOMAIN.workers.dev/api/mcp",
+    "SITES_ORIGIN": "https://YOUR_SITE.ruzzy.chatgpt.site"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
