@@ -14,7 +14,7 @@ Direct runtime dependencies:
 | `@modelcontextprotocol/sdk` | Library remote MCP | MIT |
 | `defusedxml` | Corpus | Python Software Foundation License |
 | `drizzle-orm` | Library Site | Apache-2.0 |
-| `httpx` | Optional personal gateway | BSD-3-Clause |
+| `httpx` | Personal Agent Sync | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Hypes | MIT |
 | `next` | Journal and Design Sites | MIT |
@@ -26,8 +26,6 @@ Direct runtime dependencies:
 | `python-pptx` | Corpus | MIT |
 | `react`, `react-dom` | Journal, Design, and Library Sites | MIT |
 | `rhwp` 0.8.2 (optionally provisioned command-line backend) | Corpus | MIT |
-| `starlette` | Optional personal gateway | BSD-3-Clause |
-| `uvicorn` | Optional personal gateway | BSD-3-Clause |
 | `vinext`, `@cloudflare/vite-plugin` | Journal and Design Sites | MIT |
 | `vite`, `@vitejs/plugin-react` | Library Site | MIT |
 | `zod` | Journal and Library request validation | MIT |
@@ -42,8 +40,8 @@ Bundled Library webfonts:
 
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
-`plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/hypes/uv.lock`, and
-`gateway/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
+`plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/document-files/uv.lock`,
+`plugins/hypes/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
 `auth/package-lock.json`, `services/journal/package-lock.json`,
 `services/library/package-lock.json`, `sites/journal/package-lock.json`,
 `sites/design/package-lock.json`, and `sites/library/package-lock.json`.

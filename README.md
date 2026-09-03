@@ -171,8 +171,8 @@ Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않
 ### ChatGPT 웹
 
 Sense·Corpus·Hypes·Journal·Library의 사용자 MCP 연결을 각각 새 endpoint로 등록하거나 갱신하고 소유자 인증을
-마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. 기존 Secure MCP
-Tunnel과 gateway 연결은 원격 이관 검증을 통과한 뒤 제거합니다.
+마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure MCP Tunnel과
+로컬 gateway를 사용하던 이관은 완료됐으며, 현재 구성에는 다시 추가하지 않습니다.
 
 Document Files는 로컬 문서 처리 plugin이며 ChatGPT 웹에 별도 developer plugin으로 노출하지 않습니다. Corpus가 로컬 Source를 갱신할 때 설치된 Document Files를 읽기 전용 처리 경계로 사용합니다.
 
@@ -301,8 +301,8 @@ plugin base version을 바꿀 때에는 manifest, `pyproject.toml`, package `__v
 Python 소스, 스크립트와 테스트는 루트 [`ruff.toml`](./ruff.toml)의 형식을 따릅니다. 변경한 뒤 다음 검사를 실행합니다.
 
 ```sh
-uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes gateway
-uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes gateway
+uvx ruff==0.16.5 format --check plugins/sense plugins/corpus plugins/hypes apps/sync
+uvx ruff==0.16.5 check plugins/sense plugins/corpus plugins/hypes apps/sync
 ```
 
 ## License
