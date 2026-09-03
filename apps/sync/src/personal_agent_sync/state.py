@@ -728,6 +728,14 @@ class SyncState:
                         "UPDATE documents SET relative_path_nfc = relative_path_nfc || '.detached.' || document_id, missing_since = ? WHERE connection_key = ? AND document_id = ?",
                         (now, key, conflicting["document_id"]),
                     )
+                    self._enqueue(
+                        connection,
+                        key,
+                        str(conflicting["document_id"]),
+                        "deleted",
+                        relative_nfc,
+                        now,
+                    )
             connection.execute(
                 """
                     INSERT INTO documents(

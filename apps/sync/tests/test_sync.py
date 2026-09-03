@@ -108,6 +108,43 @@ def test_migration_record_verification_reports_durable_field() -> None:
     assert migration_module._first_record_mismatch(actual, expected) == "relative_path"
 
 
+def test_migration_verification_ignores_detached_locator_for_missing_source() -> None:
+    tracked = {
+        "document_id": "doc_old",
+        "relative_path_nfc": "note.txt.detached.doc_old",
+        "size": 12,
+        "missing_since": "2026-09-03T01:00:00Z",
+    }
+    migrated = {
+        "extension": "txt",
+        "media_type": "text/plain",
+        "eligibility_state": "supported",
+        "first_seen_at": "2026-08-01T00:00:00Z",
+        "lifecycle_state": "active",
+        "retention_class": "managed",
+    }
+
+    expected = migration_module._tracked_document_verification_record(tracked, migrated)
+    actual = {
+        **expected,
+        "relative_path": "note.txt",
+        "logical_size": 9,
+        "deleted_at": "2026-09-03T02:00:00Z",
+        "lifecycle_state": "archived",
+    }
+
+    assert expected == {
+        "document_id": "doc_old",
+        "source_state": "unavailable",
+        "extension": "txt",
+        "media_type": "text/plain",
+        "eligibility_state": "supported",
+        "first_seen_at": "2026-08-01T00:00:00Z",
+        "retention_class": "managed",
+    }
+    assert migration_module._first_record_mismatch(actual, expected) is None
+
+
 def test_migration_counts_allow_only_projection_history_superset() -> None:
     expected = {"documents": 2, "revisions": 2, "projections": 2, "units": 10}
 
@@ -348,6 +385,37 @@ def test_reconcile_coalesces_change_and_preserves_document_identity_on_rename(
     assert moved["document_id"] == document_id
     assert moved["relative_path_nfc"] == "renamed.txt"
     assert moved["event_kind"] == "moved"
+
+
+def test_reconcile_replacement_queues_old_deletion_and_new_document(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    document = root / "opaque.bin"
+    document.write_bytes(b"first")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+
+    reconcile_all(state)
+    initial = state.due_changes()[0]
+    state.complete_unsupported(
+        initial["connection_key"],
+        initial["document_id"],
+        hashlib.sha256(b"first").hexdigest(),
+    )
+
+    replacement = root / "replacement.bin"
+    replacement.write_bytes(b"second")
+    replacement.replace(document)
+    reconcile_all(state)
+
+    changes = state.due_changes()
+    assert len(changes) == 2
+    by_kind = {change["event_kind"]: change for change in changes}
+    assert by_kind["deleted"]["document_id"] == initial["document_id"]
+    assert by_kind["deleted"]["relative_path_nfc"] == "opaque.bin"
+    assert by_kind["created"]["document_id"] != initial["document_id"]
+    assert by_kind["created"]["relative_path_nfc"] == "opaque.bin"
 
 
 def test_reconcile_excludes_system_artifacts_but_keeps_intentional_hidden_files(
@@ -718,23 +786,62 @@ def test_unsupported_file_version_does_not_retry_until_it_changes(
     daemon = SyncDaemon(load_config(write_config(tmp_path, root)), "test-token")
     reconcile_all(daemon.state)
     change = daemon.state.due_changes()[0]
+    updates: list[dict[str, object]] = []
+    imports: list[tuple[str, list[dict[str, object]]]] = []
 
-    async def unsupported(*args: object, **kwargs: object) -> dict[str, object]:
-        raise SyncError("unsupported_format", "format is not supported")
+    async def update(*args: object, **kwargs: object) -> dict[str, object]:
+        updates.append({"args": args, "kwargs": kwargs})
+        if len(updates) == 1:
+            raise SyncError("document_not_found", "document is not registered")
+        return {"changed": True}
 
-    monkeypatch.setattr(daemon_module, "select_analyzer", unsupported)
+    async def import_documents(
+        corpus_id: str, documents: list[dict[str, object]]
+    ) -> dict[str, object]:
+        imports.append((corpus_id, documents))
+        return {"importedDocumentCount": len(documents)}
+
+    monkeypatch.setattr(daemon.remote, "update_source_state", update)
+    monkeypatch.setattr(daemon.remote, "import_documents", import_documents)
 
     async def exercise() -> None:
         await daemon._process_change(change)
-        await daemon.close()
 
     asyncio.run(exercise())
     assert daemon.state.due_changes() == []
+    assert len(imports) == 1
+    assert imports[0][0] == "notes"
+    assert imports[0][1][0] == {
+        "documentId": change["document_id"],
+        "relativePath": "opaque.bin",
+        "extension": "bin",
+        "sourceState": "available",
+        "mediaType": None,
+        "logicalSize": 6,
+        "modifiedNs": str(change["modified_ns"]),
+        "residencyState": "resident",
+        "eligibilityState": "unsupported",
+        "currentRevisionId": None,
+        "lifecycleState": "active",
+        "retentionClass": "managed",
+        "lastUserAccessAt": None,
+        "archivedAt": None,
+        "trashedAt": None,
+        "firstSeenAt": change["first_seen_at"],
+        "lastSeenAt": imports[0][1][0]["lastSeenAt"],
+        "deletedAt": None,
+    }
     assert reconcile_all(daemon.state)[0]["changed"] == 0
 
     document.write_bytes(b"changed")
     assert reconcile_all(daemon.state)[0]["changed"] == 1
-    assert len(daemon.state.due_changes()) == 1
+    changed = daemon.state.due_changes()[0]
+    asyncio.run(daemon._process_change(changed))
+    assert len(updates) == 2
+    assert updates[1]["kwargs"]["eligibility_state"] == "unsupported"
+    assert len(imports) == 1
+    assert daemon.state.due_changes() == []
+    asyncio.run(daemon.close())
 
 
 def test_metadata_only_change_reuses_the_committed_projection(

@@ -52,7 +52,9 @@ Only sources and Work folders that the owner explicitly connects are represented
 - Known operating-system metadata, linked files, special files, and policy-excluded paths are not
   captured. A Connection may intentionally include hidden project files, while Sync still rejects
   Finder indexes, AppleDouble sidecars, thumbnail caches, and similar system artifacts. Temporary
-  Source snapshots use private local storage and are deleted after analysis or failure.
+  Source snapshots use private local storage and are deleted after analysis or failure. Ordinary
+  unsupported files may retain path, size, presence, and format metadata, but their bytes and
+  extracted content are not stored remotely.
 
 ## Hypes
 
