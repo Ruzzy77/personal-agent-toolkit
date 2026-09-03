@@ -1,5 +1,32 @@
 {
   "schema_version": 1,
+  "distributions": {
+    "openai": {
+      "display_name": "Personal Agent Toolkit",
+      "products": [
+        "sense",
+        "corpus",
+        "hypes",
+        "journal",
+        "library"
+      ],
+      "plugin": {
+        "path": "plugins/personal-agent-toolkit",
+        "base_version": "1.0.0"
+      },
+      "registered_app": {
+        "id": "asdk_app_6a999d410f788191a9586375f040a6bd"
+      },
+      "mcp": {
+        "server_key": "personal-agent-toolkit",
+        "transport": "http",
+        "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
+        "implementation": "services/remote-context/src/mcp.ts",
+        "surface_name": "Personal Agent Toolkit",
+        "surface_version": "1.0.0"
+      }
+    }
+  },
   "products": {
     "sense": {
       "display_name": "Sense",

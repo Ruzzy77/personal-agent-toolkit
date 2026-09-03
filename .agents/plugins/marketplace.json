@@ -5,22 +5,10 @@
   },
   "plugins": [
     {
-      "name": "sense",
+      "name": "personal-agent-toolkit",
       "source": {
         "source": "local",
-        "path": "./plugins/sense"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    },
-    {
-      "name": "corpus",
-      "source": {
-        "source": "local",
-        "path": "./plugins/corpus"
+        "path": "./plugins/personal-agent-toolkit"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -41,30 +29,6 @@
       "category": "Productivity"
     },
     {
-      "name": "hypes",
-      "source": {
-        "source": "local",
-        "path": "./plugins/hypes"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    },
-    {
-      "name": "journal",
-      "source": {
-        "source": "local",
-        "path": "./plugins/journal"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    },
-    {
       "name": "design",
       "source": {
         "source": "local",
@@ -75,18 +39,6 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Developer Tools"
-    },
-    {
-      "name": "library",
-      "source": {
-        "source": "local",
-        "path": "./plugins/library"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
     }
   ]
 }

@@ -11,6 +11,7 @@ import type { Env, ResourceKind } from "./types";
 export { CorpusShard, SyncBroker };
 
 function mcpKind(path: string): ResourceKind | null {
+  if (path === "/mcp") return "toolkit";
   if (path === "/sense/mcp") return "sense";
   if (path === "/corpus/mcp") return "corpus";
   if (path === "/hypes/mcp") return "hypes";
@@ -20,7 +21,9 @@ function mcpKind(path: string): ResourceKind | null {
 function mcpError(error: unknown, env: Env, kind: ResourceKind): Response {
   const normalized = asContextError(error);
   const resource = new URL(
-    kind === "sense"
+    kind === "toolkit"
+      ? env.TOOLKIT_RESOURCE
+      : kind === "sense"
       ? env.SENSE_RESOURCE
       : kind === "corpus"
         ? env.CORPUS_RESOURCE
@@ -37,7 +40,9 @@ function mcpError(error: unknown, env: Env, kind: ResourceKind): Response {
       headers: {
         "Cache-Control": "no-store",
         "WWW-Authenticate":
-          `Bearer resource_metadata="${resource.origin}/.well-known/oauth-protected-resource/${kind}/mcp"`,
+          kind === "toolkit"
+            ? `Bearer resource_metadata="${resource.origin}/.well-known/oauth-protected-resource/mcp"`
+            : `Bearer resource_metadata="${resource.origin}/.well-known/oauth-protected-resource/${kind}/mcp"`,
       },
     },
   );
@@ -50,7 +55,9 @@ export default {
     if (!kind) return handleHttp(request, env);
     try {
       const resourceHost = new URL(
-        kind === "sense"
+        kind === "toolkit"
+          ? env.TOOLKIT_RESOURCE
+          : kind === "sense"
           ? env.SENSE_RESOURCE
           : kind === "corpus"
             ? env.CORPUS_RESOURCE

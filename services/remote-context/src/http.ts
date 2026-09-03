@@ -57,6 +57,11 @@ function protectedMetadata(
 }
 
 function metadataKind(path: string): ResourceKind | null {
+  if (
+    path === "/.well-known/oauth-protected-resource" ||
+    path === "/.well-known/oauth-protected-resource/mcp"
+  )
+    return "toolkit";
   if (path === "/.well-known/oauth-protected-resource/sense/mcp")
     return "sense";
   if (path === "/.well-known/oauth-protected-resource/corpus/mcp")
@@ -68,8 +73,12 @@ function metadataKind(path: string): ResourceKind | null {
 
 function unauthorizedMetadata(env: Env, kind: ResourceKind): HeadersInit {
   const origin = new URL(resourceUrl(env, kind)).origin;
+  const metadataPath =
+    kind === "toolkit"
+      ? "/.well-known/oauth-protected-resource/mcp"
+      : `/.well-known/oauth-protected-resource/${kind}/mcp`;
   return {
-    "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/${kind}/mcp"`,
+    "WWW-Authenticate": `Bearer resource_metadata="${origin}${metadataPath}"`,
   };
 }
 
@@ -405,7 +414,7 @@ export async function handleHttp(
         ok: true,
         service: "personal-agent-context",
         version: "0.1.1",
-        resources: ["sense", "corpus", "hypes"],
+        resources: ["toolkit", "sense", "corpus", "hypes"],
       });
     }
     const kind = metadataKind(url.pathname);

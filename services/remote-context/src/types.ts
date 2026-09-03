@@ -6,10 +6,13 @@ export type {
   AuthServiceBinding,
 } from "@personal-agent/remote-runtime";
 
-export type ResourceKind = "sense" | "corpus" | "hypes";
+export type ResourceKind = "toolkit" | "sense" | "corpus" | "hypes";
 
 export interface Env {
   STATE_DB: D1Database;
+  JOURNAL_DB: D1Database;
+  LIBRARY_DB: D1Database;
+  LIBRARY_MEDIA: R2Bucket;
   CORPUS_SHARDS: DurableObjectNamespace;
   SYNC_BROKERS: DurableObjectNamespace;
   AUTH_SERVICE?: AuthServiceBinding;
@@ -18,6 +21,7 @@ export interface Env {
   SENSE_RESOURCE: string;
   CORPUS_RESOURCE: string;
   HYPES_RESOURCE: string;
+  TOOLKIT_RESOURCE: string;
   STRUCTURE_PATH_COMPACTION_WRITE_ENABLED?: string;
   SEARCH_INDEX_V2_WRITE_ENABLED?: string;
   SEARCH_INDEX_V2_CUTOVER_ENABLED?: string;
@@ -32,6 +36,7 @@ export interface Principal {
   scopes: ReadonlySet<string>;
   clientId: string;
   auth: "oauth" | "sync-device";
+  owner?: import("@personal-agent/remote-runtime").AuthenticatedOwner;
   deviceId?: string;
 }
 

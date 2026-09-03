@@ -9,8 +9,9 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 - 같은 종류의 제품은 같은 흐름으로 배포하고 운영한다.
 - 상태가 있는 원격 제품은 서비스가 데이터와 업무 규칙을 소유한다.
 - Site와 MCP는 서로를 중계하지 않고 같은 제품 서비스를 사용한다.
-- plugin은 클라이언트 연결, Skill과 정적 자산을 배포하며 운영 데이터를 소유하지 않는다. OpenAI의
-  원격 제품은 등록 app을 참조하고, Claude의 원격 제품은 MCP endpoint를 직접 선언한다.
+- plugin은 클라이언트 연결, Skill과 정적 자산을 배포하며 운영 데이터를 소유하지 않는다. OpenAI는
+  다섯 원격 제품을 하나의 등록 app과 설치 항목으로 묶고, Claude는 제품별 MCP endpoint를 직접
+  선언한다.
 - 공통 코드는 실제로 반복되는 인증·계약·오류 처리부터 합치고, 제품 차이를 감추는 추상화는
   만들지 않는다.
 
@@ -18,13 +19,13 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 
 | 제품 | 현재 구성 | 현재 데이터 정본 | 통일 목표 |
 | --- | --- | --- | --- |
-| Sense | remote plugin + shared context service + local engine | context service | 공통 remote runtime을 쓰는 독립 제품 모듈 |
-| Corpus | remote plugin + context service + Sync + local engine | context service와 연결된 로컬 파일 | 분리된 원격 모듈과 local engine 유지 |
-| Hypes | remote plugin + shared context service + local engine | context service | 공통 remote runtime을 쓰는 독립 제품 모듈 |
+| Sense | product plugin source + shared context service + local engine | context service | 공통 remote runtime을 쓰는 독립 제품 모듈 |
+| Corpus | product plugin source + context service + Sync + local engine | context service와 연결된 로컬 파일 | 분리된 원격 모듈과 local engine 유지 |
+| Hypes | product plugin source + shared context service + local engine | context service | 공통 remote runtime을 쓰는 독립 제품 모듈 |
 | Document Files | local plugin | 호출자가 소유한 로컬 파일 | 로컬 문서 처리 예외 유지 |
 | Design | skill-only plugin + Site | `sites/design/designs` | 정적 자산 제품 예외 유지 |
-| Journal | remote plugin + service + Site | Journal service D1 | 기준 구조 유지 |
-| Library | remote plugin + service + Site | Library service D1·R2 | 기준 구조 유지 |
+| Journal | product plugin source + service + Site | Journal service D1 | 기준 구조 유지 |
+| Library | product plugin source + service + Site | Library service D1·R2 | 기준 구조 유지 |
 
 `services/remote-context`가 Sense·Corpus·Hypes를 함께 호스팅하는 것은 배포 단위의 선택이다. 각
 제품의 계약, 저장 접근과 업무 로직은 모듈 경계를 유지하며, 한 제품의 변경이 다른 제품의 공개
@@ -35,14 +36,15 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 상태가 있는 원격 제품은 다음 흐름을 기준으로 한다.
 
 ```text
-OpenAI plugin ── registered app ── MCP ──┐
-Claude plugin ──────────────────── MCP ──┼── product service ── D1 / R2
-Site ──────────────────────────── HTTP ──┘
+OpenAI 통합 plugin ── registered app ── 통합 MCP ── product module ──┐
+Claude 제품 plugin ─────────────────── 제품 MCP ── product module ──┼── D1 / R2
+Site ───────────────────────────────────── HTTP ── product service ──┘
 ```
 
-- **plugin**: manifest, Skill, 아이콘과 필요한 연결 정보만 배포한다. Sense·Corpus·Hypes·Journal·
-  Library는 OpenAI에서 제품별 등록 app과 Skill을 하나의 설치 단위로 발행한다. 저장소의 Codex
-  marketplace 항목은 이 설치 단위를 만들고 시험하는 소스이며 같은 제품의 별도 운영 설치가 아니다.
+- **plugin**: manifest, Skill, 아이콘과 필요한 연결 정보만 배포한다. OpenAI에서는
+  `plugins/personal-agent-toolkit`이 Sense, Corpus, Hypes, Journal과 Library의 Skill과 통합 등록 app을
+  하나의 설치 단위로 제공한다. `Personal Agent Toolkit`은 설치 항목의 이름이며 제품, Skill과 도구는
+  기존의 짧은 이름을 유지한다. Claude에서는 같은 제품 소스의 제품별 plugin을 사용한다.
 - **service**: 인증, 입력 검증, 업무 규칙, 동시성 제어와 저장을 소유한다.
 - **Site**: 읽기·편집 UI와 화면 안 WebMCP를 제공하고 서비스 API를 사용한다.
 - **공통 runtime**: [`packages/remote-runtime`](./packages/remote-runtime)이 owner 인증 계약,
@@ -88,14 +90,18 @@ MCP plugin은 해당 Python package도 맞추고, 한 제품으로 함께 배포
 같은 version을 사용한다. `engines/`의 개발·이관 package는 공개 plugin과 독립적으로 바뀐다.
 공유 context service는 자체 host version과 Sense·Corpus·Hypes의 공개 surface version을 분리한다.
 
+OpenAI 통합 plugin의 base version은 제품별 release version과 별도로 `products.json`의 OpenAI 배포
+항목에서 관리한다. 제품 Skill이나 통합 app 구성이 바뀌면 packaging revision을 갱신하며, 제품 계약이
+함께 바뀐 경우에만 해당 제품의 base version도 올린다.
+
 base version을 바꾼 변경은 소스와 원격 배포를 반영하고, 지원 클라이언트의 새 세션에서 현재 Skill,
 도구 이름과 입력 구조가 보이는지 확인해야 완료다. 문구 정리처럼 공개 동작을 바꾸지 않는 변경은
 불필요하게 version을 올리지 않는다.
 
-OpenAI의 원격 제품은 `.app.json`에 제품별 등록 app 하나를 두고 Codex manifest가 이를 참조한다.
-직접 `mcpServers`를 함께 선언하거나 같은 app을 별도 원격 plugin으로 설치하지 않는다. Claude의
-`.mcp.json`은 기존 endpoint 연결을 계속 소유한다. Document Files는 로컬 MCP, Design은 Skill 전용
-예외로 유지한다.
+OpenAI 통합 plugin은 `.app.json`에 등록 app 하나를 두고 Codex manifest가 이를 참조한다. 통합 MCP는
+다섯 제품의 공개 도구를 제품 모듈에서 직접 등록하고 각 제품의 데이터 저장소와 권한을 그대로 쓴다.
+직접 `mcpServers`를 함께 선언하거나 제품별 app을 별도 설치하지 않는다. Claude의 제품별 `.mcp.json`은
+기존 endpoint 연결을 계속 소유한다. Document Files는 로컬 MCP, Design은 Skill 전용 예외로 유지한다.
 
 ## 검증 원칙
 

@@ -32,6 +32,11 @@ import {
 import { SenseService } from "./sense";
 import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
+import { registerJournalTools } from "personal-agent-journal-service/mcp";
+import { JournalService } from "personal-agent-journal-service/service";
+import type { Principal as JournalPrincipal } from "personal-agent-journal-service/types";
+import { registerLibraryTools } from "personal-agent-library-service/mcp";
+import { LibraryService } from "personal-agent-library-service/service";
 
 function requireScope(principal: Principal, scope: string): void {
   if (!principal.scopes.has(scope)) {
@@ -46,6 +51,47 @@ function requireScope(principal: Principal, scope: string): void {
 function success(value: unknown) {
   const wrapped = { ok: true as const, result: value };
   return mcpTextResult(wrapped);
+}
+
+function toolkitServer(env: Env, principal: Principal): McpServer {
+  if (!principal.owner) {
+    throw new ContextError(
+      "invalid_token",
+      "the unified toolkit requires an OAuth owner",
+      401,
+    );
+  }
+  const server = new McpServer(
+    {
+      name: MCP_SURFACES.toolkit.name,
+      version: MCP_SURFACES.toolkit.version,
+    },
+    {
+      instructions:
+        "Personal Agent Toolkit combines Sense guidance, Corpus knowledge and Work files, " +
+        "the Hypes relationship model, Journal progress, and Library publishing in one " +
+        "owner-authenticated connection. Use only the product tools relevant to the request.",
+    },
+  );
+  registerSenseTools(server, env, principal);
+  registerCorpusTools(server, env, principal);
+  registerHypesTools(server, env, principal);
+  registerJournalTools(
+    server,
+    new JournalService(env.JOURNAL_DB),
+    {
+      kind: "owner",
+      id: principal.ownerId,
+      scopes: principal.scopes,
+      auth: "oauth",
+    } satisfies JournalPrincipal,
+  );
+  registerLibraryTools(
+    server,
+    principal.owner,
+    new LibraryService({ DB: env.LIBRARY_DB, MEDIA: env.LIBRARY_MEDIA }),
+  );
+  return server;
 }
 
 async function safeTool(operation: () => Promise<unknown>) {
@@ -66,7 +112,6 @@ async function safeTool(operation: () => Promise<unknown>) {
 }
 
 function senseServer(env: Env, principal: Principal): McpServer {
-  const service = new SenseService(env.STATE_DB, principal.ownerId);
   const server = new McpServer(
     { name: MCP_SURFACES.sense.name, version: MCP_SURFACES.sense.version },
     {
@@ -77,6 +122,16 @@ function senseServer(env: Env, principal: Principal): McpServer {
         "outside the remote surface.",
     },
   );
+  registerSenseTools(server, env, principal);
+  return server;
+}
+
+export function registerSenseTools(
+  server: McpServer,
+  env: Env,
+  principal: Principal,
+): void {
+  const service = new SenseService(env.STATE_DB, principal.ownerId);
   server.registerTool(
     "sense_read",
     {
@@ -140,11 +195,9 @@ function senseServer(env: Env, principal: Principal): McpServer {
         return service.reviseSkill(input);
       }),
   );
-  return server;
 }
 
 function hypesServer(env: Env, principal: Principal): McpServer {
-  const service = new HypesService(env.STATE_DB, principal.ownerId);
   const server = new McpServer(
     { name: MCP_SURFACES.hypes.name, version: MCP_SURFACES.hypes.version },
     {
@@ -154,6 +207,16 @@ function hypesServer(env: Env, principal: Principal): McpServer {
         "with one atomic patch.",
     },
   );
+  registerHypesTools(server, env, principal);
+  return server;
+}
+
+export function registerHypesTools(
+  server: McpServer,
+  env: Env,
+  principal: Principal,
+): void {
+  const service = new HypesService(env.STATE_DB, principal.ownerId);
   server.registerTool(
     "hypes_read",
     {
@@ -186,11 +249,9 @@ function hypesServer(env: Env, principal: Principal): McpServer {
         return service.rewrite(input);
       }),
   );
-  return server;
 }
 
 function corpusServer(env: Env, principal: Principal): McpServer {
-  const service = new CorpusService(env, principal);
   const server = new McpServer(
     { name: MCP_SURFACES.corpus.name, version: MCP_SURFACES.corpus.version },
     {
@@ -202,6 +263,16 @@ function corpusServer(env: Env, principal: Principal): McpServer {
         "be delegated to that app and followed through its job id.",
     },
   );
+  registerCorpusTools(server, env, principal);
+  return server;
+}
+
+export function registerCorpusTools(
+  server: McpServer,
+  env: Env,
+  principal: Principal,
+): void {
+  const service = new CorpusService(env, principal);
   server.registerTool(
     "corpus_space_list",
     {
@@ -409,7 +480,6 @@ function corpusServer(env: Env, principal: Principal): McpServer {
         return service.fileRestore(input);
       }),
   );
-  return server;
 }
 
 export async function handleMcp(
@@ -419,6 +489,7 @@ export async function handleMcp(
   kind: ResourceKind,
 ): Promise<Response> {
   const handler = createMcpHandler(() => {
+    if (kind === "toolkit") return toolkitServer(env, principal);
     if (kind === "sense") return senseServer(env, principal);
     if (kind === "hypes") return hypesServer(env, principal);
     return corpusServer(env, principal);

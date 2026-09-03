@@ -1,6 +1,31 @@
 {
   "resources": [
     {
+      "id": "toolkit",
+      "name": "Personal Agent Toolkit",
+      "resource": "https://context.example.com/mcp",
+      "scopes": [
+        "sense.read",
+        "sense.write",
+        "corpus.read",
+        "corpus.write",
+        "hypes.read",
+        "hypes.write",
+        "journal.read",
+        "journal.write",
+        "journal.close",
+        "library.read",
+        "library.write"
+      ],
+      "baselineScopes": [
+        "sense.read",
+        "corpus.read",
+        "hypes.read",
+        "journal.read",
+        "library.read"
+      ]
+    },
+    {
       "id": "library",
       "name": "Library",
       "resource": "https://library.example.com/api/mcp",

@@ -45,8 +45,8 @@ Hypes는 이후 상호작용에 재사용할 비민감 관계를 소유자별 �
 답변 전문은 대화 시스템에, 프로젝트 정보는 프로젝트에, 출처는 Corpus에, 장기 지침은 Sense에
 귀속된다.
 
-OpenAI plugin은 Skill과 등록 app을 함께 배포하고, Claude plugin은 다음 상시 원격 MCP를 직접
-선언한다. 로컬 MCP server나 공개 터널은 요구하지 않는다.
+OpenAI에서는 Hypes Skill을 `Personal Agent Toolkit` 통합 plugin에 포함하고, Claude의 Hypes
+plugin은 다음 상시 원격 MCP를 직접 선언한다. 로컬 MCP server나 공개 터널은 요구하지 않는다.
 
 ```text
 https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp

@@ -7,12 +7,26 @@ import { ContextError } from "./errors";
 import type { Env, Principal, ResourceKind } from "./types";
 
 const RESOURCE_SCOPES: Record<ResourceKind, readonly string[]> = {
+  toolkit: [
+    "sense.read",
+    "sense.write",
+    "corpus.read",
+    "corpus.write",
+    "hypes.read",
+    "hypes.write",
+    "journal.read",
+    "journal.write",
+    "journal.close",
+    "library.read",
+    "library.write",
+  ],
   sense: ["sense.read", "sense.write"],
   corpus: ["corpus.read", "corpus.write", "corpus.sync"],
   hypes: ["hypes.read", "hypes.write"],
 };
 
 export function resourceUrl(env: Env, kind: ResourceKind): string {
+  if (kind === "toolkit") return env.TOOLKIT_RESOURCE;
   if (kind === "sense") return env.SENSE_RESOURCE;
   if (kind === "corpus") return env.CORPUS_RESOURCE;
   return env.HYPES_RESOURCE;
@@ -47,6 +61,7 @@ export async function authenticateMcp(
         scopes: new Set(validation.owner.scopes),
         clientId: validation.owner.clientId,
         auth: "oauth",
+        owner: validation.owner,
       };
     }
   }

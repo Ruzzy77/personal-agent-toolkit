@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Owner-authenticated remote MCP for Library",
+  "exports": {
+    "./mcp": "./src/mcp.ts",
+    "./service": "./src/service.ts"
+  },
+  "files": [
+    "src"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
