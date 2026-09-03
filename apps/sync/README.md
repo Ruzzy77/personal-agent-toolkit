@@ -91,9 +91,12 @@ copied, restored, or recreated as a new checkout, its filesystem identity is no
 longer proof that it is the same Source. Stop Sync and run
 `personal-agent-sync rebind-root SPACE:CONNECTION NEW_ROOT`. The explicit rebind
 updates every Connection that shared the old root, rewrites only those private
-local locators in the configuration, preserves matching document identities,
-and queues only files whose bytes actually changed. It never searches the home
-folder for a merely similar directory name.
+local locators in the configuration, keeps the isolated local Corpus Source and
+Work registrations aligned, preserves matching document identities, and queues
+only files whose bytes actually changed. It never searches the home folder for
+a merely similar directory name. If a later step fails, rerunning the same
+command resumes from the already aligned authorities rather than guessing a
+different folder.
 
 `personal-agent-sync status` shows only opaque Connection and document IDs,
 queue state, and stable error codes. It does not print local roots.

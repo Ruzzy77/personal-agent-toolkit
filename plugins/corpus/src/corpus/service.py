@@ -1818,6 +1818,19 @@ class CorpusService:
             execution_policy=execution_policy,
         )
 
+    def workspace_rebind_root(
+        self,
+        *,
+        workspace_id: str,
+        root: Path,
+        expected_root: Path,
+    ) -> dict:
+        return self.workspaces.rebind_root(
+            workspace_id=workspace_id,
+            root=root,
+            expected_root=expected_root,
+        )
+
     def workspace_disconnect(
         self,
         *,

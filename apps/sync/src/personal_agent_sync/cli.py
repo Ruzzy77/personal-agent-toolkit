@@ -20,6 +20,7 @@ from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState
 from .storage import maintain_remote_storage, remote_storage_report
+from .work import rebind_local_corpus_roots
 
 LAUNCH_AGENT_LABEL = "dev.personal-agent.sync"
 
@@ -243,6 +244,11 @@ def main() -> None:
             state = SyncState(config)
             result = state.rebind_connection_root(
                 arguments.connection_key, arguments.root
+            )
+            result["local_corpus"] = rebind_local_corpus_roots(
+                config,
+                set(result["connection_keys"]),
+                Path(str(result["root"])),
             )
             rewrite_connection_roots(
                 arguments.config,

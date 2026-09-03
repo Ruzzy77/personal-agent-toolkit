@@ -965,6 +965,58 @@ def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
     assert load_config(config_path).connections[0].root == replacement
 
 
+def test_root_rebind_updates_the_isolated_local_corpus_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    replacement = tmp_path / "restored"
+    replacement.mkdir()
+    config = replace(
+        load_config(write_config(tmp_path, root)),
+        corpus_data_root=tmp_path / "corpus-data",
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        args: list[str], **options: object
+    ) -> subprocess.CompletedProcess[str]:
+        observed["args"] = args
+        observed["payload"] = json.loads(str(options["input"]))
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "result": {
+                        "root": str(replacement),
+                        "sources": [{"changed": True}],
+                        "workspaces": [{"changed": True}],
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(work_module.subprocess, "run", fake_run)
+    result = work_module.rebind_local_corpus_roots(config, {"notes:main"}, replacement)
+
+    assert result["root"] == str(replacement)
+    assert observed["args"][-1] == str(config.corpus_data_root)
+    assert observed["payload"] == {
+        "connections": [
+            {
+                "connection_id": "main",
+                "corpus_id": "notes",
+                "roles": ["source", "work"],
+                "space_id": "notes",
+            }
+        ],
+        "root": str(replacement),
+    }
+
+
 def test_completed_job_replay_is_identity_checked_and_bounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
