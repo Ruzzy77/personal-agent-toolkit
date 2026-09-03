@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -240,20 +241,60 @@ def check_shared_product_versions(errors: list[str]) -> None:
 def check_remote_context_versions(errors: list[str]) -> None:
     surfaces_path = ROOT / "services" / "remote-context" / "src" / "surfaces.ts"
     surfaces = surfaces_path.read_text(encoding="utf-8")
+    remote_surfaces: dict[str, dict[str, Any]] = {}
     suffixes = {"sense": "remote.1", "corpus": "remote.3", "hypes": "remote.1"}
     for name, suffix in suffixes.items():
         base = read_json(PLUGIN_ROOT / name / ".claude-plugin" / "plugin.json")[
             "version"
         ]
-        match = re.search(
-            rf"(?s)\b{name}:\s*\{{.*?\bversion:\s*\"([^\"]+)\"",
+        block_match = re.search(
+            rf"(?s)\b{name}:\s*\{{(?P<body>.*?)\n\s*\}},",
             surfaces,
         )
         expected = f"{base}-{suffix}"
-        if match is None or match.group(1) != expected:
+        if block_match is None:
+            errors.append(f"{relative(surfaces_path)} is missing {name} surface")
+            continue
+        body = block_match.group("body")
+        display_name = re.search(r'\bname:\s*"([^\"]+)"', body)
+        version = re.search(r'\bversion:\s*"([^\"]+)"', body)
+        tools = re.search(r"(?s)\btools:\s*\[(.*?)\]", body)
+        if version is None or version.group(1) != expected:
             errors.append(
                 f"{relative(surfaces_path)} {name} version must be {expected}"
             )
+        if display_name is None or tools is None:
+            errors.append(
+                f"{relative(surfaces_path)} {name} surface is missing its name or tools"
+            )
+            continue
+        remote_surfaces[name] = {
+            "name": display_name.group(1),
+            "version": version.group(1) if version is not None else "",
+            "tools": re.findall(r'"([^\"]+)"', tools.group(1)),
+        }
+
+    sync_path = ROOT / "apps" / "sync" / "src" / "personal_agent_sync" / "migration.py"
+    sync_tree = ast.parse(sync_path.read_text(encoding="utf-8"))
+    sync_surfaces: object | None = None
+    for node in sync_tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(
+            isinstance(target, ast.Name) and target.id == "EXPECTED_REMOTE_MCP_SURFACES"
+            for target in node.targets
+        ):
+            try:
+                sync_surfaces = ast.literal_eval(node.value)
+            except (SyntaxError, ValueError):
+                errors.append(
+                    f"{relative(sync_path)} expected MCP surfaces must remain literal data"
+                )
+            break
+    if sync_surfaces != remote_surfaces:
+        errors.append(
+            f"{relative(sync_path)} expected MCP surfaces must match {relative(surfaces_path)}"
+        )
 
 
 def check_sync_version(errors: list[str]) -> None:
