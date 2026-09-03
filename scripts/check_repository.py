@@ -192,6 +192,24 @@ def check_javascript_locks(errors: list[str]) -> None:
             )
 
 
+def check_dependency_documentation(errors: list[str]) -> None:
+    documents = [ROOT / "PRIVACY.md", ROOT / "THIRD_PARTY_NOTICES.md"]
+    contents = {path: path.read_text(encoding="utf-8") for path in documents}
+    package_paths = [ROOT / "auth" / "package.json"]
+    package_paths.extend(ROOT.glob("services/*/package.json"))
+    package_paths.extend(ROOT.glob("sites/*/package.json"))
+    for package_path in sorted(package_paths):
+        lock_path = package_path.with_name("package-lock.json")
+        if not lock_path.is_file():
+            continue
+        lock_reference = relative(lock_path)
+        for document, content in contents.items():
+            if lock_reference not in content:
+                errors.append(
+                    f"{relative(document)} must list dependency lock {lock_reference}"
+                )
+
+
 def check_shared_product_versions(errors: list[str]) -> None:
     source_files = {
         "journal": [
@@ -305,6 +323,7 @@ def main() -> int:
     for name in sorted(REQUIRED_PLUGINS):
         check_plugin(name, errors)
     check_javascript_locks(errors)
+    check_dependency_documentation(errors)
     check_shared_product_versions(errors)
     check_remote_context_versions(errors)
     check_sync_version(errors)
