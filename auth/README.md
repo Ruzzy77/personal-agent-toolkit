@@ -88,8 +88,8 @@ Google token endpoint와 JWKS는 시험 안에서 대체합니다. 실제 Google
 3. Cloudflare KV namespace와 인증 Worker를 만듭니다.
 4. Google 자격 증명과 소유자 허용 목록을 Worker secret으로 등록합니다.
 5. 인증 Worker를 배포하고 OAuth metadata와 Google callback을 확인합니다.
-6. Library, Journal과 Personal Agent Context Worker에 `AuthService` Service Binding을 연결합니다.
-7. 각 리소스의 읽기 scope로 먼저 연결한 뒤 필요한 쓰기 scope를 별도로 확인합니다. OpenAI 통합 app은 다섯 제품의 scope를 가진 `toolkit` 리소스를 사용하고, Claude의 제품별 연결은 각 resource URI와 scope를 따릅니다. 한 제품 리소스의 토큰으로 다른 제품 리소스를 열 수 없습니다.
+6. Library, Journal, Design과 Personal Agent Context Worker에 `AuthService` Service Binding을 연결합니다.
+7. 각 리소스의 읽기 scope로 먼저 연결한 뒤 필요한 쓰기 scope를 별도로 확인합니다. OpenAI 통합 app은 여섯 제품의 scope를 가진 `toolkit` 리소스를 사용하고, Claude의 제품별 연결은 각 resource URI와 scope를 따릅니다. `toolkit`의 baseline은 기존 설치를 끊지 않도록 최초 다섯 제품의 읽기 scope로 유지하며 새 grant에는 Design scope도 요청합니다. 한 제품 리소스의 토큰으로 다른 제품 리소스를 열 수 없습니다.
 
 각 제품의 데이터와 서비스 코드는 인증 저장소와 분리하며, `plugins`, `services`와 `sites`
 아래의 제품별 경계를 따릅니다.

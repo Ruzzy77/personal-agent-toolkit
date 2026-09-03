@@ -1,7 +1,7 @@
 {
   "name": "personal-agent-toolkit",
-  "version": "1.0.0+codex.20260904093600",
-  "description": "Use Sense, Corpus, Hypes, Journal, and Library through one private connection.",
+  "version": "1.1.0+codex.20260904023014",
+  "description": "Use Sense, Corpus, Hypes, Journal, Library, and Design through one private connection.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -20,8 +20,8 @@
   "apps": "./.app.json",
   "interface": {
     "displayName": "Personal Agent Toolkit",
-    "shortDescription": "Sense, Corpus, Hypes, Journal, and Library",
-    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, and Library publishing. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation and owner-authenticated connection.",
+    "shortDescription": "Sense, Corpus, Hypes, Journal, Library, and Design",
+    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, Library publishing, and the owner’s private Design asset library. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation and owner-authenticated connection.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -29,14 +29,15 @@
       "Corpus context and Work files",
       "Hypes relationship model",
       "Journal progress",
-      "Library publishing"
+      "Library publishing",
+      "Design assets"
     ],
     "brandColor": "#153B5B",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/icon.png",
     "defaultPrompt": [
-      "Use the relevant Sense, Corpus, Hypes, Journal, or Library capability for this task.",
-      "Show the available personal context and work tools relevant to this request."
+      "Use the relevant Sense, Corpus, Hypes, Journal, Library, or Design capability for this task.",
+      "Show the available personal context, work, publishing, and design tools relevant to this request."
     ]
   }
 }

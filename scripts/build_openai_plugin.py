@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the single OpenAI plugin from the five remote product Skills."""
+"""Build the single OpenAI plugin from the remote product Skills."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
 TARGET = PLUGIN_ROOT / "personal-agent-toolkit" / "skills"
-PRODUCTS = ("sense", "corpus", "hypes", "journal", "library")
+PRODUCTS = ("sense", "corpus", "hypes", "journal", "library", "design")
 
 
 def copy_skills(target: Path) -> None:

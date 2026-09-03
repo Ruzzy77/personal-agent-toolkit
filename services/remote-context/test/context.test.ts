@@ -194,6 +194,8 @@ const ownerPrincipal: Principal = {
     "journal.close",
     "library.read",
     "library.write",
+    "design.read",
+    "design.write",
   ]),
   clientId: "test",
   auth: "oauth",
@@ -214,9 +216,20 @@ const ownerPrincipal: Principal = {
       "journal.close",
       "library.read",
       "library.write",
+      "design.read",
+      "design.write",
     ],
     clientId: "test",
     expiresAt: 4_102_444_800,
+  },
+};
+
+const legacyToolkitPrincipal: Principal = {
+  ...ownerPrincipal,
+  scopes: new Set([...ownerPrincipal.scopes].filter((scope) => !scope.startsWith("design."))),
+  owner: {
+    ...ownerPrincipal.owner!,
+    scopes: ownerPrincipal.owner!.scopes.filter((scope) => !scope.startsWith("design.")),
   },
 };
 
@@ -274,7 +287,7 @@ describe("remote personal context service", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       }),
       runtime,
-      ownerPrincipal,
+      legacyToolkitPrincipal,
       "toolkit",
     );
     expect(response.status, await response.clone().text()).toBe(200);

@@ -38,7 +38,7 @@
     {
       "name": "design",
       "source": "./plugins/design",
-      "description": "Design, implement, review, and research product interfaces with an optional offline reference library.",
+      "description": "Design, review, and research product interfaces with an owner-private asset library.",
       "category": "design",
       "displayName": "Personal Design"
     },

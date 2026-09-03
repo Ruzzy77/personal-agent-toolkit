@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent-design-test",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-agent-design-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "personal-agent-design-assets-test"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://auth.example",
+    "RESOURCE_URI": "https://design.example/mcp",
+    "DESIGN_SITE_TOKEN": "test-site-token"
+  }
+}

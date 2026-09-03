@@ -3,15 +3,20 @@
 ## Purpose
 
 This service is the owner-operated remote runtime for Sense, Corpus, and Hypes,
-and the OpenAI-facing unified MCP for Sense, Corpus, Hypes, Journal, and Library.
+and the OpenAI-facing unified MCP for Sense, Corpus, Hypes, Journal, Library, and Design.
 It replaces client-specific local MCP processes and the ChatGPT tunnel while
 preserving the existing product boundaries and public tool names.
 
-Journal and Library keep their separate services and product endpoints. The
+Journal, Library, and Design keep their separate services and product endpoints. The
 unified MCP registers their existing tool modules against their D1 and R2
 bindings directly; it does not proxy through a gateway or Site. Document Files
 remains a replaceable analyzer: the local Sync app may invoke it locally or send
 an authorized, temporary document capture to a remote analyzer.
+
+The toolkit OAuth baseline remains stable when a product is added. Existing
+single-owner grants that contain the complete pre-Design read or write bundle
+inherit the matching Design entitlement only on `/mcp`; new grants and the
+standalone Design resource use explicit `design.read` and `design.write` scopes.
 
 ## Runtime boundary
 
@@ -21,11 +26,11 @@ Codex / Claude / ChatGPT
         | OAuth resource token
         v
 Personal Agent Context Worker
-  |-- /mcp (Sense + Corpus + Hypes + Journal + Library)
+  |-- /mcp (Sense + Corpus + Hypes + Journal + Library + Design)
   |-- /sense/mcp
   |-- /corpus/mcp
   |-- /hypes/mcp
-  |-- owner-state D1 + Journal D1 + Library D1/R2
+  |-- owner-state D1 + Journal D1 + Library D1/R2 + Design D1/R2
   |-- CorpusShard Durable Objects
   `-- SyncBroker Durable Objects
              ^
@@ -161,7 +166,9 @@ The Sync app selects one analyzer route per Connection policy:
 - `approval_required`: wait for explicit owner approval before a document may
   leave the Mac.
 
-Both routes must produce the same versioned extraction envelope. Corpus owns
+Both routes must produce the same versioned extraction envelope. The remote route is proxied over
+a private Service Binding to `services/document-analyzer`, which stores neither input nor result.
+Corpus owns
 document and revision identity, provenance anchors, atomic activation, and
 search. Document Files owns format detection, parsing, OCR, structural units,
 coverage, and extraction issues.
