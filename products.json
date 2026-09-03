@@ -6,7 +6,7 @@
       "plugin": {
         "path": "plugins/sense",
         "kind": "remote_mcp",
-        "base_version": "0.3.5"
+        "base_version": "0.3.6"
       },
       "components": [
         "plugins/sense",
@@ -21,7 +21,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.3.5-remote.1",
+        "surface_version": "0.3.6-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",
@@ -35,7 +35,7 @@
       "plugin": {
         "path": "plugins/corpus",
         "kind": "remote_mcp",
-        "base_version": "0.21.5"
+        "base_version": "0.21.6"
       },
       "components": [
         "plugins/corpus",
@@ -51,7 +51,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Corpus",
-        "surface_version": "0.21.5-remote.3",
+        "surface_version": "0.21.6-remote.3",
         "tools": [
           "corpus_space_list",
           "corpus_space_get",
@@ -74,7 +74,7 @@
       "plugin": {
         "path": "plugins/hypes",
         "kind": "remote_mcp",
-        "base_version": "0.9.4"
+        "base_version": "0.9.5"
       },
       "components": [
         "plugins/hypes",
@@ -89,7 +89,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Hypes",
-        "surface_version": "0.9.4-remote.1",
+        "surface_version": "0.9.5-remote.1",
         "tools": [
           "hypes_read",
           "hypes_rewrite"
@@ -147,7 +147,7 @@
       "plugin": {
         "path": "plugins/journal",
         "kind": "remote_mcp",
-        "base_version": "0.2.1"
+        "base_version": "0.2.2"
       },
       "components": [
         "plugins/journal",
@@ -165,7 +165,7 @@
         "url": "https://personal-agent-journal.hiyaq77.workers.dev/mcp",
         "implementation": "services/journal/src/mcp.ts",
         "surface_name": "Personal Agent Journal",
-        "surface_version": "0.2.1",
+        "surface_version": "0.2.2",
         "tools": [
           "journal_get_board",
           "journal_ingest_items",
@@ -186,7 +186,7 @@
       "plugin": {
         "path": "plugins/library",
         "kind": "remote_mcp",
-        "base_version": "0.3.0"
+        "base_version": "0.3.1"
       },
       "components": [
         "plugins/library",
@@ -204,7 +204,7 @@
         "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp",
         "implementation": "services/library/src/mcp.ts",
         "surface_name": "personal-library",
-        "surface_version": "0.3.0",
+        "surface_version": "0.3.1",
         "tools": [
           "library_whoami",
           "library_list_issues",

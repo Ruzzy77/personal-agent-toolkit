@@ -404,7 +404,7 @@ export async function handleHttp(
       return json({
         ok: true,
         service: "personal-agent-context",
-        version: "0.1.0",
+        version: "0.1.1",
         resources: ["sense", "corpus", "hypes"],
       });
     }

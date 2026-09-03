@@ -258,11 +258,30 @@ describe("Journal API and MCP spike", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
     expect(toolsResponse.status, await toolsResponse.clone().text()).toBe(200);
-    const tools = await mcpJson(toolsResponse);
-    expect(JSON.stringify(tools)).toContain("journal_get_board");
-    expect(JSON.stringify(tools)).toContain("journal_find_items");
-    expect(JSON.stringify(tools)).toContain("journal_get_item_history");
-    expect(JSON.stringify(tools)).toContain("journal_set_resolution");
+    const toolsPayload = await mcpJson(toolsResponse);
+    const tools = (toolsPayload.result as {
+      tools: Array<{
+        name: string;
+        outputSchema: Record<string, unknown>;
+      }>;
+    }).tools;
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "journal_get_board",
+      "journal_ingest_items",
+      "journal_find_items",
+      "journal_get_item_history",
+      "journal_set_resolution",
+      "journal_prepare_week_close",
+      "journal_confirm_week_close",
+      "journal_add_correction",
+      "journal_get_period",
+      "journal_record_corpus_promotion",
+      "journal_save_period_summary",
+    ]);
+    for (const tool of tools) {
+      expect(tool.outputSchema).toMatchObject({ type: "object" });
+      expect(Object.keys(tool.outputSchema.properties as object).length).toBeGreaterThan(0);
+    }
 
     const mcpBoardResponse = await SELF.fetch(`${ORIGIN}/mcp`, {
       method: "POST",

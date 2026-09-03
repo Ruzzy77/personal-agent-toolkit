@@ -1,5 +1,12 @@
 import { z } from "zod/v4";
 
+// Remote context tools share one stable success envelope. Product payloads stay
+// extensible because their detailed contracts are versioned by each surface.
+export const contextToolOutputSchema = z.looseObject({
+  ok: z.literal(true),
+  result: z.looseObject({}),
+});
+
 const sectionId = z
   .string()
   .min(1)

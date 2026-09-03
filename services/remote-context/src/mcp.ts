@@ -9,6 +9,7 @@ import { CorpusService } from "./corpus";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import {
+  contextToolOutputSchema,
   corpusContextItemsReviseSchema,
   corpusContextSkillReviseSchema,
   corpusFileDeleteSchema,
@@ -83,6 +84,7 @@ function senseServer(env: Env, principal: Principal): McpServer {
       description:
         "Read durable guidance relevant to the current choice. Begin with view=index and then open the relevant sections.",
       inputSchema: senseReadSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ view, section_ids }) =>
@@ -97,6 +99,7 @@ function senseServer(env: Env, principal: Principal): McpServer {
       title: "Show Sense",
       description: "Show complete ordinary guidance when the owner asks to review Sense.",
       inputSchema: {},
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async () =>
@@ -112,6 +115,7 @@ function senseServer(env: Env, principal: Principal): McpServer {
       description:
         "Atomically replace complete ordinary Sense sections after an explicit user request and conflict-safe read.",
       inputSchema: senseReviseSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -127,6 +131,7 @@ function senseServer(env: Env, principal: Principal): McpServer {
       description:
         "Replace one complete ordinary Section Skill after reading its current version.",
       inputSchema: senseSkillReviseSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -156,6 +161,7 @@ function hypesServer(env: Env, principal: Principal): McpServer {
       description:
         "Read a focused relationship slice or continue from returned node and predicate refs.",
       inputSchema: hypesReadSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -171,6 +177,7 @@ function hypesServer(env: Env, principal: Principal): McpServer {
       description:
         "Maintain reusable nonsensitive relationships with one atomic put or delete patch.",
       inputSchema: hypesRewriteSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
@@ -202,6 +209,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Use this first to see remote-visible Spaces, Context summaries, Connections, and source readiness.",
       inputSchema: corpusSpaceListSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -217,6 +225,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Open one Space and read its Context, approved Context Skill, Connections, and Current File state.",
       inputSchema: corpusSpaceGetSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -232,6 +241,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Atomically replace selected existing Context item content after an explicit user request.",
       inputSchema: corpusContextItemsReviseSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
     async (input) =>
@@ -247,6 +257,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Replace the complete approved Context Skill after reading its current version.",
       inputSchema: corpusContextSkillReviseSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -262,6 +273,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Locate current committed Source text. Open a returned read_ref with corpus_file_read.",
       inputSchema: corpusSpaceSearchSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -279,6 +291,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
         "Current Connection policy and an optional expected revision are checked locally; a long " +
         "analysis may return a job id before it finishes.",
       inputSchema: corpusSourceRefreshSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -294,6 +307,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Inspect a queued or completed Corpus Sync job returned by a Source or Work operation.",
       inputSchema: corpusJobStatusSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -309,6 +323,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "List or find files in a visible Work Connection through the owner's Sync app.",
       inputSchema: corpusFileListSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -324,6 +339,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Read exact committed Source text by read_ref, or a live Work file through Sync.",
       inputSchema: corpusFileReadSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
@@ -339,6 +355,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       description:
         "Atomically write a user-requested Work file through Sync using an expected version.",
       inputSchema: corpusFileWriteSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (input) =>
@@ -353,6 +370,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       title: "Delete Space File",
       description: "Permanently delete a user-confirmed Work file with its latest version token.",
       inputSchema: corpusFileDeleteSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (input) =>
@@ -367,6 +385,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       title: "Select Current Space File",
       description: "Mark an existing Work file as the Space's Current File.",
       inputSchema: corpusFileSelectSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
@@ -381,6 +400,7 @@ function corpusServer(env: Env, principal: Principal): McpServer {
       title: "Undo Space File Replacement",
       description: "Restore a completed Work replacement using its recovery id and current version.",
       inputSchema: corpusFileRestoreSchema,
+      outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (input) =>

@@ -192,6 +192,10 @@ Design Site의 WebMCP는 화면에 있는 탐색·비교·요청 준비 흐름�
 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도 함께
 검증합니다.
 
+Sites 전용 소스 저장소에는 임시 export를 한 방향으로 반영합니다. 로컬 package 의존성을 포함한
+자급식 소스는 `python3 scripts/export_site_source.py sites/<product> <temporary-directory>`로 만들며,
+생성된 디렉터리를 정본으로 다시 편집하거나 저장소에 남기지 않습니다.
+
 ## Sense 시작
 
 plugin과 원격 MCP의 소유자 인증을 마치면 모든 지원 클라이언트가 같은 현재 프로필을
