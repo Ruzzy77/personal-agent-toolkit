@@ -43,8 +43,9 @@ Bundled Library webfonts:
 Transitive dependencies in the current lockfiles use permissive licenses or MPL-2.0. The exact
 resolved package names, versions, source hashes, and platform markers are recorded in
 `plugins/sense/uv.lock`, `plugins/corpus/uv.lock`, `plugins/document-files/uv.lock`,
-`plugins/hypes/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for Personal Agent Auth are recorded in
-`auth/package-lock.json`, `services/journal/package-lock.json`,
+`plugins/hypes/uv.lock`, and `apps/sync/uv.lock`. JavaScript dependencies for the authentication
+template, remote services, and Sites are recorded in `auth/package-lock.json`,
+`services/remote-context/package-lock.json`, `services/journal/package-lock.json`,
 `services/library/package-lock.json`, `sites/journal/package-lock.json`,
 `sites/design/package-lock.json`, and `sites/library/package-lock.json`.
 

@@ -182,6 +182,7 @@ assets. Runtime values and secrets stay in ignored configuration or the hosting 
 Public resource and Site endpoints may appear in the plugin manifest.
 
 The authentication template, remote services, and Sites record their resolved JavaScript
-dependencies in `auth/package-lock.json`, `services/journal/package-lock.json`,
-`services/library/package-lock.json`, `sites/journal/package-lock.json`,
-`sites/design/package-lock.json`, and `sites/library/package-lock.json`.
+dependencies in `auth/package-lock.json`, `services/remote-context/package-lock.json`,
+`services/journal/package-lock.json`, `services/library/package-lock.json`,
+`sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
+`sites/library/package-lock.json`.
