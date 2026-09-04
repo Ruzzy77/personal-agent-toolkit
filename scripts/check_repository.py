@@ -316,8 +316,13 @@ def check_openai_distribution(errors: list[str]) -> None:
         errors.append("OpenAI distribution must reference its registered app")
 
     app_entries = read_json(app_path).get("apps", {})
-    app_id = distribution["registered_app"]["id"]
-    if app_entries != {f"dev-{app_id.removeprefix('asdk_app_')}": {"id": app_id}}:
+    registered_app = distribution["registered_app"]
+    app_id = registered_app["id"]
+    expected_app = {
+        "id": app_id,
+        "required": registered_app.get("required", False),
+    }
+    if app_entries != {f"dev-{app_id.removeprefix('asdk_app_')}": expected_app}:
         errors.append("OpenAI distribution app mapping differs from products.json")
 
     expected_skills = {

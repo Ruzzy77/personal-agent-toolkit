@@ -70,6 +70,11 @@ ChatGPT 기본 문서 Skill과 겹치거나 예약된 내부 식별자는 upload
 바꾸지 않습니다. 개인 Skill을 명시적으로 선택한 작업에서는 같은 기능의 OpenAI 기본 plugin이나
 Library를 함께 호출하지 않도록 upload archive에 개인 계정용 실행 경계를 덧붙입니다.
 
+Sense, Corpus, Hypes, Journal, Library와 Design의 원격 도구를 사용할 때에는 설치·갱신 뒤 새 Chat 또는
+Work 대화를 시작하고, 현재 데이터를 읽거나 바꾸는 메시지마다 `Personal Agent Toolkit` app을 선택하거나
+`@`로 지정합니다. app 선택은 메시지 단위이며, 개발자 MCP를 지원하지 않는 대화 유형에서는 기존 대화에서
+재시도하지 않고 지원되는 새 대화로 옮깁니다.
+
 ### Codex
 
 Codex에서는 같은 등록 app을 참조하는 `Personal Agent Toolkit` plugin 하나를 저장소 marketplace에서
