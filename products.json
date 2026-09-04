@@ -19,6 +19,30 @@
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd"
       },
+      "client_installation": {
+        "codex": {
+          "mode": "marketplace_plugin"
+        },
+        "chatgpt_personal": {
+          "app_mode": "registered_app",
+          "skill_mode": "personal_upload",
+          "skill_build": "python3 scripts/build_chatgpt_personal_skills.py <output-directory>",
+          "skills": [
+            "document-files",
+            "documents",
+            "pdf",
+            "spreadsheets",
+            "presentations"
+          ],
+          "skill_ids": {
+            "document-files": "document-files",
+            "documents": "word-documents",
+            "pdf": "pdf-files",
+            "spreadsheets": "workbooks",
+            "presentations": "slide-decks"
+          }
+        }
+      },
       "mcp": {
         "server_key": "personal-agent-toolkit",
         "transport": "http",
