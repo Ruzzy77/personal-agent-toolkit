@@ -7,7 +7,8 @@
 
 통합 범위는 설치와 소유자 인증이다. 제품 이름, Skill 이름, 도구 이름, 업무 규칙과 데이터 저장소는
 합치거나 `Personal Agent Toolkit` 접두사를 붙이지 않는다. 통합 app은 각 제품 서비스를 직접 등록한
-하나의 MCP 표면으로 묶으며, 중간 gateway나 로컬 tunnel을 만들지 않는다.
+하나의 MCP 표면으로 묶으며, plugin에서 필수 app 의존성으로 선언한다. 중간 gateway나 로컬 tunnel은
+만들지 않는다.
 
 `skills/`는 `scripts/build_openai_plugin.py`가 일곱 제품의 현재 Skill에서 만든 배포본이다.
 `document-files`, `documents`, `pdf`, `spreadsheets`, `presentations`는 짧은 이름으로 들어가고,

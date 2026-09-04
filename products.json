@@ -17,7 +17,8 @@
         "base_version": "1.2.0"
       },
       "registered_app": {
-        "id": "asdk_app_6a999d410f788191a9586375f040a6bd"
+        "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
+        "required": true
       },
       "client_installation": {
         "codex": {

@@ -117,7 +117,8 @@ base version을 바꾼 변경은 소스와 원격 배포를 반영하고 지원 
 
 OpenAI 통합 plugin은 `.app.json`에 등록 app 하나를 두고 Codex manifest가 이를 참조한다. 통합 MCP는
 여섯 상태형 제품의 공개 도구를 제품 모듈에서 직접 등록하고 각 제품의 데이터 저장소와 권한을 그대로
-쓴다. Codex 문서 기능은 같은 설치 항목에 bundled Skill과 host runtime으로 포함한다. 개인 ChatGPT의
+쓴다. 등록 app은 원격 제품 Skill의 필수 의존성으로 선언해 app이 없는 대화에서 원격 도구를 사용할 수
+있는 것처럼 노출하지 않는다. Codex 문서 기능은 같은 설치 항목에 bundled Skill과 host runtime으로 포함한다. 개인 ChatGPT의
 비공개 등록 app에는 plugin 파일을 결합할 수 없으므로 같은 문서 Skill을 계정의 Personal Skills에
 올리되, 생성 archive를 정본으로 보관하지 않는다. 직접 `mcpServers`를 함께 선언하거나 제품별 app과
 Document Files Codex plugin을 별도 설치하지 않는다. Claude의 제품별 `.mcp.json`은 각 원격 endpoint
