@@ -18,7 +18,6 @@ export interface Env {
   CORPUS_SHARDS: DurableObjectNamespace;
   SYNC_BROKERS: DurableObjectNamespace;
   AUTH_SERVICE?: AuthServiceBinding;
-  DOCUMENT_ANALYZER?: Fetcher;
   AUTH_ISSUER: string;
   SENSE_RESOURCE: string;
   CORPUS_RESOURCE: string;

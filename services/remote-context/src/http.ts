@@ -15,7 +15,6 @@ import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 
 const JSON_BODY_LIMIT = 16 * 1024 * 1024;
-const REMOTE_ANALYSIS_BODY_LIMIT = 32 * 1024 * 1024;
 
 function json(
   body: unknown,
@@ -128,60 +127,6 @@ async function syncConnect(
   });
 }
 
-async function analysisProxy(request: Request, env: Env, principal: Principal) {
-  if (!env.DOCUMENT_ANALYZER) {
-    throw new ContextError(
-      "remote_analyzer_unavailable",
-      "the remote Document Files analyzer is not configured",
-      503,
-    );
-  }
-  const required = [
-    "X-Analysis-Job",
-    "X-Input-Sha256",
-    "X-Format-Id",
-    "X-Source-Size",
-  ];
-  if (required.some((name) => !request.headers.get(name))) {
-    throw new ContextError(
-      "invalid_analysis_request",
-      "analysis identity headers are required",
-    );
-  }
-  const declared = Number(request.headers.get("X-Source-Size"));
-  const actualLength = Number(
-    request.headers.get("Content-Length") ?? declared,
-  );
-  if (
-    !Number.isInteger(declared) ||
-    declared < 0 ||
-    declared > REMOTE_ANALYSIS_BODY_LIMIT ||
-    (Number.isFinite(actualLength) && actualLength !== declared)
-  ) {
-    throw new ContextError(
-      "invalid_analysis_request",
-      "analysis source size is invalid",
-    );
-  }
-  const headers = new Headers();
-  for (const name of required) headers.set(name, request.headers.get(name)!);
-  headers.set("Content-Type", "application/octet-stream");
-  headers.set("X-Owner-Id", principal.ownerId);
-  headers.set("X-Device-Id", principal.deviceId!);
-  const remote = await env.DOCUMENT_ANALYZER.fetch(
-    "https://analyzer.internal/v1/analyze",
-    {
-      method: "POST",
-      headers,
-      body: request.body,
-    },
-  );
-  return new Response(remote.body, {
-    status: remote.status,
-    headers: remote.headers,
-  });
-}
-
 async function verificationSummary(
   env: Env,
   principal: Principal,
@@ -263,10 +208,6 @@ async function syncRoutes(
       result: await verificationSummary(env, principal),
     });
   }
-  if (request.method === "POST" && url.pathname === "/sync/v1/analysis") {
-    return analysisProxy(request, env, principal);
-  }
-
   const documentImport =
     /^\/sync\/v1\/corpora\/([^/]+)\/documents:import$/.exec(url.pathname);
   if (request.method === "POST" && documentImport) {

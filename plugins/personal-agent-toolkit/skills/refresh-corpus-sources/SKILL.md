@@ -21,11 +21,11 @@ the committed record without reopening the original file.
    its `job_id` with `corpus_job_status`. Completion requires a succeeded job
    response with `completed=true`, `revision_sha256`, and `projection_id`.
 5. If Sync reports that the root or document is unavailable, ask the user to
-   reconnect or rebind it. If the selected analyzer route requires approval,
-   ask only for the exact revision and transfer ceiling reported by Sync.
+   reconnect or rebind it. If the embedded Document Files runtime is
+   unavailable, report that exact condition instead of selecting a remote fallback.
 
 Sync rechecks the current Connection role, generation, local availability, and
-analyzer policy for every request. A Source Connection remains read-only: the
+embedded analyzer for every request. A Source Connection remains read-only: the
 refresh reads an immutable temporary capture and changes only the durable
 extraction projection. A failed extraction must leave the last successful
 remote record active.
@@ -62,9 +62,7 @@ python3 "${SKILL_DIR}/scripts/refresh_sources.py" --corpus SOURCE_ID
 
 The script scans selected registrations, refreshes locally available pending
 documents in bounded batches, and stops after at most four passes per source.
-It never enables remote hydration. Previously approved large documents are
-handled one at a time; a changed identity requires a new explicit local
-approval rather than a raised global limit.
+It never enables remote hydration or sends source bytes to the remote service.
 
 ## Result
 

@@ -54,10 +54,6 @@
       "binding": "AUTH_SERVICE",
       "service": "personal-agent-auth",
       "entrypoint": "AuthService"
-    },
-    {
-      "binding": "DOCUMENT_ANALYZER",
-      "service": "personal-agent-document-analyzer"
     }
   ],
   "vars": {

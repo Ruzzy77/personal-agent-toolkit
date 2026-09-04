@@ -48,9 +48,13 @@ install_runtime() {
   uv pip install --python "$destination/bin/python" "$package"
 }
 
-install_runtime sync "$REPOSITORY_ROOT/apps/sync"
+sync_destination="$STAGING_ROOT/sync"
+uv venv --relocatable "$sync_destination"
+uv pip install --python "$sync_destination/bin/python" \
+  "$REPOSITORY_ROOT/plugins/document-files" "$REPOSITORY_ROOT/apps/sync"
 install_runtime corpus "$REPOSITORY_ROOT/engines/corpus"
-install_runtime document-files "$REPOSITORY_ROOT/plugins/document-files"
+"$sync_destination/bin/python" \
+  "$REPOSITORY_ROOT/plugins/document-files/scripts/provision_rhwp.py" >/dev/null
 
 if [ "$RUNTIME_ROOT" = "$DEFAULT_RUNTIME_ROOT" ] &&
   launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" >/dev/null 2>&1; then
@@ -98,4 +102,3 @@ trap - EXIT HUP INT TERM
 
 printf '%s\n' "$RUNTIME_ROOT/sync/bin/personal-agent-sync"
 printf '%s\n' "$RUNTIME_ROOT/corpus/bin/python"
-printf '%s\n' "$RUNTIME_ROOT/document-files/bin/python"

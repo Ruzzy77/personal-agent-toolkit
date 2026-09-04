@@ -4,7 +4,6 @@ display_name = "Owner Mac"
 data_root = "~/Library/Application Support/Personal Agent Sync"
 corpus_data_root = "~/Library/Application Support/Corpus"
 corpus_python = "~/Library/Application Support/Personal Agent Sync/runtimes/corpus/bin/python"
-document_files_python = "~/Library/Application Support/Personal Agent Sync/runtimes/document-files/bin/python"
 reconcile_seconds = 15
 full_reconcile_seconds = 900
 event_debounce_seconds = 2
@@ -17,8 +16,6 @@ roles = ["source", "work"]
 access_scope = "remote_allowed"
 permission = "read_write"
 corpus_id = "research-note"
-analyzer_route = "local"
-max_transfer_bytes = 268435456
 generation = 1
 
 [[connections]]
@@ -29,5 +26,3 @@ roles = ["source"]
 access_scope = "local_only"
 permission = "read_only"
 corpus_id = "private-archive"
-analyzer_route = "approval_required"
-max_transfer_bytes = 67108864

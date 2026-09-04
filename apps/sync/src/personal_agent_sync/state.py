@@ -1,4 +1,4 @@
-"""Private local state for locators, change coalescing, approvals, and replay."""
+"""Private local state for locators, change coalescing, and replay."""
 
 from __future__ import annotations
 
@@ -86,8 +86,6 @@ class SyncState:
                     permission TEXT NOT NULL,
                     roles_json TEXT NOT NULL,
                     corpus_id TEXT,
-                    analyzer_route TEXT NOT NULL,
-                    max_transfer_bytes INTEGER NOT NULL,
                     generation INTEGER NOT NULL DEFAULT 1,
                     location_state TEXT NOT NULL DEFAULT 'available',
                     updated_at TEXT NOT NULL
@@ -137,17 +135,6 @@ class SyncState:
                 CREATE INDEX IF NOT EXISTS idx_change_queue_due
                     ON change_queue(next_attempt_at, first_seen_at);
 
-                CREATE TABLE IF NOT EXISTS remote_approvals (
-                    connection_key TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    revision_sha256 TEXT NOT NULL,
-                    max_bytes INTEGER NOT NULL,
-                    approved_at TEXT NOT NULL,
-                    PRIMARY KEY(connection_key, document_id, revision_sha256),
-                    FOREIGN KEY(connection_key, document_id)
-                        REFERENCES documents(connection_key, document_id) ON DELETE CASCADE
-                );
-
                 CREATE TABLE IF NOT EXISTS completed_jobs (
                     job_id TEXT PRIMARY KEY,
                     request_sha256 TEXT NOT NULL,
@@ -163,9 +150,19 @@ class SyncState:
                     completed_at TEXT NOT NULL,
                     PRIMARY KEY(product, item_key)
                 );
-                PRAGMA user_version = 3;
                 """
             )
+            connection.execute("DROP TABLE IF EXISTS remote_approvals")
+            connection_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(connections)")
+            }
+            for legacy_column in ("analyzer_route", "max_transfer_bytes"):
+                if legacy_column in connection_columns:
+                    connection.execute(
+                        f"ALTER TABLE connections DROP COLUMN {legacy_column}"
+                    )
+            connection.execute("PRAGMA user_version = 4")
             columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(documents)")
@@ -216,7 +213,6 @@ class SyncState:
                                 UPDATE connections SET
                                     space_id = ?, connection_id = ?, access_scope = ?,
                                     permission = ?, roles_json = ?, corpus_id = ?,
-                                    analyzer_route = ?, max_transfer_bytes = ?,
                                     generation = ?, location_state = 'unavailable',
                                     updated_at = ?
                                 WHERE connection_key = ?
@@ -228,8 +224,6 @@ class SyncState:
                                     value.permission,
                                     canonical(sorted(value.roles)),
                                     value.corpus_id,
-                                    value.analyzer_route,
-                                    value.max_transfer_bytes,
                                     value.generation,
                                     now,
                                     value.key,
@@ -248,9 +242,9 @@ class SyncState:
                     INSERT INTO connections(
                         connection_key, space_id, connection_id, root_path,
                         root_device, root_inode, access_scope, permission, roles_json,
-                        corpus_id, analyzer_route, max_transfer_bytes, generation,
+                        corpus_id, generation,
                         location_state, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)
                     ON CONFLICT(connection_key) DO UPDATE SET
                         space_id=excluded.space_id,
                         connection_id=excluded.connection_id,
@@ -259,8 +253,6 @@ class SyncState:
                         permission=excluded.permission,
                         roles_json=excluded.roles_json,
                         corpus_id=excluded.corpus_id,
-                        analyzer_route=excluded.analyzer_route,
-                        max_transfer_bytes=excluded.max_transfer_bytes,
                         generation=excluded.generation,
                         location_state='available', updated_at=excluded.updated_at
                     """,
@@ -275,8 +267,6 @@ class SyncState:
                         value.permission,
                         canonical(sorted(value.roles)),
                         value.corpus_id,
-                        value.analyzer_route,
-                        value.max_transfer_bytes,
                         value.generation,
                         now,
                     ),
@@ -848,7 +838,6 @@ class SyncState:
                   AND d.last_projection_id IS NOT NULL
                   AND c.location_state = 'available'
                   AND c.access_scope = 'remote_allowed'
-                  AND c.analyzer_route = 'local'
                 ORDER BY d.connection_key, d.relative_path_nfc, d.document_id
                 """
             ).fetchall()
@@ -866,7 +855,7 @@ class SyncState:
                     or generation < 1
                 ):
                     raise SyncError(
-                        "local_analyzer_unavailable",
+                        "runtime_unavailable",
                         "the Document Files reanalysis generation is invalid",
                     )
                 # Rows created before the policy field existed are generation 1.
@@ -934,7 +923,7 @@ class SyncState:
                        d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
                        d.last_revision_sha256, d.last_projection_id,
                        c.root_path, c.root_device, c.root_inode, c.corpus_id,
-                       c.analyzer_route, c.max_transfer_bytes, c.access_scope
+                       c.access_scope
                 FROM change_queue q
                 JOIN documents d USING(connection_key, document_id)
                 JOIN connections c USING(connection_key)
@@ -961,7 +950,7 @@ class SyncState:
                        d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
                        d.last_revision_sha256, d.last_projection_id,
                        c.root_path, c.root_device, c.root_inode, c.corpus_id,
-                       c.analyzer_route, c.max_transfer_bytes, c.access_scope
+                       c.access_scope
                 FROM change_queue q
                 JOIN documents d USING(connection_key, document_id)
                 JOIN connections c USING(connection_key)
@@ -1098,34 +1087,6 @@ class SyncState:
                 """,
                 (attempts, next_at, code[:120], key, document_id),
             )
-
-    def approve_remote(
-        self, key: str, document_id: str, revision_sha256: str, max_bytes: int
-    ) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO remote_approvals(
-                    connection_key, document_id, revision_sha256, max_bytes, approved_at
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(connection_key, document_id, revision_sha256) DO UPDATE SET
-                    max_bytes=excluded.max_bytes, approved_at=excluded.approved_at
-                """,
-                (key, document_id, revision_sha256, max_bytes, now_iso()),
-            )
-
-    def remote_approved(
-        self, key: str, document_id: str, revision_sha256: str, size: int
-    ) -> bool:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT max_bytes FROM remote_approvals
-                WHERE connection_key = ? AND document_id = ? AND revision_sha256 = ?
-                """,
-                (key, document_id, revision_sha256),
-            ).fetchone()
-        return row is not None and size <= int(row["max_bytes"])
 
     @staticmethod
     def request_digest(value: Mapping[str, object]) -> str:

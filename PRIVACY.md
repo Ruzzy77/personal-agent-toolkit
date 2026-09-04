@@ -34,14 +34,12 @@ Only sources and Work folders that the owner explicitly connects are represented
 - Corpus retains extracted text, structural units, provenance anchors, and the revisions needed for
   durable reading. It does not retain original document bytes. Failed or incomplete uploads never
   replace the last committed projection.
-- Operational Finder locators, filesystem identifiers, and transfer approvals stay in Personal
+- Operational Finder locators and filesystem identifiers stay in Personal
   Agent Sync's private local database. Remote records use stable Connection, document, revision,
   projection, and job identifiers rather than an authoritative local path.
 - A `local_only` Connection sends neither Source state nor file content. Other Connections may send
-  extraction output after the Sync app rechecks the current scope, generation, and transfer policy.
-  A separately deployed remote analyzer receives only a version-pinned temporary capture when the
-  Connection permits it; an `approval_required` route also requires approval for the exact document
-  revision and byte limit.
+  extraction output after the Sync app rechecks the current scope and generation. Sync analyzes an
+  immutable local capture and sends only its projection; source bytes do not go to the context service.
 - Gmail bodies remain with Gmail. Completed Codex and Claude turns remain with their providers.
   Provider links keep bounded record metadata and freshness identities; selected Context items are
   the durable interpreted knowledge.
@@ -119,17 +117,16 @@ Design is an owner-operated private asset and template service used by its MCP a
 
 ## Document Files analysis
 
-Document Files keeps its local MCP for files that the caller explicitly selects. Its
-`AnalysisJob v1` and `AnalysisResult v1` contracts are path- and transport-independent, so Corpus
-Sync may choose a local backend or the private remote analyzer for the same captured bytes.
+Document Files handles only files or bytes that the caller explicitly selects. Its
+`AnalysisJob v1` and `AnalysisResult v1` contracts are path- and transport-independent, so Sync,
+local Codex, Claude local MCP, and the OpenAI host use the same analysis boundary.
 
-- Sync checks the Connection's local, remote, or approval-required route, exact revision digest,
-  declared size, and transfer limit before sending bytes remotely.
-- The remote analyzer is reached only through the authenticated Corpus Sync endpoint and a private
-  Cloudflare Service Binding. It receives the exact bytes for one job, processes them in memory,
-  returns the extraction, and stores neither input nor result.
-- Remote extraction covers stored text and portable structure. Native application rendering and
-  editing, OCR, and structure not preserved by the remote implementation remain local operations.
+- Sync analyzes immutable captures locally in its embedded Document Files environment and sends
+  only extraction projections to Corpus.
+- The context service has no document-analysis route or Cloudflare analyzer binding. It does not
+  receive original document bytes.
+- ChatGPT and remote Codex tasks use the current OpenAI host runtime when available. An unavailable
+  runtime is reported instead of sending the document to another analyzer.
 - Corpus stores only the accepted extraction projection and its provenance. Original document
   bytes remain with the owner and are not added to the remote Corpus database.
 
@@ -204,14 +201,14 @@ build-time copy of runtime data or maintainer credentials. The Design plugin con
 Skills and connection metadata, while `services/design` and `sites/design` contain service and UI
 source. Local Sense, Corpus, and Hypes development or migration implementations live under
 `engines/` and are not part of their remote plugin bundles. `services/journal`,
-`services/library`, `services/design`, and `services/document-analyzer` contain deployable service
+`services/library` and `services/design` contain deployable service
 source; `sites/journal`, `sites/library`, and `sites/design` contain owner-only Sites frontends and
 their public UI assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
 Public resource and Site endpoints may appear in the plugin manifest.
 
 The authentication template, remote services, and Sites record their resolved JavaScript
 dependencies in `auth/package-lock.json`, `services/remote-context/package-lock.json`,
-`services/document-analyzer/package-lock.json`, `services/design/package-lock.json`,
+`services/design/package-lock.json`,
 `services/journal/package-lock.json`, `services/library/package-lock.json`,
 `sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
 `sites/library/package-lock.json`.

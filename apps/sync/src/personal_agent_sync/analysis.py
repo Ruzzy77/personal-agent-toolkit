@@ -1,18 +1,18 @@
-"""Common local/remote Document Files analysis and Corpus projection mapping."""
+"""Local Document Files analysis and Corpus projection mapping."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
-from .errors import PolicyDenied, SyncError
+from .errors import SyncError
 from .paths import Snapshot
-from .remote import RemoteClient
-from .state import SyncState, now_iso
+from .state import now_iso
 
 SUPPORTED_FORMATS = {
     "md",
@@ -44,19 +44,21 @@ MEDIA_TYPES = {
 
 _MAX_ANALYSIS_OUTPUT = 256 * 1024 * 1024
 _MAX_DESCRIPTOR_OUTPUT = 4 * 1024 * 1024
+MAX_LOCAL_DOCUMENT_BYTES = 2 * 1024 * 1024 * 1024
 _ANALYSIS_HELPER = r"""
 import json
 import sys
 
-from document_files.analysis import AnalysisJob, analyze_document
-from document_files.extraction_errors import DocumentExtractionError
-
-
 try:
+    from document_files.analysis import AnalysisJob, analyze_document
+    from document_files.extraction_errors import DocumentExtractionError
+
     job = AnalysisJob.from_dict(json.load(sys.stdin))
     with open(sys.argv[1], "rb") as source:
         result = analyze_document(job, source).to_dict()
     print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+except (ImportError, ModuleNotFoundError):
+    print(json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "the embedded Document Files runtime is unavailable"}}))
 except DocumentExtractionError as error:
     print(json.dumps({"ok": False, "error": {"code": error.code, "message": str(error)}}))
 except Exception:
@@ -66,10 +68,11 @@ except Exception:
 _DESCRIPTOR_HELPER = r"""
 import json
 
-from document_files.processor import describe_all
-
-
-print(json.dumps(describe_all(), ensure_ascii=False))
+try:
+    from document_files.processor import describe_all
+    print(json.dumps({"ok": True, "result": describe_all()}, ensure_ascii=False))
+except (ImportError, ModuleNotFoundError):
+    print(json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "the embedded Document Files runtime is unavailable"}}))
 """
 
 
@@ -82,16 +85,12 @@ def format_id(relative_path: str) -> str:
     return suffix
 
 
-def local_analyzer_manifest(
-    document_files_python: Path | None,
-) -> dict[str, dict[str, str | int]]:
+def local_analyzer_manifest() -> dict[str, dict[str, str | int]]:
     """Read provenance identities and explicit reanalysis generations."""
 
-    if document_files_python is None:
-        return {}
     try:
         completed = subprocess.run(
-            [str(document_files_python), "-c", _DESCRIPTOR_HELPER],
+            [sys.executable, "-c", _DESCRIPTOR_HELPER],
             capture_output=True,
             text=True,
             check=False,
@@ -99,7 +98,7 @@ def local_analyzer_manifest(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise SyncError(
-            "local_analyzer_unavailable",
+            "runtime_unavailable",
             "the Document Files descriptor manifest could not be read",
         ) from exc
     if (
@@ -107,20 +106,29 @@ def local_analyzer_manifest(
         or len(completed.stdout.encode()) > _MAX_DESCRIPTOR_OUTPUT
     ):
         raise SyncError(
-            "local_analyzer_unavailable",
+            "runtime_unavailable",
             "the Document Files descriptor manifest could not be read",
         )
     try:
         payload = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise SyncError(
-            "local_analyzer_unavailable",
+            "runtime_unavailable",
             "the Document Files descriptor manifest is invalid",
         ) from exc
-    formats = payload.get("formats") if isinstance(payload, dict) else None
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        error = payload.get("error")
+        code = error.get("code") if isinstance(error, dict) else None
+        if code == "runtime_unavailable":
+            raise SyncError(
+                "runtime_unavailable",
+                "the embedded Document Files runtime is unavailable",
+            )
+    result = payload.get("result") if isinstance(payload, dict) else None
+    formats = result.get("formats") if isinstance(result, dict) else None
     if not isinstance(formats, dict):
         raise SyncError(
-            "local_analyzer_unavailable",
+            "runtime_unavailable",
             "the Document Files descriptor manifest is invalid",
         )
     manifest: dict[str, dict[str, str | int]] = {}
@@ -132,7 +140,7 @@ def local_analyzer_manifest(
         )
         if not isinstance(selected_format, str) or not isinstance(descriptor, dict):
             raise SyncError(
-                "local_analyzer_unavailable",
+                "runtime_unavailable",
                 "the Document Files descriptor manifest is invalid",
             )
         adapter_id = descriptor.get("adapter_id")
@@ -150,7 +158,7 @@ def local_analyzer_manifest(
             or not 1 <= reanalysis_generation <= 2_147_483_647
         ):
             raise SyncError(
-                "local_analyzer_unavailable",
+                "runtime_unavailable",
                 "the Document Files descriptor manifest is invalid",
             )
         manifest[selected_format] = {
@@ -169,14 +177,9 @@ def _identifier(prefix: str, value: str) -> str:
 def analyze_local(
     snapshot: Snapshot,
     selected_format: str,
-    job_id: str,
-    document_files_python: Path | None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
-    if document_files_python is None:
-        raise SyncError(
-            "local_analyzer_unavailable",
-            "the Document Files runtime is not configured",
-        )
+    job_id = job_id or f"analysis:{uuid.uuid4().hex}"
     job = {
         "schema_version": "document-files.analysis-job.v1",
         "job_id": job_id,
@@ -194,7 +197,7 @@ def analyze_local(
     }
     try:
         completed = subprocess.run(
-            [str(document_files_python), "-c", _ANALYSIS_HELPER, str(snapshot.path)],
+            [sys.executable, "-c", _ANALYSIS_HELPER, str(snapshot.path)],
             input=json.dumps(job, ensure_ascii=False, allow_nan=False),
             capture_output=True,
             text=True,
@@ -203,7 +206,7 @@ def analyze_local(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise SyncError(
-            "local_analyzer_unavailable",
+            "runtime_unavailable",
             "the Document Files runtime could not be started",
         ) from exc
     if (
@@ -236,41 +239,6 @@ def analyze_local(
             "local_analysis_failed", "local document analysis returned invalid data"
         )
     return result
-
-
-async def select_analyzer(
-    state: SyncState,
-    remote: RemoteClient,
-    change: dict[str, Any],
-    snapshot: Snapshot,
-    selected_format: str,
-) -> dict[str, Any]:
-    job_id = f"analysis:{uuid.uuid4().hex}"
-    route = change["analyzer_route"]
-    if route == "local":
-        return analyze_local(
-            snapshot, selected_format, job_id, remote.config.document_files_python
-        )
-    if route == "approval_required" and not state.remote_approved(
-        change["connection_key"],
-        change["document_id"],
-        snapshot.sha256,
-        snapshot.byte_size,
-    ):
-        raise PolicyDenied(
-            "this document revision requires owner approval before remote analysis"
-        )
-    if snapshot.byte_size > int(change["max_transfer_bytes"]):
-        raise PolicyDenied(
-            "this document exceeds the Connection's remote transfer limit"
-        )
-    return await remote.analyze_remote(
-        job_id=job_id,
-        snapshot=snapshot.path,
-        sha256=snapshot.sha256,
-        byte_size=snapshot.byte_size,
-        format_id=selected_format,
-    )
 
 
 def _require_mapping(value: object, name: str) -> dict[str, Any]:

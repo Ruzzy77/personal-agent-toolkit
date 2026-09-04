@@ -8,7 +8,6 @@ on:
       - "packages/remote-runtime/**"
       - "packages/site-runtime/**"
       - "services/design/**"
-      - "services/document-analyzer/**"
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
@@ -24,7 +23,6 @@ on:
       - "packages/remote-runtime/**"
       - "packages/site-runtime/**"
       - "services/design/**"
-      - "services/document-analyzer/**"
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
@@ -51,9 +49,6 @@ jobs:
             command: npm run check
           - component: Design service
             directory: services/design
-            command: npm run check
-          - component: Document Analyzer
-            directory: services/document-analyzer
             command: npm run check
           - component: Journal service
             directory: services/journal

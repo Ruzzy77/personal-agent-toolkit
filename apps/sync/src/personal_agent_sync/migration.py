@@ -22,7 +22,7 @@ from .state import SyncState, canonical
 EXPECTED_REMOTE_MCP_SURFACES = {
     "toolkit": {
         "name": "Personal Agent Toolkit",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "tools": [
             "sense_read",
             "sense_overview",
@@ -330,7 +330,6 @@ def write_discovered_config(
     device_id: str,
     display_name: str,
     corpus_python: Path,
-    document_files_python: Path,
     corpus_data_root: Path | None = None,
     replace: bool = False,
 ) -> dict[str, Any]:
@@ -412,8 +411,6 @@ def write_discovered_config(
         f"data_root = {json.dumps(str(sync_root), ensure_ascii=False)}",
         f"corpus_data_root = {json.dumps(str(data_root), ensure_ascii=False)}",
         f"corpus_python = {json.dumps(str(corpus_python), ensure_ascii=False)}",
-        "document_files_python = "
-        + json.dumps(str(document_files_python), ensure_ascii=False),
         "reconcile_seconds = 15",
         "full_reconcile_seconds = 900",
         "event_debounce_seconds = 2",
@@ -434,8 +431,6 @@ def write_discovered_config(
                     if value["corpus_id"] is not None
                     else []
                 ),
-                'analyzer_route = "local"',
-                "max_transfer_bytes = 1073741824",
                 f"generation = {value['generation']}",
                 # Legacy Corpus scans include intentional dotfiles such as project
                 # instructions. Reconciliation still excludes OS metadata artifacts.

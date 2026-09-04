@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "distributions": {
     "openai": {
       "display_name": "Personal Agent Toolkit",
@@ -9,11 +9,12 @@
         "hypes",
         "journal",
         "library",
-        "design"
+        "design",
+        "document-files"
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.1.0"
+        "base_version": "1.2.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd"
@@ -24,7 +25,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.1.0"
+        "surface_version": "1.2.0"
       }
     }
   },
@@ -33,8 +34,12 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "kind": "remote_mcp",
         "base_version": "0.3.6"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "migration_client"}
       },
       "components": [
         "plugins/sense",
@@ -62,8 +67,12 @@
       "display_name": "Corpus",
       "plugin": {
         "path": "plugins/corpus",
-        "kind": "remote_mcp",
         "base_version": "0.21.6"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "source_work_bridge"}
       },
       "components": [
         "plugins/corpus",
@@ -101,8 +110,12 @@
       "display_name": "Hypes",
       "plugin": {
         "path": "plugins/hypes",
-        "kind": "remote_mcp",
         "base_version": "0.9.5"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "migration_client"}
       },
       "components": [
         "plugins/hypes",
@@ -128,17 +141,19 @@
       "display_name": "Document Files",
       "plugin": {
         "path": "plugins/document-files",
-        "kind": "local_mcp",
-        "base_version": "1.3.2"
+        "base_version": "1.4.0"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "host"},
+        "claude": {"mode": "local_mcp"},
+        "sync": {"mode": "embedded_engine"}
       },
       "components": [
         "plugins/document-files",
-        "services/document-analyzer"
+        "apps/sync"
       ],
       "data_authority": "caller-owned document bytes; analyzers do not persist them",
-      "versioned_packages": [
-        "services/document-analyzer/package.json"
-      ],
+      "versioned_packages": [],
       "mcp": {
         "server_key": "document-files",
         "transport": "stdio",
@@ -161,8 +176,12 @@
       "display_name": "Personal Design",
       "plugin": {
         "path": "plugins/design",
-        "kind": "remote_mcp",
         "base_version": "0.3.0"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "none"}
       },
       "components": [
         "plugins/design",
@@ -195,8 +214,12 @@
       "display_name": "Journal",
       "plugin": {
         "path": "plugins/journal",
-        "kind": "remote_mcp",
         "base_version": "0.2.2"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "none"}
       },
       "components": [
         "plugins/journal",
@@ -234,8 +257,12 @@
       "display_name": "Library",
       "plugin": {
         "path": "plugins/library",
-        "kind": "remote_mcp",
         "base_version": "0.3.1"
+      },
+      "delivery": {
+        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
+        "claude": {"mode": "remote_mcp"},
+        "sync": {"mode": "none"}
       },
       "components": [
         "plugins/library",

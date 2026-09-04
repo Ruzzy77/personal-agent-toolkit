@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -297,55 +295,6 @@ class RemoteClient:
             f"/sync/v1/corpora/{corpus_id}/documents/{document_id}/source-state",
             value,
         )
-
-    async def analyze_remote(
-        self,
-        *,
-        job_id: str,
-        snapshot: Path,
-        sha256: str,
-        byte_size: int,
-        format_id: str,
-    ) -> dict[str, Any]:
-        headers = {
-            "Content-Type": "application/octet-stream",
-            "X-Analysis-Job": job_id,
-            "X-Input-Sha256": sha256,
-            "X-Format-Id": format_id,
-            "X-Source-Size": str(byte_size),
-        }
-
-        async def content():
-            with snapshot.open("rb") as source:
-                while chunk := await asyncio.to_thread(source.read, 1024 * 1024):
-                    yield chunk
-
-        response = await self.http.post(
-            "/sync/v1/analysis",
-            headers=headers,
-            content=content(),
-        )
-        try:
-            payload = response.json()
-        except json.JSONDecodeError as exc:
-            raise SyncError(
-                "remote_analyzer_error", "remote analyzer returned invalid JSON"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise SyncError(
-                "remote_analyzer_error", "remote analyzer rejected the document"
-            )
-        if not response.is_success:
-            error = payload.get("error")
-            if isinstance(error, dict):
-                code = error.get("code")
-                message = error.get("message")
-                if isinstance(code, str) and isinstance(message, str):
-                    raise SyncError(code, message)
-            raise SyncError(
-                "remote_analyzer_error", "remote analyzer rejected the document"
-            )
-        return payload
 
     async def import_payload(self, product: str, value: object) -> dict[str, Any]:
         if product not in {"sense", "hypes", "corpus-metadata"}:
