@@ -6,8 +6,8 @@ on a local port and does not expose the Mac through a tunnel.
 
 ## Responsibilities
 
-- retain absolute folder locators, filesystem identities, and transfer approvals
-  only in the private local database;
+- retain absolute folder locators and filesystem identities only in the private
+  local database;
 - recover same-volume Finder renames and moves by directory identity on macOS;
 - explicitly rebind copied checkouts or restored folders with new filesystem
   identities while preserving logical document IDs by safe relative path and
@@ -37,8 +37,8 @@ on a local port and does not expose the Mac through a tunnel.
   reconciliation, without judging the semantic importance of extracted text;
 - receive bounded Work jobs, recheck current Connection policy and generation,
   and delegate actual file operations to the installed local Corpus authority;
-- receive exact Source refresh jobs, recheck local Source access and analyzer
-  policy, and keep the remote job open until the requested projection is
+- receive exact Source refresh jobs, recheck local Source access and the
+  embedded analyzer, and keep the remote job open until the requested projection is
   committed or the attempt fails;
 - store the device secret in Keychain and cache completed job responses so a
   reconnect can safely replay a job ID.
@@ -57,11 +57,12 @@ automatic deletion. Each full reconciliation applies at most 50 actions per
 Corpus and stores only one rotating scan cursor, so cleanup cannot produce an
 unbounded operational history.
 
-Corpus and Document Files run in separate helper environments. This preserves
-their independent dependency contracts; the Sync process exchanges bounded
-JSON with each helper and never imports either package in-process.
-Remote Work requests pin Corpus to the Sync-managed Document Files executable;
-they do not discover or mutate a Codex or Claude plugin cache.
+Document Files is installed in the Sync environment and runs as an isolated
+subprocess with the same Python. Corpus keeps its own helper environment. The
+Sync process exchanges bounded JSON with both helpers and does not import their
+application code in-process. Remote Work requests pin Corpus to the
+Sync-managed Document Files executable; they do not discover or mutate a Codex
+or Claude plugin cache.
 
 An adapter ID, implementation version, or configuration hash may change because
 of packaging, refactoring, a runtime update, or a setting that does not invalidate
@@ -73,29 +74,26 @@ documents without a recorded generation are treated as the first baseline withou
 per-document writes or uploads. The database upgrade also retires queue entries
 created by the former identity comparison once.
 
-## Analyzer routes
+## Local document analysis
 
-- `local` runs the installed Document Files backend and uploads only its
-  extraction envelope.
-- `remote` streams one version-pinned temporary capture to the configured remote
-  analyzer and then discards the capture.
-- `approval_required` uses the remote route only after the exact document ID,
-  content digest, and byte ceiling have been approved locally.
-
-Both analyzer routes consume and return the same `document-files.analysis-job.v1`
-contract. The context Worker only proxies authorized bytes to the separately deployed
-`services/document-analyzer` binding; it does not reimplement document parsing or retain the bytes.
+Sync always runs the installed Document Files backend and uploads only its
+extraction envelope. The subprocess consumes the
+`document-files.analysis-job.v1` contract and an immutable local byte capture.
+There is no Cloudflare analyzer, remote fallback, approval record, or document
+byte upload. If the embedded runtime cannot run, the queue records
+`runtime_unavailable` and leaves the last committed projection active.
 
 ## Setup
 
-1. Run `scripts/install-runtimes.sh`. It prepares Sync, Corpus, and Document
-   Files in three private, durable environments rather than a client plugin
-   cache or repository worktree. On an update, all three environments are
-   completed before the existing background agent is briefly stopped, swapped,
-   and restarted; a failed restart restores the previous runtime set.
+1. Run `scripts/install-runtimes.sh`. It prepares Corpus and a Sync environment
+   containing Document Files in two private, durable environments rather than a
+   client plugin cache or repository worktree. It also provisions the verified
+   `rhwp` release before document processing. On an update, both environments
+   are completed before the existing background agent is briefly stopped,
+   swapped, and restarted; a failed restart restores the previous runtime set.
 2. Generate the private configuration with `personal-agent-sync
-   init-from-corpus`, supplying the remote service URL and the installed Corpus
-   and Document Files Python paths. The command discovers remote-visible Spaces
+   init-from-corpus`, supplying the remote service URL and installed Corpus
+   Python path. The command discovers remote-visible Spaces
    and their current Source/Work policies. Local paths stay in this file.
 3. Store the provisioned device token with `personal-agent-sync set-credential`.
 4. Run `personal-agent-sync validate`, then `personal-agent-sync migrate-local`.

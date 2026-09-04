@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 
 from .errors import SyncError
 
-AnalyzerRoute = Literal["local", "remote", "approval_required"]
 AccessScope = Literal["remote_allowed", "local_only"]
 Permission = Literal["read_only", "read_write"]
 
@@ -30,8 +29,6 @@ class ConnectionConfig:
     access_scope: AccessScope
     permission: Permission
     corpus_id: str | None
-    analyzer_route: AnalyzerRoute
-    max_transfer_bytes: int
     generation: int = 1
     include_hidden: bool = False
     exclude_directory_names: frozenset[str] = frozenset()
@@ -50,7 +47,6 @@ class SyncConfig:
     data_root: Path
     corpus_data_root: Path | None
     corpus_python: Path | None
-    document_files_python: Path | None
     reconcile_seconds: float
     full_reconcile_seconds: float
     event_debounce_seconds: float
@@ -133,6 +129,11 @@ def rewrite_connection_roots(
         raise SyncError(
             "invalid_configuration", "Sync configuration could not be read"
         ) from exc
+    text = re.sub(
+        r"(?m)^\s*(?:document_files_python|analyzer_route|max_transfer_bytes)\s*=.*\n?",
+        "",
+        text,
+    )
     starts = [
         match.start() for match in re.finditer(r"(?m)^\[\[connections\]\]\s*$", text)
     ]
@@ -237,9 +238,6 @@ def load_config(path: Path | None = None) -> SyncConfig:
         else None
     )
     corpus_python = _runtime_path(raw.get("corpus_python"), "corpus_python")
-    document_files_python = _runtime_path(
-        raw.get("document_files_python"), "document_files_python"
-    )
     reconcile_seconds = raw.get("reconcile_seconds", 15.0)
     if (
         isinstance(reconcile_seconds, bool)
@@ -310,17 +308,12 @@ def load_config(path: Path | None = None) -> SyncConfig:
         roles = frozenset(roles_raw)
         access_scope = value.get("access_scope", "local_only")
         permission = value.get("permission", "read_only")
-        analyzer_route = value.get("analyzer_route", "local")
         if access_scope not in {"remote_allowed", "local_only"}:
             raise SyncError(
                 "invalid_configuration", "Connection access scope is invalid"
             )
         if permission not in {"read_only", "read_write"}:
             raise SyncError("invalid_configuration", "Connection permission is invalid")
-        if analyzer_route not in {"local", "remote", "approval_required"}:
-            raise SyncError(
-                "invalid_configuration", "Connection analyzer route is invalid"
-            )
         corpus_id = value.get("corpus_id")
         if "source" in roles:
             corpus_id = _identifier(corpus_id, field="corpus_id")
@@ -328,13 +321,6 @@ def load_config(path: Path | None = None) -> SyncConfig:
             raise SyncError(
                 "invalid_configuration", "a Work-only Connection cannot name a Corpus"
             )
-        max_transfer = value.get("max_transfer_bytes", 256 * 1024 * 1024)
-        if (
-            isinstance(max_transfer, bool)
-            or not isinstance(max_transfer, int)
-            or not 1 <= max_transfer <= 2 * 1024**3
-        ):
-            raise SyncError("invalid_configuration", "max_transfer_bytes is invalid")
         generation = value.get("generation", 1)
         if (
             isinstance(generation, bool)
@@ -379,8 +365,6 @@ def load_config(path: Path | None = None) -> SyncConfig:
             access_scope=access_scope,
             permission=permission,
             corpus_id=corpus_id,
-            analyzer_route=analyzer_route,
-            max_transfer_bytes=max_transfer,
             generation=generation,
             include_hidden=include_hidden,
             exclude_directory_names=frozenset(excluded_names_raw),
@@ -401,18 +385,6 @@ def load_config(path: Path | None = None) -> SyncConfig:
         raise SyncError(
             "invalid_configuration", "corpus_python is required for Work Connections"
         )
-    if (
-        any(
-            "work" in connection.roles
-            or ("source" in connection.roles and connection.analyzer_route == "local")
-            for connection in connections
-        )
-        and document_files_python is None
-    ):
-        raise SyncError(
-            "invalid_configuration",
-            "document_files_python is required for Work Connections and local Source analysis",
-        )
     return SyncConfig(
         service_url=service_url.rstrip("/"),
         device_id=device_id,
@@ -420,7 +392,6 @@ def load_config(path: Path | None = None) -> SyncConfig:
         data_root=data_root,
         corpus_data_root=corpus_data_root,
         corpus_python=corpus_python,
-        document_files_python=document_files_python,
         reconcile_seconds=float(reconcile_seconds),
         full_reconcile_seconds=float(full_reconcile_seconds),
         event_debounce_seconds=float(event_debounce_seconds),

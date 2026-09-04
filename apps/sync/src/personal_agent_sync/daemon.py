@@ -14,10 +14,11 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from .analysis import (
+    MAX_LOCAL_DOCUMENT_BYTES,
+    analyze_local,
     build_projection,
     format_id,
     local_analyzer_manifest,
-    select_analyzer,
 )
 from .config import SyncConfig
 from .errors import SyncError
@@ -73,9 +74,7 @@ class SyncDaemon:
         monitor = SourceEventMonitor(asyncio.get_running_loop(), changed)
         next_full_reconcile = 0.0
         try:
-            self.analyzer_manifest = await asyncio.to_thread(
-                local_analyzer_manifest, self.config.document_files_python
-            )
+            self.analyzer_manifest = await asyncio.to_thread(local_analyzer_manifest)
         except SyncError:
             LOGGER.exception(
                 "Document Files descriptors are unavailable; automatic reanalysis is disabled"
@@ -307,7 +306,7 @@ class SyncDaemon:
             (int(change["root_device"]), int(change["root_inode"])),
             change["local_relative_path"],
             self.config.data_root / "staging",
-            int(change["max_transfer_bytes"]),
+            MAX_LOCAL_DOCUMENT_BYTES,
         ) as snapshot:
             if not force_refresh and snapshot.sha256 == change.get(
                 "last_revision_sha256"
@@ -384,8 +383,8 @@ class SyncDaemon:
                     )
                 return
             try:
-                result = await select_analyzer(
-                    self.state, self.remote, change, snapshot, selected_format
+                result = await asyncio.to_thread(
+                    analyze_local, snapshot, selected_format
                 )
             except SyncError as error:
                 if error.code != "unsupported_format":
@@ -440,12 +439,8 @@ class SyncDaemon:
             adapter_id=header["projection"]["adapterId"],
             adapter_version=header["projection"]["adapterVersion"],
             config_hash=header["projection"]["configHash"],
-            reanalysis_generation=(
-                self.analyzer_manifest.get(selected_format, {}).get(
-                    "reanalysis_generation"
-                )
-                if change["analyzer_route"] == "local"
-                else None
+            reanalysis_generation=self.analyzer_manifest.get(selected_format, {}).get(
+                "reanalysis_generation"
             ),
         )
 

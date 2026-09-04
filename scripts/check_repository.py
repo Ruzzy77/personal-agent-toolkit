@@ -16,23 +16,24 @@ PLUGIN_ROOT = ROOT / "plugins"
 PRODUCT_REGISTRY = json.loads((ROOT / "products.json").read_text(encoding="utf-8"))
 PRODUCTS: dict[str, dict[str, Any]] = PRODUCT_REGISTRY["products"]
 OPENAI_DISTRIBUTION: dict[str, Any] = PRODUCT_REGISTRY["distributions"]["openai"]
-REMOTE_PLUGINS = {
+OPENAI_PRODUCTS = set(OPENAI_DISTRIBUTION["products"])
+OPENAI_REMOTE_MCP_PRODUCTS = {
     name
     for name, product in PRODUCTS.items()
-    if product["plugin"]["kind"] == "remote_mcp"
+    if product["delivery"]["openai"]["runtime"] == "remote_mcp"
 }
-LOCAL_MCP_PLUGINS = {
+CLAUDE_REMOTE_MCP_PLUGINS = {
     name
     for name, product in PRODUCTS.items()
-    if product["plugin"]["kind"] == "local_mcp"
+    if product["delivery"]["claude"]["mode"] == "remote_mcp"
 }
-SKILL_ONLY_PLUGINS = {
+CLAUDE_LOCAL_MCP_PLUGINS = {
     name
     for name, product in PRODUCTS.items()
-    if product["plugin"]["kind"] == "skill_only"
+    if product["delivery"]["claude"]["mode"] == "local_mcp"
 }
 REQUIRED_PLUGINS = set(PRODUCTS)
-CODEX_PLUGINS = (REQUIRED_PLUGINS - REMOTE_PLUGINS) | {"personal-agent-toolkit"}
+CODEX_PLUGINS = {"personal-agent-toolkit"}
 CODEX_SUFFIX = re.compile(r"^(?P<base>\d+\.\d+\.\d+)\+codex\.\d{14}$")
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 PACKAGE_VERSION = re.compile(r"(?:PACKAGE_VERSION|__version__)\s*=\s*[\"']([^\"']+)")
@@ -55,29 +56,44 @@ def tracked_files() -> list[Path]:
 
 
 def check_product_registry(errors: list[str]) -> None:
-    if PRODUCT_REGISTRY.get("schema_version") != 1:
-        errors.append("products.json schema_version must be 1")
+    if PRODUCT_REGISTRY.get("schema_version") != 2:
+        errors.append("products.json schema_version must be 2")
 
-    valid_kinds = {"remote_mcp", "local_mcp", "skill_only"}
+    valid_openai_runtimes = {"remote_mcp", "host"}
+    valid_claude_modes = {"remote_mcp", "local_mcp"}
+    valid_sync_modes = {
+        "none",
+        "migration_client",
+        "source_work_bridge",
+        "embedded_engine",
+    }
     for name, product in PRODUCTS.items():
         plugin = product.get("plugin", {})
         plugin_path = ROOT / str(plugin.get("path", ""))
         if plugin_path != PLUGIN_ROOT / name:
             errors.append(f"{name}: products.json plugin path must be plugins/{name}")
-        if plugin.get("kind") not in valid_kinds:
-            errors.append(f"{name}: products.json has an invalid plugin kind")
         if not re.fullmatch(r"\d+\.\d+\.\d+", str(plugin.get("base_version", ""))):
             errors.append(f"{name}: products.json has an invalid base version")
+
+        delivery = product.get("delivery", {})
+        openai = delivery.get("openai", {})
+        claude = delivery.get("claude", {})
+        sync = delivery.get("sync", {})
+        if (
+            openai.get("mode") != "bundled_skills"
+            or openai.get("runtime") not in valid_openai_runtimes
+        ):
+            errors.append(f"{name}: products.json has an invalid OpenAI delivery")
+        if claude.get("mode") not in valid_claude_modes:
+            errors.append(f"{name}: products.json has an invalid Claude delivery")
+        if sync.get("mode") not in valid_sync_modes:
+            errors.append(f"{name}: products.json has an invalid Sync delivery")
 
         for component in product.get("components", []):
             if not (ROOT / component).exists():
                 errors.append(f"{name}: missing registered component {component}")
 
         mcp = product.get("mcp")
-        if plugin.get("kind") == "skill_only":
-            if mcp is not None:
-                errors.append(f"{name}: Skill-only product must not register MCP")
-            continue
         if not isinstance(mcp, dict):
             errors.append(f"{name}: MCP product is missing its public contract")
             continue
@@ -116,16 +132,6 @@ def check_marketplaces(errors: list[str]) -> None:
         expected = f"./plugins/{name}"
         if claude_entries.get(name, {}).get("source") != expected:
             errors.append(f"Claude marketplace source for {name} must be {expected}")
-        if name in REMOTE_PLUGINS:
-            continue
-        codex_source = codex_entries.get(name, {}).get("source", {})
-        if (
-            codex_source.get("source") != "local"
-            or codex_source.get("path") != expected
-        ):
-            errors.append(
-                f"Codex marketplace source for {name} must be local {expected}"
-            )
 
     unified_path = OPENAI_DISTRIBUTION["plugin"]["path"]
     unified_source = codex_entries.get("personal-agent-toolkit", {}).get("source", {})
@@ -148,7 +154,6 @@ def check_plugin(name: str, errors: list[str]) -> None:
     plugin = product["plugin"]
     root = ROOT / plugin["path"]
     claude_path = root / ".claude-plugin" / "plugin.json"
-    codex_path = root / ".codex-plugin" / "plugin.json"
     required_files = [
         root / "README.md",
         root / "DESIGN.md",
@@ -156,19 +161,20 @@ def check_plugin(name: str, errors: list[str]) -> None:
         root / "NOTICE",
         claude_path,
     ]
-    if name not in REMOTE_PLUGINS:
-        required_files.append(codex_path)
     for required in required_files:
         if not required.is_file():
             errors.append(f"{relative(required)} is required")
             return
 
     claude = read_json(claude_path)
+    codex_path = root / ".codex-plugin" / "plugin.json"
     codex = read_json(codex_path) if codex_path.is_file() else None
-    if claude.get("name") != name or (
-        codex is not None and codex.get("name") != name
-    ):
+    if claude.get("name") != name:
         errors.append(f"{name}: manifest name differs from its directory")
+    if codex is not None:
+        errors.append(
+            f"{name}: product-specific Codex manifest must be replaced by the OpenAI bundle"
+        )
 
     base = claude.get("version")
     if base != plugin["base_version"]:
@@ -193,20 +199,13 @@ def check_plugin(name: str, errors: list[str]) -> None:
             "design: Claude display name must avoid the generic Design collision"
         )
 
-    skill_path = codex.get("skills") if codex is not None else "./skills/"
+    skill_path = "./skills/"
     if skill_path and not (root / str(skill_path)).is_dir():
         errors.append(f"{name}: Codex skills path does not exist")
 
     claude_mcp_path = root / ".mcp.json"
     codex_app_path = root / ".app.json"
-    codex_servers = codex.get("mcpServers", {}) if codex is not None else {}
-    codex_apps = codex.get("apps") if codex is not None else None
-    if name in SKILL_ONLY_PLUGINS:
-        if claude_mcp_path.exists() or codex_servers or codex_apps:
-            errors.append(
-                f"{name}: Skill-only plugin must not declare an MCP server or app"
-            )
-    elif name in REMOTE_PLUGINS:
+    if name in CLAUDE_REMOTE_MCP_PLUGINS:
         if not claude_mcp_path.is_file():
             errors.append(f"{name}: .mcp.json is required")
         else:
@@ -223,30 +222,25 @@ def check_plugin(name: str, errors: list[str]) -> None:
                 ):
                     errors.append(f"{name}: remote MCP URL differs from products.json")
 
-        if codex_path.exists() or codex_app_path.exists():
+        if codex_app_path.exists():
             errors.append(
                 f"{name}: OpenAI packaging belongs only in plugins/personal-agent-toolkit"
             )
-    elif name in LOCAL_MCP_PLUGINS:
-        if codex_apps or codex_app_path.exists():
+    elif name in CLAUDE_LOCAL_MCP_PLUGINS:
+        if codex_app_path.exists():
             errors.append(f"{name}: local MCP plugin must not declare a remote app")
         if not claude_mcp_path.is_file():
             errors.append(f"{name}: .mcp.json is required")
         else:
             claude_servers = read_json(claude_mcp_path).get("mcpServers", {})
             server_key = product["mcp"]["server_key"]
-            if set(claude_servers) != {server_key} or set(codex_servers) != {
-                server_key
-            }:
-                errors.append(f"{name}: MCP server names differ across clients")
-            elif (
-                "command" not in claude_servers[server_key]
-                or "command" not in codex_servers[server_key]
-            ):
-                errors.append(f"{name}: local MCP commands are missing")
+            if set(claude_servers) != {server_key}:
+                errors.append(f"{name}: Claude MCP server name differs")
+            elif "command" not in claude_servers[server_key]:
+                errors.append(f"{name}: local MCP command is missing")
 
     pyproject = root / "pyproject.toml"
-    if name in REMOTE_PLUGINS:
+    if name in CLAUDE_REMOTE_MCP_PLUGINS:
         for local_runtime in (pyproject, root / "src", root / "uv.lock"):
             if local_runtime.exists():
                 errors.append(
@@ -279,12 +273,12 @@ def check_plugin(name: str, errors: list[str]) -> None:
 
 def check_openai_distribution(errors: list[str]) -> None:
     distribution = OPENAI_DISTRIBUTION
-    remote_products = distribution.get("products", [])
-    if set(remote_products) != REMOTE_PLUGINS or len(remote_products) != len(
-        REMOTE_PLUGINS
+    bundled_products = distribution.get("products", [])
+    if set(bundled_products) != REQUIRED_PLUGINS or len(bundled_products) != len(
+        REQUIRED_PLUGINS
     ):
         errors.append(
-            "OpenAI distribution products must contain each remote product once"
+            "OpenAI distribution products must contain each bundled product once"
         )
 
     root = ROOT / distribution["plugin"]["path"]
@@ -299,6 +293,7 @@ def check_openai_distribution(errors: list[str]) -> None:
         root / "NOTICE",
         root / "assets" / "icon.png",
         root / "skills",
+        root / "runtime" / "document-files" / "document-files",
     ):
         if not required.exists():
             errors.append(f"{relative(required)} is required")
@@ -307,12 +302,11 @@ def check_openai_distribution(errors: list[str]) -> None:
         return
     manifest = read_json(manifest_path)
     if manifest.get("name") != "personal-agent-toolkit":
-        errors.append("OpenAI distribution manifest name must be personal-agent-toolkit")
+        errors.append(
+            "OpenAI distribution manifest name must be personal-agent-toolkit"
+        )
     match = CODEX_SUFFIX.fullmatch(str(manifest.get("version", "")))
-    if (
-        match is None
-        or match.group("base") != distribution["plugin"]["base_version"]
-    ):
+    if match is None or match.group("base") != distribution["plugin"]["base_version"]:
         errors.append("OpenAI distribution manifest version differs from products.json")
     if manifest.get("interface", {}).get("displayName") != distribution.get(
         "display_name"
@@ -323,19 +317,15 @@ def check_openai_distribution(errors: list[str]) -> None:
 
     app_entries = read_json(app_path).get("apps", {})
     app_id = distribution["registered_app"]["id"]
-    if app_entries != {
-        f"dev-{app_id.removeprefix('asdk_app_')}": {"id": app_id}
-    }:
+    if app_entries != {f"dev-{app_id.removeprefix('asdk_app_')}": {"id": app_id}}:
         errors.append("OpenAI distribution app mapping differs from products.json")
 
     expected_skills = {
         path.parent.name
-        for product in remote_products
+        for product in bundled_products
         for path in (PLUGIN_ROOT / product / "skills").glob("*/SKILL.md")
     }
-    actual_skills = {
-        path.parent.name for path in (root / "skills").glob("*/SKILL.md")
-    }
+    actual_skills = {path.parent.name for path in (root / "skills").glob("*/SKILL.md")}
     if actual_skills != expected_skills:
         errors.append("OpenAI distribution Skills differ from remote product Skills")
 
@@ -478,6 +468,7 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
         expected_tools = [
             tool
             for product_name in OPENAI_DISTRIBUTION["products"]
+            if product_name in OPENAI_REMOTE_MCP_PRODUCTS
             for tool in PRODUCTS[product_name]["mcp"]["tools"]
         ]
         mcp = OPENAI_DISTRIBUTION["mcp"]
@@ -545,6 +536,7 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
         "tools": [
             tool
             for product_name in OPENAI_DISTRIBUTION["products"]
+            if product_name in OPENAI_REMOTE_MCP_PRODUCTS
             for tool in PRODUCTS[product_name]["mcp"]["tools"]
         ],
     }

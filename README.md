@@ -3,8 +3,8 @@
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
 Sense, Corpus, Hypes, Journal, Library와 Design은 소유자 인증형 상시 원격 MCP로 공유하고,
-Document Files는 로컬 파일 작업과 선택형 원격 분석을 함께 제공하는 개인용 에이전트 도구
-모음입니다. Personal Agent Sync는 허용된 Finder 자료와 원격 서비스를 연결합니다.
+Document Files와 문서 작성 Skill은 실행 가능한 호스트에서 문서를 직접 처리하는 개인용 에이전트
+도구 모음입니다. Personal Agent Sync는 허용된 Finder 자료와 원격 서비스를 연결합니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
@@ -13,7 +13,7 @@ Document Files는 로컬 파일 작업과 선택형 원격 분석을 함께 제�
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
 - **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 개인 디자인 자산·템플릿 라이브러리
 - **Library**: Daily·Digest·Research 발간호의 읽기, 편집, 이미지 업로드와 발행
-- **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 전송 정책 검사, 추출 결과 반영과 원격 Work 요청 수행
+- **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 로컬 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
 제품 코드와 manifest, asset, lockfile만 배포하며 사용자 자료와 runtime database는 포함하지 않습니다.
@@ -26,6 +26,8 @@ Document Files는 로컬 파일 작업과 선택형 원격 분석을 함께 제�
 - 오늘과 이번 주의 진행 상태, 사용자 확정 처리와 기간별 기록이 필요하면 Journal을 사용합니다.
 - 제품 화면을 만들거나 고치고, 디자인·접근성을 검토하거나 사용자 조사를 다룰 때에는 Design을 사용합니다.
 - 기존 Library 발간호를 읽거나 고치고 새 호를 발행할 때에는 Library를 사용합니다.
+- 문서 파일을 읽고 구조·값을 추출하거나 DOCX·PDF·XLSX·PPTX·HWPX를 만들고 고칠 때에는
+  해당 문서 Skill을 사용합니다.
 
 단순 조회, 형식 변환과 한 단계 실행에는 관련 없는 개인 맥락을 불러오지 않습니다.
 
@@ -34,10 +36,10 @@ Document Files는 로컬 파일 작업과 선택형 원격 분석을 함께 제�
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-Sense·Corpus·Hypes·Journal·Library·Design은 OpenAI에서 하나의 등록 app과 plugin으로 함께 배포하고,
-Claude에서는 제품별 Skill과 원격 MCP 주소를 한 plugin으로 배포합니다. 로컬 Source와 Work를 연결하는
-Mac에는 Sync, Corpus와 Document Files를 서로 분리된 고정 runtime으로 설치합니다. AI client의
-plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하지 않습니다.
+OpenAI에서는 원격 제품과 `document-files`, `documents`, `pdf`, `spreadsheets`, `presentations`를 하나의
+등록 app과 plugin으로 배포합니다. Claude에서는 제품별 plugin을 쓰고 Document Files는 local MCP로
+유지합니다. 로컬 Source와 Work를 연결하는 Mac에는 Corpus runtime과 Document Files를 포함한 Sync
+runtime을 설치합니다. AI client의 plugin cache나 저장소 worktree는 Sync 실행 경로로 사용하지 않습니다.
 
 선택 기능인 Personal Agent Auth의 로컬 시험에는 Node.js 24 이상이 필요합니다. Cloudflare와 Google 설정은 실제 원격 배포 단계에서만 필요합니다.
 
@@ -47,15 +49,12 @@ plugin cache나 저장소 worktree는 로컬 파일 실행 경로로 사용하�
 
 개인 계정에서는 ChatGPT의 **Personal**에 `Personal Agent Toolkit` app 하나를 만들고 설치합니다.
 Codex에서는 같은 등록 app을 참조하는 `Personal Agent Toolkit` plugin 하나를 저장소 marketplace에서
-설치합니다. 설치 항목만 이 이름을 쓰며 내부 제품과 기능은 Sense, Corpus, Hypes, Journal, Library와 Design의
-짧은 이름을 유지합니다. 제품별 `Created by me` app이나 제품별 Codex plugin을 함께 설치하지 않습니다.
-
-Document Files만 Codex의 같은 저장소 marketplace에서 별도 설치합니다.
+설치합니다. 설치 항목만 이 이름을 쓰며 내부 제품과 Skill은 짧은 이름을 유지합니다. 제품별
+`Created by me` app, 별도 Document Files 또는 기본 문서 plugin을 함께 사용하지 않습니다.
 
 ```sh
 codex plugin marketplace add Ruzzy77/personal-agent-toolkit
 codex plugin add personal-agent-toolkit@personal-agent-toolkit
-codex plugin add document-files@personal-agent-toolkit
 ```
 
 로컬 checkout에서는 저장소 루트에서 다음 명령으로 marketplace 소스를 등록할 수 있습니다.
@@ -120,15 +119,11 @@ MCP endpoint는 서로 다른 배포 경계입니다.
 ### Finder 자료 연결
 
 로컬 자료를 연결할 Mac에는 [`apps/sync`](./apps/sync/README.md)를 설치합니다. Sync 앱만 Finder
-경로와 파일시스템 정체성을 보유하고 외부 방향 연결을 유지합니다. 허용된 Source의 변경은
-Document Files의 local 또는 remote backend로 분석한 뒤 확정된 Corpus revision으로 원자적으로 반영하며, 허용된 Work 요청은
-현재 Connection 권한과 generation을 다시 검사한 뒤 로컬 Corpus에 위임합니다. 원문 바이트는
-원격 Corpus의 필수 보관 대상이 아닙니다.
-
-원격 분석은 Connection이 `remote`이거나 해당 revision에 대해 승인을 받은 경우에만 사용합니다.
-Sync가 크기·해시·형식과 전송 한도를 확인하고 비공개 Service Binding으로 바이트를 전달합니다.
-분석기는 결과를 반환한 뒤 원문과 결과를 저장하지 않습니다. 로컬 backend는 오프라인 처리,
-네이티브 렌더링·편집과 원격에서 보존하지 못하는 세부 구조를 계속 담당합니다.
+경로와 파일시스템 정체성을 보유하고 외부 방향 연결을 유지합니다. 허용된 Source의 변경은 Sync와
+같은 환경에 설치된 Document Files로 로컬 분석한 뒤 확정된 Corpus revision으로 원자적으로 반영하며,
+허용된 Work 요청은 현재 Connection 권한과 generation을 다시 검사한 뒤 로컬 Corpus에 위임합니다.
+원문 바이트는 Personal Agent Toolkit 서버나 원격 Corpus에 보내지 않고 로컬 projection만 전송합니다.
+로컬 분석 환경이 없으면 `runtime_unavailable`로 중단하며 Cloudflare 분석기로 폴백하지 않습니다.
 
 분석기와 설정의 정확한 식별자는 각 projection이 만들어진 조건을 확인하는 데 사용합니다. 이
 식별자가 달라졌다는 이유만으로 내용이 같은 문서를 다시 분석하지는 않습니다. 기존 결과를
@@ -144,16 +139,13 @@ Claude와 Codex의 GitHub marketplace를 갱신합니다. 로컬 checkout market
 
 ### ChatGPT와 Codex
 
-Sense·Corpus·Hypes·Journal·Library·Design의 변경은 통합 app과 `Personal Agent Toolkit` plugin에 한 번
-반영합니다. ChatGPT에서는 app의 현재 도구를 새로 고치고, Codex에서는 통합 plugin의 packaging
-revision을 갱신합니다. 새 작업에서 현재 Skill과 여섯 제품의 등록 app 도구를 확인합니다.
-
-Document Files는 Codex marketplace에서 별도로 갱신합니다.
+OpenAI용 제품이나 문서 Skill의 변경은 통합 app과 `Personal Agent Toolkit` plugin에 한 번 반영합니다.
+ChatGPT에서는 app의 현재 도구를 새로 고치고, Codex에서는 통합 plugin의 packaging revision을
+갱신합니다. 새 작업에서 현재 Skill과 여섯 상태형 제품의 등록 app 도구를 확인합니다.
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
 codex plugin add personal-agent-toolkit@personal-agent-toolkit
-codex plugin add document-files@personal-agent-toolkit
 codex plugin list --json
 ```
 
@@ -191,8 +183,8 @@ Sense·Corpus·Hypes·Journal·Library·Design의 사용자 MCP 연결을 각각
 소유자 인증을 마칩니다. 각 연결의 액션 목록이 현재 MCP 도구와 일치하는지 확인합니다. Secure
 MCP Tunnel과 로컬 gateway를 사용하던 이관은 완료됐으며, 현재 구성에는 다시 추가하지 않습니다.
 
-Document Files의 파일 조작 도구는 로컬 plugin으로 유지하며 웹 클라이언트에 별도 MCP로 노출하지
-않습니다. Corpus Source 분석은 Connection 정책에 따라 비저장 원격 analyzer를 사용할 수 있습니다.
+Document Files는 웹 클라이언트에 별도 MCP로 노출하지 않고 통합 plugin의 Skill과 OpenAI host
+실행 환경을 사용합니다. 필요한 실행 기능이 없는 작업은 로컬 Sync나 로컬 Codex로 옮깁니다.
 
 ### 완료 기준
 
@@ -309,7 +301,7 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 | 원격 Journal | 소유자 운영형 D1 |
 | Library 문서·이미지 | Library service D1·R2 |
 | Design 레시피·템플릿 | Design service D1·R2 |
-| Document Files 입력 | 호출자 소유; remote analyzer는 비저장 |
+| Document Files 입력 | 호출자와 현재 실행 호스트 소유; 원격 서비스에 보관하지 않음 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
 
@@ -322,12 +314,13 @@ client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합�
 plugin의 `DESIGN.md`에 둡니다.
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
-Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/personal-agent-toolkit`은 이 여섯 제품의
-현재 Skill과 통합 등록 app을 담는 OpenAI 배포 묶음입니다.
+Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/document-files`는 단일 Python 정본과 Claude
+local MCP를 소유합니다. `plugins/personal-agent-toolkit`은 일곱 제품의 현재 Skill, 다섯 문서 Skill의
+host 실행 번들과 통합 등록 app을 담는 OpenAI 배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
-bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 제품의 OpenAI 통합
-MCP를 제공합니다. `services/document-analyzer`는 Sync가 선택하는 비저장 Document Files backend입니다.
+bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 상태형 제품의 OpenAI
+통합 MCP를 제공합니다. 문서 분석용 Cloudflare Worker나 Service Binding은 두지 않습니다.
 Design은 `plugins/design`, `services/design`, `sites/design`으로 구성하며 개인 데이터는 service의
 D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고,
 `sites/journal`은 소유자 전용 화면입니다. `services/library`와 `sites/library`는 Library의 서비스
@@ -354,8 +347,8 @@ uvx ruff==0.16.5 check engines/sense engines/corpus engines/hypes apps/sync
 ```
 
 Pull request와 `main` 갱신에서는 저장소 계약, Python runtime과 원격 Worker·Site를 검사합니다.
-Document Files는 자체 형식 설정과 전체 테스트를 사용하며, 형식별 native
-기능은 지원되는 운영체제에서 별도로 확인합니다. 자동 검사는 Cloudflare에 배포하거나 운영
+Document Files는 자체 형식 설정과 전체 테스트를 사용합니다. `rhwp`가 필요한 HWP 보조 기능은
+지원되는 플랫폼에서 서명과 체크섬을 확인하고, 그 밖의 검사는 Cloudflare에 배포하거나 운영
 데이터를 읽고 쓰지 않습니다.
 
 ## License

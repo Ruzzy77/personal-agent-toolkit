@@ -60,7 +60,6 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--device-id", default="owner-mac")
     initialize.add_argument("--display-name", default="Owner Mac")
     initialize.add_argument("--corpus-python", type=Path, required=True)
-    initialize.add_argument("--document-files-python", type=Path, required=True)
     initialize.add_argument("--corpus-data-root", type=Path, default=None)
     initialize.add_argument("--output", type=Path, default=default_config_path())
     initialize.add_argument("--replace", action="store_true")
@@ -68,13 +67,6 @@ def parser() -> argparse.ArgumentParser:
         "set-credential", help="store a device token in Keychain"
     )
     credential.add_argument("token")
-    approve = commands.add_parser(
-        "approve-remote", help="approve one revision for remote analysis"
-    )
-    approve.add_argument("connection_key")
-    approve.add_argument("document_id")
-    approve.add_argument("revision_sha256")
-    approve.add_argument("--max-bytes", type=int, required=True)
     migrate = commands.add_parser("import", help="upload a prepared migration payload")
     migrate.add_argument("product", choices=["sense", "hypes", "corpus-metadata"])
     migrate.add_argument("file", type=Path)
@@ -124,7 +116,7 @@ def _status(state: SyncState) -> dict:
             for row in connection.execute(
                 """
                 SELECT connection_key, location_state, access_scope, permission,
-                       corpus_id, analyzer_route, updated_at
+                       corpus_id, updated_at
                 FROM connections ORDER BY connection_key
                 """
             )
@@ -221,7 +213,6 @@ def main() -> None:
                 device_id=arguments.device_id,
                 display_name=arguments.display_name,
                 corpus_python=arguments.corpus_python,
-                document_files_python=arguments.document_files_python,
                 corpus_data_root=arguments.corpus_data_root,
                 replace=arguments.replace,
             )
@@ -278,15 +269,6 @@ def main() -> None:
                     ),
                 )
             )
-        elif arguments.command == "approve-remote":
-            state = SyncState(config)
-            state.approve_remote(
-                arguments.connection_key,
-                arguments.document_id,
-                arguments.revision_sha256,
-                arguments.max_bytes,
-            )
-            result = {"approved": True, "document_id": arguments.document_id}
         elif arguments.command == "import":
             result = asyncio.run(
                 _import(arguments.config, arguments.product, arguments.file)

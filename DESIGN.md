@@ -10,8 +10,8 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 - 상태가 있는 원격 제품은 서비스가 데이터와 업무 규칙을 소유한다.
 - Site와 MCP는 서로를 중계하지 않고 같은 제품 서비스를 사용한다.
 - plugin은 연결, Skill과 정적 UI 자산만 배포하며 운영 데이터나 개인 자산을 소유하지 않는다.
-- OpenAI에서는 여섯 원격 제품을 등록 app과 설치 항목 하나로 묶고, Claude에서는 제품별 MCP
-  endpoint를 직접 연결한다.
+- OpenAI에서는 원격 제품과 문서 Skill을 등록 app과 설치 항목 하나로 묶고, Claude에서는 제품별
+  원격 MCP와 Document Files local MCP를 사용한다.
 - 공통 코드는 실제로 반복되는 인증·계약·오류 처리부터 합치고, 제품 차이를 감추는 추상화는
   만들지 않는다.
 
@@ -25,7 +25,7 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 | Journal | product plugin + service + Site | Journal service D1 |
 | Library | product plugin + service + Site | Library service D1·R2 |
 | Design | product plugin + service + Site | Design service D1·R2 |
-| Document Files | local plugin + remote analyzer | 호출자가 소유한 문서 바이트; analyzer는 비저장 |
+| Document Files | bundled Skills + host runtime + Sync embedded engine + Claude local MCP | 호출자가 소유한 문서 바이트 |
 
 `services/remote-context`가 Sense·Corpus·Hypes를 함께 호스팅하고 OpenAI용 여섯 제품 도구를 한
 표면에 등록하는 것은 배포 단위의 선택이다. 각 제품의 계약, 저장 접근과 업무 로직은 모듈 경계를
@@ -42,9 +42,9 @@ Site ─────────────────────────
 ```
 
 - **plugin**: manifest, Skill, 아이콘과 연결 정보만 배포한다. OpenAI에서는
-  `plugins/personal-agent-toolkit`이 Sense, Corpus, Hypes, Journal, Library와 Design의 Skill과 통합
-  등록 app을 하나의 설치 단위로 제공한다. `Personal Agent Toolkit`은 설치 항목의 이름이며 제품,
-  Skill과 도구는 기존의 짧은 이름을 유지한다. Claude에서는 제품별 plugin을 사용한다.
+  `plugins/personal-agent-toolkit`이 Sense, Corpus, Hypes, Journal, Library, Design과 문서 Skill 및
+  host 실행 번들을 하나의 설치 단위로 제공한다. `Personal Agent Toolkit`은 설치 항목의 이름이며
+  제품, Skill과 도구는 짧은 이름을 유지한다. Claude에서는 제품별 plugin을 사용한다.
 - **service**: 인증, 입력 검증, 업무 규칙, 동시성 제어와 저장을 소유한다.
 - **Site**: 소유자 전용 읽기·편집 UI를 제공하고 제품 service API를 사용한다. Site 자체에 제품
   데이터 binding을 두지 않는다.
@@ -59,12 +59,12 @@ Design은 Library와 같은 서비스 소유 구조를 쓴다. 개인 레시피�
 R2에 두고 Site와 MCP가 같은 `services/design`을 사용한다. 공개 저장소, plugin 묶음과 Site source에
 개인 자산 사본을 넣지 않는다.
 
-Document Files의 파일 조작 표면은 로컬 plugin으로 유지하되 분석 계약은 실행 위치와 분리한다.
-`AnalysisJob v1`과 byte stream을 local backend 또는 `services/document-analyzer`에 전달하고 같은
-`AnalysisResult v1`을 받는다. Sync가 Connection의 `local`, `remote`, `approval_required` 정책과
-전송 한도를 적용한다. 원격 analyzer는 승인된 임시 바이트를 메모리에서 처리할 뿐 원문이나 결과를
-저장하지 않는다. 네이티브 앱 렌더링·편집과 원격에서 보존하지 못하는 세부 구조는 로컬 backend가
-계속 맡는다.
+Document Files의 분석 계약은 실행 위치와 분리한다. `AnalysisJob v1`과 byte stream을 Sync나 로컬
+Codex의 로컬 package 또는 OpenAI 통합 plugin의 host runtime에 전달하고 같은 `AnalysisResult v1`을
+받는다. 호스트에 필요한 기능이 없으면 `runtime_unavailable`로 중단하며 자동 원격 폴백은 없다.
+원문 바이트는 Personal Agent Toolkit 서비스나 Corpus 원격 저장층으로 보내지 않고 Sync는 로컬에서
+완료된 projection만 전송한다. Claude는 로컬 파일 권한을 위해 독립 Document Files local MCP를 쓴다.
+LibreOffice, macOS PDFKit/Vision과 Office 앱 제어는 실행 경계에 포함하지 않는다.
 
 ## 데이터와 변경
 
@@ -94,9 +94,8 @@ Site는 확인된 사용자 ID와 이메일을 모두 요구한다. 내부 Site-
 grant는 `/mcp` 안에서만 같은 수준의 Design 권한으로 이어받는다. 제품별 Design 리소스에는 이
 호환 규칙을 적용하지 않는다.
 
-Sync 장치 인증은 제품 MCP OAuth와 분리한다. 원격 문서 분석은 Corpus Sync endpoint가 현재 장치와
-Connection 정책을 확인한 뒤 비공개 Service Binding으로만 전달한다. analyzer는 owner·device 식별자를
-접근 확인에 사용하되 문서와 함께 보관하지 않는다.
+Sync 장치 인증은 제품 MCP OAuth와 분리한다. Sync endpoint는 projection과 원격 Work 요청만
+중계하며 원문 문서 바이트나 문서 분석 요청을 받지 않는다.
 
 ## 버전과 배포
 
@@ -114,10 +113,10 @@ base version을 바꾼 변경은 소스와 원격 배포를 반영하고 지원 
 불필요하게 version을 올리지 않는다.
 
 OpenAI 통합 plugin은 `.app.json`에 등록 app 하나를 두고 Codex manifest가 이를 참조한다. 통합 MCP는
-여섯 제품의 공개 도구를 제품 모듈에서 직접 등록하고 각 제품의 데이터 저장소와 권한을 그대로 쓴다.
-직접 `mcpServers`를 함께 선언하거나 제품별 app을 별도 설치하지 않는다. Claude의 제품별 `.mcp.json`은
-각 endpoint 연결을 소유한다. Document Files만 로컬 MCP plugin으로 별도 설치하며 원격 analyzer는
-사용자에게 두 번째 MCP로 노출하지 않는다.
+여섯 상태형 제품의 공개 도구를 제품 모듈에서 직접 등록하고 각 제품의 데이터 저장소와 권한을 그대로
+쓴다. 문서 기능은 같은 설치 항목에 bundled Skill과 host runtime으로 포함한다. 직접 `mcpServers`를
+함께 선언하거나 제품별 app과 Document Files Codex plugin을 별도 설치하지 않는다. Claude의 제품별
+`.mcp.json`은 각 원격 endpoint 또는 Document Files local MCP 연결을 소유한다.
 
 ## 검증 원칙
 
@@ -132,6 +131,5 @@ OpenAI 통합 plugin은 `.app.json`에 등록 app 하나를 두고 Codex manifes
 1. `products.json`과 이 문서로 제품·배포·저장 경계를 유지한다.
 2. 반복되는 인증·MCP·오류 처리와 schema contract만 작은 공통 package로 합친다.
 3. Site와 MCP가 제품 service 하나를 사용하도록 유지하고 개인 데이터를 plugin에서 분리한다.
-4. Document Files의 local·remote backend가 같은 분석 계약을 유지하며 원격 지원 형식을 점진적으로
-   넓힌다.
+4. Document Files의 Sync·로컬·OpenAI host 실행이 같은 분석 계약과 단일 Python 정본을 사용하게 한다.
 5. 큰 모듈은 확인된 경계부터 나누고 배포와 실제 클라이언트 노출을 확인한다.

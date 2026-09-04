@@ -1,7 +1,7 @@
 {
   "name": "personal-agent-toolkit",
-  "version": "1.1.0+codex.20260904023014",
-  "description": "Use Sense, Corpus, Hypes, Journal, Library, and Design through one private connection.",
+  "version": "1.2.0+codex.20260904122616",
+  "description": "Use personal context, publishing, design, and document workflows through one installation.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -20,8 +20,8 @@
   "apps": "./.app.json",
   "interface": {
     "displayName": "Personal Agent Toolkit",
-    "shortDescription": "Sense, Corpus, Hypes, Journal, Library, and Design",
-    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, Library publishing, and the owner’s private Design asset library. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation and owner-authenticated connection.",
+    "shortDescription": "Personal context, publishing, design, and documents",
+    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, Library publishing, the owner’s private Design asset library, and local or OpenAI-hosted document workflows. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [
@@ -30,14 +30,16 @@
       "Hypes relationship model",
       "Journal progress",
       "Library publishing",
-      "Design assets"
+      "Design assets",
+      "Document reading and extraction",
+      "DOCX, PDF, XLSX, and PPTX artifacts"
     ],
     "brandColor": "#153B5B",
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/icon.png",
     "defaultPrompt": [
-      "Use the relevant Sense, Corpus, Hypes, Journal, Library, or Design capability for this task.",
-      "Show the available personal context, work, publishing, and design tools relevant to this request."
+      "Use the relevant Sense, Corpus, Hypes, Journal, Library, Design, or document capability for this task.",
+      "Show the personal context, work, publishing, design, and document capabilities relevant to this request."
     ]
   }
 }

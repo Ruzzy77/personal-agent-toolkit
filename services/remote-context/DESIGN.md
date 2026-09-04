@@ -10,8 +10,7 @@ preserving the existing product boundaries and public tool names.
 Journal, Library, and Design keep their separate services and product endpoints. The
 unified MCP registers their existing tool modules against their D1 and R2
 bindings directly; it does not proxy through a gateway or Site. Document Files
-remains a replaceable analyzer: the local Sync app may invoke it locally or send
-an authorized, temporary document capture to a remote analyzer.
+runs in Sync or the current OpenAI host and is not a remote-context service.
 
 The toolkit OAuth baseline remains stable when a product is added. Existing
 single-owner grants that contain the complete pre-Design read or write bundle
@@ -141,13 +140,12 @@ or public tunnel on the Mac.
    every Source tree.
 2. A rename or same-volume move updates the local locator without creating a
    new content revision.
-3. A content change is captured and analyzed automatically when the Connection
-   policy permits it.
+3. A content change is captured and analyzed by the local Document Files runtime.
 4. Remote reads use the last committed record. If a client requires a current
    source or a live Work operation, the service sends a bounded job to the
    connected Sync app.
-5. The user is asked for help only when the app cannot recover access or local
-   policy requires explicit approval.
+5. The user is asked for help only when the app cannot recover access or its
+   local Document Files runtime is unavailable.
 
 The broker accepts one active writer for a device. Every job has a stable ID,
 scope, deadline, maximum payload, and idempotency key. The app rechecks local
@@ -158,20 +156,12 @@ unbounded activity archive.
 
 ## Document analysis
 
-The Sync app selects one analyzer route per Connection policy:
-
-- `local`: invoke the installed Document Files process and upload only its
-  extraction envelope;
-- `remote`: upload an authorized temporary capture for remote analysis;
-- `approval_required`: wait for explicit owner approval before a document may
-  leave the Mac.
-
-Both routes must produce the same versioned extraction envelope. The remote route is proxied over
-a private Service Binding to `services/document-analyzer`, which stores neither input nor result.
-Corpus owns
-document and revision identity, provenance anchors, atomic activation, and
-search. Document Files owns format detection, parsing, OCR, structural units,
-coverage, and extraction issues.
+The Sync app invokes Document Files in its own local environment and uploads
+only the versioned extraction envelope. The context Worker does not expose a
+document-analysis route, accept source bytes, or bind to a document analyzer.
+Corpus owns document and revision identity, provenance anchors, atomic
+activation, and search. Document Files owns format detection, parsing,
+structural units, coverage, and extraction issues.
 
 Exact adapter, implementation, and configuration identities remain projection
 provenance; they are not automatic freshness signals. Document Files separately

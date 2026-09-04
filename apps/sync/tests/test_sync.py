@@ -19,7 +19,7 @@ import personal_agent_sync.state as state_module
 import personal_agent_sync.storage as storage_module
 import personal_agent_sync.work as work_module
 import pytest
-from personal_agent_sync.analysis import build_projection, select_analyzer
+from personal_agent_sync.analysis import analyze_local, build_projection
 from personal_agent_sync.config import load_config, rewrite_connection_roots
 from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
@@ -39,7 +39,6 @@ def write_config(
     tmp_path: Path,
     root: Path,
     *,
-    route: str = "local",
     include_hidden: bool = False,
 ) -> Path:
     data = tmp_path / "private"
@@ -52,7 +51,6 @@ def write_config(
                 'display_name = "Test Mac"',
                 f"data_root = {json.dumps(str(data))}",
                 f"corpus_python = {json.dumps(sys.executable)}",
-                f"document_files_python = {json.dumps(sys.executable)}",
                 "reconcile_seconds = 2",
                 "[[connections]]",
                 'space_id = "notes"',
@@ -62,8 +60,6 @@ def write_config(
                 'access_scope = "remote_allowed"',
                 'permission = "read_write"',
                 'corpus_id = "notes"',
-                f'analyzer_route = "{route}"',
-                "max_transfer_bytes = 1048576",
                 "generation = 3",
                 f"include_hidden = {str(include_hidden).lower()}",
             ]
@@ -958,6 +954,52 @@ def test_database_upgrade_retires_identity_based_analyzer_refreshes(
         assert "reanalysis_generation" in columns
 
 
+def test_database_upgrade_removes_remote_analysis_policy_state(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    with state.connect() as connection:
+        connection.execute(
+            "ALTER TABLE connections ADD COLUMN analyzer_route "
+            "TEXT NOT NULL DEFAULT 'remote'"
+        )
+        connection.execute(
+            "ALTER TABLE connections ADD COLUMN max_transfer_bytes "
+            "INTEGER NOT NULL DEFAULT 1048576"
+        )
+        connection.execute(
+            """
+            CREATE TABLE remote_approvals (
+                connection_key TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                revision_sha256 TEXT NOT NULL,
+                max_bytes INTEGER NOT NULL,
+                approved_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 3")
+
+    upgraded = SyncState(config)
+    with upgraded.connect() as connection:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(connections)")
+        }
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+
+    assert "analyzer_route" not in columns
+    assert "max_transfer_bytes" not in columns
+    assert "remote_approvals" not in tables
+    assert version == 4
+
+
 def test_reanalysis_generation_refills_its_queue_in_bounded_batches(
     tmp_path: Path,
 ) -> None:
@@ -1032,27 +1074,30 @@ def test_local_analyzer_manifest_reads_route_provenance_and_reanalysis_generatio
         returncode = 0
         stdout = json.dumps(
             {
-                "schema_version": "document-files.descriptor.v1",
-                "formats": {
-                    "txt": {
-                        "media_type": "text/plain",
-                        "reanalysis_generation": 3,
-                        "descriptor": {
-                            "adapter_id": "document-files.process.txt",
-                            "adapter_version": "wrapper",
-                            "config_hash": "f" * 64,
-                            "capabilities": {"format_ids": ["txt"]},
-                        },
-                        "config": {
-                            "processor_implementation_sha256": "e" * 64,
-                            "route": {
-                                "adapter_id": "document-files.builtin.text",
-                                "adapter_version": "2",
-                                "config_hash": "a" * 64,
+                "ok": True,
+                "result": {
+                    "schema_version": "document-files.descriptor.v1",
+                    "formats": {
+                        "txt": {
+                            "media_type": "text/plain",
+                            "reanalysis_generation": 3,
+                            "descriptor": {
+                                "adapter_id": "document-files.process.txt",
+                                "adapter_version": "wrapper",
+                                "config_hash": "f" * 64,
                                 "capabilities": {"format_ids": ["txt"]},
                             },
-                        },
-                    }
+                            "config": {
+                                "processor_implementation_sha256": "e" * 64,
+                                "route": {
+                                    "adapter_id": "document-files.builtin.text",
+                                    "adapter_version": "2",
+                                    "config_hash": "a" * 64,
+                                    "capabilities": {"format_ids": ["txt"]},
+                                },
+                            },
+                        }
+                    },
                 },
             }
         )
@@ -1061,7 +1106,7 @@ def test_local_analyzer_manifest_reads_route_provenance_and_reanalysis_generatio
         analysis_module.subprocess, "run", lambda *args, **kwargs: Completed()
     )
 
-    assert analysis_module.local_analyzer_manifest(tmp_path / "python") == {
+    assert analysis_module.local_analyzer_manifest() == {
         "txt": {
             "adapter_id": "document-files.builtin.text",
             "adapter_version": "2",
@@ -1069,6 +1114,18 @@ def test_local_analyzer_manifest_reads_route_provenance_and_reanalysis_generatio
             "reanalysis_generation": 3,
         }
     }
+
+
+def test_missing_embedded_analyzer_reports_runtime_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable(*args: object, **kwargs: object) -> None:
+        raise OSError("missing runtime")
+
+    monkeypatch.setattr(analysis_module.subprocess, "run", unavailable)
+    with pytest.raises(SyncError) as exc_info:
+        analysis_module.local_analyzer_manifest()
+    assert exc_info.value.code == "runtime_unavailable"
 
 
 def test_deleted_unknown_remote_document_completes_idempotently(
@@ -1193,11 +1250,11 @@ def test_metadata_only_change_reuses_the_committed_projection(
         observed.append(args)
         return {"changed": True}
 
-    async def should_not_analyze(*args: object, **kwargs: object) -> dict[str, object]:
+    def should_not_analyze(*args: object, **kwargs: object) -> dict[str, object]:
         raise AssertionError("unchanged bytes must not be analyzed again")
 
     monkeypatch.setattr(daemon.remote, "update_source_state", update)
-    monkeypatch.setattr(daemon_module, "select_analyzer", should_not_analyze)
+    monkeypatch.setattr(daemon_module, "analyze_local", should_not_analyze)
 
     async def exercise() -> None:
         await daemon._process_change(change)
@@ -1210,13 +1267,7 @@ def test_metadata_only_change_reuses_the_committed_projection(
     maintenance_calls: list[dict[str, object]] = []
     resolution_calls: list[tuple[object, ...]] = []
 
-    async def analyze(
-        _state: object,
-        _remote: object,
-        _change: dict[str, object],
-        snapshot: Snapshot,
-        selected_format: str,
-    ) -> dict[str, object]:
+    def analyze(snapshot: Snapshot, selected_format: str) -> dict[str, object]:
         analysis_calls.append(snapshot.sha256)
         descriptor = {
             "adapter_id": "document-files.text",
@@ -1271,7 +1322,7 @@ def test_metadata_only_change_reuses_the_committed_projection(
         maintenance_calls.append(options)
         return {"removed": {"projections": 1}}
 
-    monkeypatch.setattr(daemon_module, "select_analyzer", analyze)
+    monkeypatch.setattr(daemon_module, "analyze_local", analyze)
     monkeypatch.setattr(daemon.remote, "resolve_revision", resolve)
     monkeypatch.setattr(daemon.remote, "upload_projection", upload)
     monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain)
@@ -1369,13 +1420,7 @@ def test_pruned_remote_document_is_recreated_from_local_source(
     async def missing(*args: object, **kwargs: object) -> dict[str, object]:
         raise SyncError("document_not_found", "remote retention removed the document")
 
-    async def analyze(
-        _state: object,
-        _remote: object,
-        _change: dict[str, object],
-        snapshot: Snapshot,
-        selected_format: str,
-    ) -> dict[str, object]:
+    def analyze(snapshot: Snapshot, selected_format: str) -> dict[str, object]:
         analyzed.append(snapshot.sha256)
         descriptor = {
             "adapter_id": "document-files.text",
@@ -1431,7 +1476,7 @@ def test_pruned_remote_document_is_recreated_from_local_source(
     monkeypatch.setattr(daemon.remote, "resolve_revision", resolve)
     monkeypatch.setattr(daemon.remote, "upload_projection", upload)
     monkeypatch.setattr(daemon.remote, "maintain_corpus", maintain)
-    monkeypatch.setattr(daemon_module, "select_analyzer", analyze)
+    monkeypatch.setattr(daemon_module, "analyze_local", analyze)
 
     async def exercise() -> None:
         await daemon._process_change(change)
@@ -1595,6 +1640,21 @@ def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
     note = root / "note.txt"
     note.write_text("same bytes", encoding="utf-8")
     config_path = write_config(tmp_path, root)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        .replace(
+            "reconcile_seconds = 2",
+            f"document_files_python = {json.dumps(sys.executable)}\n"
+            "reconcile_seconds = 2",
+        )
+        .replace(
+            "generation = 3",
+            'analyzer_route = "approval_required"\n'
+            "max_transfer_bytes = 1024\n"
+            "generation = 3",
+        ),
+        encoding="utf-8",
+    )
     config = load_config(config_path)
     state = SyncState(config)
     metadata = note.stat()
@@ -1626,6 +1686,10 @@ def test_explicit_root_rebind_preserves_document_identity_and_updates_config(
     )
     assert queued == 0
     assert load_config(config_path).connections[0].root == replacement
+    rewritten = config_path.read_text(encoding="utf-8")
+    assert "document_files_python" not in rewritten
+    assert "analyzer_route" not in rewritten
+    assert "max_transfer_bytes" not in rewritten
 
 
 def test_old_interrupted_captures_are_cleaned_with_a_bounded_scope(
@@ -1880,8 +1944,8 @@ def test_work_helper_pins_sync_managed_document_files_runtime(
         load_config(write_config(tmp_path, root)),
         corpus_data_root=tmp_path / "corpus-data",
         corpus_python=runtime_python,
-        document_files_python=runtime_python,
     )
+    monkeypatch.setattr(work_module.sys, "executable", str(runtime_python))
     observed: dict[str, object] = {}
 
     def fake_run(
@@ -1907,17 +1971,11 @@ def test_work_helper_pins_sync_managed_document_files_runtime(
     assert environment["DOCUMENT_FILES_EXECUTABLE"] == str(executable)
 
 
-def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(
-    tmp_path: Path,
-) -> None:
+def test_local_analysis_uses_embedded_document_files(tmp_path: Path) -> None:
     root = tmp_path / "source"
     root.mkdir()
     source = root / "note.txt"
-    source.write_text("private draft", encoding="utf-8")
-    config = load_config(write_config(tmp_path, root, route="approval_required"))
-    state = SyncState(config)
-    reconcile_all(state)
-    change = state.due_changes()[0]
+    source.write_text("로컬 분석", encoding="utf-8")
     content = source.read_bytes()
     snapshot = Snapshot(
         path=source,
@@ -1928,45 +1986,7 @@ def test_remote_analysis_requires_exact_revision_approval_and_transfer_budget(
         device=source.stat().st_dev,
         inode=source.stat().st_ino,
     )
+    result = analyze_local(snapshot, "txt", "analysis:test")
 
-    class RemoteAnalyzer:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, object]] = []
-
-        async def analyze_remote(self, **kwargs: object) -> dict[str, object]:
-            self.calls.append(kwargs)
-            return {"accepted": True}
-
-    remote = RemoteAnalyzer()
-    with pytest.raises(PolicyDenied, match="requires owner approval"):
-        asyncio.run(select_analyzer(state, remote, change, snapshot, "txt"))  # type: ignore[arg-type]
-    assert remote.calls == []
-
-    state.approve_remote(
-        change["connection_key"],
-        change["document_id"],
-        snapshot.sha256,
-        snapshot.byte_size,
-    )
-    assert asyncio.run(  # type: ignore[arg-type]
-        select_analyzer(state, remote, change, snapshot, "txt")
-    ) == {"accepted": True}
-    assert remote.calls[0]["sha256"] == snapshot.sha256
-
-    too_large = Snapshot(
-        path=source,
-        byte_size=change["max_transfer_bytes"] + 1,
-        sha256="f" * 64,
-        modified_ns=snapshot.modified_ns,
-        changed_ns=snapshot.changed_ns,
-        device=snapshot.device,
-        inode=snapshot.inode,
-    )
-    state.approve_remote(
-        change["connection_key"],
-        change["document_id"],
-        too_large.sha256,
-        too_large.byte_size,
-    )
-    with pytest.raises(PolicyDenied, match="transfer limit"):
-        asyncio.run(select_analyzer(state, remote, change, too_large, "txt"))  # type: ignore[arg-type]
+    assert result["input"]["sha256"] == snapshot.sha256
+    assert [unit["content"] for unit in result["extraction"]["units"]] == ["로컬 분석"]

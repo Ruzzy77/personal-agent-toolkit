@@ -7,10 +7,9 @@ Corpus와 Document Files는 하나의 읽기 전용 프로세스 경계로 연�
 **Document Files**
 
 - PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, text 파싱
-- 로컬 OCR과 포함 이미지 처리
+- 이미지 중심 문서의 부분 추출 표시
 - 구조 단위, 원문 내부 위치, geometry, confidence, 품질 표지 생성
 - 추출 범위와 이슈 판정
-- 페이지·그림 구간의 bounded continuation 완료
 - 변환, 렌더링, HWPX 생성·편집·검증
 
 **Corpus**
@@ -162,16 +161,12 @@ Corpus는 descriptor의 형식, unit type, 실행 방식, OCR·geometry·confide
 
 `coverage`는 `text_content`, `structure`, `visual_content`, `reading_order`를 각각 `complete`, `partial`, `unverified`, `not_applicable` 중 하나로 기록합니다. 각 이슈는 영향 종류와 관련 coverage 차원을 명시합니다. Corpus는 중복 JSON 키, 알 수 없는 필드, 비정상 수치, 선언하지 않은 unit type과 capability 위반, 그리고 unit·이슈와 맞지 않는 coverage를 거부합니다.
 
-## 큰 문서와 continuation
+## 큰 문서와 부분 추출
 
-Document Files는 PDF 페이지와 Office 계열 문서의 포함 이미지처럼 구간 처리가 필요한 경우 같은 프로세스 안에서 `resume`을 반복합니다. 다음 조건 중 하나면 결과를 반환하지 않고 bounded failure로 종료합니다.
-
-- 전체 실행 시간 초과
-- continuation 횟수 초과
-- 동일 manifest가 반복돼 진전이 없음
-- 누적 unit·문자·이슈 또는 출력 바이트 한도 초과
-
-따라서 Corpus는 형식별 continuation 이슈를 해석하거나 다음 갱신에서 파서를 다시 호출하지 않습니다. 실패한 새 시도는 기록하되 기존 active projection은 보존합니다.
+Document Files는 한 번의 제한된 분석에서 확인한 구조와 값을 반환합니다. 페이지·문자·unit·출력
+바이트 또는 실행 시간 한도 때문에 남은 범위가 있으면 결과의 coverage를 `partial`로 두고 issue에
+한도와 미확인 범위를 기록합니다. Corpus는 형식별 후속 parser나 OCR을 예약하지 않으며, 실패한 새
+시도는 기록하되 기존 active projection은 보존합니다.
 
 ## 보안과 자원 한도
 

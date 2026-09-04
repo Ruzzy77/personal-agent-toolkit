@@ -70,7 +70,7 @@ Corpus의 논리 정체성과 물리 위치는 분리합니다.
 
 검색은 입력 문구와 같은 FTS 후보를 먼저 반환하고, 결과가 없으면 모든 검색어가 들어 있는 후보를 한 번 더 찾습니다. 순위는 후보 정렬에만 쓰며 내용은 선택한 unit에서 읽습니다. 원자료가 없어도 active record는 검색·조회할 수 있습니다. 최신 정보나 현재 원문 인용에는 `source_state`, `captured_at`과 필요 시 갱신 결과를 함께 확인합니다.
 
-형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는 unit type, geometry, confidence, OCR 여부와 품질 표지를 검증한 뒤 revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고 원문에 없는 제목·번호나 배치를 Source unit에 덧붙이지 않습니다.
+형식별 본문·구조·그림 관측과 문서 내부 위치는 Document Files가 생성합니다. Corpus는 unit type, geometry, confidence와 품질 표지를 검증한 뒤 revision과 projection에 연결합니다. 빈 구조 unit은 읽을 수 있지만 텍스트 검색에서는 제외합니다. 구조 맥락 조회는 선택한 unit과 같은 projection 안에서만 확장합니다. 추출된 원문과 에이전트의 의미 해석을 구분하고 원문에 없는 제목·번호나 배치를 Source unit에 덧붙이지 않습니다.
 
 Corpus는 `document-files process --describe`에서 adapter identity와 capability를 읽습니다. identity는 새 projection의 재현 근거와 중복 판정에 사용하며, 기존 projection을 오래된 결과로 분류하는 조건은 아닙니다. `extractor_outdated`는 현재 실행기가 해당 형식을 더 이상 지원하지 않는 경우를 위한 호환 상태로만 남깁니다. 내용이 같은 기존 문서의 자동 재분석은 Sync가 형식별 `reanalysis_generation`의 명시적 증가를 확인한 경우에만 수행합니다. 입력은 private staging 파일의 읽기 전용 descriptor로 전달하며 원본 경로, Source ID와 권한 정보는 전달하지 않습니다. 처리 후 원본 바이트 사본은 지우고 구조화된 record를 남깁니다. Document Files를 사용할 수 없으면 자체 parser, OCR이나 renderer로 대체하지 않습니다.
 

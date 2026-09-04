@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Build the single OpenAI plugin from the remote product Skills."""
+"""Build the single OpenAI plugin from product Skills and hosted runtime sources."""
 
 from __future__ import annotations
 
 import argparse
 import filecmp
+import json
 import shutil
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
-TARGET = PLUGIN_ROOT / "personal-agent-toolkit" / "skills"
-PRODUCTS = ("sense", "corpus", "hypes", "journal", "library", "design")
+TARGET = PLUGIN_ROOT / "personal-agent-toolkit"
+PRODUCTS = tuple(
+    json.loads((ROOT / "products.json").read_text(encoding="utf-8"))["distributions"][
+        "openai"
+    ]["products"]
+)
 
 
 def copy_skills(target: Path) -> None:
@@ -28,8 +33,25 @@ def copy_skills(target: Path) -> None:
             shutil.copytree(
                 source,
                 target / source.name,
-                ignore=shutil.ignore_patterns("agents"),
+                ignore=shutil.ignore_patterns("agents", "__pycache__", "*.pyc"),
             )
+
+
+def copy_document_runtime(target: Path) -> None:
+    """Copy the canonical Python source without provisioning during document work."""
+
+    source = PLUGIN_ROOT / "document-files"
+    shutil.copytree(
+        source / "openai-runtime",
+        target,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copytree(
+        source / "src" / "document_files",
+        target / "src" / "document_files",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copy2(source / "pyproject.toml", target / "pyproject.toml")
 
 
 def same_tree(left: Path, right: Path) -> bool:
@@ -54,18 +76,29 @@ def main() -> int:
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as directory:
-        built = Path(directory) / "skills"
-        copy_skills(built)
+        built = Path(directory) / "bundle"
+        copy_skills(built / "skills")
+        copy_document_runtime(built / "runtime" / "document-files")
         if args.check:
-            if TARGET.is_dir() and same_tree(built, TARGET):
-                print("OpenAI Skill bundle is current.")
+            if (
+                (TARGET / "skills").is_dir()
+                and (TARGET / "runtime").is_dir()
+                and same_tree(built / "skills", TARGET / "skills")
+                and same_tree(built / "runtime", TARGET / "runtime")
+            ):
+                print("OpenAI plugin bundle is current.")
                 return 0
-            print("OpenAI Skill bundle is stale; run scripts/build_openai_plugin.py")
+            print("OpenAI plugin bundle is stale; run scripts/build_openai_plugin.py")
             return 1
 
-        shutil.rmtree(TARGET, ignore_errors=True)
-        shutil.copytree(built, TARGET)
-        print(f"Built {len(list(TARGET.iterdir()))} Skills in {TARGET.relative_to(ROOT)}")
+        shutil.rmtree(TARGET / "skills", ignore_errors=True)
+        shutil.rmtree(TARGET / "runtime", ignore_errors=True)
+        shutil.copytree(built / "skills", TARGET / "skills")
+        shutil.copytree(built / "runtime", TARGET / "runtime")
+        skill_count = len(list((TARGET / "skills").iterdir()))
+        print(
+            f"Built {skill_count} Skills and the hosted runtime in {TARGET.relative_to(ROOT)}"
+        )
         return 0
 
 

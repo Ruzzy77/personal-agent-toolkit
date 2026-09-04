@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -222,6 +223,16 @@ except Exception:
 """
 
 
+def _document_files_executable() -> Path:
+    executable = Path(sys.executable).with_name("document-files")
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise SyncError(
+            "local_document_files_unavailable",
+            "the Sync runtime does not include the Document Files executable",
+        )
+    return executable
+
+
 def rebind_local_corpus_roots(
     config: SyncConfig, connection_keys: set[str], root: Path
 ) -> dict[str, Any]:
@@ -257,14 +268,7 @@ def rebind_local_corpus_roots(
         }
     )
     environment = os.environ.copy()
-    if config.document_files_python is not None:
-        document_files_executable = (
-            config.document_files_python.parent / "document-files"
-        )
-        if document_files_executable.is_file() and os.access(
-            document_files_executable, os.X_OK
-        ):
-            environment["DOCUMENT_FILES_EXECUTABLE"] = str(document_files_executable)
+    environment["DOCUMENT_FILES_EXECUTABLE"] = str(_document_files_executable())
     try:
         completed = subprocess.run(
             [
@@ -357,24 +361,7 @@ class WorkExecutor:
                 "request": request,
             }
         )
-        if self.config.document_files_python is None:
-            raise SyncError(
-                "local_document_files_unavailable",
-                "the durable Document Files runtime is unavailable",
-            )
-        document_files_executable = (
-            self.config.document_files_python.parent / "document-files"
-        )
-        if not document_files_executable.is_file() or not os.access(
-            document_files_executable, os.X_OK
-        ):
-            raise SyncError(
-                "local_document_files_unavailable",
-                "the durable Document Files executable is unavailable",
-            )
-        # Corpus and Document Files deliberately run in separate environments.
-        # Pin the helper to the durable Sync-managed runtime instead of letting
-        # Corpus discover a mutable Codex or Claude plugin cache.
+        document_files_executable = _document_files_executable()
         environment = os.environ.copy()
         environment["DOCUMENT_FILES_EXECUTABLE"] = str(document_files_executable)
         try:
