@@ -162,7 +162,13 @@ const rewriteOperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export const hypesRewriteSchema = z
-  .object({ operations: z.array(rewriteOperationSchema).min(1).max(128) })
+  .object({
+    expected_version: z
+      .string()
+      .regex(/^hypes-graph-v1:[0-9a-f]{32}$/)
+      .describe("The version returned by the Hypes read used to prepare this patch."),
+    operations: z.array(rewriteOperationSchema).min(1).max(128),
+  })
   .strict();
 
 export const hypesReadSchema = z

@@ -135,7 +135,7 @@
       "display_name": "Hypes",
       "plugin": {
         "path": "plugins/hypes",
-        "base_version": "0.9.5"
+        "base_version": "0.10.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -155,7 +155,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Hypes",
-        "surface_version": "0.9.5-remote.1",
+        "surface_version": "0.10.0-remote.1",
         "tools": [
           "hypes_read",
           "hypes_rewrite"

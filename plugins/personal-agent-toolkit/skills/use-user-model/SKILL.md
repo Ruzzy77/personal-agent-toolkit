@@ -21,9 +21,13 @@ When a relevant epistemic relation exists, use it to choose the explanation's st
 
 Read a focused graph slice using short `focus` terms or known Node and Predicate refs. The relevant Edge supplies the relationship. The outline and `continuation` support a user-requested review of the full model.
 
+The result's `version` covers the owner's whole graph, not only the returned slice. Keep it with the relationships used to prepare a change.
+
 ## Rewrite
 
 Reusable relationships evolve from the current interaction through one atomic patch. Existing Nodes, Predicates and Edges receive replacement values. Obsolete concepts are deleted with their incident Edges. Aliases describe the reusable concept in concise language.
+
+Pass the corresponding read's `version` as `expected_version`, including for a create-only patch. A confirmed rewrite returns the resulting version. On `graph_conflict`, reread the relevant relationships and rebuild the patch; do not retry the old patch by replacing only its version. An unknown write outcome also requires rereading before another patch.
 
 Hypes stores nonsensitive relationships about user preferences, interpretations and recurring concepts. Operational records and project facts remain with their projects. Source content remains with its sources. Sense guidance and Corpus context remain in their respective systems.
 

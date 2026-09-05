@@ -28,6 +28,19 @@ interface EdgeRow {
   qualifiers_json: string;
 }
 
+interface FocusRow {
+  ref: string;
+  rank: number;
+}
+
+interface GraphSnapshot {
+  nodes: Map<string, NodeRow>;
+  predicates: Map<string, PredicateRow>;
+  edges: Map<string, EdgeRow>;
+  version: string;
+  focusResults: Array<[FocusRow[], FocusRow[]]>;
+}
+
 type RewriteOperation = ReturnType<
   typeof hypesRewriteSchema.parse
 >["operations"][number];
@@ -56,6 +69,16 @@ const FOCUS_TOKEN = /[\p{L}\p{N}]+/gu;
 const OUTLINE_CONTINUATION = /^outline-v1:([1-9][0-9]{0,9})$/;
 const MAX_FOCUS_SEEDS = 12;
 const EDGE_EXPANSION_RESERVE = 3;
+const VERSION_PREFIX = "hypes-graph-v1:";
+const EMPTY_VERSION = "0".repeat(32);
+
+function graphConflict(): ContextError {
+  return new ContextError(
+    "graph_conflict",
+    "the Hypes graph changed; read the relevant relationships again and rebuild the patch rather than replacing only its version",
+    409,
+  );
+}
 
 function newRef(kind: Kind): string {
   return `${kind}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -187,41 +210,111 @@ export class HypesService {
     private readonly ownerId: string,
   ) {}
 
-  private async allRows(): Promise<{
-    nodes: Map<string, NodeRow>;
-    predicates: Map<string, PredicateRow>;
-    edges: Map<string, EdgeRow>;
-  }> {
-    const [nodes, predicates, edges] = await Promise.all([
+  private versionStatement(): D1PreparedStatement {
+    return this.db
+      .prepare("SELECT version FROM hypes_graph_versions WHERE owner_id = ?")
+      .bind(this.ownerId);
+  }
+
+  private async allRows(
+    focus?: { text: string; limit: number },
+  ): Promise<GraphSnapshot> {
+    const queries = focus ? ftsQueries(focus.text) : [];
+    // Graph rows, revision, and search candidates must describe one snapshot.
+    const [nodes, predicates, edges, revision, ...matches] = await this.db.batch([
       this.db
         .prepare(
           `SELECT node_id, labels_json, name, description, aliases_json, attributes_json
            FROM hypes_nodes WHERE owner_id = ? ORDER BY node_id`,
         )
-        .bind(this.ownerId)
-        .all<NodeRow>(),
+        .bind(this.ownerId),
       this.db
         .prepare(
           `SELECT predicate_id, name, description, aliases_json
            FROM hypes_predicates WHERE owner_id = ? ORDER BY predicate_id`,
         )
-        .bind(this.ownerId)
-        .all<PredicateRow>(),
+        .bind(this.ownerId),
       this.db
         .prepare(
           `SELECT edge_id, source_id, predicate_id, target_id, qualifiers_json
            FROM hypes_edges WHERE owner_id = ? ORDER BY edge_id`,
         )
-        .bind(this.ownerId)
-        .all<EdgeRow>(),
+        .bind(this.ownerId),
+      this.versionStatement(),
+      ...queries.flatMap((query) =>
+        ["hypes_nodes_fts", "hypes_predicates_fts"].map((table) =>
+          this.db
+            .prepare(
+              `SELECT ref, bm25(${table}) AS rank FROM ${table}
+               WHERE ${table} MATCH ? AND owner_id = ?
+               ORDER BY rank, ref LIMIT ?`,
+            )
+            .bind(query, this.ownerId, focus!.limit),
+        ),
+      ),
     ]);
     return {
-      nodes: new Map(nodes.results.map((row) => [row.node_id, row])),
-      predicates: new Map(
-        predicates.results.map((row) => [row.predicate_id, row]),
+      nodes: new Map(
+        (nodes!.results as NodeRow[]).map((row) => [row.node_id, row]),
       ),
-      edges: new Map(edges.results.map((row) => [row.edge_id, row])),
+      predicates: new Map(
+        (predicates!.results as PredicateRow[]).map((row) => [row.predicate_id, row]),
+      ),
+      edges: new Map((edges!.results as EdgeRow[]).map((row) => [row.edge_id, row])),
+      version:
+        VERSION_PREFIX +
+        ((revision!.results[0] as { version: string } | undefined)?.version ??
+          EMPTY_VERSION),
+      focusResults: queries.map((_, index) => [
+        matches[index * 2]!.results as FocusRow[],
+        matches[index * 2 + 1]!.results as FocusRow[],
+      ]),
     };
+  }
+
+  private async commit(
+    statements: D1PreparedStatement[],
+    expectedVersion: string,
+  ): Promise<string> {
+    try {
+      const results = await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO hypes_graph_versions(owner_id, version) VALUES (?, ?)
+             ON CONFLICT(owner_id) DO NOTHING`,
+          )
+          .bind(this.ownerId, EMPTY_VERSION),
+        this.db
+          .prepare(
+            `UPDATE hypes_graph_versions
+             SET version = CASE WHEN version = ? THEN version ELSE NULL END
+             WHERE owner_id = ?`,
+          )
+          .bind(expectedVersion.slice(VERSION_PREFIX.length), this.ownerId),
+        ...statements,
+        this.versionStatement(),
+      ]);
+      return (
+        VERSION_PREFIX +
+        (results.at(-1)!.results[0] as { version: string }).version
+      );
+    } catch (error) {
+      // The NOT NULL guard fails inside the same transaction as every mutation.
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("NOT NULL constraint failed: hypes_graph_versions.version")
+      ) {
+        throw graphConflict();
+      }
+      if (message.includes("FOREIGN KEY constraint failed")) {
+        throw new ContextError(
+          "dangling_edge",
+          "every stored edge endpoint must remain valid",
+          409,
+        );
+      }
+      throw error;
+    }
   }
 
   async verificationState(): Promise<Record<string, unknown>> {
@@ -246,7 +339,8 @@ export class HypesService {
   }
 
   async rewrite(input: unknown): Promise<Record<string, unknown>> {
-    const operations = hypesRewriteSchema.parse(input).operations;
+    const parsed = hypesRewriteSchema.parse(input);
+    const operations = parsed.operations;
     const refMap = new Map<string, string>();
     const temporaryKinds = new Map<string, Kind>();
     const targetRefs = new Set<string>();
@@ -370,6 +464,7 @@ export class HypesService {
     }
 
     const current = await this.allRows();
+    if (parsed.expected_version !== current.version) throw graphConflict();
     const createdRefs = new Set(refMap.values());
     for (const operation of normalized) {
       if (createdRefs.has(operation.ref)) continue;
@@ -506,10 +601,24 @@ export class HypesService {
       }
     }
 
+    const prospectiveEdges = new Map(current.edges);
+    for (const operation of normalized) {
+      if (operation.op === "delete" && operation.kind === "edge") {
+        prospectiveEdges.delete(operation.ref);
+      } else if (operation.op === "put_edge") {
+        prospectiveEdges.set(operation.ref, {
+          edge_id: operation.ref,
+          source_id: operation.value.source_ref,
+          predicate_id: operation.value.predicate_ref,
+          target_id: operation.value.target_ref,
+          qualifiers_json: canonicalJson(operation.value.qualifiers),
+        });
+      }
+    }
     const cascadedEdges = new Set<string>();
     for (const operation of normalized) {
       if (operation.op !== "delete" || operation.kind === "edge") continue;
-      for (const edge of current.edges.values()) {
+      for (const edge of prospectiveEdges.values()) {
         if (
           (operation.kind === "node" &&
             (edge.source_id === operation.ref ||
@@ -529,18 +638,7 @@ export class HypesService {
       );
     }
 
-    if (statements.length > 0) {
-      try {
-        await this.db.batch(statements);
-      } catch (error) {
-        throw new ContextError(
-          "dangling_edge",
-          "every stored edge endpoint must remain valid",
-          409,
-          { cause: error instanceof Error ? error.message : String(error) },
-        );
-      }
-    }
+    const version = await this.commit(statements, parsed.expected_version);
 
     const upsertedRefs = normalized
       .filter((operation) => operation.op !== "delete")
@@ -577,6 +675,7 @@ export class HypesService {
     changeSummary.deleted.edges += cascadedEdges.size;
 
     return {
+      version,
       ref_map: Object.fromEntries(refMap),
       upserted_refs: upsertedRefs,
       removed_refs: removedRefs,
@@ -584,38 +683,18 @@ export class HypesService {
     };
   }
 
-  private async focusSeeds(
-    focus: string,
+  private focusSeeds(
+    results: GraphSnapshot["focusResults"],
     limit: number,
-  ): Promise<Array<[Kind, string]>> {
-    for (const query of ftsQueries(focus)) {
-      const [nodes, predicates] = await Promise.all([
-        this.db
-          .prepare(
-            `SELECT ref, bm25(hypes_nodes_fts) AS rank
-             FROM hypes_nodes_fts
-             WHERE hypes_nodes_fts MATCH ? AND owner_id = ?
-             ORDER BY rank, ref LIMIT ?`,
-          )
-          .bind(query, this.ownerId, limit)
-          .all<{ ref: string; rank: number }>(),
-        this.db
-          .prepare(
-            `SELECT ref, bm25(hypes_predicates_fts) AS rank
-             FROM hypes_predicates_fts
-             WHERE hypes_predicates_fts MATCH ? AND owner_id = ?
-             ORDER BY rank, ref LIMIT ?`,
-          )
-          .bind(query, this.ownerId, limit)
-          .all<{ ref: string; rank: number }>(),
-      ]);
+  ): Array<[Kind, string]> {
+    for (const [nodes, predicates] of results) {
       const seeds: Array<[number, Kind, string]> = [
-        ...nodes.results.map((row): [number, Kind, string] => [
+        ...nodes.map((row): [number, Kind, string] => [
           row.rank,
           "node",
           row.ref,
         ]),
-        ...predicates.results.map((row): [number, Kind, string] => [
+        ...predicates.map((row): [number, Kind, string] => [
           row.rank,
           "pred",
           row.ref,
@@ -648,7 +727,21 @@ export class HypesService {
       );
     }
 
-    const rows = await this.allRows();
+    const seedCount = new Set(requestedRefs).size;
+    const remaining = Math.max(0, parsed.limit - seedCount);
+    let capacity = Math.min(MAX_FOCUS_SEEDS, remaining);
+    if (parsed.max_hops > 0 && capacity > 0) {
+      capacity = Math.min(
+        capacity,
+        Math.max(0, remaining - EDGE_EXPANSION_RESERVE),
+      );
+      if (seedCount === 0) capacity = Math.max(1, capacity);
+    }
+    const rows = await this.allRows(
+      parsed.focus != null && capacity > 0
+        ? { text: parsed.focus, limit: capacity + seedCount }
+        : undefined,
+    );
     const seeds: Array<[Kind, string]> = [];
     const seen = new Set<string>();
     for (const ref of requestedRefs) {
@@ -671,18 +764,9 @@ export class HypesService {
 
     let continuation: string | null = null;
     if (parsed.focus != null) {
-      const remaining = Math.max(0, parsed.limit - seeds.length);
-      let capacity = Math.min(MAX_FOCUS_SEEDS, remaining);
-      if (parsed.max_hops > 0 && capacity > 0) {
-        capacity = Math.min(
-          capacity,
-          Math.max(0, remaining - EDGE_EXPANSION_RESERVE),
-        );
-        if (seeds.length === 0) capacity = Math.max(1, capacity);
-      }
       if (capacity > 0) {
-        const candidates = await this.focusSeeds(
-          parsed.focus,
+        const candidates = this.focusSeeds(
+          rows.focusResults,
           capacity + seen.size,
         );
         let added = 0;
@@ -787,6 +871,7 @@ export class HypesService {
     }
 
     return {
+      version: rows.version,
       nodes: [...includedNodes]
         .sort()
         .map((ref) => nodeValue(rows.nodes.get(ref)!)),
@@ -846,7 +931,7 @@ export class HypesService {
       })),
     ];
 
-    hypesRewriteSchema.parse({ operations });
+    hypesRewriteSchema.pick({ operations: true }).parse({ operations });
     const existing = await this.allRows();
     const statements: D1PreparedStatement[] = [
       this.db
@@ -859,7 +944,6 @@ export class HypesService {
         .prepare("DELETE FROM hypes_predicates WHERE owner_id = ?")
         .bind(this.ownerId),
     ];
-    void existing;
     for (const operation of operations as Array<Record<string, any>>) {
       if (operation.op === "put_node") {
         statements.push(
@@ -917,8 +1001,9 @@ export class HypesService {
         );
       }
     }
-    await this.db.batch(statements);
+    const version = await this.commit(statements, existing.version);
     return {
+      version,
       nodes: nodes.length,
       predicates: predicates.length,
       edges: edges.length,

@@ -86,7 +86,7 @@ export const MCP_SURFACES = {
   },
   hypes: {
     name: "Hypes",
-    version: "0.9.5-remote.1",
+    version: "0.10.0-remote.1",
     tools: ["hypes_read", "hypes_rewrite"],
   },
 } as const satisfies Record<ResourceKind, McpSurface>;

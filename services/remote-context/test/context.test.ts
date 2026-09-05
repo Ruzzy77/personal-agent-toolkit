@@ -1127,6 +1127,7 @@ describe("remote personal context service", () => {
 
     await expect(
       service.rewrite({
+        expected_version: focused.version,
         operations: [
           { op: "delete", ref: nodeB },
           {
@@ -1150,6 +1151,7 @@ describe("remote personal context service", () => {
     expect(unchanged.nodes).toHaveLength(1);
 
     const created = await service.rewrite({
+      expected_version: unchanged.version,
       operations: [
         {
           op: "put_node",
@@ -2310,7 +2312,10 @@ describe("remote personal context service", () => {
               "corpus_job_status",
             ]),
           },
-          hypes: { version: "0.9.5-remote.1", tools: ["hypes_read", "hypes_rewrite"] },
+          hypes: {
+            version: `${hypesPlugin.version}-remote.1`,
+            tools: ["hypes_read", "hypes_rewrite"],
+          },
         },
         corpus_metadata: { source_digest: "a".repeat(64) },
       },

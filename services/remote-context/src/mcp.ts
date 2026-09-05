@@ -242,7 +242,7 @@ function hypesServer(env: Env, principal: Principal): McpServer {
       instructions:
         "Hypes is the assistant's private, revisable relationship model of the user. Current input " +
         "has precedence. Read a focused slice and maintain only nonsensitive reusable relationships " +
-        "with one atomic patch.",
+        "with one atomic patch guarded by the version of the graph used to prepare it.",
     },
   );
   registerHypesTools(server, env, principal);
@@ -260,7 +260,7 @@ export function registerHypesTools(
     {
       title: "Read User Relationship Model",
       description:
-        "Read a focused relationship slice or continue from returned node and predicate refs.",
+        "Read a focused relationship slice or continue from returned node and predicate refs. The returned version identifies the owner's whole graph and is required as expected_version for a subsequent rewrite.",
       inputSchema: hypesReadSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -276,7 +276,7 @@ export function registerHypesTools(
     {
       title: "Rewrite User Relationship Model",
       description:
-        "Maintain reusable nonsensitive relationships with one atomic put or delete patch.",
+        "Maintain reusable nonsensitive relationships with one atomic put or delete patch. Pass the version from the read used to prepare this patch as expected_version, including for creates. On graph_conflict, reread relevant relationships and rebuild the patch; never retry the old patch by replacing only its version.",
       inputSchema: hypesRewriteSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
