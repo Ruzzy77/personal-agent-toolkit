@@ -439,6 +439,14 @@ export class JournalService {
     weekId: string | null,
     principal: Principal,
   ): Promise<WeekClosePreparation> {
+    const { preparation } = await this.prepareWeekCloseSnapshot(weekId, principal);
+    return preparation;
+  }
+
+  private async prepareWeekCloseSnapshot(
+    weekId: string | null,
+    principal: Principal,
+  ): Promise<{ preparation: WeekClosePreparation; items: ItemRecord[] }> {
     if (principal.kind !== "owner") {
       throw new JournalError(
         "owner_confirmation_required",
@@ -531,16 +539,19 @@ export class JournalService {
       }),
     );
     return {
-      week,
-      summary,
-      corpusCandidates,
-      rolloverItems: rolloverSources.map((item) => ({
-        itemId: item.id,
-        title: item.title,
-        resolution: item.resolution,
-      })),
-      preparationVersion,
-      reflectedCandidateIds,
+      preparation: {
+        week,
+        summary,
+        corpusCandidates,
+        rolloverItems: rolloverSources.map((item) => ({
+          itemId: item.id,
+          title: item.title,
+          resolution: item.resolution,
+        })),
+        preparationVersion,
+        reflectedCandidateIds,
+      },
+      items,
     };
   }
 
@@ -575,7 +586,10 @@ export class JournalService {
         alreadyClosed: true,
       };
     }
-    const preparation = await this.prepareWeekClose(selected, principal);
+    const { preparation, items } = await this.prepareWeekCloseSnapshot(
+      selected,
+      principal,
+    );
     if (preparation.preparationVersion !== preparationVersion) {
       throw new JournalError(
         "close_preparation_stale",
@@ -610,7 +624,6 @@ export class JournalService {
         409,
       );
     }
-    const items = await this.repository.listAllItems(selected);
     const rolloverSources = items.filter((item) =>
       ["active", "held"].includes(item.resolution),
     );
