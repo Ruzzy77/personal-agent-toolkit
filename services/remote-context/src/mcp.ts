@@ -332,7 +332,7 @@ export function registerCorpusTools(
     {
       title: "Open Space",
       description:
-        "Open one Space and read its Context, approved Context Skill, Connections, and Current File state.",
+        "Open one Space and read its Context, approved Context Skill, Connections, and Current File state. When evidence matters, set include_sources=true on a focused Context page. Each item has paged sources.links; continue its next_offset as source_offset with context_limit=1 and that item's context_offset, checking the Context version. Open non-null read_ref with corpus_file_read and source_view=text; compare document/revision/projection/unit identities. Null references report unavailable evidence access, not absent evidence.",
       inputSchema: corpusSpaceGetSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -446,7 +446,7 @@ export function registerCorpusTools(
     {
       title: "Read Space File",
       description:
-        "Read captured Source text by read_ref, or a live Work file through Sync. For ordinary Source reading use source_view=text: one paged body, source captured_at/state, and per-page spans with read_ref and structure. Use full (the legacy default) for complete unit envelopes/hashes. include_structure_context expands explicit table-row/header and note/owner links. Continue with next_start_char and the same reference/view/options; text offsets are Unicode code points, full offsets are UTF-16 units. Source-only options require read_ref. Check extraction warnings and has_more before treating a table or document as complete.",
+        "Read captured Source text by read_ref, or a live Work file through Sync. For ordinary Source reading use source_view=text: one paged body, source captured_at/state, and per-page spans with read_ref and structure. Use full (the legacy default) for complete unit envelopes/hashes. include_structure_context expands explicit table-row/header and note/owner links. Continue with next_start_char and the same reference/view/options; text offsets are Unicode code points, full offsets are UTF-16 units. Source-only options require read_ref. Check extraction warnings and has_more before treating a table or document as complete. projection_state=active_for_revision is active only within that revision; superseded is an older extraction. captured_at is the stored revision capture time, not judgment time. Preserve historical references rather than substituting current search hits.",
       inputSchema: corpusFileReadSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
