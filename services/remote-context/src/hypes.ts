@@ -51,7 +51,8 @@ type NormalizedOperation =
   | { op: "delete"; ref: string; kind: Kind };
 
 const PERSISTENT_REF = /^(node|pred|edge)_[0-9a-f]{32}$/;
-const FOCUS_TOKEN = /[^\W_]+/gu;
+// JavaScript's \w stays ASCII-based under /u, unlike Python's Unicode \w.
+const FOCUS_TOKEN = /[\p{L}\p{N}]+/gu;
 const OUTLINE_CONTINUATION = /^outline-v1:([1-9][0-9]{0,9})$/;
 const MAX_FOCUS_SEEDS = 12;
 const EDGE_EXPANSION_RESERVE = 3;
