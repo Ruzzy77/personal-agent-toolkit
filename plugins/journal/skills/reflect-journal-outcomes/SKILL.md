@@ -16,6 +16,6 @@ description: Reflect confirmed Journal week-close outcomes into the relevant exi
    적용 상태를 기록합니다. 로컬 절대 경로는 보내지 않습니다. 이미 같은 결과가 반영된 receipt가
    있으면 중복 작성하지 않습니다. 반영하지 않기로 결정한 후보도 짧은 비경로 표식과 `skipped`
    영수증을 남깁니다.
-6. 모든 후보의 영수증을 확인한 뒤에만 준비 버전으로 주간 마감을 확정합니다.
+6. 주간 마감도 요청받았다면 모든 후보의 영수증을 확인한 뒤 `manage-journal`의 마감 절차에 따라 현재 `preparationVersion`과 사용자의 명시적 확인으로 확정합니다. 결과 반영 요청만으로 주간 마감까지 승인됐다고 보지 않습니다.
 
 Corpus는 프로젝트의 최신 재사용 가능 맥락을 맡고, Journal은 날짜순 상태 전이와 사용자 확인 이력을 맡습니다. 일일 행동 목록, 다른 프로젝트의 진행 내용과 원문 이메일·문서 본문을 Corpus에 모아 넣지 않습니다.

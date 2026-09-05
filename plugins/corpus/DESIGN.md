@@ -101,9 +101,11 @@ Context는 Source 원문을 매번 다시 읽지 않아도 쓸 수 있는, 미�
 
 파일 Source의 추출 record는 원자료 없이도 읽을 수 있습니다. Codex·Claude 세션 같은 provider 자료는 원문 전체를 중복 보관하지 않고, 선택해 저장한 Context item을 내구성 있는 지식으로 삼습니다. provider 원문을 정확히 다시 읽는 기능은 제공자 자료가 남아 있을 때만 가능하지만, 그 부재가 Context item을 없애지는 않습니다.
 
-Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. 선택한 Space와 함께 private Corpus 저장소에서 읽고 plugin 배포본에 복사하지 않습니다. 기존 Context 항목이나 Skill을 Chat에서 바꿀 때는 현재 Context version과 완전한 교체값을 요구하며 한 transaction으로 적용합니다.
+Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. 선택한 Space와 함께 private Corpus 저장소에서 읽고 plugin 배포본에 복사하지 않습니다. 사용자가 명시적으로 요청한 기존 Context 항목의 종류·본문·상태는 현재 Context version과 대조해 한 transaction으로 수정하며, 다른 속성과 출처 연결은 보존합니다. 승인 Context Skill은 해당 Skill의 현재 version과 전체 교체값을 대조해 바꿉니다.
 
-Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료가 바뀌어도 오래된 출처를 새 원문으로 자동 연결하지 않으며, Context 출처를 고치려면 현재 자료 검토와 version 확인이 필요합니다.
+원격 Context의 생성·보관, 항목 생성·삭제, 상태 이외의 속성 및 출처 연결 수정은 현재 공개 MCP 범위 밖입니다. 로컬 Context 명령은 개발·이관 저장소만 바꾸며 원격 정본에 반영되지 않습니다. 전체 metadata import는 개별 Context 수정 수단으로 사용하지 않습니다.
+
+Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료 변경이나 Source 갱신으로 오래된 출처를 새 원문에 자동 연결하지 않습니다.
 
 ## record 보존과 정리
 
@@ -135,10 +137,11 @@ Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다
 
 ## MCP 표면과 클라이언트 일관성
 
-원격 MCP 서버는 Space·File 조회/편집, version 보호된 Context 항목·Context Skill 교체,
-정확한 Source 문서 갱신 요청과 Sync 작업 상태 확인을 제공합니다. Source 등록·해제, 보존 정책과
-Connection 변경은 로컬 구성이 맡습니다. Source Connection은 원자료를 수정하지 않으며,
-갱신 요청도 새 추출 record를 만드는 작업으로만 해석합니다.
+원격 MCP 서버는 Space·File 조회/편집, version 보호된 기존 Context 항목의 종류·본문·상태 수정과
+승인 Context Skill 전체 교체, 정확한 Source 문서 갱신 요청과 Sync 작업 상태 확인을 제공합니다.
+Source 등록·해제, 보존 정책과 Connection 변경은 로컬 구성이 맡습니다. Sync는 로컬 Finder 권한과
+Connection 정책을 확인해 Source 갱신을 수행합니다. 이 갱신은 추출 record를 바꾸는 작업이며,
+원자료나 Context 속성·출처 연결을 수정하지 않습니다.
 
 Codex, Claude, 웹 ChatGPT와 claude.ai는 소유자 인증형 원격 MCP에서 같은 데이터와 도구 schema를
 사용합니다. Finder 권한은 outbound-only Sync 앱에 남습니다. 이관에 사용한 private tunnel과
