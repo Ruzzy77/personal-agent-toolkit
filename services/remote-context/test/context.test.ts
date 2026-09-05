@@ -2304,7 +2304,7 @@ describe("remote personal context service", () => {
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: "0.21.6-remote.3",
+            version: `${corpusPlugin.version}-remote.3`,
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",
