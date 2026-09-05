@@ -674,6 +674,11 @@ class SyncState:
         namespace = uuid.UUID("19ace14f-7a24-4e59-9c7e-0349e96eecbb")
         return f"doc_{uuid.uuid5(namespace, f'{key}:{device}:{inode}').hex}"
 
+    @staticmethod
+    def _format_key(relative_path: str) -> str:
+        extension = Path(relative_path).suffix.lower().lstrip(".")
+        return {"markdown": "md", "htm": "html"}.get(extension, extension)
+
     def observe_file(
         self,
         key: str,
@@ -697,8 +702,13 @@ class SyncState:
             if by_identity is not None:
                 document_id = by_identity["document_id"]
                 if by_identity["relative_path_nfc"] != relative_nfc:
-                    event = "moved"
-                elif (
+                    event = (
+                        "format_refresh"
+                        if self._format_key(by_identity["local_relative_path"])
+                        != self._format_key(relative_path)
+                        else "moved"
+                    )
+                elif by_identity["missing_since"] is not None or (
                     by_identity["size"],
                     by_identity["modified_ns"],
                     by_identity["changed_ns"],
@@ -715,28 +725,29 @@ class SyncState:
                     return document_id, "unchanged"
             else:
                 document_id = self._document_id(key, metadata.st_dev, metadata.st_ino)
-                conflicting = connection.execute(
-                    """
-                    SELECT document_id FROM documents
-                    WHERE connection_key = ? AND relative_path_nfc = ?
-                    """,
-                    (key, relative_nfc),
-                ).fetchone()
-                if conflicting is not None:
-                    # Replacement at the same path is a new document identity. Keep the old
-                    # record detached so its last committed projection remains addressable.
-                    connection.execute(
-                        "UPDATE documents SET relative_path_nfc = relative_path_nfc || '.detached.' || document_id, missing_since = ? WHERE connection_key = ? AND document_id = ?",
-                        (now, key, conflicting["document_id"]),
-                    )
-                    self._enqueue(
-                        connection,
-                        key,
-                        str(conflicting["document_id"]),
-                        "deleted",
-                        relative_nfc,
-                        now,
-                    )
+            conflicting = connection.execute(
+                """
+                SELECT document_id FROM documents
+                WHERE connection_key = ? AND relative_path_nfc = ?
+                  AND document_id != ?
+                """,
+                (key, relative_nfc, document_id),
+            ).fetchone()
+            if conflicting is not None:
+                # Both a new file and a known file moved over this path detach the
+                # previous occupant without changing either document's identity.
+                connection.execute(
+                    "UPDATE documents SET relative_path_nfc = relative_path_nfc || '.detached.' || document_id, missing_since = ? WHERE connection_key = ? AND document_id = ?",
+                    (now, key, conflicting["document_id"]),
+                )
+                self._enqueue(
+                    connection,
+                    key,
+                    str(conflicting["document_id"]),
+                    "deleted",
+                    relative_nfc,
+                    now,
+                )
             connection.execute(
                 """
                     INSERT INTO documents(
@@ -793,6 +804,8 @@ class SyncState:
             ON CONFLICT(connection_key, document_id) DO UPDATE SET
                 event_kind=CASE
                     WHEN excluded.event_kind = 'deleted' THEN 'deleted'
+                    WHEN change_queue.event_kind = 'format_refresh'
+                      OR excluded.event_kind = 'format_refresh' THEN 'format_refresh'
                     WHEN change_queue.event_kind = 'refresh' THEN 'refresh'
                     ELSE excluded.event_kind
                 END,
@@ -920,7 +933,8 @@ class SyncState:
             rows = connection.execute(
                 """
                 SELECT q.*, c.space_id, c.connection_id,
-                       d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
+                       d.local_relative_path, d.device, d.inode,
+                       d.size, d.modified_ns, d.changed_ns, d.missing_since,
                        d.last_revision_sha256, d.last_projection_id,
                        c.root_path, c.root_device, c.root_inode, c.corpus_id,
                        c.access_scope
@@ -947,7 +961,8 @@ class SyncState:
             row = connection.execute(
                 """
                 SELECT q.*, c.space_id, c.connection_id,
-                       d.local_relative_path, d.size, d.modified_ns, d.changed_ns,
+                       d.local_relative_path, d.device, d.inode,
+                       d.size, d.modified_ns, d.changed_ns, d.missing_since,
                        d.last_revision_sha256, d.last_projection_id,
                        c.root_path, c.root_device, c.root_inode, c.corpus_id,
                        c.access_scope
@@ -990,6 +1005,39 @@ class SyncState:
             "projection_id": row["last_projection_id"],
         }
 
+    @staticmethod
+    def _change_condition(
+        key: str,
+        document_id: str,
+        expected_change: Mapping[str, Any] | None,
+    ) -> tuple[str, tuple[object, ...]]:
+        """Match the processed event and file observation in one SQL statement."""
+
+        condition = "connection_key = ? AND document_id = ?"
+        values: list[object] = [key, document_id]
+        if expected_change is not None:
+            for field in ("last_seen_at", "event_kind", "relative_path_nfc"):
+                condition += f" AND {field} IS ?"
+                values.append(expected_change[field])
+            observed_fields = (
+                "local_relative_path",
+                "device",
+                "inode",
+                "size",
+                "modified_ns",
+                "changed_ns",
+                "missing_since",
+            )
+            condition += (
+                " AND EXISTS (SELECT 1 FROM documents AS observed "
+                "WHERE observed.connection_key = change_queue.connection_key "
+                "AND observed.document_id = change_queue.document_id"
+                + "".join(f" AND observed.{field} IS ?" for field in observed_fields)
+                + ")"
+            )
+            values.extend(expected_change[field] for field in observed_fields)
+        return condition, tuple(values)
+
     def complete_change(
         self,
         key: str,
@@ -1001,6 +1049,7 @@ class SyncState:
         adapter_version: str | None = None,
         config_hash: str | None = None,
         reanalysis_generation: int | None = None,
+        expected_change: Mapping[str, Any] | None = None,
     ) -> None:
         with self.connect() as connection:
             if adapter_id is None or adapter_version is None or config_hash is None:
@@ -1032,13 +1081,18 @@ class SyncState:
                         document_id,
                     ),
                 )
-            connection.execute(
-                "DELETE FROM change_queue WHERE connection_key = ? AND document_id = ?",
-                (key, document_id),
+            condition, values = self._change_condition(
+                key, document_id, expected_change
             )
+            connection.execute(f"DELETE FROM change_queue WHERE {condition}", values)
 
     def complete_unsupported(
-        self, key: str, document_id: str, revision_sha256: str
+        self,
+        key: str,
+        document_id: str,
+        revision_sha256: str,
+        *,
+        expected_change: Mapping[str, Any] | None = None,
     ) -> None:
         """Remember an unsupported byte version without retrying it forever."""
 
@@ -1053,23 +1107,39 @@ class SyncState:
                 """,
                 (revision_sha256, key, document_id),
             )
-            connection.execute(
-                "DELETE FROM change_queue WHERE connection_key = ? AND document_id = ?",
-                (key, document_id),
+            condition, values = self._change_condition(
+                key, document_id, expected_change
             )
+            connection.execute(f"DELETE FROM change_queue WHERE {condition}", values)
 
-    def complete_missing(self, key: str, document_id: str) -> None:
+    def complete_missing(
+        self,
+        key: str,
+        document_id: str,
+        *,
+        expected_change: Mapping[str, Any] | None = None,
+    ) -> None:
         with self.connect() as connection:
-            connection.execute(
-                "DELETE FROM change_queue WHERE connection_key = ? AND document_id = ?",
-                (key, document_id),
+            condition, values = self._change_condition(
+                key, document_id, expected_change
             )
+            connection.execute(f"DELETE FROM change_queue WHERE {condition}", values)
 
-    def fail_change(self, key: str, document_id: str, code: str) -> None:
+    def fail_change(
+        self,
+        key: str,
+        document_id: str,
+        code: str,
+        *,
+        expected_change: Mapping[str, Any] | None = None,
+    ) -> None:
         with self.connect() as connection:
+            condition, values = self._change_condition(
+                key, document_id, expected_change
+            )
             row = connection.execute(
-                "SELECT attempt_count FROM change_queue WHERE connection_key = ? AND document_id = ?",
-                (key, document_id),
+                f"SELECT attempt_count FROM change_queue WHERE {condition}",
+                values,
             ).fetchone()
             if row is None:
                 return
@@ -1081,11 +1151,11 @@ class SyncState:
                 .replace("+00:00", "Z")
             )
             connection.execute(
-                """
+                f"""
                 UPDATE change_queue SET attempt_count = ?, next_attempt_at = ?,
-                    last_error_code = ? WHERE connection_key = ? AND document_id = ?
+                    last_error_code = ? WHERE {condition}
                 """,
-                (attempts, next_at, code[:120], key, document_id),
+                (attempts, next_at, code[:120], *values),
             )
 
     @staticmethod

@@ -341,6 +341,7 @@ def build_projection(
             "documentId": document_id,
             "relativePath": change["relative_path_nfc"],
             "extension": selected_format,
+            "mediaType": MEDIA_TYPES[selected_format],
             "sourceState": "available",
             "logicalSize": snapshot.byte_size,
             "modifiedNs": str(snapshot.modified_ns),

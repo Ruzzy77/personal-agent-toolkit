@@ -211,6 +211,8 @@ def capture_snapshot(
     relative_path: str,
     staging_root: Path,
     max_bytes: int,
+    *,
+    expected_file_identity: tuple[int, int],
 ) -> Iterator[Snapshot]:
     root_descriptor = open_root(root, expected_root_identity)
     source_descriptor = -1
@@ -218,6 +220,10 @@ def capture_snapshot(
     try:
         source_descriptor = open_relative(root_descriptor, relative_path)
         before = os.fstat(source_descriptor)
+        if (before.st_dev, before.st_ino) != expected_file_identity:
+            raise SyncError(
+                "source_changed", "Source file identity changed after reconciliation"
+            )
         if before.st_size > max_bytes:
             raise SyncError(
                 "source_too_large", "Source file exceeds its Connection budget"

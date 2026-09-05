@@ -341,7 +341,7 @@ wheels = [
 
 [[package]]
 name = "document-files"
-version = "1.4.0"
+version = "1.5.0"
 source = { directory = "../../plugins/document-files" }
 dependencies = [
     { name = "defusedxml" },
@@ -731,7 +731,7 @@ wheels = [
 
 [[package]]
 name = "personal-agent-sync"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "document-files" },

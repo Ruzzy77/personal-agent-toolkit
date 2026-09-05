@@ -213,7 +213,10 @@ class SyncDaemon:
                     await self._process_change(current)
                 except SyncError as error:
                     self.state.fail_change(
-                        current["connection_key"], current["document_id"], error.code
+                        current["connection_key"],
+                        current["document_id"],
+                        error.code,
+                        expected_change=current,
                     )
                 except Exception:
                     LOGGER.exception(
@@ -223,14 +226,25 @@ class SyncDaemon:
                         current["connection_key"],
                         current["document_id"],
                         "unexpected_local_failure",
+                        expected_change=current,
                     )
 
-    async def _process_change(self, change: dict[str, Any]) -> None:
-        force_refresh = change["event_kind"] in {"refresh", "analyzer_refresh"}
+    async def _process_change(
+        self, change: dict[str, Any], *, requested_refresh: bool = False
+    ) -> None:
+        force_refresh = requested_refresh or change["event_kind"] in {
+            "refresh",
+            "analyzer_refresh",
+        }
+        format_refresh = change["event_kind"] == "format_refresh"
         corpus_id = change.get("corpus_id")
         if not isinstance(corpus_id, str) or change["access_scope"] != "remote_allowed":
             # A local-only Source remains entirely local and does not block the bounded queue.
-            self.state.complete_missing(change["connection_key"], change["document_id"])
+            self.state.complete_missing(
+                change["connection_key"],
+                change["document_id"],
+                expected_change=change,
+            )
             return
         if change["event_kind"] == "deleted":
             try:
@@ -250,7 +264,11 @@ class SyncDaemon:
                 # never canonical remote document IDs.
                 if error.code != "document_not_found":
                     raise
-            self.state.complete_missing(change["connection_key"], change["document_id"])
+            self.state.complete_missing(
+                change["connection_key"],
+                change["document_id"],
+                expected_change=change,
+            )
             return
         try:
             selected_format = format_id(change["relative_path_nfc"])
@@ -259,41 +277,6 @@ class SyncDaemon:
                 raise
             selected_format = None
         remote_document_missing = False
-        if change["event_kind"] == "moved" and change.get("last_revision_sha256"):
-            if selected_format is None:
-                await self._complete_unsupported_change(
-                    change,
-                    corpus_id,
-                    str(change["last_revision_sha256"]),
-                    int(change["size"]),
-                    int(change["modified_ns"]),
-                )
-                return
-            try:
-                await self.remote.update_source_state(
-                    corpus_id,
-                    change["document_id"],
-                    "available",
-                    now_iso(),
-                    change["relative_path_nfc"],
-                    logical_size=int(change["size"]),
-                    modified_ns=int(change["modified_ns"]),
-                    residency_state="resident",
-                    eligibility_state="supported",
-                )
-            except SyncError as error:
-                if error.code != "document_not_found":
-                    raise
-                remote_document_missing = True
-            else:
-                self.state.complete_change(
-                    change["connection_key"],
-                    change["document_id"],
-                    change["last_revision_sha256"],
-                    change["last_projection_id"],
-                )
-                return
-
         root = resolve_moved_root(
             Path(change["root_path"]),
             int(change["root_device"]),
@@ -307,9 +290,12 @@ class SyncDaemon:
             change["local_relative_path"],
             self.config.data_root / "staging",
             MAX_LOCAL_DOCUMENT_BYTES,
+            expected_file_identity=(int(change["device"]), int(change["inode"])),
         ) as snapshot:
-            if not force_refresh and snapshot.sha256 == change.get(
-                "last_revision_sha256"
+            if (
+                not force_refresh
+                and not format_refresh
+                and snapshot.sha256 == change.get("last_revision_sha256")
             ):
                 if selected_format is None:
                     await self._complete_unsupported_change(
@@ -345,12 +331,16 @@ class SyncDaemon:
                             change["document_id"],
                             snapshot.sha256,
                             previous_projection,
+                            expected_change=change,
                         )
                         return
             if (
                 not remote_document_missing
                 and change.get("last_revision_sha256")
-                and snapshot.sha256 != change.get("last_revision_sha256")
+                and (
+                    format_refresh
+                    or snapshot.sha256 != change.get("last_revision_sha256")
+                )
                 and selected_format is not None
             ):
                 try:
@@ -442,6 +432,7 @@ class SyncDaemon:
             reanalysis_generation=self.analyzer_manifest.get(selected_format, {}).get(
                 "reanalysis_generation"
             ),
+            expected_change=change,
         )
 
     async def _complete_unsupported_change(
@@ -499,7 +490,10 @@ class SyncDaemon:
                 ],
             )
         self.state.complete_unsupported(
-            change["connection_key"], change["document_id"], revision_sha256
+            change["connection_key"],
+            change["document_id"],
+            revision_sha256,
+            expected_change=change,
         )
 
     async def _broker_loop(self) -> None:
@@ -614,10 +608,13 @@ class SyncDaemon:
                             "refresh_not_queued", "Source refresh was not queued"
                         )
                     try:
-                        await self._process_change(change)
+                        await self._process_change(change, requested_refresh=True)
                     except SyncError as error:
                         self.state.fail_change(
-                            change["connection_key"], document_id, error.code
+                            change["connection_key"],
+                            document_id,
+                            error.code,
+                            expected_change=change,
                         )
                         raise
                     result = {

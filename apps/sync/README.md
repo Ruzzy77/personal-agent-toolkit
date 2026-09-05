@@ -154,6 +154,31 @@ Ordinary metadata-only filesystem changes still reuse the committed projection.
 That reuse updates path, size, modification time, residency, and eligibility in
 one metadata request without re-uploading extracted units.
 
+Moves use the same immutable capture and digest comparison before reusing a
+projection. A simultaneous content change therefore triggers analysis instead
+of being treated as a path-only update. A format change keeps a `format_refresh`
+event until the new projection is committed, even when bytes are unchanged;
+format aliases and extension capitalization alone do not force analysis. Failed
+format updates retain the previous projection with `changed` Source state, and
+successful updates carry the current MIME type while reusing the byte revision.
+Capture also checks the queued file's
+device and inode; replacement after reconciliation stops with `source_changed`
+until the next reconciliation identifies the new file. Moving a tracked file
+over another tracked path preserves the moving document's ID and detaches the
+previous occupant under the existing record-retention rules. Available and
+unavailable records can consequently share a historical relative path without
+being the same document.
+
+Completion and retry backoff apply only to the queue event and file observation
+that were processed. A newer observation during analysis or upload remains
+queued, including a move, deletion, or format change. The comparison includes
+file identity and metadata as well as event time, so equal timestamps do not
+discard a different observation.
+
+These checks do not re-analyze previously completed projections. If a specific
+record is found to contain stale text after an earlier path-only update, refresh
+that exact document; do not change format generations or retention to repair it.
+
 `personal-agent-sync storage-report` reads the current remote shard sizes,
 record counts, derived-index state, and largest logical projections. It is an
 explicit diagnostic rather than a scheduled scan. `personal-agent-sync

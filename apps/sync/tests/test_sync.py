@@ -1536,7 +1536,16 @@ def test_capture_is_version_pinned_and_never_follows_symlinks(tmp_path: Path) ->
     (root / "note.txt").write_text("captured", encoding="utf-8")
     staging = tmp_path / "staging"
     identity = root.stat().st_dev, root.stat().st_ino
-    with capture_snapshot(root, identity, "note.txt", staging, 1000) as snapshot:
+    file_metadata = (root / "note.txt").stat()
+    file_identity = file_metadata.st_dev, file_metadata.st_ino
+    with capture_snapshot(
+        root,
+        identity,
+        "note.txt",
+        staging,
+        1000,
+        expected_file_identity=file_identity,
+    ) as snapshot:
         assert snapshot.path.read_text(encoding="utf-8") == "captured"
         assert snapshot.sha256 == hashlib.sha256(b"captured").hexdigest()
         temporary = snapshot.path
@@ -1545,7 +1554,14 @@ def test_capture_is_version_pinned_and_never_follows_symlinks(tmp_path: Path) ->
     (root / "link.txt").symlink_to(root / "note.txt")
     with (
         pytest.raises(SyncError, match="regular file"),
-        capture_snapshot(root, identity, "link.txt", staging, 1000),
+        capture_snapshot(
+            root,
+            identity,
+            "link.txt",
+            staging,
+            1000,
+            expected_file_identity=file_identity,
+        ),
     ):
         pass
 

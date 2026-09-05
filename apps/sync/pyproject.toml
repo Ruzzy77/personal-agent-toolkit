@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "personal-agent-sync"
-version = "0.2.0"
+version = "0.2.1"
 description = "Outbound macOS bridge between Finder files and Personal Agent remote context"
 requires-python = ">=3.12"
 dependencies = [
-  "document-files==1.4.0",
+  "document-files==1.5.0",
   "httpx[http2]>=0.28,<0.29",
   "watchdog>=6,<7",
   "websockets>=15,<16",
