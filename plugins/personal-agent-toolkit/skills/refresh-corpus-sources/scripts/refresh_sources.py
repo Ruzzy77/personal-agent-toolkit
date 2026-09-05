@@ -24,7 +24,7 @@ MAX_WARNING_STATE_BYTES = 64 * 1024 * 1024
 
 
 class CorpusCommandError(RuntimeError):
-    """Raised when the bundled Corpus command cannot return a successful result."""
+    """Raised when the selected Corpus command cannot return a successful result."""
 
 
 def _short(value: str, limit: int = 1200) -> str:
@@ -455,6 +455,12 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Refresh registered local Corpus source indexes in bounded passes."
     )
     parser.add_argument(
+        "--launcher",
+        required=True,
+        type=Path,
+        help="Verified local Corpus launcher; the Skill bundle does not include one.",
+    )
+    parser.add_argument(
         "--corpus",
         action="append",
         default=[],
@@ -489,8 +495,7 @@ def main() -> int:
         }
         print(json.dumps(report, ensure_ascii=False, indent=2 if args.pretty else None))
         return 2
-    plugin_root = Path(__file__).resolve().parents[3]
-    launcher = plugin_root / "launchers" / "corpus"
+    launcher = args.launcher.expanduser().resolve()
 
     try:
         listed = _run_json(launcher, ["corpus", "list"], timeout=60)

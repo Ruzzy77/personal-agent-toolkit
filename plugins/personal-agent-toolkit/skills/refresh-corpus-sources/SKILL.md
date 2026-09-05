@@ -46,19 +46,22 @@ per-format reanalysis generation handles the exceptional bounded bulk case.
 
 ## Local maintenance fallback
 
-Use the bundled refresher only for deliberate local development, initial
-migration repair, or a local Corpus runtime that is not connected to the remote
-Sync path:
+Use the refresher only for deliberate local development, initial migration
+repair, or a local Corpus runtime that is not connected to the remote Sync path.
+The Skill bundle does not include the local Corpus engine. Select an existing
+launcher and verify its data root and registrations before refreshing; do not
+substitute a same-named directory or install an engine merely to run this fallback.
+
+From the verified Personal Agent Toolkit source checkout, the launcher is:
 
 ```bash
-python3 "${SKILL_DIR}/scripts/refresh_sources.py"
+python3 "${SKILL_DIR}/scripts/refresh_sources.py" \
+  --launcher ./engines/corpus/launchers/corpus --corpus SOURCE_ID
 ```
 
-To refresh only explicitly named local registrations, repeat `--corpus`:
-
-```bash
-python3 "${SKILL_DIR}/scripts/refresh_sources.py" --corpus SOURCE_ID
-```
+For a separately installed local engine, pass its configured launcher instead.
+Repeat `--corpus` for additional selected registrations. Omit `--corpus` only
+when refreshing all registrations is within the requested maintenance scope.
 
 The script scans selected registrations, refreshes locally available pending
 documents in bounded batches, and stops after at most four passes per source.
