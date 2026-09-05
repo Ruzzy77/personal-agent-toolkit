@@ -107,6 +107,59 @@ Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source �
 
 Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료 변경이나 Source 갱신으로 오래된 출처를 새 원문에 자동 연결하지 않습니다.
 
+### Context 출처 읽기
+
+2026-09-05 격리 조사에서 `corpus_context_sources`에 정확한 document·revision·projection·unit
+연결이 있어도 `corpus_space_get`이 이를 반환하지 않는 것을 재현했습니다. 본문만으로 재검색하면
+Context가 참조한 보존본 대신 현재 검색 결과를 읽게 될 수 있습니다. 기존 Cloudflare 환경과
+fixture로 확인했으며 운영 Context나 Source를 수정하지 않았습니다.
+
+기존 `read_ref`는 보존된 unit을 정확히 읽습니다. 새 revision이나 같은 revision의 새 projection을
+커밋해도 과거 참조가 현재본으로 바뀌지 않았습니다. 과거 revision은 `stale_source_revision`이지만,
+현재 revision의 비활성 projection은 `current_source`로 반환됩니다. 이 상태는 최신 추출본이라는
+뜻이 아닙니다. `captured_at`도 읽은 revision의 저장 값이며 같은 revision 재수집에서 갱신될 수
+있으므로 판단 당시의 불변 시각이나 추출 시각으로 해석하지 않습니다.
+
+이 변경은 저장층이나 검색 방식을 바꾸지 않고 저장된 출처를 선택적으로 읽는 데 한정합니다.
+아래 계약의 로컬 구현과 검사를 마쳤으며 원격 반영은 아직 대기 중입니다.
+
+1. **선택 조회:** `corpus_space_get`에 `include_sources`(기본 false), `source_limit`(기본 20,
+   최대 100), `source_offset`(기본 0, 최대 200,000)을 추가합니다. 생략하면 기존 Context 응답을
+   유지합니다. 출처를 요청한 경우 현재 Context 페이지의 각 item에 `sources`를 추가하고,
+   `links`, `offset`, `limit`, `returned_count`, `has_more`, `next_offset`을 반환합니다. 출처는
+   `source_ref_id` 순서로 읽으며 item 하나의 다음 출처는 `context_limit=1`과 해당 Context
+   offset으로 좁혀 이어 읽습니다. 전체 출처나 Source 본문을 기본 응답에 붙이지 않습니다.
+2. **정확한 연결:** 허용된 연결의 출처에는 저장된 document·revision·projection·unit 식별자와
+   `link_role`, 선택한 `connection_id`와 기존 형식의 `read_ref`를 제공합니다. 같은 Space에서
+   원격 읽기가 허용된
+   indexed Source Connection과 같은 corpus가 연결되고 unit이 있을 때만 읽기 참조를 만듭니다.
+   복수의 동등한 연결은 기존 `connection_id` 정렬의 첫 연결을 명시하며 읽기 실패 시 다른 연결로
+   조용히 바꾸지 않습니다. 저장된 출처 표시는 실제 unit 재읽기나 정체성 대조를 대신하지 않습니다.
+3. **권한과 부재:** 허용된 연결이나 unit이 없는 출처, provider-only 출처를 현재 파일이나 다른
+   제공자의 원문으로 추정 연결하지 않습니다. 허용된 Connection이 없는 행과 provider-only 행은
+   `source_ref_id`·`link_role`·`read_ref:null`·부재 사유만 반환하며 출처 개수·페이지에는 포함합니다.
+   권한은 있으나 unit이 없는 파일 출처는 식별자를 유지하고 읽기 참조만 null로 둡니다. 임의 JSON인
+   `source_span`과 내부 corpus·snapshot 식별자는 이번 공개 응답에 추가하지 않으며 저장값은
+   보존합니다. 정확한 구조는 unit을 실제로 읽어 확인합니다. 읽을 때의 소유자·Space·
+   Connection·scope 검사와 원자료 오프라인 상태에서도 보존 record를 읽는 계약은 유지합니다.
+4. **시점과 응답 한계:** Source 읽기의 본문형 `source`와 상세 unit에 저장된 projection의
+   활성 여부를 `projection_state=active_for_revision|superseded`로 별도 표시합니다. 활성 여부는
+   해당 revision 안의 상태이며 현재 document revision 여부와 구분합니다. Context 출처에는
+   Connection의 현재 시각·상태를 복사하지 않습니다. 출처를 포함한 Context 응답은 2 MiB를
+   넘기지 않으며 초과 시 명시적으로 페이지 축소를 안내합니다. 출처를 조용히 잘라내지 않습니다.
+
+구현은 `services/remote-context/src/corpus.ts`, `corpus-shard.ts`, `schemas.ts`와 기존
+`investigate-corpus` Skill에 한정합니다. source link 수정·생성, Context 자동 갱신, provider 원문
+복제와 보존 정책 변경은 포함하지 않습니다. 기존 검사와 일회성 확인으로 출처 페이지의 누락·중복,
+전체 응답 경계, 과거 revision·projection의 정확한 재읽기, 허용 철회 뒤 거부와 오프라인 읽기를
+확인했습니다. 기존 typecheck·테스트 20개가 통과했고, 100개 item과 10,000개 출처 조건에서
+페이지 상한·예산 초과 거부도 확인했습니다. 출처 쿼리는 D1 제한에 맞춰 5개 item·20개 바인딩·
+최대 505행씩 처리하며 새 영구 테스트는 남기지 않았습니다.
+
+원격 반영 뒤에는 허용된 기존 Context 한 사례에서 판단과 근거를 이어 읽되 운영
+데이터를 확인용으로 변경하지 않습니다. 공개 입력·Skill 변경과 관련 클라이언트 확인은 다음
+Corpus 반영 묶음에서 수행하며 로컬 검사로 운영 실사용 확인을 대신하지 않습니다.
+
 ## record 보존과 정리
 
 검색 노출과 물리 보존은 분리합니다. document record에는 다음 보존 등급이 있습니다.

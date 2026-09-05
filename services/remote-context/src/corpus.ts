@@ -1,6 +1,6 @@
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError } from "./errors";
-import { assertSourceReadBudget } from "./corpus-read";
+import { assertSourceReadBudget, serializedBytes } from "./corpus-read";
 import {
   corpusContextItemsReviseSchema,
   corpusContextSkillReviseSchema,
@@ -42,6 +42,18 @@ interface ContextItemRow {
   body_text: string;
   attributes_json: string;
   created_at: string;
+}
+
+interface ContextSourceRow {
+  item_id: string;
+  source_ref_id: string;
+  link_role: string;
+  corpus_id: string | null;
+  document_id: string | null;
+  revision_id: string | null;
+  projection_id: string | null;
+  source_unit_id: string | null;
+  is_provider: number;
 }
 
 interface SkillRow {
@@ -96,6 +108,26 @@ interface ReadReference {
   unitId: string;
 }
 
+const CONTEXT_READ_MAX_BYTES = 2 * 1024 * 1024;
+// D1's SQLite permits five compound SELECT terms. Each item contributes four
+// bindings and at most source_limit + 1 rows, without reading source_span.
+const CONTEXT_SOURCE_QUERY_ITEMS = 5;
+
+function assertContextReadBudget(result: Record<string, unknown>): void {
+  const bytes = serializedBytes(result);
+  if (bytes > CONTEXT_READ_MAX_BYTES) {
+    throw new ContextError(
+      "budget_exceeded",
+      "Context read exceeds its budget. Reduce context_limit or source_limit; use context_limit=1 with the selected Context offset to page one item's sources.",
+      413,
+      {
+        serialized_bytes: bytes,
+        maximum_serialized_bytes: CONTEXT_READ_MAX_BYTES,
+      },
+    );
+  }
+}
+
 function parseObject(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
@@ -121,6 +153,53 @@ function parseStrings(value: string): string[] {
     );
   }
   return parsed;
+}
+
+function isIndexedSourceConnection(row: ConnectionRow): boolean {
+  return (
+    parseStrings(row.roles_json).includes("source") &&
+    row.index_mode === "indexed" &&
+    Boolean(row.corpus_id)
+  );
+}
+
+function contextSourceLink(
+  row: ContextSourceRow,
+  spaceId: string,
+  connectionsByCorpus: ReadonlyMap<string, ConnectionRow>,
+): Record<string, unknown> {
+  const summary = {
+    source_ref_id: row.source_ref_id,
+    link_role: row.link_role,
+    read_ref: null,
+  };
+  if (row.is_provider) {
+    return { ...summary, reason: "provider_reference_unsupported" };
+  }
+  const connection = row.corpus_id
+    ? connectionsByCorpus.get(row.corpus_id)
+    : undefined;
+  if (!connection) {
+    return { ...summary, reason: "source_connection_unavailable" };
+  }
+  return {
+    ...summary,
+    document_id: row.document_id,
+    revision_id: row.revision_id,
+    projection_id: row.projection_id,
+    unit_id: row.source_unit_id,
+    connection_id: connection.connection_id,
+    read_ref: row.source_unit_id
+      ? encodeReadReference({
+          version: 1,
+          spaceId,
+          connectionId: connection.connection_id,
+          corpusId: connection.corpus_id!,
+          unitId: row.source_unit_id,
+        })
+      : null,
+    reason: row.source_unit_id ? null : "source_unit_missing",
+  };
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -410,13 +489,14 @@ export class CorpusService {
       const hasMore = rows.results.length > input.context_limit;
       const detail = result.context as Record<string, unknown>;
       detail.scope = parseObject(context.scope_json);
-      detail.items = selected.map((row) => ({
+      const items: Array<Record<string, unknown>> = selected.map((row) => ({
         item_id: row.item_id,
         kind: row.kind,
         body_text: row.body_text,
         attributes: parseObject(row.attributes_json),
         created_at: row.created_at,
       }));
+      detail.items = items;
       detail.offset = input.context_offset;
       detail.limit = input.context_limit;
       detail.returned_count = selected.length;
@@ -424,8 +504,79 @@ export class CorpusService {
       detail.next_offset = hasMore
         ? input.context_offset + selected.length
         : null;
+      if (input.include_sources && items.length) {
+        assertContextReadBudget({ space: result });
+        const connectionsByCorpus = new Map<string, ConnectionRow>();
+        for (const connection of await this.connections(input.space_id)) {
+          if (
+            isIndexedSourceConnection(connection) &&
+            !connectionsByCorpus.has(connection.corpus_id!)
+          ) {
+            connectionsByCorpus.set(connection.corpus_id!, connection);
+          }
+        }
+        for (
+          let start = 0;
+          start < items.length;
+          start += CONTEXT_SOURCE_QUERY_ITEMS
+        ) {
+          const batch = items.slice(start, start + CONTEXT_SOURCE_QUERY_ITEMS);
+          const query = batch
+            .map(
+              () => `SELECT * FROM (
+                SELECT item_id, source_ref_id, link_role, corpus_id,
+                       document_id, revision_id, projection_id, source_unit_id,
+                       (provider_kind IS NOT NULL OR provider_record_id IS NOT NULL) AS is_provider
+                FROM corpus_context_sources
+                WHERE owner_id = ? AND item_id = ?
+                ORDER BY source_ref_id LIMIT ? OFFSET ?
+              )`,
+            )
+            .join(" UNION ALL ");
+          const sourceRows = await this.env.STATE_DB.prepare(
+            `${query} ORDER BY item_id, source_ref_id`,
+          )
+            .bind(
+              ...batch.flatMap((item) => [
+                this.principal.ownerId,
+                String(item.item_id),
+                input.source_limit + 1,
+                input.source_offset,
+              ]),
+            )
+            .all<ContextSourceRow>();
+          const sourcesByItem = new Map<string, ContextSourceRow[]>();
+          for (const row of sourceRows.results) {
+            const itemSources = sourcesByItem.get(row.item_id) ?? [];
+            itemSources.push(row);
+            sourcesByItem.set(row.item_id, itemSources);
+          }
+          for (const item of batch) {
+            const rows = sourcesByItem.get(String(item.item_id)) ?? [];
+            const links = rows
+              .slice(0, input.source_limit)
+              .map((row) =>
+                contextSourceLink(row, input.space_id, connectionsByCorpus),
+              );
+            const hasMoreSources = rows.length > input.source_limit;
+            item.sources = {
+              links,
+              offset: input.source_offset,
+              limit: input.source_limit,
+              returned_count: links.length,
+              has_more: hasMoreSources,
+              next_offset: hasMoreSources
+                ? input.source_offset + links.length
+                : null,
+            };
+          }
+          assertContextReadBudget({ space: result });
+        }
+      }
     }
-    return { space: result };
+    const response = { space: result };
+    if (input.include_sources) assertContextReadBudget(response);
+    return response;
   }
 
   async reviseContextItems(raw: unknown): Promise<Record<string, unknown>> {
@@ -676,14 +827,9 @@ export class CorpusService {
     connectionId?: string | null,
   ): Promise<ConnectionRow[]> {
     await this.space(spaceId);
-    const rows = (await this.connections(spaceId)).filter((row) => {
-      const roles = parseStrings(row.roles_json);
-      return (
-        roles.includes("source") &&
-        row.index_mode === "indexed" &&
-        row.corpus_id
-      );
-    });
+    const rows = (await this.connections(spaceId)).filter(
+      isIndexedSourceConnection,
+    );
     const selected = connectionId
       ? rows.filter((row) => row.connection_id === connectionId)
       : rows;

@@ -68,6 +68,7 @@ interface UnitRow {
   relative_path: string;
   source_state: string;
   current_revision_id: string | null;
+  projection_is_active: number;
   completeness_state: "complete" | "partial";
   coverage_json: string;
   issues_json: string;
@@ -90,7 +91,7 @@ interface ReadUnitInventory extends ReadUnitSelection {
 }
 
 const READ_SOURCE_COLUMNS = `d.document_id, d.relative_path, d.source_state,
-  d.current_revision_id, p.completeness_state, p.coverage_json,
+  d.current_revision_id, p.is_active AS projection_is_active, p.completeness_state, p.coverage_json,
   p.issues_json, p.assurance_state, r.sha256 AS revision_sha256, r.captured_at`;
 const READ_SOURCE_JOINS = `JOIN revisions AS r ON r.revision_id = u.revision_id
   JOIN documents AS d ON d.document_id = r.document_id
@@ -659,6 +660,8 @@ function unitResult(row: UnitRow): Record<string, unknown> {
     document_id: row.document_id,
     revision_id: row.revision_id,
     projection_id: row.projection_id,
+    projection_state:
+      row.projection_is_active === 1 ? "active_for_revision" : "superseded",
     ordinal: row.ordinal,
     unit_type: row.unit_type,
     structure_path: structurePath,
@@ -3610,6 +3613,8 @@ export class CorpusShard {
         document_id: row.document_id,
         revision_id: row.revision_id,
         projection_id: row.projection_id,
+        projection_state:
+          row.projection_is_active === 1 ? "active_for_revision" : "superseded",
         relative_path: row.relative_path,
         captured_at: row.captured_at,
         source_state: row.source_state,

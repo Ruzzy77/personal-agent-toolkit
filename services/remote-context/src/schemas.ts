@@ -473,6 +473,9 @@ export const corpusSpaceGetSchema = z
     space_id: spaceId,
     context_limit: z.number().int().min(1).max(100).default(100),
     context_offset: z.number().int().min(0).max(10_000).default(0),
+    include_sources: z.boolean().default(false),
+    source_limit: z.number().int().min(1).max(100).default(20),
+    source_offset: z.number().int().min(0).max(200_000).default(0),
   })
   .strict();
 
