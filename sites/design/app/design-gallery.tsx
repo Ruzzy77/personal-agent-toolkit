@@ -222,6 +222,7 @@ function mergeLabels(
 
 type CatalogRuntime = {
   availableRecipes: Recipe[];
+  unselectedRecipes: Recipe[];
   patternById: Map<string, Pattern>;
   recipeIds: string[];
   templateLabels: Record<string, string>;
@@ -235,6 +236,9 @@ function buildRuntime(catalog: Catalog): CatalogRuntime {
   );
   return {
     availableRecipes,
+    unselectedRecipes: catalog.recipes.filter(
+      (recipe) => !availableRecipes.includes(recipe),
+    ),
     patternById: new Map(catalog.patterns.map((pattern) => [pattern.id, pattern])),
     recipeIds: availableRecipes.map((recipe) => recipe.id),
     templateLabels: mergeLabels(catalog, (gallery) => gallery.template_labels),
@@ -435,6 +439,7 @@ function buildRequestText(runtime: CatalogRuntime, {
     `형식: ${formatLabel(format)}`,
     `내용: ${contentChoice.label}`,
     `참고 방향: ${noteFor(runtime, recipe).koreanName} 레시피${patternLine ? ` · ${patternLine}` : ""}`,
+    `레시피 ID: ${recipe.id}${recipe.version ? ` · 버전: ${recipe.version}` : ""}`,
     `${noteFor(runtime, recipe).koreanName} 레시피를 참고해 ${requestFormatName(format)} 결과물을 만들어 주세요. 레시피를 그대로 복제하지 말고 목적에 맞는 조형 원리와 재료만 선택해 적용해 주세요. 기존 브랜드나 디자인 시스템이 있으면 유지하고, 충돌하는 색상·서체·구성은 바꾸지 마세요.`,
     requirementLine,
     improvementLine,
@@ -959,9 +964,44 @@ function RequestBuilder({
   );
 }
 
+function UnselectedRecipe({ recipe }: { recipe: Recipe }) {
+  const name = recipe.gallery?.korean_name || recipe.name || recipe.id;
+  const version = typeof recipe.version === "string" ? recipe.version.trim() : "";
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const request = `Design에서 ID가 ${recipe.id}인 레시피의 현재 정보와 파일 목록을 확인해 주세요.${version ? ` 화면에 표시된 버전은 ${version}입니다.` : ""} 레시피나 파일은 수정하지 마세요.`;
+
+  async function copyRequest() {
+    try {
+      await navigator.clipboard.writeText(request);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
+  return (
+    <details className="unselected-recipe">
+      <summary>{name}</summary>
+      <p className="recipe-identity">ID: {recipe.id}{version ? ` · 버전: ${version}` : ""}</p>
+      <p>현재 선택 후보가 아닙니다. 등록된 정보는 연결된 Design 도구로 확인할 수 있습니다.</p>
+      <label htmlFor={`lookup-${recipe.id}`}>정보 확인 요청문</label>
+      <textarea id={`lookup-${recipe.id}`} readOnly value={request} rows={3} />
+      <button type="button" onClick={copyRequest}>정보 확인 요청문 복사</button>
+      {copyState !== "idle" ? (
+        <p className={`copy-status copy-status--${copyState}`} role="status">
+          {copyState === "copied" ? "요청문을 복사했습니다." : "복사하지 못했습니다. 요청문을 직접 선택해 주세요."}
+        </p>
+      ) : null}
+    </details>
+  );
+}
+
 export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   const runtime = useMemo(() => buildRuntime(catalog), [catalog]);
-  const { availableRecipes, recipeIds } = runtime;
+  const { availableRecipes, unselectedRecipes, recipeIds } = runtime;
+  const emptyMessage = catalog.recipes.length === 0
+    ? "등록된 레시피가 없습니다. 연결된 Design 도구로 레시피를 등록한 뒤 다시 열어 주세요."
+    : "등록된 레시피는 있지만 현재 선택 후보로 표시할 항목은 없습니다. 아래 목록에서 레시피 정보 확인 방법을 볼 수 있습니다.";
   const [format, setFormat] = useState<FormatId>("web");
   const [content, setContent] = useState<ContentId>("interactive");
   const [selectedNeeds, setSelectedNeeds] = useState<NeedId[]>([]);
@@ -1047,6 +1087,10 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
             references: references.map((reference, index) =>
               referencePayload(runtime, reference, index + 1),
             ),
+            ...(references.length === 0 ? {
+              message: emptyMessage,
+              unselected_recipe_ids: unselectedRecipes.map((recipe) => recipe.id),
+            } : {}),
           };
         },
       },
@@ -1150,6 +1194,8 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
     ];
 
     for (const tool of tools) {
+      if (tool.name === "design_library_compare" && recipeIds.length < 2) continue;
+      if (tool.name === "design_library_prepare_brief" && recipeIds.length === 0) continue;
       try {
         const registration = context.registerTool(tool, { signal: lifecycle.signal });
         void Promise.resolve(registration).catch(() => undefined);
@@ -1158,7 +1204,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
       }
     }
     return () => lifecycle.abort();
-  }, [runtime]);
+  }, [runtime, emptyMessage]);
 
   function chooseFormat(nextFormat: FormatId) {
     setFormat(nextFormat);
@@ -1294,6 +1340,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
 
           <aside className="finder-result" aria-live="polite">
             <p className="result-label">참고 방향 · 가까운 순서</p>
+            {rankedReferences.length === 0 ? <p className="result-empty">{emptyMessage}</p> : null}
             <div className="candidate-list">
               {rankedReferences.map((reference, index) => {
                 const note = noteFor(runtime, reference.recipe);
@@ -1336,7 +1383,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
           <h2 id="design-list-title">레시피와 예시</h2>
           <p>이름은 출발점입니다. 연결된 패턴과 현재 프로젝트의 규칙을 함께 보고 선택해 주세요.</p>
         </header>
-        <div className="design-grid" aria-live="polite">
+        {availableRecipes.length > 0 ? <div className="design-grid" aria-live="polite">
           {availableRecipes.map((recipe) => (
             <RecipeCard
               runtime={runtime}
@@ -1352,7 +1399,15 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
               onCompare={() => toggleCompared(recipe.id)}
             />
           ))}
-        </div>
+        </div> : null}
+        {catalog.recipes.length === 0 ? <p className="catalog-empty">등록된 레시피가 여기에 표시됩니다.</p> : null}
+        {unselectedRecipes.length > 0 ? (
+          <section className="unselected-recipes" aria-labelledby="unselected-title">
+            <h3 id="unselected-title">선택 후보 외 레시피</h3>
+            <p>이름을 열어 등록 정보를 확인할 요청문을 복사할 수 있습니다. 추천·비교·미리보기에는 포함되지 않습니다.</p>
+            {unselectedRecipes.map((recipe) => <UnselectedRecipe key={recipe.id} recipe={recipe} />)}
+          </section>
+        ) : null}
       </section>
 
       {comparedIds.length > 0 && (

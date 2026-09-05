@@ -391,6 +391,75 @@ button {
   padding: 24px 0 120px;
 }
 
+.result-empty,
+.catalog-empty {
+  margin: 20px 0;
+  color: var(--soft);
+  font-size: 0.9rem;
+}
+
+.unselected-recipes {
+  padding: 24px 0 80px;
+}
+
+.unselected-recipes h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.unselected-recipes > p {
+  max-width: 48rem;
+  margin: 0 0 20px;
+  color: var(--soft);
+  font-size: 0.84rem;
+}
+
+.unselected-recipe {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.unselected-recipe summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.unselected-recipe p,
+.unselected-recipe label {
+  font-size: 0.84rem;
+}
+
+.unselected-recipe .recipe-identity {
+  color: var(--soft);
+}
+
+.unselected-recipe label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.unselected-recipe textarea {
+  display: block;
+  width: 100%;
+  max-width: 48rem;
+  min-height: 100px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--surface);
+  resize: vertical;
+}
+
+.unselected-recipe button {
+  margin-top: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+}
+
 .design-card {
   min-width: 0;
   display: grid;

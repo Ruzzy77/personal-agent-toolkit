@@ -59,7 +59,7 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.3.6"
+        "base_version": "0.3.7"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -79,7 +79,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.3.6-remote.1",
+        "surface_version": "0.3.7-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",
@@ -201,7 +201,7 @@
       "display_name": "Personal Design",
       "plugin": {
         "path": "plugins/design",
-        "base_version": "0.3.0"
+        "base_version": "0.3.1"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -224,7 +224,7 @@
         "url": "https://personal-agent-design.hiyaq77.workers.dev/mcp",
         "implementation": "services/design/src/mcp.ts",
         "surface_name": "personal-design",
-        "surface_version": "0.3.0",
+        "surface_version": "0.3.1",
         "tools": [
           "design_list_recipes",
           "design_read_recipe",

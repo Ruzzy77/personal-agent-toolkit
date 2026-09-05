@@ -59,7 +59,7 @@ function createServer(
   design: DesignService,
 ): McpServer {
   const server = new McpServer(
-    { name: "personal-design", version: "0.3.0" },
+    { name: "personal-design", version: "0.3.1" },
     {
       instructions:
         "Design keeps the owner's private design recipes, templates, examples, and reusable assets. Read only the assets needed for the current design task and preserve the target project's own brand and system.",

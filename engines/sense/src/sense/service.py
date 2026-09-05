@@ -80,6 +80,12 @@ class SenseService:
             return {"sections": sections}
         if view == "full":
             result = self._summary(stored)
+            sections = [
+                section
+                for section in stored.profile.sections
+                if audience == "local_cli" or section.sensitivity == "ordinary"
+            ]
+            result["section_count"] = len(sections)
             result["profile"] = {
                 "schema_version": stored.profile.schema_version,
                 "sections": [
@@ -88,7 +94,7 @@ class SenseService:
                         include_change_token=False,
                         audience=audience,
                     )
-                    for section in stored.profile.sections
+                    for section in sections
                 ],
             }
             return result

@@ -27,14 +27,18 @@ const SECTION_PRESENTATION: Record<string, { title: string; group: string }> = {
   "questions-and-choices": { title: "질문과 선택", group: "질문과 답" },
   "scope-and-checking": { title: "업무 범위", group: "질문과 답" },
   "evidence-and-judgment": { title: "자료와 해석", group: "자료와 표현" },
+  "explanation-and-output": { title: "설명과 산출물 구성", group: "자료와 표현" },
   "conversation-and-writing": { title: "대화와 글", group: "자료와 표현" },
+  "visual-production": { title: "시각 설계와 제작", group: "자료와 표현" },
+  "research-exploration": { title: "연구 탐색", group: "연구" },
+  "research-review": { title: "연구 검토", group: "연구" },
   "research-and-long-term-goals": {
     title: "관계 학습 연구",
     group: "장기 맥락",
   },
   "what-to-keep": { title: "기억 체계", group: "장기 맥락" },
 };
-const GROUP_ORDER = ["질문과 답", "자료와 표현", "장기 맥락", "기타 지침"];
+const GROUP_ORDER = ["질문과 답", "자료와 표현", "연구", "장기 맥락", "기타 지침"];
 const ORIGIN_LABELS = {
   user_set: "사용자 지정",
   learned_from_results: "경험 학습",
@@ -167,14 +171,17 @@ export class SenseService {
     }
 
     if (view === "full") {
+      const sections = stored.profile.sections.filter(
+        (section) => section.sensitivity === "ordinary",
+      );
       return {
         schema_version: 2,
         profile_sha256: stored.digest,
-        section_count: stored.profile.sections.length,
+        section_count: sections.length,
         updated_at: stored.updatedAt,
         profile: {
           schema_version: 2,
-          sections: stored.profile.sections.map((section) => {
+          sections: sections.map((section) => {
             const skill = skills.get(section.id);
             return {
               ...section,
