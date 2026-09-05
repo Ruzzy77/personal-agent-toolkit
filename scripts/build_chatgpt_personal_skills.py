@@ -121,7 +121,7 @@ def stage_skill(skill_name: str, target: Path) -> None:
     skill_path = target / "SKILL.md"
     contents = skill_path.read_text(encoding="utf-8")
     old = "${SKILL_DIR}/../../runtime/document-files/document-files"
-    new = 'python3 "${SKILL_DIR}/scripts/document-files/host_cli.py"'
+    new = "${SKILL_DIR}/scripts/document-files/document-files"
     if old not in contents:
         raise ValueError("Document Files host runtime path was not found in SKILL.md")
     skill_path.write_text(contents.replace(old, new), encoding="utf-8")
