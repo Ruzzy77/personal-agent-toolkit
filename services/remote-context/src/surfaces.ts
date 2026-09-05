@@ -9,7 +9,7 @@ export type McpSurface = {
 export const MCP_SURFACES = {
   toolkit: {
     name: "Personal Agent Toolkit",
-    version: "1.2.0",
+    version: "1.3.0",
     tools: [
       "sense_read",
       "sense_overview",
@@ -67,7 +67,7 @@ export const MCP_SURFACES = {
   },
   corpus: {
     name: "Corpus",
-    version: "0.22.0-remote.3",
+    version: "0.23.0-remote.1",
     tools: [
       "corpus_space_list",
       "corpus_space_get",

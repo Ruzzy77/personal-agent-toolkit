@@ -991,7 +991,7 @@ describe("remote personal context service", () => {
   it("keeps remote MCP server versions aligned with the client plugins", async () => {
     const expectedVersions = {
       sense: `${sensePlugin.version}-remote.1`,
-      corpus: `${corpusPlugin.version}-remote.3`,
+      corpus: `${corpusPlugin.version}-remote.1`,
       hypes: `${hypesPlugin.version}-remote.1`,
     } as const;
     for (const kind of ["sense", "corpus", "hypes"] as const) {
@@ -2306,7 +2306,7 @@ describe("remote personal context service", () => {
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
-            version: `${corpusPlugin.version}-remote.3`,
+            version: `${corpusPlugin.version}-remote.1`,
             tools: expect.arrayContaining([
               "corpus_source_refresh",
               "corpus_job_status",
