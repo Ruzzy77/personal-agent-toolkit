@@ -146,3 +146,113 @@ gateway는 교차 클라이언트 검증 뒤 제거됐으며 현재 실행 경�
 중첩 입력은 각 필드가 도구 schema에 직접 나타나며 클라이언트의 `$ref` 해석에 의존하지 않습니다.
 
 외부 응답에서는 로컬 절대 경로와 내부 registry ID를 제거합니다. Source와 Work 내용은 untrusted content로 반환합니다. 도구 오류도 data root와 등록 root를 노출하지 않도록 정리합니다.
+
+## Source 읽기 응답
+
+Toolkit 개선 계획 02에서 채택한 원격 Source 읽기 계약입니다. 기존 unit envelope를 축약하거나
+도구를 새로 나누는 대신 `corpus_file_read`에 선택 입력 `source_view: "text" | "full"`을 둡니다.
+이 절은 구현 계약을 설명하며, 배포 완료는 루트의 클라이언트 확인 기준을 따릅니다.
+
+### 입력과 호환성
+
+- 일반 읽기는 `source_view="text"`를 사용합니다. 입력을 생략하면 `full`로 처리하여 기존
+  본문·`units`·해시·anchor와 UTF-16 페이지 의미를 유지합니다.
+- `include_structure_context`는 실제 관계 확장 옵션이며 응답 형식 선택을 대신하지 않습니다.
+  두 형식에서 같은 unit을 선택하고, `text`만 페이지에 해당하는 부분을 반환합니다.
+- `source_view` 또는 `include_structure_context=true`에는 `read_ref`가 필요합니다.
+  Work 요청에서는 입력 오류로 처리합니다. Work의 `encoding`, `max_bytes`와 파일 작업은 유지합니다.
+- 공개 도구 이름, `read_ref`의 정체성, Source·Work 권한과 저장 데이터는 바꾸지 않습니다.
+  로컬 개발·이관용 Corpus MCP에 별도 구현을 만들지 않습니다.
+
+### 본문과 출처
+
+`text` 결과는 `source_kind="indexed_source"`, `source_view="text"`로 구분합니다.
+
+| 구성 | 내용 |
+| --- | --- |
+| `source` | Space·Connection, 문서·revision·projection 식별자, 상대 경로, `captured_at`, Source·의존 상태, 추출 완전성·보증 상태·coverage·projection 문제와 trust lineage |
+| `untrusted_content` | 이번 페이지의 원문 한 벌. 다른 필드에 같은 본문을 반복하지 않음 |
+| `spans` | unit 식별자·`read_ref`·ordinal·유형, 반환 본문의 `text_range`, 원래 unit 내부의 `unit_range`·`unit_chars`, 기존 `structure_path` 한 벌 |
+| span 품질 정보 | 추출 방식·문제, OCR 여부, confidence와 quality flags |
+| span 선택 근거 | `selection_reasons`: `seed`, `neighbor`, `structure_context` 가운데 해당하는 값 |
+| 페이지 | `start_char`, `returned_chars`, `has_more`, `next_start_char`, `offset_unit` |
+| 선택과 누락 | `selection`의 요청 unit·이웃·구조 옵션·전체 선택 수·관련 unit 수·추가 unit 수, `missing_unit_ids` |
+
+`count`는 이번 페이지의 span 수이고 `selection.selected_unit_count`는 전체 선택 unit 수입니다.
+범위의 `start`는 포함하고 `end`는 포함하지 않습니다. `text_range`는 반환 본문 안의 위치이며
+`unit_range`는 원래 unit 안의 위치입니다. 좌표·표·병합 셀·중첩 컨테이너는 평탄화하지 않습니다.
+완전한 unit의 해시를 잘린 본문에 붙이지 않으며, 전체 본문·anchor·해시·geometry는 `full`로 읽습니다.
+
+`captured_at`은 읽은 unit의 revision에서 가져옵니다. 읽기 시각이나 Connection·최신 revision의
+요약 시각으로 대체하지 않습니다. 부분 추출, 원자료 부재와 과거 revision의 상태를 그대로 표시하며,
+읽기 성공을 현재 원문과의 일치로 해석하지 않습니다. 본문과 구조는 `untrusted_source_derived`입니다.
+
+참조한 unit이 없으면 `source=null`, 빈 본문·span과 누락 식별자를 반환합니다. 정상적인 빈 구조
+unit과 구분하며 비슷한 파일이나 새 revision으로 대체하지 않습니다.
+
+### 페이지와 크기 제한
+
+같은 projection의 선택 unit을 ordinal 순서로 놓고 `\n\n`으로 연결합니다. 구분자는 span에
+포함하지 않습니다. 페이지 밖 unit의 본문과 구조는 보내지 않습니다. 빈 구조 unit은 해당 위치에
+길이 0의 span을 두며 마지막 빈 unit은 마지막 페이지에 포함합니다. 본문이 없는 선택도 구조와
+종료 상태를 반환합니다.
+
+`text` 위치는 `offset_unit="unicode_code_point"`, `full` 위치는 `"utf16_code_unit"`입니다.
+같은 참조·형식·이웃·구조 옵션을 유지하면서 반환된 `next_start_char`로 이어 읽습니다.
+서로 다른 형식의 위치를 교환하지 않습니다. Work의 위치 의미는 바꾸지 않습니다.
+
+본문 한 페이지는 기본 30,000자, 최소 1,000자, 최대 200,000자입니다. 선택은 최대 500 unit,
+직렬화 결과 객체는 최대 2 MiB입니다. `text`의 전체 연결 범위는 구분자를 포함해 최대
+2,097,152 code point로 제한하여 모든 페이지의 시작 위치가 입력 상한 안에 있도록 합니다.
+한도를 넘으면 `budget_exceeded`로 중단하고 더 작은 이웃·구조 범위나 unit별 읽기를 안내합니다.
+크기를 맞추려고 경고·출처·구조를 조용히 버리지 않습니다.
+
+shard는 식별자·구조·길이를 먼저 고르고 페이지에 필요한 본문만 가져옵니다. 일반 본문은 SQLite의
+code point 단위 부분 읽기를 사용합니다. NUL이 포함된 본문은 TEXT 함수의 조기 종료를 피하도록
+64 KiB UTF-8 블록으로 읽으며 NUL·BOM과 블록에 걸친 다중 바이트 문자를 보존합니다.
+큰 metadata는 읽기 전 크기를 검사하고, 구조 복원 뒤와 서비스의 `read_ref` 추가 뒤에도 결과 객체의
+바이트 한도를 검사합니다. 긴 단일 unit은 전체 envelope를 전송하지 않고 페이지로 읽습니다.
+
+`full`도 수량·바이트 한도를 적용합니다. 이는 과거의 무제한 성공 응답과 달라지는 보호 동작입니다.
+MCP의 `structuredContent`와 JSON text fallback은 유지합니다. 2 MiB는 이중 표현 전 결과 객체의
+한도이며 실제 전송 크기나 모델 입력 토큰 수가 아닙니다.
+
+### 구조 맥락
+
+`include_structure_context=true`는 같은 projection의 명시된 관계만 확장합니다. 표 셀에서는 같은
+표의 해당 행·겹치는 병합 행, 선언된 제목 셀과 필요한 표 컨테이너·캡션을 읽습니다. 각주·개체는
+명시된 참조와 소유 문단을 따릅니다. 첫 행을 제목으로 추정하거나 의미상 관련된 내용을 검색하지 않습니다.
+
+section·section stream·Office part·page와 표·개체 식별자·상위 컨테이너를 비교하여 다른 자료가
+섞이지 않게 합니다. 일반 JSON과 `compact-path-v1:`의 같은 논리 필드를 조회하고, 후보 구조를
+비교한 뒤 중복을 제거합니다. 이웃 선택은 기존 ordinal 범위를 유지하며 구조 관계로 재해석하지 않습니다.
+
+`selection.structure_context_related_unit_count`는 요청 unit 외에 관계가 확인된 수,
+`structure_context_added_unit_count`는 요청·이웃 선택에 새로 더한 수입니다. 확장이 없어도 옵션은
+검사한 것으로 해석하며, span의 선택 근거로 실제 확장된 위치를 구분합니다. `has_more=true`인
+페이지를 완전한 표나 행으로 안내하지 않습니다.
+
+### 구현과 회귀 확인
+
+- `services/remote-context/src/corpus-shard.ts`: 구조 선택, 수량·크기 사전 검사, revision 출처와 본문 페이지.
+- `services/remote-context/src/corpus-read.ts`: 관계 비교와 공통 응답 예산.
+- `services/remote-context/src/corpus.ts`: Source·Work 분기와 Space·Connection·`read_ref` 결합.
+- `schemas.ts`, `mcp.ts`와 `skills/investigate-corpus/SKILL.md`: 공개 입력과 읽기 안내.
+
+기존 `services/remote-context/test/context.test.ts`의 표적 회귀 항목은 공개 읽기·MCP 이중 표현과
+Work 입력 비변경, Unicode·빈 구조·긴 본문의 페이지 재결합, 행·제목 셀·소유 관계와 두 저장 표현의
+동일 결과, 수량·크기·누락·과거 수집 시각·추출 경고를 확인합니다. 원본 문서와 개인 자료를 시험
+자산으로 복사하지 않습니다. 기존 anchor·구조 압축과 Work 예산 시험은 유지합니다.
+
+### 배포와 되돌리기
+
+Corpus 제품 base version과 MCP surface version, Claude manifest와 `products.json`을 맞추고,
+OpenAI 통합 plugin은 제품 정본에서 재생성해 packaging revision을 갱신합니다. Corpus 전용 Codex
+manifest를 만들거나 공통 service package version을 Corpus version으로 통일하지 않습니다.
+소스·원격 저장소 반영 후 Worker, 등록 app과 각 클라이언트를 루트 release 절차에 따라 갱신합니다.
+변경하지 않은 문서 Skill 다섯 개를 별도로 재설계하거나 Source를 재분석하지 않습니다.
+
+데이터 migration과 파서·재분석 세대·권한 변경은 없습니다. 배포 전 현재 압축 저장 표현을 읽는
+직전 Worker와 plugin 묶음을 복구 대상으로 확인합니다. 되돌릴 때에는 새 입력을 보내도록 바꾼
+Skill·도구 안내부터 복귀하고 Worker를 되돌린 뒤 클라이언트의 schema와 새 세션을 확인합니다.
+구형 저장 reader로 돌아가거나 자료를 다시 이관하지 않습니다.

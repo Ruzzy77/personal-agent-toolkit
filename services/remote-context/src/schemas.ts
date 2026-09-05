@@ -556,6 +556,12 @@ export const corpusFileReadSchema = z
     connection_id: connectionId.nullable().optional(),
     relative_path: relativePath.nullable().optional(),
     read_ref: spaceReference.nullable().optional(),
+    source_view: z
+      .enum(["text", "full"])
+      .optional()
+      .describe(
+        "Source only: text returns a single paged body with provenance and spans; omitted/full preserves complete unit envelopes.",
+      ),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
     max_bytes: z
       .number()
@@ -578,6 +584,12 @@ export const corpusFileReadSchema = z
     (value) =>
       Number(value.relative_path != null) + Number(value.read_ref != null) <= 1,
     "select at most one of relative_path and read_ref",
+  )
+  .refine(
+    (value) =>
+      value.read_ref != null ||
+      (value.source_view === undefined && !value.include_structure_context),
+    "source_view and include_structure_context require read_ref",
   );
 
 export const corpusFileWriteSchema = z

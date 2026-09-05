@@ -19,7 +19,7 @@ import {
 } from "../src/schemas";
 import { SenseService } from "../src/sense";
 import { MCP_SURFACES } from "../src/surfaces";
-import type { Env, Principal } from "../src/types";
+import type { CorpusUnitInput, Env, Principal } from "../src/types";
 
 const runtime = env as unknown as Env;
 const syncHeaders = {
@@ -245,6 +245,645 @@ async function mcpPayload(
   return JSON.parse(line.slice(6)) as Record<string, unknown>;
 }
 
+async function sourceReadFixture(
+  id: string,
+  inputs: Array<Pick<CorpusUnitInput, "content"> & Partial<CorpusUnitInput>>,
+  partial = false,
+) {
+  const capturedAt = "2026-09-02T00:00:00.000Z";
+  const uploadId = `upload_${crypto.randomUUID().replaceAll("-", "")}`;
+  const header = {
+    uploadId,
+    corpusId: id,
+    document: {
+      documentId: `doc_${id}`,
+      relativePath: "fixtures/read.txt",
+      extension: ".txt",
+      sourceState: "available",
+    },
+    revision: {
+      revisionId: `rev_${id}`,
+      sha256: "1".repeat(64),
+      sourceSize: 1,
+      capturedAt,
+    },
+    projection: {
+      projectionId: `projection_${id}`,
+      adapterId: "document-files.text",
+      adapterVersion: "2",
+      configHash: "2".repeat(64),
+      resultManifestHash: "3".repeat(64),
+      completenessState: partial ? "partial" : "complete",
+      coverage: { text_content: partial ? "partial" : "complete" },
+      issues: partial ? [{ code: "text_partial" }] : [],
+      capabilityManifest: { text: true },
+      assuranceState: "declared",
+      declaredUnitCount: inputs.length,
+    },
+  };
+  const units = await Promise.all(
+    inputs.map(async (input, index) => ({
+      unitId: `unit_${id}_${index}`,
+      ordinal: index + 1,
+      unitType: "paragraph",
+      structurePath: { paragraph: index + 1 },
+      sourceAnchor: {},
+      contentSha256: await sha256Hex(input.content),
+      previousUnitId: null,
+      nextUnitId: null,
+      extractionIssues: [],
+      derivationMethod: "native_text",
+      geometry: {},
+      confidence: 1,
+      ocr: false,
+      qualityFlags: [],
+      ...input,
+    })),
+  );
+  const post = async (path: string, value: unknown) => {
+    const response = await syncPost(`/sync/v1/corpora/${id}/${path}`, value);
+    expect(response.status, await response.clone().text()).toBe(200);
+  };
+  await post("projections:begin", header);
+  for (let offset = 0; offset < units.length; offset += 100) {
+    await post("projection-units:append", {
+      uploadId,
+      units: units.slice(offset, offset + 100),
+    });
+  }
+  await post("projections:commit", {
+    uploadId,
+    expectedUnitCount: units.length,
+    expectedManifestHash: header.projection.resultManifestHash,
+  });
+  await runtime.STATE_DB.batch([
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_spaces(owner_id, space_id, display_name, state, access_scope, updated_at)
+      VALUES ('owner_test', ?, ?, 'active', 'remote_allowed', ?)`,
+    ).bind(id, id, capturedAt),
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_connections(
+      owner_id, space_id, connection_id, display_name, roles_json, access_scope, permission, index_mode,
+      corpus_id, local_connection_key, generation, configuration_state, source_state, record_state, captured_at, updated_at)
+      VALUES ('owner_test', ?, 'main', 'Source', '["source"]', 'remote_allowed', 'read_only', 'indexed',
+      ?, ?, 1, 'ready', 'available', 'committed', ?, ?)`,
+    ).bind(id, id, id, "2026-09-05T00:00:00.000Z", capturedAt),
+  ]);
+  const ref = (unitId: string) =>
+    `read1.${btoa(
+      JSON.stringify({
+        version: 1,
+        spaceId: id,
+        connectionId: "main",
+        corpusId: id,
+        unitId,
+      }),
+    )
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")}`;
+  return {
+    units,
+    capturedAt,
+    header,
+    ref,
+    shard: runtime.CORPUS_SHARDS.get(
+      runtime.CORPUS_SHARDS.idFromName(`owner_test:${id}`),
+    ),
+    service: new CorpusService(runtime, ownerPrincipal),
+    args: (index = 0) => ({
+      space_id: id,
+      read_ref: ref(units[index]!.unitId),
+    }),
+  };
+}
+
+it("pages Source text once with exact Unicode spans and the legacy full view", async () => {
+  const contents = [
+    "",
+    "가".repeat(996) + "😀\0Z끝",
+    "",
+    "tail ".repeat(340),
+    "",
+  ];
+  const fixture = await sourceReadFixture(
+    "read-pages",
+    contents.map((content) => ({
+      content,
+      ocr: true,
+      confidence: 0.8,
+      qualityFlags: ["reading_order_unverified"],
+      extractionIssues: [{ code: "ocr_review" }],
+    })),
+    true,
+  );
+  const args = { ...fixture.args(1), neighbor_span: 10, max_chars: 1000 };
+  const legacy = await fixture.service.fileRead(args);
+  expect(
+    await fixture.service.fileRead({ ...args, source_view: "full" }),
+  ).toEqual(legacy);
+  const joined = contents.join("\n\n");
+  expect(legacy.untrusted_content).toBe(joined.slice(0, 1000));
+  expect(legacy).toMatchObject({
+    offset_unit: "utf16_code_unit",
+    count: contents.length,
+  });
+  expect(legacy.units).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        untrusted_content: contents[1],
+        content_sha256: fixture.units[1]!.contentSha256,
+        captured_at: fixture.capturedAt,
+      }),
+    ]),
+  );
+  let start = 0;
+  const pages: string[] = [];
+  const seenEmpty: string[] = [];
+  do {
+    const page = await fixture.service.fileRead({
+      ...args,
+      source_view: "text",
+      start_char: start,
+    });
+    const text = String(page.untrusted_content);
+    pages.push(text);
+    expect(page).not.toHaveProperty("units");
+    expect(page).toMatchObject({
+      offset_unit: "unicode_code_point",
+      returned_chars: Array.from(text).length,
+      source: {
+        space_id: "read-pages",
+        connection_id: "main",
+        captured_at: fixture.capturedAt,
+        completeness_state: "partial",
+        coverage: { text_content: "partial" },
+        projection_issues: [{ code: "text_partial" }],
+        trust_lineage: "untrusted_source_derived",
+      },
+    });
+    expect(text).toBe(
+      Array.from(joined)
+        .slice(start, start + 1000)
+        .join(""),
+    );
+    const spans = page.spans as Array<{
+      unit_id: string;
+      read_ref: string;
+      text_range: { start: number; end: number };
+      unit_range: { start: number; end: number };
+    }>;
+    for (const span of spans) {
+      const unit = fixture.units.find((unit) => unit.unitId === span.unit_id)!;
+      expect(
+        Array.from(text)
+          .slice(span.text_range.start, span.text_range.end)
+          .join(""),
+      ).toBe(
+        Array.from(unit.content)
+          .slice(span.unit_range.start, span.unit_range.end)
+          .join(""),
+      );
+      expect(span).not.toHaveProperty("content_sha256");
+      expect(span).not.toHaveProperty("untrusted_content");
+      expect(span).toMatchObject({
+        ocr: true,
+        confidence: 0.8,
+        extraction_issues: [{ code: "ocr_review" }],
+        quality_flags: ["reading_order_unverified"],
+      });
+      expect(
+        (
+          await fixture.service.fileRead({
+            space_id: "read-pages",
+            read_ref: span.read_ref,
+            source_view: "text",
+          })
+        ).source,
+      ).toMatchObject({ revision_id: fixture.header.revision.revisionId });
+      if (!unit.content) seenEmpty.push(unit.unitId);
+    }
+    if (!page.has_more) {
+      expect(page.next_start_char).toBeNull();
+      break;
+    }
+    expect(page.next_start_char).toBeGreaterThan(start);
+    start = Number(page.next_start_char);
+  } while (start < 10_000);
+  expect(pages.join("")).toBe(joined);
+  expect(seenEmpty).toEqual([
+    fixture.units[0]!.unitId,
+    fixture.units[2]!.unitId,
+    fixture.units[4]!.unitId,
+  ]);
+  expect(
+    await fixture.service.fileRead({
+      ...args,
+      source_view: "text",
+      start_char: 10_000,
+    }),
+  ).toMatchObject({
+    untrusted_content: "",
+    spans: [],
+    returned_chars: 0,
+    has_more: false,
+    next_start_char: null,
+  });
+  expect(
+    await fixture.service.fileRead({ ...fixture.args(0), source_view: "text" }),
+  ).toMatchObject({
+    untrusted_content: "",
+    count: 1,
+    returned_chars: 0,
+    has_more: false,
+  });
+
+  const request = { ...args, source_view: "text" };
+  const response = await handleMcp(
+    new Request("https://context.test/corpus/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "corpus_file_read", arguments: request },
+      }),
+    }),
+    runtime,
+    ownerPrincipal,
+    "corpus",
+  );
+  const payload = await mcpPayload(response);
+  const result = payload.result as {
+    structuredContent: unknown;
+    content: Array<{ type: string; text: string }>;
+  };
+  expect(result.structuredContent).toEqual({
+    ok: true,
+    result: await fixture.service.fileRead(request),
+  });
+  expect(
+    JSON.parse(result.content.find((item) => item.type === "text")!.text),
+  ).toEqual(result.structuredContent);
+  for (const invalid of [
+    { source_view: "text" },
+    { source_view: "full" },
+    { include_structure_context: true },
+  ]) {
+    await expect(
+      fixture.service.fileRead({
+        space_id: "read-pages",
+        relative_path: "note.txt",
+        ...invalid,
+      }),
+    ).rejects.toThrow();
+  }
+  expect(
+    corpusFileReadSchema.parse({
+      space_id: "read-pages",
+      relative_path: "note.txt",
+    }),
+  ).not.toHaveProperty("source_view");
+  const nulText = "\ufeff" + "x".repeat(65_531) + "😀\0끝";
+  const nulHash = await sha256Hex(nulText);
+  await runInDurableObject(fixture.shard, (_instance, state) => {
+    state.storage.sql.exec(
+      "UPDATE source_units SET normalized_content = ?, content_sha256 = ? WHERE unit_id = ?",
+      nulText,
+      nulHash,
+      fixture.units[0]!.unitId,
+    );
+  });
+  expect(
+    await fixture.service.fileRead({
+      ...fixture.args(0),
+      source_view: "text",
+      max_chars: 1000,
+    }),
+  ).toMatchObject({
+    untrusted_content: Array.from(nulText).slice(0, 1000).join(""),
+  });
+  expect(
+    await fixture.service.fileRead({
+      ...fixture.args(0),
+      source_view: "text",
+      start_char: 65_530,
+      max_chars: 1000,
+    }),
+  ).toMatchObject({
+    untrusted_content: Array.from(nulText).slice(65_530).join(""),
+    has_more: false,
+  });
+});
+
+it("keeps Source read missing refs and historical capture states explicit", async () => {
+  const fixture = await sourceReadFixture("read-states", [
+    { content: "older captured text" },
+  ]);
+  await runInDurableObject(fixture.shard, (_instance, state) => {
+    state.storage.sql.exec(
+      `INSERT INTO revisions(revision_id, document_id, sha256, source_size, captured_at, created_at)
+      VALUES ('rev_new_read_state', ?, ?, 2, ?, ?)`,
+      fixture.header.document.documentId,
+      "4".repeat(64),
+      "2026-09-05T00:00:00.000Z",
+      "2026-09-05T00:00:00.000Z",
+    );
+    state.storage.sql.exec(
+      "UPDATE documents SET current_revision_id = 'rev_new_read_state', source_state = 'unavailable'",
+    );
+  });
+  expect(
+    await fixture.service.fileRead({ ...fixture.args(), source_view: "text" }),
+  ).toMatchObject({
+    untrusted_content: "older captured text",
+    source: {
+      captured_at: fixture.capturedAt,
+      source_state: "unavailable",
+      dependency_state: "stale_source_revision",
+      revision_id: fixture.header.revision.revisionId,
+    },
+  });
+  expect(
+    await fixture.service.fileRead({
+      space_id: "read-states",
+      read_ref: fixture.ref("unit_missing"),
+      source_view: "text",
+    }),
+  ).toMatchObject({
+    source: null,
+    spans: [],
+    untrusted_content: "",
+    missing_unit_ids: ["unit_missing"],
+    has_more: false,
+  });
+  await expect(
+    fixture.service.fileRead({
+      ...fixture.args(),
+      space_id: "another-space",
+      source_view: "text",
+    }),
+  ).rejects.toMatchObject({ code: "invalid_reference" });
+});
+
+it("expands Source structure rows, explicit headers and owners across both path encodings", async () => {
+  const cell = (
+    row: number,
+    col: number,
+    extra: Record<string, unknown> = {},
+  ) => {
+    const container = {
+      cell: `c${row}${col}`,
+      col,
+      col_span: 1,
+      is_header: false,
+      kind: "table_cell",
+      list_record: row * 2 + col,
+      object: "table1",
+      owner_paragraph_record: 1,
+      row,
+      row_span: 1,
+      table: "table1",
+      ...extra,
+    };
+    return {
+      section: 1,
+      part: "slide1",
+      cell: container.cell,
+      col,
+      col_span: 1,
+      is_header: container.is_header,
+      object: container.object,
+      owner_paragraph_record: 1,
+      row,
+      row_span: container.row_span,
+      table: "table1",
+      container_kind: "table_cell",
+      container_path: [container],
+    };
+  };
+  const nested = (parent: string) => ({
+    ...cell(2, 1),
+    container_path: [
+      { table: "outer", cell: parent },
+      ...cell(2, 1).container_path,
+    ],
+  });
+  const data = [
+    {
+      content: "",
+      unitType: "table",
+      structurePath: {
+        section: 1,
+        part: "slide1",
+        table: "table1",
+        object: "table1",
+        container_kind: "table",
+      },
+    },
+    { content: "항목", structurePath: cell(0, 0, { is_header: true }) },
+    { content: "금액", structurePath: cell(0, 1, { is_header: true }) },
+    { content: "장비", structurePath: cell(1, 0, { row_span: 2 }) },
+    { content: "100", structurePath: cell(1, 1) },
+    { content: "200", structurePath: cell(2, 1) },
+    { content: "300", structurePath: cell(3, 1) },
+    {
+      content: "other slide",
+      structurePath: { ...cell(2, 1), part: "slide2" },
+    },
+    { content: "other section", structurePath: { ...cell(2, 1), section: 2 } },
+    { content: "nested a", structurePath: nested("a") },
+    { content: "nested a peer", structurePath: nested("a") },
+    { content: "nested b", structurePath: nested("b") },
+    {
+      content: "owner",
+      structurePath: { section: 1, part: "slide1", paragraph_record: 50 },
+    },
+    {
+      content: "note",
+      unitType: "footnote",
+      structurePath: {
+        section: 1,
+        part: "slide1",
+        note: "n1",
+        owner_paragraph_record: 50,
+      },
+    },
+    {
+      content: "continued note",
+      structurePath: {
+        section: 1,
+        part: "slide1",
+        note: "n1",
+        owner_paragraph_record: 50,
+      },
+    },
+    {
+      content: "unrelated note",
+      structurePath: {
+        section: 1,
+        part: "slide1",
+        note: "n2",
+        owner_paragraph_record: 51,
+      },
+    },
+  ];
+  const fixture = await sourceReadFixture("read-structure", data);
+  const read = (index: number, extra = {}) =>
+    fixture.service.fileRead({
+      ...fixture.args(index),
+      source_view: "text",
+      include_structure_context: true,
+      ...extra,
+    });
+  const plain = await read(5);
+  expect(plain).toMatchObject({
+    untrusted_content: "\n\n항목\n\n금액\n\n장비\n\n200",
+    selection: {
+      selected_unit_count: 5,
+      structure_context_added_unit_count: 4,
+    },
+  });
+  expect((await read(5, { neighbor_span: 1 })).selection).toMatchObject({
+    structure_context_added_unit_count: 4,
+  });
+  expect(await read(5, { include_structure_context: false })).toMatchObject({
+    untrusted_content: "200",
+    count: 1,
+  });
+  expect(await read(9)).toMatchObject({
+    untrusted_content: "nested a\n\nnested a peer",
+    count: 2,
+  });
+  expect(await read(12)).toMatchObject({
+    untrusted_content: "owner\n\nnote\n\ncontinued note",
+    count: 3,
+  });
+  expect(await read(13)).toMatchObject({
+    untrusted_content: "owner\n\nnote\n\ncontinued note",
+    count: 3,
+  });
+  const full = await fixture.service.fileRead({
+    ...fixture.args(5),
+    source_view: "full",
+    include_structure_context: true,
+  });
+  expect(full).toMatchObject({
+    count: 5,
+    untrusted_content: plain.untrusted_content,
+  });
+  const compacted = await runInDurableObject(
+    fixture.shard,
+    (_instance, state) => {
+      let count = 0;
+      for (const unit of fixture.units) {
+        const compact = compactStoredStructurePath(
+          JSON.stringify(unit.structurePath),
+        );
+        state.storage.sql.exec(
+          "UPDATE source_units SET structure_path_json = ? WHERE unit_id = ?",
+          compact.value,
+          unit.unitId,
+        );
+        if (compact.compacted) count++;
+      }
+      return count;
+    },
+  );
+  expect(compacted).toBeGreaterThan(0);
+  expect(await read(5)).toEqual(plain);
+  expect(await read(9)).toMatchObject({
+    untrusted_content: "nested a\n\nnested a peer",
+  });
+});
+
+it("bounds Source selection, serialized responses and traversable text before returning pages", async () => {
+  const fixture = await sourceReadFixture(
+    "read-budgets",
+    Array.from({ length: 501 }, () => ({
+      content: "",
+      structurePath: { table: "t", row: 0 },
+    })),
+  );
+  await expect(
+    fixture.service.fileRead({
+      ...fixture.args(),
+      source_view: "text",
+      include_structure_context: true,
+    }),
+  ).rejects.toMatchObject({
+    code: "budget_exceeded",
+    details: { maximum_selected_units: 500 },
+  });
+  await runInDurableObject(fixture.shard, (_instance, state) => {
+    state.storage.sql.exec(
+      "UPDATE source_units SET structure_path_json = '{}' WHERE ordinal = 501",
+    );
+  });
+  expect(
+    await fixture.service.fileRead({
+      ...fixture.args(),
+      source_view: "text",
+      include_structure_context: true,
+    }),
+  ).toMatchObject({ count: 500, returned_chars: 998, has_more: false });
+  await runInDurableObject(fixture.shard, (_instance, state) => {
+    state.storage.sql.exec(
+      "UPDATE source_units SET structure_path_json = ? WHERE ordinal <= 40",
+      JSON.stringify({ table: "large", row: 0, detail: "m".repeat(60_000) }),
+    );
+  });
+  await expect(
+    fixture.service.fileRead({
+      ...fixture.args(),
+      source_view: "text",
+      include_structure_context: true,
+    }),
+  ).rejects.toMatchObject({ code: "budget_exceeded" });
+
+  const large = await sourceReadFixture("read-long", [
+    { content: "가".repeat(800_000) },
+    { content: "x".repeat(1_400_000) },
+  ]);
+  await expect(large.service.fileRead(large.args())).rejects.toMatchObject({
+    code: "budget_exceeded",
+  });
+  await expect(
+    large.service.fileRead({
+      ...large.args(),
+      source_view: "text",
+      neighbor_span: 1,
+    }),
+  ).rejects.toMatchObject({
+    code: "budget_exceeded",
+    details: { maximum_selected_chars: 2 * 1024 * 1024 },
+  });
+  const pages: string[] = [];
+  for (let start = 0; start < 800_000; start += 200_000) {
+    const page = await large.service.fileRead({
+      ...large.args(),
+      source_view: "text",
+      start_char: start,
+      max_chars: 200_000,
+    });
+    expect(page).not.toHaveProperty("units");
+    expect(page).toMatchObject({
+      returned_chars: 200_000,
+      has_more: start < 600_000,
+      next_start_char: start < 600_000 ? start + 200_000 : null,
+    });
+    expect(new TextEncoder().encode(JSON.stringify(page)).length).toBeLessThan(
+      2 * 1024 * 1024,
+    );
+    pages.push(String(page.untrusted_content));
+  }
+  expect(pages.join("")).toBe(large.units[0]!.content);
+});
+
 describe("remote personal context service", () => {
   it("publishes separate protected-resource metadata for all MCP resources", async () => {
     const health = await SELF.fetch("https://context.test/health");
@@ -337,6 +976,10 @@ describe("remote personal context service", () => {
       );
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
+        if (tool.name === "corpus_file_read") {
+          expect(tool.inputSchema).toMatchObject({ properties: { source_view: { enum: ["text", "full"] } } });
+          expect(tool.inputSchema.required).not.toContain("source_view");
+        }
         expect(tool.outputSchema).toMatchObject({
           type: "object",
           properties: { ok: { const: true }, result: { type: "object" } },

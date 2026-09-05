@@ -92,7 +92,7 @@
       "display_name": "Corpus",
       "plugin": {
         "path": "plugins/corpus",
-        "base_version": "0.21.6"
+        "base_version": "0.22.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -113,7 +113,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Corpus",
-        "surface_version": "0.21.6-remote.3",
+        "surface_version": "0.22.0-remote.3",
         "tools": [
           "corpus_space_list",
           "corpus_space_get",

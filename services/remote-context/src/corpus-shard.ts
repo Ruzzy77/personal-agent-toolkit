@@ -1,5 +1,14 @@
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError, asContextError } from "./errors";
+import {
+  SOURCE_READ_MAX_BYTES,
+  SOURCE_READ_MAX_START,
+  SOURCE_READ_MAX_UNITS,
+  assertSourceReadBudget,
+  isRelatedStructure,
+  serializedBytes,
+  sourceReadBudgetExceeded,
+} from "./corpus-read";
 import { ZodError } from "zod/v4";
 import {
   corpusDocumentsImportSchema,
@@ -64,7 +73,28 @@ interface UnitRow {
   issues_json: string;
   assurance_state: string;
   revision_sha256: string;
+  captured_at: string;
 }
+
+interface ReadUnitSelection extends Record<string, SqlStorageValue> {
+  unit_id: string;
+  projection_id: string;
+  ordinal: number;
+}
+
+interface ReadUnitInventory extends ReadUnitSelection {
+  content_chars: number | null;
+  has_nul: number;
+  content_bytes: number;
+  payload_bytes: number;
+}
+
+const READ_SOURCE_COLUMNS = `d.document_id, d.relative_path, d.source_state,
+  d.current_revision_id, p.completeness_state, p.coverage_json,
+  p.issues_json, p.assurance_state, r.sha256 AS revision_sha256, r.captured_at`;
+const READ_SOURCE_JOINS = `JOIN revisions AS r ON r.revision_id = u.revision_id
+  JOIN documents AS d ON d.document_id = r.document_id
+  JOIN projections AS p ON p.projection_id = u.projection_id`;
 
 interface CommittedProjectionRow {
   document_id: string;
@@ -644,6 +674,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
     ocr: row.ocr === 1,
     quality_flags: listValue(row.quality_flags_json),
     relative_path: row.relative_path,
+    captured_at: row.captured_at,
     source_state: row.source_state,
     dependency_state: dependencyState(row),
     completeness_state: row.completeness_state,
@@ -3272,8 +3303,106 @@ export class CorpusShard {
     };
   }
 
+  private *structureContext(seedId: string): Generator<ReadUnitSelection> {
+    const seed = this.one<ReadUnitSelection & { structure_path_json: string }>(
+      `SELECT unit_id, projection_id, ordinal, structure_path_json
+       FROM source_units WHERE unit_id = ?`,
+      seedId,
+    )!;
+    const structure = decodeStoredStructurePath(seed.structure_path_json);
+    // Filter on stored identities before reading candidate paths. Both storage
+    // encodings must participate; plain json_extract cannot read compact paths.
+    const field = (key: string) => {
+      const index = TABLE_CELL_CONTAINER_KEYS.indexOf(
+        key as (typeof TABLE_CELL_CONTAINER_KEYS)[number],
+      );
+      const plain = `json_extract(path, '$.${key}')`;
+      return index < 0
+        ? plain
+        : `(CASE WHEN compact THEN json_extract(path, '$._container_v1[${index}]') ELSE ${plain} END)`;
+    };
+    const links = [
+      ["table", structure.table],
+      ["note", structure.note],
+      ["object", structure.table == null ? structure.object : null],
+      ["owner_paragraph_record", structure.paragraph_record],
+      ["owner_paragraph", structure.paragraph_element],
+      ["paragraph_record", structure.owner_paragraph_record],
+      ["paragraph_element", structure.owner_paragraph],
+    ].filter(
+      (pair) => typeof pair[1] === "string" || typeof pair[1] === "number",
+    );
+    if (!links.length) return;
+    const scope = ["section", "section_stream", "part", "page"];
+    const prefixLength = COMPACT_STRUCTURE_PATH_PREFIX.length;
+    const candidates = this.sql.exec<
+      ReadUnitSelection & {
+        structure_path_json: string;
+        unit_type: string;
+      }
+    >(
+      `WITH paths AS (
+         SELECT unit_id, projection_id, ordinal, unit_type, structure_path_json,
+           substr(structure_path_json, 1, ${prefixLength}) = '${COMPACT_STRUCTURE_PATH_PREFIX}' AS compact,
+           CASE WHEN substr(structure_path_json, 1, ${prefixLength}) = '${COMPACT_STRUCTURE_PATH_PREFIX}'
+             THEN substr(structure_path_json, ${prefixLength + 1}) ELSE structure_path_json END AS path
+         FROM source_units WHERE projection_id = ?
+       ) SELECT unit_id, projection_id, ordinal, unit_type, structure_path_json
+       FROM paths WHERE ${scope.map((key) => `${field(key)} IS ?`).join(" AND ")}
+         AND (${links.map(([key]) => `${field(String(key))} = ?`).join(" OR ")})
+       ORDER BY ordinal`,
+      seed.projection_id,
+      ...scope.map((key) => structure[key] ?? null),
+      ...links.map((pair) => pair[1]),
+    );
+    for (const candidate of candidates) {
+      if (
+        isRelatedStructure(
+          structure,
+          decodeStoredStructurePath(candidate.structure_path_json),
+          candidate.unit_type,
+        )
+      ) {
+        yield {
+          unit_id: candidate.unit_id,
+          projection_id: candidate.projection_id,
+          ordinal: candidate.ordinal,
+        };
+      }
+    }
+  }
+
+  // SQLite TEXT length/substr stop at NUL. Rare NUL-bearing records use bounded
+  // UTF-8 chunks instead, preserving embedded NUL and BOM without loading a unit.
+  private nulUnitText(
+    unit: ReadUnitInventory,
+    start = 0,
+    limit = 0,
+  ): { chars: number; text: string } {
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    const parts: string[] = [];
+    let chars = 0;
+    for (let offset = 0; offset < unit.content_bytes; offset += 65_536) {
+      const chunk = this.one<{ chunk: ArrayBuffer }>(
+        `SELECT substr(CAST(normalized_content AS BLOB), ?, 65536) AS chunk
+         FROM source_units WHERE unit_id = ?`,
+        offset + 1,
+        unit.unit_id,
+      )!.chunk;
+      const text = decoder.decode(chunk, {
+        stream: offset + 65_536 < unit.content_bytes,
+      });
+      for (const char of text) {
+        if (chars >= start && chars < start + limit) parts.push(char);
+        chars++;
+      }
+      if (limit > 0 && chars >= start + limit) break;
+    }
+    return { chars, text: parts.join("") };
+  }
+
   private readUnits(raw: unknown): Record<string, unknown> {
-    const value = raw as Record<string, unknown>;
+    const value = (raw ?? {}) as Record<string, unknown>;
     if (
       !Array.isArray(value.unitIds) ||
       value.unitIds.length < 1 ||
@@ -3285,75 +3414,302 @@ export class CorpusShard {
         "unitIds must contain 1 to 100 unit ids",
       );
     }
-    const neighborSpan = Number.isInteger(value.neighborSpan)
-      ? Number(value.neighborSpan)
-      : 0;
-    if (neighborSpan < 0 || neighborSpan > 10) {
-      throw new ContextError(
-        "invalid_read",
-        "neighborSpan must be between 0 and 10",
-      );
+    const ids = [...new Set(value.unitIds as string[])];
+    const neighborSpan = value.neighborSpan ?? 0;
+    const includeStructureContext = value.includeStructureContext ?? false;
+    const view = value.sourceView ?? "full";
+    const start = value.startChar ?? 0;
+    const limit = value.maxChars ?? 30_000;
+    if (
+      typeof neighborSpan !== "number" ||
+      !Number.isInteger(neighborSpan) ||
+      neighborSpan < 0 ||
+      neighborSpan > 10 ||
+      typeof includeStructureContext !== "boolean" ||
+      (view !== "text" && view !== "full") ||
+      typeof start !== "number" ||
+      !Number.isInteger(start) ||
+      start < 0 ||
+      start > SOURCE_READ_MAX_START ||
+      typeof limit !== "number" ||
+      !Number.isInteger(limit) ||
+      limit < 1000 ||
+      limit > 200_000 ||
+      (view === "text" && ids.length !== 1)
+    ) {
+      throw new ContextError("invalid_read", "Source read options are invalid");
     }
-    if (!this.initialized) {
-      return {
-        count: 0,
-        units: [],
-        missing_unit_ids: [...new Set(value.unitIds as string[])],
-      };
-    }
-    const results: Record<string, unknown>[] = [];
     const missing: string[] = [];
-    const selectedRows = new Map<string, UnitRow>();
-    for (const id of [...new Set(value.unitIds as string[])]) {
-      const row = this.one<UnitRow>(
-        `SELECT u.*, d.document_id, d.relative_path, d.source_state,
-                d.current_revision_id, p.completeness_state, p.coverage_json,
-                p.issues_json, p.assurance_state,
-                r.sha256 AS revision_sha256
-         FROM source_units AS u
-         JOIN revisions AS r ON r.revision_id = u.revision_id
-         JOIN documents AS d ON d.document_id = r.document_id
-         JOIN projections AS p ON p.projection_id = u.projection_id
-         WHERE u.unit_id = ?`,
-        id,
-      );
-      if (!row) missing.push(id);
-      else {
-        selectedRows.set(row.unit_id, row);
-        if (neighborSpan > 0) {
-          const neighbors = [
-            ...this.sql.exec(
-              `SELECT u.*, d.document_id, d.relative_path, d.source_state,
-                      d.current_revision_id, p.completeness_state, p.coverage_json,
-                      p.issues_json, p.assurance_state,
-                      r.sha256 AS revision_sha256
-               FROM source_units AS u
-               JOIN revisions AS r ON r.revision_id = u.revision_id
-               JOIN documents AS d ON d.document_id = r.document_id
-               JOIN projections AS p ON p.projection_id = u.projection_id
-               WHERE u.projection_id = ? AND u.ordinal BETWEEN ? AND ?
-               ORDER BY u.ordinal`,
-              row.projection_id,
-              Math.max(1, row.ordinal - neighborSpan),
-              row.ordinal + neighborSpan,
-            ),
-          ] as unknown as UnitRow[];
-          for (const neighbor of neighbors)
-            selectedRows.set(neighbor.unit_id, neighbor);
-        }
+    const selected = new Map<string, ReadUnitSelection>();
+    const reasons = new Map<string, Set<string>>();
+    const add = (row: ReadUnitSelection, reason: string) => {
+      selected.set(row.unit_id, row);
+      const set = reasons.get(row.unit_id) ?? new Set<string>();
+      set.add(reason);
+      reasons.set(row.unit_id, set);
+      if (selected.size > SOURCE_READ_MAX_UNITS)
+        sourceReadBudgetExceeded({
+          selected_unit_count: selected.size,
+          maximum_selected_units: SOURCE_READ_MAX_UNITS,
+        });
+    };
+    for (const id of ids) {
+      const row = this.initialized
+        ? this.one<ReadUnitSelection>(
+            "SELECT unit_id, projection_id, ordinal FROM source_units WHERE unit_id = ?",
+            id,
+          )
+        : null;
+      if (!row) {
+        missing.push(id);
+        continue;
+      }
+      add(row, "seed");
+      if (neighborSpan) {
+        for (const neighbor of this.sql.exec<ReadUnitSelection>(
+          `SELECT unit_id, projection_id, ordinal FROM source_units
+           WHERE projection_id = ? AND ordinal BETWEEN ? AND ? ORDER BY ordinal`,
+          row.projection_id,
+          Math.max(1, row.ordinal - neighborSpan),
+          row.ordinal + neighborSpan,
+        ))
+          add(neighbor, "neighbor");
       }
     }
-    for (const row of [...selectedRows.values()].sort(
-      (left, right) =>
-        left.projection_id.localeCompare(right.projection_id) ||
-        left.ordinal - right.ordinal,
-    )) {
-      results.push(unitResult(row));
+    const initialCount = selected.size;
+    if (includeStructureContext) {
+      for (const id of ids.filter((id) => !missing.includes(id))) {
+        for (const row of this.structureContext(id))
+          add(row, "structure_context");
+      }
     }
-    this.touchDocumentAccess(
-      [...selectedRows.values()].map((row) => row.document_id),
-    );
-    return { count: results.length, units: results, missing_unit_ids: missing };
+    const selection = {
+      requested_unit_ids: ids,
+      neighbor_span: neighborSpan,
+      include_structure_context: includeStructureContext,
+      selected_unit_count: selected.size,
+      structure_context_related_unit_count: [...reasons].filter(
+        ([id, set]) => !ids.includes(id) && set.has("structure_context"),
+      ).length,
+      structure_context_added_unit_count: selected.size - initialCount,
+    };
+    const inventory: ReadUnitInventory[] = [];
+    let payloadBytes = 0;
+    let totalChars = 0;
+    for (const selectedUnit of [...selected.values()].sort(
+      (a, b) =>
+        a.projection_id.localeCompare(b.projection_id) || a.ordinal - b.ordinal,
+    )) {
+      const unit = this.one<ReadUnitInventory>(
+        `SELECT u.unit_id, u.projection_id, u.ordinal,
+           CASE WHEN instr(CAST(u.normalized_content AS BLOB), X'00') > 0 THEN NULL
+             ELSE length(u.normalized_content) END AS content_chars,
+           instr(CAST(u.normalized_content AS BLOB), X'00') > 0 AS has_nul,
+           length(CAST(u.normalized_content AS BLOB)) AS content_bytes,
+           length(CAST(u.normalized_content AS BLOB)) + length(CAST(u.structure_path_json AS BLOB))
+             + length(CAST(u.source_anchor_json AS BLOB)) + length(CAST(u.extraction_issues_json AS BLOB))
+             + length(CAST(u.geometry_json AS BLOB)) + length(CAST(u.quality_flags_json AS BLOB))
+             + length(CAST(p.coverage_json AS BLOB)) + length(CAST(p.issues_json AS BLOB)) AS payload_bytes
+         FROM source_units u JOIN projections p ON p.projection_id = u.projection_id WHERE u.unit_id = ?`,
+        selectedUnit.unit_id,
+      )!;
+      payloadBytes += unit.payload_bytes;
+      if (view === "full" && payloadBytes > SOURCE_READ_MAX_BYTES)
+        sourceReadBudgetExceeded({
+          selected_payload_bytes: payloadBytes,
+          maximum_serialized_bytes: SOURCE_READ_MAX_BYTES,
+        });
+      // Four UTF-8 bytes per code point is an inexpensive lower bound before
+      // counting NUL-bearing text. No body is carried across the shard boundary.
+      if (
+        view === "text" &&
+        totalChars + Math.ceil(unit.content_bytes / 4) > SOURCE_READ_MAX_START
+      ) {
+        sourceReadBudgetExceeded({
+          maximum_selected_chars: SOURCE_READ_MAX_START,
+        });
+      }
+      if (view === "text") {
+        unit.content_chars ??= this.nulUnitText(unit).chars;
+        totalChars += (inventory.length ? 2 : 0) + unit.content_chars;
+        if (totalChars > SOURCE_READ_MAX_START)
+          sourceReadBudgetExceeded({
+            selected_chars: totalChars,
+            maximum_selected_chars: SOURCE_READ_MAX_START,
+          });
+      }
+      inventory.push(unit);
+    }
+
+    if (view === "text")
+      return this.readTextPage(
+        inventory,
+        totalChars,
+        start,
+        limit,
+        selection,
+        reasons,
+        missing,
+      );
+
+    const units: Record<string, unknown>[] = [];
+    let resultBytes = 0;
+    for (const unit of inventory) {
+      const row = this.one<UnitRow>(
+        `SELECT u.*, ${READ_SOURCE_COLUMNS} FROM source_units u ${READ_SOURCE_JOINS} WHERE u.unit_id = ?`,
+        unit.unit_id,
+      )!;
+      const result = unitResult(row);
+      resultBytes += serializedBytes(result);
+      if (resultBytes > SOURCE_READ_MAX_BYTES)
+        sourceReadBudgetExceeded({
+          serialized_bytes: resultBytes,
+          maximum_serialized_bytes: SOURCE_READ_MAX_BYTES,
+        });
+      units.push(result);
+    }
+    const result = {
+      count: units.length,
+      units,
+      missing_unit_ids: missing,
+      selection,
+    };
+    assertSourceReadBudget(result);
+    this.touchDocumentAccess(units.map((unit) => String(unit.document_id)));
+    return result;
+  }
+
+  private readTextPage(
+    inventory: ReadUnitInventory[],
+    total: number,
+    start: number,
+    limit: number,
+    selection: Record<string, unknown>,
+    reasons: Map<string, Set<string>>,
+    missing: string[],
+  ): Record<string, unknown> {
+    const end = Math.min(total, start + limit);
+    let source: Record<string, unknown> | null = null;
+    if (inventory.length) {
+      const sourceBytes = this.one<{ bytes: number }>(
+        `SELECT length(CAST(p.coverage_json AS BLOB)) + length(CAST(p.issues_json AS BLOB)) AS bytes
+         FROM source_units u JOIN projections p ON p.projection_id = u.projection_id WHERE u.unit_id = ?`,
+        inventory[0]!.unit_id,
+      )!.bytes;
+      if (sourceBytes > SOURCE_READ_MAX_BYTES)
+        sourceReadBudgetExceeded({
+          source_metadata_bytes: sourceBytes,
+          maximum_serialized_bytes: SOURCE_READ_MAX_BYTES,
+        });
+      const row = this.one<UnitRow>(
+        `SELECT u.revision_id, u.projection_id, ${READ_SOURCE_COLUMNS}
+         FROM source_units u ${READ_SOURCE_JOINS} WHERE u.unit_id = ?`,
+        inventory[0]!.unit_id,
+      )!;
+      source = {
+        document_id: row.document_id,
+        revision_id: row.revision_id,
+        projection_id: row.projection_id,
+        relative_path: row.relative_path,
+        captured_at: row.captured_at,
+        source_state: row.source_state,
+        dependency_state: dependencyState(row),
+        completeness_state: row.completeness_state,
+        assurance_state: row.assurance_state,
+        coverage: objectValue(row.coverage_json),
+        projection_issues: listValue(row.issues_json),
+        trust_lineage: "untrusted_source_derived",
+      };
+    }
+    const parts: string[] = [];
+    const spans: Record<string, unknown>[] = [];
+    let cursor = 0;
+    let metadataBytes = serializedBytes(source);
+    for (const [index, unit] of inventory.entries()) {
+      if (index) {
+        const a = Math.max(start, cursor),
+          b = Math.min(end, cursor + 2);
+        if (a < b) parts.push("\n\n".slice(a - cursor, b - cursor));
+        cursor += 2;
+      }
+      const chars = unit.content_chars!;
+      const a = Math.max(start, cursor),
+        b = Math.min(end, cursor + chars);
+      const emptyHere =
+        chars === 0 &&
+        cursor >= start &&
+        (cursor < end || (cursor === total && end === total));
+      if (a < b || emptyHere) {
+        const bytes = this.one<{ bytes: number }>(
+          `SELECT length(CAST(structure_path_json AS BLOB)) + length(CAST(extraction_issues_json AS BLOB))
+             + length(CAST(quality_flags_json AS BLOB)) AS bytes FROM source_units WHERE unit_id = ?`,
+          unit.unit_id,
+        )!.bytes;
+        if (metadataBytes + bytes > SOURCE_READ_MAX_BYTES)
+          sourceReadBudgetExceeded({
+            page_metadata_bytes: metadataBytes + bytes,
+            maximum_serialized_bytes: SOURCE_READ_MAX_BYTES,
+          });
+        const row = this.one<UnitRow>(
+          `SELECT unit_id, ordinal, unit_type, structure_path_json, extraction_issues_json,
+             derivation_method, confidence, ocr, quality_flags_json FROM source_units WHERE unit_id = ?`,
+          unit.unit_id,
+        )!;
+        const span = {
+          unit_id: row.unit_id,
+          ordinal: row.ordinal,
+          unit_type: row.unit_type,
+          text_range: { start: a - start, end: Math.max(a, b) - start },
+          unit_range: { start: a - cursor, end: Math.max(a, b) - cursor },
+          unit_chars: chars,
+          structure_path: decodeStoredStructurePath(row.structure_path_json),
+          selection_reasons: [...reasons.get(row.unit_id)!],
+          extraction_issues: listValue(row.extraction_issues_json),
+          derivation_method: row.derivation_method,
+          confidence: row.confidence,
+          ocr: row.ocr === 1,
+          quality_flags: listValue(row.quality_flags_json),
+        };
+        metadataBytes += serializedBytes(span);
+        if (metadataBytes > SOURCE_READ_MAX_BYTES)
+          sourceReadBudgetExceeded({
+            page_metadata_bytes: metadataBytes,
+            maximum_serialized_bytes: SOURCE_READ_MAX_BYTES,
+          });
+        spans.push(span);
+        if (a < b)
+          parts.push(
+            unit.has_nul
+              ? this.nulUnitText(unit, a - cursor, b - a).text
+              : this.one<{ text: string }>(
+                  `SELECT substr(normalized_content, ?, ?) AS text FROM source_units WHERE unit_id = ?`,
+                  a - cursor + 1,
+                  b - a,
+                  unit.unit_id,
+                )!.text,
+          );
+      }
+      cursor += chars;
+    }
+    const returned = Math.max(0, end - start);
+    const result = {
+      source_kind: "indexed_source",
+      source_view: "text",
+      source,
+      untrusted_content: parts.join(""),
+      spans,
+      count: spans.length,
+      start_char: start,
+      returned_chars: returned,
+      offset_unit: "unicode_code_point",
+      has_more: end < total,
+      next_start_char: end < total ? end : null,
+      selection,
+      missing_unit_ids: missing,
+    };
+    assertSourceReadBudget(result);
+    if (source) this.touchDocumentAccess([String(source.document_id)]);
+    return result;
   }
 
   private inventory(raw: unknown): Record<string, unknown> {

@@ -1,5 +1,6 @@
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError } from "./errors";
+import { assertSourceReadBudget } from "./corpus-read";
 import {
   corpusContextItemsReviseSchema,
   corpusContextSkillReviseSchema,
@@ -961,7 +962,34 @@ export class CorpusService {
         unitIds: [reference.unitId],
         neighborSpan: input.neighbor_span,
         includeStructureContext: input.include_structure_context,
+        sourceView: input.source_view ?? "full",
+        startChar: input.start_char,
+        maxChars: input.max_chars,
       });
+      if (input.source_view === "text") {
+        const response = {
+          ...result,
+          source:
+            result.source == null
+              ? null
+              : {
+                  ...(result.source as Record<string, unknown>),
+                  space_id: reference.spaceId,
+                  connection_id: reference.connectionId,
+                },
+          spans: (result.spans as Array<Record<string, unknown>>).map(
+            (span) => ({
+              ...span,
+              read_ref: encodeReadReference({
+                ...reference,
+                unitId: String(span.unit_id),
+              }),
+            }),
+          ),
+        };
+        assertSourceReadBudget(response);
+        return response;
+      }
       const units = Array.isArray(result.units) ? result.units : [];
       const text = units
         .map((unit) =>
@@ -975,14 +1003,18 @@ export class CorpusService {
         input.start_char + input.max_chars,
       );
       const hasMore = input.start_char + selected.length < text.length;
-      return {
+      const response = {
         ...result,
+        source_view: "full",
+        offset_unit: "utf16_code_unit",
         untrusted_content: selected,
         start_char: input.start_char,
         returned_chars: selected.length,
         has_more: hasMore,
         next_start_char: hasMore ? input.start_char + selected.length : null,
       };
+      assertSourceReadBudget(response);
+      return response;
     }
     const connection = await this.workConnection(
       input.space_id,

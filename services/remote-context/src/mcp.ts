@@ -446,7 +446,7 @@ export function registerCorpusTools(
     {
       title: "Read Space File",
       description:
-        "Read exact committed Source text by read_ref, or a live Work file through Sync.",
+        "Read captured Source text by read_ref, or a live Work file through Sync. For ordinary Source reading use source_view=text: one paged body, source captured_at/state, and per-page spans with read_ref and structure. Use full (the legacy default) for complete unit envelopes/hashes. include_structure_context expands explicit table-row/header and note/owner links. Continue with next_start_char and the same reference/view/options; text offsets are Unicode code points, full offsets are UTF-16 units. Source-only options require read_ref. Check extraction warnings and has_more before treating a table or document as complete.",
       inputSchema: corpusFileReadSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
