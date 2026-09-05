@@ -495,21 +495,25 @@ app의 필수 `expected_version`, Claude Code 새 세션의 도구 입력·읽�
 간주하지 않으며, 다음 사용 확인 시점에 이어서 확인한다.
 
 **04의 문서 기능·유지 범위**는 HWP/HWPX의 구조·위치 보존과 공통 분석 계약을 직접 유지하고,
-일반 문서 제작은 호스트 라이브러리에 맡기는 방향으로 조사했다. 첫 구현으로 개인 ChatGPT용
-Skill의 잘못된 실행 명령과 HWP/HWPX `inspect`의 MCP 응답 검증 실패를 복구했다. 전체 문서 시험과
-압축을 푼 Personal Skill의 실제 실행을 확인했다. 문서 runtime 수정은 연관 지침 개편과 함께 Codex
-통합본에 포함됐으며, Claude·개인 ChatGPT 반영은 후속 읽기 경로 정리와 묶는다.
-후속 구현에서는 읽기 경로를 통일하고 셀 전체 사전조건과 값 손실을 막는 편집 제한을 적용했다.
+일반 문서 제작은 호스트 라이브러리에 맡긴다. Personal Skill의 실행 명령과 MCP 응답을 복구한 뒤
+읽기 경로를 통일하고 셀 전체 사전조건과 값 손실을 막는 편집 제한을 적용했다.
 실제 한국어 문서의 읽기·셀 편집과 원본 보존을 확인했으며, 문서 제작 Skill의 원본·편집 가능 요소
-보존과 요청된 Google native 결과의 완료 기준도 정리했다. Document Files 1.5.0과 문서 Skill을
-한 번에 반영하며 일반 문서 제작 엔진을 새로 추가하지 않는다.
+보존과 요청된 Google native 결과의 완료 기준도 정리했다. 자체 문서 제작 엔진은 추가하지 않는다.
+Document Files 1.5.0과 문서 Skill, Sync 0.2.1을 소스 `0e925e3`과 원격 검사에서 한 묶음으로 확인했다.
+Codex 설치본의 소스 일치와 HWP 읽기, Claude Code 새 세션의 local MCP 9개와 실제 읽기를 확인했다.
+Claude Desktop은 기존 plugin을 갱신해 새 Skill을 확인하고 재시작했으며, 개인 ChatGPT의 다섯
+Personal Skill도 기존 등록을 교체한 뒤 새 본문과 Document Files의 실행 파일 목록을 확인했다.
+Codex의 중복 기본 문서 Skill 네 개만 제외했고, 기반 plugin·호스트 기능·별도 Excel 제어와 템플릿
+Skill은 유지했다. 현재 앱에서 자동 전달되는 Skill 안내는 재시작 후 확인이 남아 있다. 개인 ChatGPT와
+Cowork에서 새 문서 도구를 실제로 사용하는 확인도 남아 있으며, 설치 갱신만으로 대신하지 않는다.
 세부 범위와 남은 실제 문서 확인은 [Document Files 설계](plugins/document-files/DESIGN.md)에 둔다.
 
 **03의 Source 이동·교체 안전성**은 이동과 내용 변경이 겹칠 때의 갱신 누락, 추적 파일 사이의
 경로 덮기 충돌과 캡처 직전 파일 교체를 재현하고 수정했다. 같은 바이트의 형식 변경은 새 projection과
-MIME을 반영하며, 처리 중에 관측한 후속 변경은 대기열에 남긴다. 기존 검사와 일회성 재현 확인을
-마쳤으며 Sync 0.2.1 실행 환경 반영은 Document Files와 묶는다. 이전 record의 보존과 Work 변경
-계약은 유지한다.
+MIME을 반영하며, 처리 중에 관측한 후속 변경은 대기열에 남긴다. 기존 검사와 일회성 재현 확인 뒤
+Sync 0.2.1 실행 환경을 Document Files와 함께 갱신했다. 설치된 소스 일치, 기존 LaunchAgent의 새
+프로세스 시작과 연결·대기열 상태를 확인했으며, 등록 설정은 유지했다. 운영 Source 강제 갱신이나
+Work 변경을 확인용으로 실행하지 않았다. 이전 record의 보존과 Work 변경 계약도 유지한다.
 이미 완료로 기록된 과거 projection을 일괄 재분석하지 않으며, 실제 영향이 확인된 문서만 개별
 갱신 대상으로 삼는다. 현재 동작은 [Sync 설명](apps/sync/README.md)에 둔다.
 

@@ -18,4 +18,9 @@ python3 scripts/build_openai_plugin.py
 python3 scripts/build_chatgpt_personal_skills.py /tmp/personal-agent-toolkit-skills
 ```
 
+기존 Personal Skill을 갱신할 때에는 스킬 목록의 **만들기 → 컴퓨터에서 업로드**에서 archive를
+하나씩 올리고 같은 이름의 **기존 항목 교체**를 선택합니다. 편집기의 파일 업로드에 archive를
+첨부하는 것은 전체 Skill 교체가 아닙니다. 교체 뒤 기존 등록과 설치 상태, 새 본문·실행 파일을
+확인하며 삭제 후 재설치를 기본 절차로 삼지 않습니다.
+
 제품별 구현과 Claude 배포 방식은 저장소 루트의 `DESIGN.md`와 각 제품의 `DESIGN.md`를 따릅니다.
