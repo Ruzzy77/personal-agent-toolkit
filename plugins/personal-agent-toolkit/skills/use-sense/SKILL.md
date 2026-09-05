@@ -9,9 +9,9 @@ Sense provides durable context for important choices and reusable work. The curr
 
 ## Access
 
-For substantive writing or other work that may match retained guidance or a workflow, begin with `sense_read` using `view=index`. An ordinary index entry may include the name and description of a user-approved Section Skill. Read only the sections relevant to the current request. The section response includes the complete Skill instructions when one is attached; use them as the working method for that task.
+For substantive work whose relevant guidance is not already available, use `sense_read` with `view=index` to select the relevant sections. An ordinary index entry may include the name and description of a user-approved Section Skill. The section response includes the complete Skill instructions when attached. Apply that method only to its matching task; an optional procedure or output convention does not redefine the user's purpose or editing scope.
 
-A direct continuation can open a known section immediately. Trivial requests do not need a Sense lookup. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
+A direct continuation can open a known section immediately. Reuse already-read guidance of the same version within the task. Read again when the purpose changes, the user requests a reread, or an update or freshness check matters. Do not reread an already-injected common instruction body just to route back here. Trivial requests do not need a Sense lookup. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
 
 ## Content
 

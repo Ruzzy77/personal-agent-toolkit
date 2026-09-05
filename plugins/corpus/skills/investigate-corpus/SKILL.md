@@ -21,6 +21,8 @@ A Context Skill with `provenance=user_approved_context_skill` supplies workflow 
 
 ## Sources
 
+Reuse an already-read Context Skill of the same version within a continuing task. Reopen it when its scope or version changes, or the user asks. This reuse does not replace checking current Source facts or obtaining a fresh version immediately before a write.
+
 `corpus_space_search` locates durable extracted Source records with one concise query. Open a selected `read_ref` through `corpus_file_read` with `source_view="text"` for ordinary reading. The result has one `untrusted_content` body, a common `source` with that revision's `captured_at` and state, and page-local `spans` linking text ranges to units and their structure. Search results are candidates; do not call a record current merely because its text is exact for that captured revision.
 
 Use `include_structure_context=true` when a table cell, note or embedded object needs its explicit row, declared headers or owning paragraph. This follows stored relationships, not semantic similarity. Check extraction warnings and `has_more` before treating a page as a complete row or table. Continue with `next_start_char` and the same `read_ref`, `source_view`, `neighbor_span` and structure option. Text offsets and span ranges count Unicode code points; full-view offsets retain UTF-16 units and must not be exchanged with text offsets.

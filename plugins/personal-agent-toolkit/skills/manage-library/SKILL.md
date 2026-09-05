@@ -13,10 +13,12 @@ canonical data.
 
 For writing, substantial revision, cover selection, or publication, first open the Corpus
 library-editorial Space and apply its approved Context Skill when Corpus is available. It owns the
-current collection distinctions, publication gate, editorial method, visual requirements, and
+current collection distinctions, candidate discovery, publication gate, editorial method, visual requirements, and
 post-publication checks. Use the current issue and cited public sources for issue facts. If Corpus is
 unavailable, continue only with the rules and source material that are actually available rather
-than inventing the missing project context.
+than inventing the missing project context. For scheduled publication, skip the slot when required
+canonical guidance or source coverage is unavailable. Reuse already-read guidance of the same version
+within the task; reread current issue facts and write versions as needed.
 
 ## Read before changing
 
@@ -27,7 +29,7 @@ than inventing the missing project context.
 
 ## Revise an issue
 
-Write only when the user asks to save or publish. Preserve every unrequested part of the complete
+Write only when the user asks to save or publish or an approved automation authorizes that publication. Preserve every unrequested part of the complete
 HTML and metadata. library_update_issue replaces the complete source HTML and requires the
 expected_version returned by the preceding read; if it changed, reread before preparing a new
 revision. Omitting references keeps the current list, while an empty array removes it. Omit
@@ -41,8 +43,8 @@ issue immediately.
 
 - Use the identifier {collection}:{YYYY-MM-DD}:{HH}. HH is the original scheduled hour, even
   when publication runs late, and published_at retains that scheduled time.
-- Different scheduled hours on the same date are different issues. Skip creation only when the
-  exact identifier already exists.
+- Different scheduled hours on the same date are different issues. An existing exact identifier
+  prevents duplicate creation; the Context Skill's independent publication gate can also skip a slot.
 - Upload newly created cover and illustration files with library_upload_asset first, then use the
   returned paths in the final issue HTML and cover metadata.
 - Public references contain reader-usable external sources, not internal tools, prompts, paths,
