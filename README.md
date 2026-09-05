@@ -212,11 +212,15 @@ claude plugin list
 
 ### Claude Desktop
 
-`Customize → Plugins`에서 `personal-agent-toolkit` marketplace를 갱신한 뒤 Sense, Corpus, Document
-Files, Hypes, Journal, Design과 Library를 업데이트합니다. 업데이트 항목이 나타나지 않거나 이전 버전이
-남아 있으면 해당 plugin을 설치 해제한 뒤 같은 marketplace에서 다시 설치합니다. Claude Desktop을
-다시 시작하고 새 Cowork 세션에서 Design의 세 Skill과 각 원격 MCP의 현재 도구를 확인합니다. 일반
-Chat에 Skill만 나타나는 상태를 MCP 연결 확인으로 간주하지 않습니다.
+`사용자 지정 → 플러그인 → 내 것`에서 변경한 plugin의 추가 작업 메뉴로 `업데이트 확인`을 실행하고,
+상세 화면의 `업데이트`를 사용합니다. 목록 조회 전에는 상세 화면에 업데이트 버튼이 없을 수 있습니다.
+정상 갱신 뒤에도 이전 버전이 남거나 설치가 손상된 경우에만 해당 plugin을 재설치합니다.
+
+원격 도구 입력도 바뀌었다면 기존 커넥터 상세 화면의 추가 옵션에서 `도구 목록 새로 고침`을 실행합니다.
+plugin 갱신과 커넥터 목록 갱신은 별개이며 기존 인증과 도구 권한은 유지합니다. Desktop을 다시
+시작한 뒤 새 Cowork 세션에서 현재 Skill과 실제 도구 입력·호출을 확인합니다. 기존 작업은 목록을
+새로 고쳐도 이전 입력을 유지할 수 있으므로 그 상태를 서버 배포 실패로 단정하지 않습니다. 일반
+Chat의 Skill 표시나 설치 버전만으로 MCP 연결과 실제 사용을 확인했다고 하지 않습니다.
 
 ### claude.ai
 

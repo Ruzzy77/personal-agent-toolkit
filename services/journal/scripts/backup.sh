@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 
 if [ "$#" -ne 1 ]; then
   echo "usage: backup.sh /absolute/path/to/journal-backup.sql" >&2

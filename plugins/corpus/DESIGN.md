@@ -164,8 +164,12 @@ projection을 새 추출본으로 바꾸지 않고 읽었습니다. 출처 한 �
 읽기에 성공했습니다. 자동으로 적절한 경로를 선택하는지는 이 두 번째 성공과 구분합니다.
 
 공유 Worker와 OpenAI 등록 app의 입력·설명, Codex 통합 plugin과 Claude Code의 Corpus를
-갱신했습니다. Claude Desktop/web 설치본과 Cowork 확인은 아직 남아 있습니다. 새 Skill은 구형
-서버가 받지 않는 출처 입력을 사용할 수 있으므로 서버를 먼저 반영하고 관련 클라이언트를
+갱신했습니다. Claude Desktop은 기존 설치의 업데이트 확인·반영으로 0.23.0을 적용하고 재시작했으며,
+현재 Skill의 출처·추출본 안내와 웹의 같은 버전을 확인했습니다. 기존 Cowork 작업에서도 새 Skill을
+실제로 읽었지만 도구 검색은 이전 입력 세 개를 유지했습니다. 기존 커넥터의 도구 목록 갱신 뒤에도
+같은 작업에서는 새 입력이 보이지 않아 Source 호출 전에 중단했습니다. 새 Cowork 세션의 입력·
+실제 읽기 확인은 남아 있으며, 이 결과를 원격 서버의 구형 배포나 인증 장애로 단정하지 않습니다.
+새 Skill은 구형 서버가 받지 않는 출처 입력을 사용할 수 있으므로 서버를 먼저 반영하고 관련 클라이언트를
 갱신합니다. 되돌릴 때에는 새 입력을 보내는 Skill·등록 schema부터 이전 상태로 맞추며, 기존
 압축 저장 형식을 읽는 Worker와 저장 binding을 유지합니다. 이 변경에는 migration이나
 Source 재분석이 필요하지 않습니다.
@@ -181,6 +185,38 @@ Source 재분석이 필요하지 않습니다.
 원자료에서 분리된 record만 고정된 기간과 마지막 사용자 조회 시점에 따라 `active → archived → trash → purge`로 이동합니다. 기본값은 managed가 분리 30일 후 보관, 보관 180일 후 휴지통, 휴지통 30일 후 완전 삭제이며 transient는 각각 7일·30일·7일입니다. Context가 참조하거나 `protected`로 지정한 record는 이 전환에서 제외하고, 잘못 보관된 보호 record는 active로 복원합니다.
 
 이 정책은 파일 내용의 의미·중요도·품질을 모델이 판단하지 않습니다. 수동 복원과 보존 등급 변경을 제공하며, purge만 revision·projection·unit과 검색 투영을 실제로 삭제합니다.
+
+### 복구 검토와 다음 확인
+
+중단된 업로드의 staging·재개와 현재 원본의 정확한 `source.refresh`는 유지합니다. 재분석은 과거
+projection의 식별자·본문 복원을 보장하지 않으며, Sync DB의 마지막 hash·식별자·완료 응답은 분석
+본문의 백업이 아닙니다. `migrate-local`도 owner 전체 metadata와 Sense·Hypes를 함께 다루므로
+개별 shard 복구에 재사용하지 않습니다.
+
+2026-09-05 조사 시 [Cloudflare PITR](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api)는
+SQLite DO 하나의 SQL·KV 전체를 최근 30일 안의 bookmark로 복구할 수 있지만 로컬 실행에서는
+지원되지 않습니다. 현행 CorpusShard에는 bookmark·복구 호출 경로가 없습니다. 다음 확인은
+기존 CorpusShard와 migration을 재사용한 **원격 합성 DO 한 개와 격리 D1**으로 제한합니다.
+운영 저장소·인증·Sync binding과 공개 HTTP·MCP 경로를 연결하지 않고, 대상이 고정된 일회성
+비공개 호출부에서만 복구를 예약합니다. 원격 접근은 배포된 Worker를 향한
+[service binding](https://developers.cloudflare.com/workers/local-development/#using-remote-resources-with-durable-objects-and-workflows)을
+사용하며 상시 복구 서비스를 먼저 추가하지 않습니다.
+
+1. 합성 Source A와 이를 가리키는 Context를 만든 뒤 쓰기를 멈추고 DO·D1 bookmark와 식별자·
+   hash를 확보합니다. Source를 B로 변경한 다음 DO를 A로 복구하고 재시작합니다. 저장 행을 먼저
+   대조한 뒤 기존 Context 출처 읽기로 문서·revision·projection·unit, 본문과 추출본 상태를 확인합니다.
+2. D1이 B를 참조하는 조건에서 DO만 A로 복구하여 새로 생긴 출처 누락을 검출합니다. 참조를 지우거나
+   최신본으로 바꾸지 않고, 별도로 보존한 undo bookmark로 B를 되살려 다시 대조합니다. 정상 복구·
+   누락 검출·undo·읽기를 확인한 뒤 일회성 호출부와 모든 격리 자원을 정리합니다.
+3. 운영 복구 절차에는 같은 owner·corpus를 사용하는 모든 Space의 Context·출처, 현재 Connection
+   권한·generation, Sync 대기열·완료 응답의 대조를 포함합니다. 기존 누락과 복구로 새로 생긴 누락을
+   구분하고, 대조 전에는 해당 corpus의 쓰기·유지보수를 재개하지 않습니다.
+
+위 내용은 다음 확인 계획이며 운영 복구 성공을 뜻하지 않습니다. D1 외래 키 검사는 DO의 unit 누락을
+검출하지 못합니다. [D1 전체 복구](https://developers.cloudflare.com/d1/reference/time-travel/)는
+같은 저장소의 다른 제품·Corpus와 현재 권한까지 되돌릴 수 있어 기본안에서 제외합니다. 같은 시각의
+bookmark도 두 저장소의 공동 transaction을 보장하지 않습니다. 실제 장애에서 이후 변경을 포기해야
+하거나 PITR 기간 밖의 이력·원문 바이트까지 보존하려면 사용자의 복구 범위 선택을 먼저 받습니다.
 
 ## Work 파일
 
