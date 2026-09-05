@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import re
 import subprocess
@@ -508,46 +507,6 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
     ) != set(expected_context_tools):
         errors.append(
             f"{relative(context_implementation)} tool registrations differ from products.json"
-        )
-
-    sync_path = ROOT / "apps" / "sync" / "src" / "personal_agent_sync" / "migration.py"
-    sync_tree = ast.parse(sync_path.read_text(encoding="utf-8"))
-    sync_surfaces: object | None = None
-    for node in sync_tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if any(
-            isinstance(target, ast.Name) and target.id == "EXPECTED_REMOTE_MCP_SURFACES"
-            for target in node.targets
-        ):
-            try:
-                sync_surfaces = ast.literal_eval(node.value)
-            except (SyntaxError, ValueError):
-                errors.append(
-                    f"{relative(sync_path)} expected MCP surfaces must remain literal data"
-                )
-            break
-    expected_sync_surfaces = {
-        name: {
-            "name": product["mcp"]["surface_name"],
-            "version": product["mcp"]["surface_version"],
-            "tools": product["mcp"]["tools"],
-        }
-        for name, product in context_products.items()
-    }
-    expected_sync_surfaces["toolkit"] = {
-        "name": OPENAI_DISTRIBUTION["mcp"]["surface_name"],
-        "version": OPENAI_DISTRIBUTION["mcp"]["surface_version"],
-        "tools": [
-            tool
-            for product_name in OPENAI_DISTRIBUTION["products"]
-            if product_name in OPENAI_REMOTE_MCP_PRODUCTS
-            for tool in PRODUCTS[product_name]["mcp"]["tools"]
-        ],
-    }
-    if sync_surfaces != expected_sync_surfaces:
-        errors.append(
-            f"{relative(sync_path)} expected MCP surfaces must match products.json"
         )
 
     for name, product in PRODUCTS.items():

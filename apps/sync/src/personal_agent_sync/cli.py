@@ -74,9 +74,15 @@ def parser() -> argparse.ArgumentParser:
         "migrate-local",
         help="resumably migrate installed Sense, Hypes, and Corpus durable records",
     )
-    commands.add_parser(
+    verify = commands.add_parser(
         "verify-migration",
         help="compare installed durable records with the remote service",
+    )
+    verify.add_argument(
+        "--products",
+        type=Path,
+        required=True,
+        help="products.json from the release expected to be deployed",
     )
     commands.add_parser(
         "install-agent", help="install and start the per-user launch agent"
@@ -276,7 +282,13 @@ def main() -> None:
         elif arguments.command == "migrate-local":
             result = asyncio.run(migrate_local(config, read_token(config.device_id)))
         elif arguments.command == "verify-migration":
-            result = asyncio.run(verify_local(config, read_token(config.device_id)))
+            result = asyncio.run(
+                verify_local(
+                    config,
+                    read_token(config.device_id),
+                    product_registry=arguments.products,
+                )
+            )
         elif arguments.command == "install-agent":
             result = _install_agent(arguments.config, config.data_root)
         elif arguments.command == "uninstall-agent":

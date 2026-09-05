@@ -160,10 +160,22 @@ MCP endpoint는 서로 다른 배포 경계입니다.
 
 ## 버전 갱신
 
-plugin base version을 하나라도 바꾸면 소스 변경, 원격 저장소 반영과 각 실행 환경의 갱신을 한 번의
-절차로 마칩니다. OpenAI 통합 app의 도구를 새로 고침하고 Codex의 packaging revision을 갱신하며,
-Claude와 Codex의 GitHub marketplace를 갱신합니다. 로컬 checkout marketplace는 발행 전 시험에만
-사용합니다.
+관련 변경을 release로 묶어 소스와 원격 저장소에 반영하고, 영향을 받는 서비스·Site·클라이언트만
+갱신합니다. 작은 변경마다 삭제·설치하지 않고 기존 업데이트 기능을 먼저 사용합니다. 구체적인
+반영 단위와 확인 시점은 [`DESIGN.md`](./DESIGN.md#반영-묶음과-확인-시점)를 따릅니다.
+
+- 공개 MCP 도구·입력이 바뀌면 OpenAI 통합 app의 등록을 새로 고치고 해당 클라이언트의 실제
+  도구 노출을 확인합니다. Skill·manifest·host 번들이 바뀌면 Codex의 packaging revision과
+  영향을 받는 Claude plugin 또는 개인 ChatGPT Skill을 갱신합니다.
+- Journal·Library·Design의 공유 업무 구현을 바꾸면 개별 Worker와 통합 Context Worker를
+  함께 반영합니다. 두 경로가 같은 제품 저장층에 접근하므로 한쪽만 구형 구현으로 남기지 않습니다.
+  Site 변경은 해당 화면의 별도 배포에 반영합니다.
+- 원격 version만 바뀌면 Sync·Corpus·Document Files의 로컬 실행 환경을 재설치하지 않습니다.
+  초기 이관 확인은 확인할 release의 `products.json`을 사용하고, 로컬 코드·의존성·호환 조건이
+  달라질 때 로컬 환경을 갱신합니다.
+
+GitHub marketplace에서 현재 배포본을 갱신하며, 로컬 checkout marketplace는 발행 전 시험에만
+사용합니다. 설치 표시와 새 작업에서의 실제 사용 확인은 구분합니다.
 
 ### ChatGPT와 Codex
 

@@ -19,90 +19,51 @@ from .errors import SyncError
 from .remote import RemoteClient
 from .state import SyncState, canonical
 
-EXPECTED_REMOTE_MCP_SURFACES = {
-    "toolkit": {
-        "name": "Personal Agent Toolkit",
-        "version": "1.2.0",
-        "tools": [
-            "sense_read",
-            "sense_overview",
-            "sense_revise",
-            "sense_skill_revise",
-            "corpus_space_list",
-            "corpus_space_get",
-            "corpus_context_items_revise",
-            "corpus_context_skill_revise",
-            "corpus_space_search",
-            "corpus_source_refresh",
-            "corpus_job_status",
-            "corpus_file_list",
-            "corpus_file_read",
-            "corpus_file_write",
-            "corpus_file_delete",
-            "corpus_file_select_current",
-            "corpus_file_restore",
-            "hypes_read",
-            "hypes_rewrite",
-            "journal_get_board",
-            "journal_ingest_items",
-            "journal_find_items",
-            "journal_get_item_history",
-            "journal_set_resolution",
-            "journal_prepare_week_close",
-            "journal_confirm_week_close",
-            "journal_add_correction",
-            "journal_get_period",
-            "journal_record_corpus_promotion",
-            "journal_save_period_summary",
-            "library_whoami",
-            "library_list_issues",
-            "library_read_issue",
-            "library_update_issue",
-            "library_create_issue",
-            "library_upload_asset",
-            "design_list_recipes",
-            "design_read_recipe",
-            "design_read_asset",
-            "design_create_recipe",
-            "design_update_recipe",
-            "design_upload_asset",
-        ],
-    },
-    "sense": {
-        "name": "Sense",
-        "version": "0.3.7-remote.1",
-        "tools": [
-            "sense_read",
-            "sense_overview",
-            "sense_revise",
-            "sense_skill_revise",
-        ],
-    },
-    "corpus": {
-        "name": "Corpus",
-        "version": "0.22.0-remote.3",
-        "tools": [
-            "corpus_space_list",
-            "corpus_space_get",
-            "corpus_context_items_revise",
-            "corpus_context_skill_revise",
-            "corpus_space_search",
-            "corpus_source_refresh",
-            "corpus_job_status",
-            "corpus_file_list",
-            "corpus_file_read",
-            "corpus_file_write",
-            "corpus_file_delete",
-            "corpus_file_select_current",
-            "corpus_file_restore",
-        ],
-    },
-    "hypes": {
-        "name": "Hypes",
-        "version": "0.10.0-remote.1",
-        "tools": ["hypes_read", "hypes_rewrite"],
-    },
-}
+
+def read_expected_mcp_surfaces(registry_path: Path) -> dict[str, Any]:
+    """Read release expectations without coupling them to the installed Sync build."""
+
+    def surface(mcp: Mapping[str, Any]) -> dict[str, Any]:
+        result = {
+            "name": mcp["surface_name"],
+            "version": mcp["surface_version"],
+            "tools": mcp["tools"],
+        }
+        if (
+            not all(
+                isinstance(result[key], str) and result[key]
+                for key in ("name", "version")
+            )
+            or not isinstance(result["tools"], list)
+            or not result["tools"]
+            or not all(isinstance(tool, str) and tool for tool in result["tools"])
+        ):
+            raise ValueError("invalid MCP surface")
+        return result
+
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        if registry["schema_version"] != 2:
+            raise ValueError("unsupported product registry schema")
+        products = registry["products"]
+        distribution = registry["distributions"]["openai"]
+        expected = {
+            name: surface(products[name]["mcp"])
+            for name in ("sense", "corpus", "hypes")
+        }
+        toolkit_tools = [
+            tool
+            for name in distribution["products"]
+            if products[name]["delivery"]["openai"]["runtime"] == "remote_mcp"
+            for tool in surface(products[name]["mcp"])["tools"]
+        ]
+        expected["toolkit"] = surface({**distribution["mcp"], "tools": toolkit_tools})
+        return expected
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError) as exc:
+        raise SyncError(
+            "invalid_product_registry",
+            "expected MCP surfaces could not be read from the supplied products.json",
+        ) from exc
 
 
 def _json(value: str | None, fallback: object) -> Any:
@@ -1644,9 +1605,12 @@ def _durable_counts_cover_expected(
     return True
 
 
-async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
-    """Compare the local durable records with the deployed remote state."""
+async def verify_local(
+    config: SyncConfig, token: str, *, product_registry: Path
+) -> dict[str, Any]:
+    """Compare local durable records and the explicit release with remote state."""
 
+    expected_surfaces = read_expected_mcp_surfaces(product_registry)
     remote = RemoteClient(config, token)
     try:
         sense = export_sense()
@@ -1661,9 +1625,9 @@ async def verify_local(config: SyncConfig, token: str) -> dict[str, Any]:
         metadata_digest, metadata_result = metadata_checkpoint
         summary = await remote.verification_summary()
         remote_surfaces = summary.get("mcp_surfaces")
-        if remote_surfaces != EXPECTED_REMOTE_MCP_SURFACES:
+        if remote_surfaces != expected_surfaces:
             raise _verification_error(
-                "remote MCP surfaces do not match this Sync build"
+                "remote MCP surfaces do not match the supplied products.json"
             )
         remote_sense = summary.get("sense")
         remote_hypes = summary.get("hypes")
@@ -2046,6 +2010,7 @@ __all__ = [
     "export_hypes",
     "export_sense",
     "migrate_local",
+    "read_expected_mcp_surfaces",
     "verify_local",
     "write_discovered_config",
 ]

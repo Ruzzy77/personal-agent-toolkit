@@ -104,7 +104,9 @@ byte upload. If the embedded runtime cannot run, the queue records
    projection boundaries after interruption. When a complete Corpus has been
    copied, it removes only exact remote-minus-local record IDs in bounded
    batches and reports the resulting shard size.
-   `verify-migration` compares durable identities, content hashes, lifecycle
+   `verify-migration --products products.json` takes the expected release's
+   product registry (the example path is relative to the repository root) and
+   compares durable identities, content hashes, lifecycle
    state, and extraction metadata. It recognizes a newer revision or analyzer
    projection only when the local Sync ledger records that exact Source digest
    and committed projection. Continuously advancing observation fields such as
@@ -112,8 +114,11 @@ byte upload. If the embedded runtime cannot run, the queue records
    content-identity mismatches while the local authority is live. A replaced
    file's retired identity is verified as unavailable without treating Sync's
    private detached locator or last observed file size as remote data.
-   It also checks the deployed Sense, Corpus, and Hypes server versions and
-   exact public tool-name sets before comparing durable records. The metadata
+   It also checks the deployed Sense, Corpus, Hypes, and unified MCP names,
+   versions, and exact public tool-name lists against that registry before
+   comparing durable records. The registry is a required operator input, not
+   an installed snapshot or a value learned from the server being checked.
+   The metadata
    receipt is compared with the exact locally recorded migration checkpoint,
    so later Finder scan timestamps do not invalidate a completed migration.
    Once a Corpus document migration has completed, a later run does not reopen
@@ -125,6 +130,18 @@ byte upload. If the embedded runtime cannot run, the queue records
 5. Run `personal-agent-sync reconcile` and verify the queue.
 6. Start it with `personal-agent-sync run`, or install the per-user background
    service with `personal-agent-sync install-agent`.
+
+The release registry is used only for this one-time migration check; the normal
+daemon does not read it. Remote-only version changes do not require reinstalling
+Sync, Corpus, or Document Files. Update these local environments when their code,
+dependencies, or compatibility requirements change. An older verifier without
+`--products` can be replaced at that next local update; until then, use the
+current checkout's verifier in an isolated command rather than changing the
+running daemon just to update release expectations.
+
+From the current repository root, that command is
+`uv run --project apps/sync --frozen personal-agent-sync verify-migration --products products.json`.
+It uses the checkout's environment, not the installed background service.
 
 Ordinary Finder renames and moves need no configuration change. If a folder was
 copied, restored, or recreated as a new checkout, its filesystem identity is no
