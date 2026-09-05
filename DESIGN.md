@@ -496,7 +496,8 @@ ChatGPT 작업과 새 Cowork 작업에서의 호출 확인은 남아 있다. 이
 **04의 문서 기능·유지 범위**는 HWP/HWPX의 구조·위치 보존과 공통 분석 계약을 직접 유지하고,
 일반 문서 제작은 호스트 라이브러리에 맡기는 방향으로 조사했다. 첫 구현으로 개인 ChatGPT용
 Skill의 잘못된 실행 명령과 HWP/HWPX `inspect`의 MCP 응답 검증 실패를 복구했다. 전체 문서 시험과
-압축을 푼 Personal Skill의 실제 실행을 확인했으며, 설치 반영은 후속 읽기 경로 정리와 묶는다.
+압축을 푼 Personal Skill의 실제 실행을 확인했다. 문서 runtime 수정은 연관 지침 개편과 함께 Codex
+통합본에 포함됐으며, Claude·개인 ChatGPT 반영은 후속 읽기 경로 정리와 묶는다.
 세부 범위와 남은 실제 문서 확인은 [Document Files 설계](plugins/document-files/DESIGN.md)에 둔다.
 01의 Sense 전달 효율과 사용자 모델의 실제 활용 가치는 별도로 남아 있으며, 검색·충돌 수정만으로
 01 전체를 완료한 것으로 보지 않는다.
