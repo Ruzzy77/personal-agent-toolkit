@@ -282,7 +282,7 @@
       "display_name": "Library",
       "plugin": {
         "path": "plugins/library",
-        "base_version": "0.3.1"
+        "base_version": "0.3.2"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -305,7 +305,7 @@
         "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp",
         "implementation": "services/library/src/mcp.ts",
         "surface_name": "personal-library",
-        "surface_version": "0.3.1",
+        "surface_version": "0.3.2",
         "tools": [
           "library_whoami",
           "library_list_issues",

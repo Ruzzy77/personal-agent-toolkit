@@ -64,7 +64,7 @@ function createServer(
   library: LibraryService,
 ): McpServer {
   const server = new McpServer(
-    { name: "personal-library", version: "0.3.1" },
+    { name: "personal-library", version: "0.3.2" },
     {
       instructions:
         owner.scopes.includes("library.write")
@@ -241,13 +241,13 @@ export function registerLibraryTools(
       "library_upload_asset",
       {
         title: "Library 이미지 올리기",
-        description: "이미지 생성으로 만든 표지나 삽화를 온라인 Library 저장소에 올립니다.",
+        description: "표지나 삽화를 새 경로에 올립니다. 같은 경로·내용·형식의 재시도는 허용하지만 기존 이미지의 덮어쓰기는 거절합니다. 교체 이미지는 새 경로에 올린 뒤 발간호를 수정해 참조를 바꾸세요.",
         inputSchema: uploadAssetSchema,
         outputSchema: uploadAssetOutputSchema,
         annotations: {
           readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
           openWorldHint: false,
         },
       },

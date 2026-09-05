@@ -51,6 +51,70 @@
   color: var(--cobalt-deep, #1835c5);
 }
 
+.library-draft-recovery {
+  box-sizing: border-box;
+  width: min(calc(100% - (var(--gutter, 20px) * 2)), var(--page-max, 1120px));
+  margin: calc(var(--chrome-height, 42px) + 2rem) auto 0;
+  padding: 1.25rem;
+  border: 1px solid var(--line, #d5d6d9);
+  color: var(--ink, #171923);
+  background: var(--paper, #fff);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.library-draft-recovery[hidden],
+.library-draft-recovery [hidden] {
+  display: none !important;
+}
+
+.library-draft-recovery h2,
+.library-draft-recovery h3,
+.library-draft-recovery p {
+  margin: 0 0 0.75rem;
+}
+
+.library-draft-recovery h2 { font-size: 1.125rem; }
+.library-draft-recovery h3 { font-size: 1rem; }
+.library-draft-recovery summary { cursor: pointer; }
+.library-draft-metadata { color: var(--soft, #535765); font-size: 0.875rem; }
+
+.library-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.library-draft-actions button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line, #d5d6d9);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.library-draft-actions button:disabled { opacity: 0.5; cursor: default; }
+.library-draft-recovery :focus-visible { outline: 2px solid var(--cobalt-deep, #1835c5); outline-offset: 3px; }
+.library-stored-draft { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line, #d5d6d9); }
+.library-draft-recovery textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line, #d5d6d9);
+  font: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+}
+
 @media (max-width: 520px) {
   .library-save-status {
     top: calc(10px + var(--chrome-height, 42px) + 7px);
@@ -60,7 +124,8 @@
 }
 
 @media print {
-  .library-save-status {
+  .library-save-status,
+  .library-draft-recovery {
     display: none !important;
   }
 }

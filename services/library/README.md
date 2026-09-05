@@ -14,11 +14,17 @@ Worker입니다. 이 서비스가 D1 문서, R2 asset과 저장 규칙을 소유
 - `library_create_issue`: `{collection}:{YYYY-MM-DD}:{HH}` 식별자로 새 발간호 추가. `HH`는 두 자리 예약 발행 시각이며 정식 주소에도 같은 시각이 포함됨
 - `library_upload_asset`: 이미지 생성으로 만든 표지나 삽화 업로드
 
-쓰기 요청에는 읽을 때 받은 `version`을 함께 보내며, 현재 version과 다르면 409
+발간호 수정 요청에는 읽을 때 받은 `version`을 함께 보내며, 현재 version과 다르면 409
 `version_conflict`를 반환합니다. 요청을 처리하면서 schema를 만들지 않고 `migrations`의 D1
 migration만 적용합니다.
 
 수정 요청은 HTML, 표지 경로와 `references`를 한 번에 반영합니다. 저장 응답 뒤에는 `library_read_issue`로 발간호를 다시 읽어 본문과 메타데이터가 온라인 정본에 남았는지 확인합니다.
+
+이미지 업로드는 새 경로를 생성합니다. 같은 경로에 같은 바이트·MIME을 다시 보내면 기존 성공
+응답을 반환하며 객체를 다시 쓰지 않습니다. 다른 내용을 보내면 409 `asset_conflict`로 거절합니다.
+교체 이미지는 새 경로에 먼저 올린 뒤 발간호 version을 확인하며 HTML과 표지 참조를 바꿉니다.
+문서 저장이 충돌해도 기존 이미지와 참조는 유지되며, 새로 올린 미참조 이미지를 자동으로 삭제하지
+않습니다. 같은 R2를 쓰는 개별 서비스와 통합 MCP를 함께 갱신해야 이 보호가 적용됩니다.
 
 `wrangler.example.jsonc`를 `wrangler.jsonc`로 복사한 뒤 인증 Worker와 같은 Cloudflare 계정에
 배포합니다. `AUTH_SERVICE`는 Personal Agent Auth의 비공개 `AuthService` entrypoint를

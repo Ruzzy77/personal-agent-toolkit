@@ -133,7 +133,28 @@ export class LibraryService {
     if (bytes.byteLength < 1 || bytes.byteLength > MAX_ASSET_BYTES) {
       throw new LibraryError("invalid_asset_size", "asset size is invalid");
     }
-    await this.env.MEDIA.put(key, bytes, { httpMetadata: { contentType } });
+    const stored = await this.env.MEDIA.put(key, bytes, {
+      httpMetadata: { contentType },
+      onlyIf: new Headers({ "If-None-Match": "*" }),
+    });
+    if (!stored) {
+      const existing = await this.env.MEDIA.get(key);
+      if (
+        !existing
+        || existing.size !== bytes.byteLength
+        || existing.httpMetadata?.contentType !== contentType
+        || !new Uint8Array(await existing.arrayBuffer()).every(
+          (value, index) => value === bytes[index],
+        )
+      ) {
+        throw new LibraryError(
+          "asset_conflict",
+          "this asset path already has different content; use a new path",
+          409,
+          { path: `/media/${key}` },
+        );
+      }
+    }
     return { status: "stored", path: `/media/${key}`, bytes: bytes.byteLength };
   }
 

@@ -52,7 +52,7 @@ export default {
       return json({
         ok: true,
         service: "personal-agent-library",
-        version: "0.3.1",
+        version: "0.3.2",
       });
     }
 

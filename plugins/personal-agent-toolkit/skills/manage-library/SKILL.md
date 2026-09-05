@@ -39,6 +39,12 @@ The Site's WebMCP preview applies an agent proposal to the visible page without 
 direct owner edit in the Site autosaves. A remote library_update_issue call writes the canonical
 issue immediately.
 
+Use a new asset path when replacing a cover or illustration. Upload it first, then update the
+complete issue HTML and affected cover metadata with the version from the preceding issue read.
+An identical path, byte sequence, and content type can be retried safely; different content at an
+existing path returns `asset_conflict`. If the issue update conflicts, reread and reconcile the
+requested changes with the latest issue rather than changing only the version on stale HTML.
+
 ## Publish a new issue
 
 - Use the identifier {collection}:{YYYY-MM-DD}:{HH}. HH is the original scheduled hour, even
