@@ -121,7 +121,7 @@ fixture로 확인했으며 운영 Context나 Source를 수정하지 않았습니
 있으므로 판단 당시의 불변 시각이나 추출 시각으로 해석하지 않습니다.
 
 이 변경은 저장층이나 검색 방식을 바꾸지 않고 저장된 출처를 선택적으로 읽는 데 한정합니다.
-아래 계약의 로컬 구현과 검사를 마쳤으며 원격 반영은 아직 대기 중입니다.
+아래 계약의 구현·검사를 마치고 Corpus 0.23.0의 원격 서비스에 반영했습니다.
 
 1. **선택 조회:** `corpus_space_get`에 `include_sources`(기본 false), `source_limit`(기본 20,
    최대 100), `source_offset`(기본 0, 최대 200,000)을 추가합니다. 생략하면 기존 Context 응답을
@@ -148,17 +148,27 @@ fixture로 확인했으며 운영 Context나 Source를 수정하지 않았습니
    Connection의 현재 시각·상태를 복사하지 않습니다. 출처를 포함한 Context 응답은 2 MiB를
    넘기지 않으며 초과 시 명시적으로 페이지 축소를 안내합니다. 출처를 조용히 잘라내지 않습니다.
 
-구현은 `services/remote-context/src/corpus.ts`, `corpus-shard.ts`, `schemas.ts`와 기존
-`investigate-corpus` Skill에 한정합니다. source link 수정·생성, Context 자동 갱신, provider 원문
+구현은 `services/remote-context/src/corpus.ts`, `corpus-shard.ts`, `schemas.ts`, 공유 도구 설명과
+기존 `investigate-corpus` Skill에 한정합니다. source link 수정·생성, Context 자동 갱신, provider 원문
 복제와 보존 정책 변경은 포함하지 않습니다. 기존 검사와 일회성 확인으로 출처 페이지의 누락·중복,
 전체 응답 경계, 과거 revision·projection의 정확한 재읽기, 허용 철회 뒤 거부와 오프라인 읽기를
 확인했습니다. 기존 typecheck·테스트 20개가 통과했고, 100개 item과 10,000개 출처 조건에서
 페이지 상한·예산 초과 거부도 확인했습니다. 출처 쿼리는 D1 제한에 맞춰 5개 item·20개 바인딩·
 최대 505행씩 처리하며 새 영구 테스트는 남기지 않았습니다.
 
-원격 반영 뒤에는 허용된 기존 Context 한 사례에서 판단과 근거를 이어 읽되 운영
-데이터를 확인용으로 변경하지 않습니다. 공개 입력·Skill 변경과 관련 클라이언트 확인은 다음
-Corpus 반영 묶음에서 수행하며 로컬 검사로 운영 실사용 확인을 대신하지 않습니다.
+원격 반영 뒤 Codex와 Claude Code의 새 비지속 세션에서 기존 Context의 첫 출처를 실제로
+읽었습니다. 저장된 네 식별자가 반환된 Source·span과 일치했고, 현재 revision의 비활성
+projection을 새 추출본으로 바꾸지 않고 읽었습니다. 출처 한 문단이 Context 설명의 일부만
+뒷받침한다는 점도 구분했습니다. 운영 Context·Source는 변경하지 않았습니다. 개인 ChatGPT는
+처음에 attributes의 경로를 현재 Work 읽기로 대체했으며, 정확한 입력을 지정한 뒤 출처 연결의
+읽기에 성공했습니다. 자동으로 적절한 경로를 선택하는지는 이 두 번째 성공과 구분합니다.
+
+공유 Worker와 OpenAI 등록 app의 입력·설명, Codex 통합 plugin과 Claude Code의 Corpus를
+갱신했습니다. Claude Desktop/web 설치본과 Cowork 확인은 아직 남아 있습니다. 새 Skill은 구형
+서버가 받지 않는 출처 입력을 사용할 수 있으므로 서버를 먼저 반영하고 관련 클라이언트를
+갱신합니다. 되돌릴 때에는 새 입력을 보내는 Skill·등록 schema부터 이전 상태로 맞추며, 기존
+압축 저장 형식을 읽는 Worker와 저장 binding을 유지합니다. 이 변경에는 migration이나
+Source 재분석이 필요하지 않습니다.
 
 ## record 보존과 정리
 
