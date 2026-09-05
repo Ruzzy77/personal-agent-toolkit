@@ -272,6 +272,17 @@ def check_plugin(name: str, errors: list[str]) -> None:
 
 def check_openai_distribution(errors: list[str]) -> None:
     distribution = OPENAI_DISTRIBUTION
+    document_skills = {
+        path.parent.name
+        for path in (PLUGIN_ROOT / "document-files" / "skills").glob("*/SKILL.md")
+    }
+    if document_skills != {"document-files"}:
+        errors.append("Document Files must expose only the document-files Skill")
+    personal = distribution.get("client_installation", {}).get("chatgpt_personal", {})
+    if personal.get("skills") != ["document-files"] or personal.get("skill_ids") != {
+        "document-files": "document-files"
+    }:
+        errors.append("ChatGPT personal Skills must contain only document-files")
     bundled_products = distribution.get("products", [])
     if set(bundled_products) != REQUIRED_PLUGINS or len(bundled_products) != len(
         REQUIRED_PLUGINS
@@ -331,7 +342,7 @@ def check_openai_distribution(errors: list[str]) -> None:
     }
     actual_skills = {path.parent.name for path in (root / "skills").glob("*/SKILL.md")}
     if actual_skills != expected_skills:
-        errors.append("OpenAI distribution Skills differ from remote product Skills")
+        errors.append("OpenAI distribution Skills differ from product Skills")
 
     result = subprocess.run(
         ["python3", "scripts/build_openai_plugin.py", "--check"],

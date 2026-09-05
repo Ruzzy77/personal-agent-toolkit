@@ -29,18 +29,10 @@
           "skill_mode": "personal_upload",
           "skill_build": "python3 scripts/build_chatgpt_personal_skills.py <output-directory>",
           "skills": [
-            "document-files",
-            "documents",
-            "pdf",
-            "spreadsheets",
-            "presentations"
+            "document-files"
           ],
           "skill_ids": {
-            "document-files": "document-files",
-            "documents": "word-documents",
-            "pdf": "pdf-files",
-            "spreadsheets": "workbooks",
-            "presentations": "slide-decks"
+            "document-files": "document-files"
           }
         }
       },
@@ -166,7 +158,7 @@
       "display_name": "Document Files",
       "plugin": {
         "path": "plugins/document-files",
-        "base_version": "1.5.0"
+        "base_version": "1.6.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "host"},

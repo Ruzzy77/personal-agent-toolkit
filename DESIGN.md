@@ -26,7 +26,7 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 | Journal | product plugin + service + Site | Journal service D1 |
 | Library | product plugin + service + Site | Library service D1·R2 |
 | Design | product plugin + service + Site | Design service D1·R2 |
-| Document Files | Codex bundled Skills + ChatGPT Personal Skills + host runtime + Sync embedded engine + Claude local MCP | 호출자가 소유한 문서 바이트 |
+| Document Files | 단일 문서 Skill + host runtime + Sync embedded engine + Claude local MCP | 호출자가 소유한 문서 바이트 |
 
 `services/remote-context`가 Sense·Corpus·Hypes를 함께 호스팅하고 OpenAI용 여섯 제품 도구를 한
 표면에 등록하는 것은 배포 단위의 선택이다. 각 제품의 계약, 저장 접근과 업무 로직은 모듈 경계를
@@ -60,6 +60,10 @@ Site ─────────────────────────
 Design은 Library와 같은 서비스 소유 구조를 쓴다. 개인 레시피와 템플릿 메타데이터는 D1, 파일은
 R2에 두고 Site와 MCP가 같은 `services/design`을 사용한다. 공개 저장소, plugin 묶음과 Site source에
 개인 자산 사본을 넣지 않는다.
+
+문서 읽기·제작·편집은 `document-files` 하나로 제공한다. 형식별 방법은 이 Skill의 내부 참고 자료에
+두며 별도 `documents`·`pdf`·`spreadsheets`·`presentations` Skill로 노출하지 않는다. 일반 제작은
+호스트 라이브러리, Google 문서는 요청된 연결 도구를 사용하고 자체 제작 엔진을 추가하지 않는다.
 
 Document Files의 분석 계약은 실행 위치와 분리한다. `AnalysisJob v1`과 byte stream을 Sync나 로컬
 Codex의 로컬 package 또는 OpenAI 통합 plugin·개인 ChatGPT Skill의 host runtime에 전달하고 같은
@@ -329,8 +333,8 @@ document·revision·projection·unit 식별자가 일치했고 현재 revision�
 
 #### 04. Document Files와 문서 Skill
 
-- **범위:** 문서 분석 계약과 형식별 추출, 호스트 실행 번들, `document-files`, `documents`, `pdf`,
-  `spreadsheets`, `presentations` Skill의 작업 분담과 유지 범위를 검토한다. Sync 등록·갱신 정책과
+- **범위:** 문서 분석 계약과 형식별 추출, 호스트 실행 번들, 단일 `document-files` Skill과
+  내부 형식별 안내의 역할·유지 범위를 검토한다. Sync 등록·갱신 정책과
   개별 업무 문서의 내용을 대신 바꾸지 않는다.
 - **조사 질문:** HWP/HWPX와 복잡한 표 등 직접 유지할 가치가 큰 기능은 무엇인가? 일반 문서 작업은
   호스트 기본 기능과 비교해 어디에서 차이가 나는가? 정확한 추출과 편집 결과의 시각적 완성도를
@@ -552,6 +556,18 @@ Skill은 유지했다. 후속 앱 재시작 뒤 이 Codex 작업에 자동 전�
 파일의 한 페이지·값·표시를 다시 확인했다. 이 기본 제작 확인을 기관 양식의 조판이나 호스트
 기본 기능 대비 품질·시간 우위로 해석하지 않는다.
 세부 범위와 남은 실제 문서 확인은 [Document Files 설계](plugins/document-files/DESIGN.md)에 둔다.
+
+후속 사용자 지적으로 형식별 기능을 Document Files에 흡수한다는 결정을 설치 단위 통합으로만
+구현했음을 확인했다. 위 다섯 Skill의 제작·설치 확인은 단일 Skill 통합 완료의 근거가 아니며,
+04의 구현 완료 판단을 바로잡는다. 단일 `document-files`에 읽기·제작·편집을 모으고, 네 형식별
+Skill의 보존 조건과 Google 문서 경로를 내부 안내로 옮긴다. 배포 생성기와 공개 목록도 하나로
+맞췄다. Document Files 1.6.0의 기존 테스트 58개와 하위 검사 12개를 통과했고, 개인 ChatGPT용
+archive 한 개의 내부 안내·링크와 실제 host 진입점도 확인했다. 단일 Skill로 수행한 격리 문서
+작업에서는 DOCX 날짜와 XLSX 수량만 바뀌고 원본·나머지 패키지·수식·주석·유효성 검사가 유지됐다.
+새 PPTX 두 장의 편집 가능한 표와 한 페이지 PDF의 내용도 다시 읽었다. 이 확인은 기본 실행과
+보존의 근거이며 실제 업무 효용·Google 연결·화면 조판을 입증하지 않는다. 기존 분석 계약과 재분석
+세대는 유지한다. 클라이언트 갱신·구형 항목 제거·새 세션 노출은 아직 남아 있으며, 소스 확인을
+이 묶음의 배포 완료로 대신하지 않는다.
 
 **03의 Source 이동·교체 안전성**은 이동과 내용 변경이 겹칠 때의 갱신 누락, 추적 파일 사이의
 경로 덮기 충돌과 캡처 직전 파일 교체를 재현하고 수정했다. 같은 바이트의 형식 변경은 새 projection과

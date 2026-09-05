@@ -367,7 +367,7 @@ Corpus 제품 base version과 MCP surface version, Claude manifest와 `products.
 OpenAI 통합 plugin은 제품 정본에서 재생성해 packaging revision을 갱신합니다. Corpus 전용 Codex
 manifest를 만들거나 공통 service package version을 Corpus version으로 통일하지 않습니다.
 소스·원격 저장소 반영 후 Worker, 등록 app과 각 클라이언트를 루트 release 절차에 따라 갱신합니다.
-변경하지 않은 문서 Skill 다섯 개를 별도로 재설계하거나 Source를 재분석하지 않습니다.
+해당 Corpus 반영에서 문서 Skill을 별도로 재설계하거나 Source를 재분석하지 않습니다.
 
 데이터 migration과 파서·재분석 세대·권한 변경은 없습니다. 배포 전 현재 압축 저장 표현을 읽는
 직전 Worker와 plugin 묶음을 복구 대상으로 확인합니다. 되돌릴 때에는 새 입력을 보내도록 바꾼

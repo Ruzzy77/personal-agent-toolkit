@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the five document Skills for a private ChatGPT personal account."""
+"""Build the Document Files Skill for a private ChatGPT personal account."""
 
 from __future__ import annotations
 
@@ -12,100 +12,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOCUMENT_FILES = ROOT / "plugins" / "document-files"
 TOOLKIT_ICON = ROOT / "plugins" / "personal-agent-toolkit" / "assets" / "icon.png"
-SKILLS = ("document-files", "documents", "pdf", "spreadsheets", "presentations")
-CHATGPT_SKILL_NAMES = {
-    "documents": "word-documents",
-    "pdf": "pdf-files",
-    "spreadsheets": "workbooks",
-    "presentations": "slide-decks",
-}
-
-CHATGPT_PERSONAL_BOUNDARY = """## 개인 ChatGPT 실행
-
-이 Skill이 명시적으로 선택된 작업에서는 같은 기능의 OpenAI 기본 plugin이나 Library를 함께
-호출하지 않는다. 현재 작업의 파일과 OpenAI 호스트의 실행 환경만 사용한다.
-"""
-
-INTERFACE = {
-    "document-files": (
-        "Document Files",
-        "문서의 구조와 값을 읽고 HWP/HWPX를 다룹니다",
-        "Use $document-files to inspect this document and extract its explicit structure and values.",
-    ),
-    "documents": (
-        "Documents",
-        "DOCX 문서를 만들고 편집합니다",
-        "Use $documents to create or edit this DOCX document.",
-    ),
-    "pdf": (
-        "PDF",
-        "PDF를 읽고 만들며 페이지와 양식을 다룹니다",
-        "Use $pdf to read, create, or edit this PDF.",
-    ),
-    "spreadsheets": (
-        "Spreadsheets",
-        "XLSX와 CSV를 만들고 편집하고 분석합니다",
-        "Use $spreadsheets to create, edit, or analyze this workbook.",
-    ),
-    "presentations": (
-        "Presentations",
-        "PPTX 프레젠테이션을 만들고 편집합니다",
-        "Use $presentations to create or edit this presentation.",
-    ),
-}
+SKILL_NAME = "document-files"
 
 
-def write_openai_yaml(target: Path, skill_name: str) -> None:
-    display_name, short_description, default_prompt = INTERFACE[skill_name]
-    chatgpt_name = CHATGPT_SKILL_NAMES.get(skill_name, skill_name)
-    default_prompt = default_prompt.replace(f"${skill_name}", f"${chatgpt_name}")
+def write_openai_yaml(target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        "\n".join(
-            (
-                "interface:",
-                f'  display_name: "{display_name}"',
-                f'  short_description: "{short_description}"',
-                '  icon_small: "./assets/icon.png"',
-                '  icon_large: "./assets/icon.png"',
-                '  brand_color: "#E86D5B"',
-                f'  default_prompt: "{default_prompt}"',
-                "policy:",
-                "  allow_implicit_invocation: true",
-                "",
-            )
-        ),
+        """interface:
+  display_name: "Document Files"
+  short_description: "문서·표·발표 자료를 읽고 만들고 편집합니다"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"
+  brand_color: "#E86D5B"
+  default_prompt: >-
+    Use $document-files to read, create, or edit this document,
+    spreadsheet, or presentation.
+policy:
+  allow_implicit_invocation: true
+""",
         encoding="utf-8",
     )
 
 
-def stage_skill(skill_name: str, target: Path) -> None:
-    source = DOCUMENT_FILES / "skills" / skill_name
+def stage_skill(target: Path) -> None:
+    source = DOCUMENT_FILES / "skills" / SKILL_NAME
     shutil.copytree(source, target)
     (target / "assets").mkdir(exist_ok=True)
     shutil.copy2(TOOLKIT_ICON, target / "assets" / "icon.png")
-    write_openai_yaml(target / "agents" / "openai.yaml", skill_name)
-
-    chatgpt_name = CHATGPT_SKILL_NAMES.get(skill_name)
-    if chatgpt_name is not None:
-        skill_path = target / "SKILL.md"
-        contents = skill_path.read_text(encoding="utf-8")
-        marker = f"name: {skill_name}"
-        if marker not in contents:
-            raise ValueError(f"{skill_name} name was not found in SKILL.md")
-        contents = contents.replace(marker, f"name: {chatgpt_name}", 1)
-        heading = f"# {INTERFACE[skill_name][0]}\n"
-        if heading not in contents:
-            raise ValueError(f"{skill_name} heading was not found in SKILL.md")
-        contents = contents.replace(
-            heading,
-            f"{heading}\n{CHATGPT_PERSONAL_BOUNDARY}\n",
-            1,
-        )
-        skill_path.write_text(contents, encoding="utf-8")
-
-    if skill_name != "document-files":
-        return
+    write_openai_yaml(target / "agents" / "openai.yaml")
 
     runtime = target / "scripts" / "document-files"
     shutil.copytree(
@@ -144,20 +78,18 @@ def main() -> int:
     parser.add_argument(
         "output",
         type=Path,
-        help="directory that will receive five .skill upload archives",
+        help="directory that will receive document-files.skill for upload",
     )
     args = parser.parse_args()
     output = args.output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as directory:
-        staging = Path(directory)
-        for skill_name in SKILLS:
-            source = staging / skill_name
-            stage_skill(skill_name, source)
-            write_archive(source, output / f"{skill_name}.skill")
+        source = Path(directory) / SKILL_NAME
+        stage_skill(source)
+        write_archive(source, output / f"{SKILL_NAME}.skill")
 
-    print(f"Built {len(SKILLS)} ChatGPT personal Skills in {output}")
+    print(f"Built Document Files personal Skill in {output}")
     return 0
 
 

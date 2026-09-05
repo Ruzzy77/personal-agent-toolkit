@@ -341,7 +341,7 @@ wheels = [
 
 [[package]]
 name = "document-files"
-version = "1.5.0"
+version = "1.6.0"
 source = { directory = "../../plugins/document-files" }
 dependencies = [
     { name = "defusedxml" },

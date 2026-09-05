@@ -2,13 +2,14 @@
 
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
-Sense, Corpus, Hypes, Journal, Library와 Design은 소유자 인증형 상시 원격 MCP로 공유하고,
-Document Files와 문서 작성 Skill은 실행 가능한 호스트에서 문서를 직접 처리하는 개인용 에이전트
-도구 모음입니다. Personal Agent Sync는 허용된 Finder 자료와 원격 서비스를 연결합니다.
+Personal Agent Toolkit은 업무 맥락과 문서 작업을 연결하는 개인용 에이전트 도구 모음입니다.
+Sense, Corpus, Hypes, Journal, Library와 Design은 소유자 인증형 상시 원격 MCP로 공유합니다.
+Document Files는 단일 문서 Skill과 호스트 실행 환경으로 문서를 처리하며, Personal Agent Sync는
+허용된 Finder 자료와 원격 서비스를 연결합니다.
 
 - **Sense**: 여러 작업에 적용할 사용자 통제형 작업 프로필과 연결된 범용 Skill
 - **Corpus**: 업무 맥락과 원본 Source, 편집 가능한 Work 폴더의 연결
-- **Document Files**: PDF, Office와 HWP/HWPX를 포함한 문서 파일의 추출·변환·렌더링·편집
+- **Document Files**: PDF·Office·HWP/HWPX 읽기, 지원 형식의 작성·편집·변환·렌더링과 Google Docs·Sheets·Slides 작업
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
 - **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 개인 디자인 자산·템플릿 라이브러리
@@ -26,8 +27,9 @@ Document Files와 문서 작성 Skill은 실행 가능한 호스트에서 문서
 - 오늘과 이번 주의 진행 상태, 사용자 확정 처리와 기간별 기록이 필요하면 Journal을 사용합니다.
 - 제품 화면을 만들거나 고치고, 디자인·접근성을 검토하거나 사용자 조사를 다룰 때에는 Design을 사용합니다.
 - 기존 Library 발간호를 읽거나 고치고 새 호를 발행할 때에는 Library를 사용합니다.
-- 문서 파일을 읽고 구조·값을 추출하거나 DOCX·PDF·XLSX·PPTX·HWPX를 만들고 고칠 때에는
-  해당 문서 Skill을 사용합니다.
+- 문서 파일을 읽고 구조·값을 추출하거나 DOCX·PDF·XLSX·CSV·PPTX·HWPX 또는 Google
+  Docs·Sheets·Slides를 만들고 고칠 때에는 Document Files를 사용합니다. 형식별 안내는 이 Skill
+  안에서 필요한 부분만 읽습니다. 열린 Excel 앱 제어는 별도 live-control 기능의 범위입니다.
 
 단순 조회, 형식 변환과 한 단계 실행에는 관련 없는 개인 맥락을 불러오지 않습니다.
 
@@ -36,9 +38,9 @@ Document Files와 문서 작성 Skill은 실행 가능한 호스트에서 문서
 - 원격 MCP와 OAuth 연결을 지원하는 Codex, Claude Code, Claude Desktop/Cowork, ChatGPT 또는 claude.ai
 - 로컬 Source와 Work를 연결할 때 macOS, [uv](https://docs.astral.sh/uv/)와 Python 3.12 이상
 
-OpenAI에서는 원격 제품을 등록 app 하나로 연결하고 `document-files`, `documents`, `pdf`,
-`spreadsheets`, `presentations`를 같은 정본에서 배포합니다. Codex는 이를 통합 plugin으로 설치하고,
-비공개 개인 ChatGPT는 등록 app과 계정의 Personal Skills를 사용합니다. Claude에서는 제품별 plugin을
+OpenAI에서는 원격 제품을 등록 app 하나로 연결하고 문서 기능은 단일 `document-files` Skill로
+배포합니다. Codex는 이를 통합 plugin으로 설치하고, 비공개 개인 ChatGPT는 등록 app과 계정의
+`Document Files` Personal Skill 하나를 사용합니다. Claude에서는 제품별 plugin을
 쓰고 Document Files는 local MCP로 유지합니다. 로컬 Source와 Work를 연결하는 Mac에는 Corpus runtime과
 Document Files를 포함한 Sync runtime을 설치합니다. AI client의 plugin cache나 저장소 worktree는 Sync
 실행 경로로 사용하지 않습니다.
@@ -50,25 +52,27 @@ Document Files를 포함한 Sync runtime을 설치합니다. AI client의 plugin
 ### ChatGPT 개인 계정
 
 ChatGPT의 **Personal**에는 `Personal Agent Toolkit` 등록 app 하나를 설치합니다. 비공개 개인 app은
-plugin 파일을 함께 배포하지 않으므로 문서 기능은 다음 명령으로 만든 다섯 archive를 **Personal →
-Skills → 컴퓨터에서 업로드**에서 각각 설치합니다. archive는 임시 출력물이며 저장소에 보관하지
-않습니다.
+plugin 파일을 함께 배포하지 않으므로 문서 기능은 다음 명령으로 만든 `document-files` archive
+하나를 **Personal → Skills → 컴퓨터에서 업로드**에서 설치합니다. archive는 임시 출력물이며
+저장소에 보관하지 않습니다.
 
 ```sh
 python3 scripts/build_chatgpt_personal_skills.py /tmp/personal-agent-toolkit-skills
 ```
 
-Skills 화면에는 `Document Files`, `Documents`, `PDF`, `Spreadsheets`, `Presentations`라는 짧은 이름과
-Personal Agent Toolkit 아이콘이 나타납니다. 이는 개인 계정에서 비공개 상태를 유지하는 설치 경계이며,
-Plugin 화면의 app 하나와 Skills 화면의 다섯 항목으로 보입니다. 새 대화에서 읽기·추출과 형식별 생성이
-동작하는지 확인한 뒤 OpenAI 기본 Documents, PDF, Spreadsheets, Presentations를 비활성화하거나
-제거합니다. 개인 계정에서 해당 항목이 `관리자가 설치함`으로 고정되어 있으면 제거할 수 없으므로
-Personal Skill 카드에서 작업을 시작하고 기본 항목을 따로 선택하지 않습니다. 별도 Document Files
-app이나 제품별 `Created by me` app은 함께 사용하지 않습니다.
-ChatGPT 기본 문서 Skill과 겹치거나 예약된 내부 식별자는 upload archive에서만
-`word-documents`, `pdf-files`, `workbooks`, `slide-decks`를 사용하며 화면 이름과 Codex의 Skill 이름은
-바꾸지 않습니다. 개인 Skill을 명시적으로 선택한 작업에서는 같은 기능의 OpenAI 기본 plugin이나
-Library를 함께 호출하지 않도록 upload archive에 개인 계정용 실행 경계를 덧붙입니다.
+설치 구성은 Plugin 화면의 `Personal Agent Toolkit` app 하나와 Skills 화면의 `Document Files`
+하나입니다. 형식별 작성·편집 방법과 Google Docs·Sheets·Slides 처리 방법은 이 Skill에 포함하며,
+`Documents`, `PDF`, `Spreadsheets`, `Presentations`나 형식별 별칭을 따로 설치하지 않습니다.
+기존 다섯 Skill 구성에서 전환하는 절차는 아래 [ChatGPT와 Codex 갱신](#chatgpt와-codex)을 따릅니다.
+
+새 대화에서 통합 Skill의 읽기·추출과 형식별 작성·편집이 동작하는지 확인한 뒤 같은 기능의 OpenAI
+기본 Documents, PDF, Spreadsheets, Presentations를 비활성화하거나 제거합니다. 개인 계정에서 해당
+항목이 `관리자가 설치함`으로 고정되어 있으면 제거할 수 없으므로 `Document Files` Personal Skill
+카드에서 작업을 시작하고 기본 항목을 따로 선택하지 않습니다. 별도 Document Files app이나 제품별
+`Created by me` app은 함께 사용하지 않습니다. 개인 Skill을 명시적으로 선택한 작업에서는 같은
+기능의 OpenAI 기본 plugin이나 Library를 함께 호출하지 않도록 archive에 개인 계정용 실행 경계를
+덧붙입니다. 이 통합은 호스트 라이브러리나 Excel live-control 같은 별도 live 앱 제어 기능의 제거를
+뜻하지 않습니다.
 
 Sense, Corpus, Hypes, Journal, Library와 Design의 원격 도구를 사용할 때에는 설치·갱신 뒤 새 Chat 또는
 Work 대화를 시작하고, 현재 데이터를 읽거나 바꾸는 메시지마다 `Personal Agent Toolkit` app을 선택하거나
@@ -180,9 +184,26 @@ GitHub marketplace에서 현재 배포본을 갱신하며, 로컬 checkout marke
 ### ChatGPT와 Codex
 
 OpenAI용 원격 제품 변경은 `Personal Agent Toolkit` 등록 app에 한 번 반영합니다. 문서 Skill 변경은
-Codex 통합 plugin을 갱신하고, 개인 ChatGPT에서는 같은 빌드 명령으로 다섯 archive를 다시 만든 뒤
-Personal Skills의 기존 항목을 갱신합니다. 새 작업에서 현재 Skill과 여섯 상태형 제품의 등록 app
+Codex 통합 plugin을 갱신하고, 개인 ChatGPT에서는 같은 빌드 명령으로 `document-files` archive
+하나를 다시 만들어 기존 `Document Files`를 교체합니다. 새 작업에서 현재 Skill과 변경된 등록 app
 도구를 확인합니다.
+
+기존 다섯 문서 Skill을 단일 Skill로 전환할 때에는 다음을 하나의 반영 묶음으로 수행합니다.
+
+1. Codex 통합 plugin을 정상 업데이트합니다. 개인 ChatGPT에서는 **만들기 → 컴퓨터에서 업로드**로
+   `document-files` archive를 올리고 같은 이름의 **기존 항목 교체**를 선택합니다. 편집기에 archive를
+   첨부하는 것은 전체 Skill 교체가 아닙니다.
+2. 통합 Skill에 형식별 작업 안내와 필요한 실행 파일이 포함됐고, 읽기·추출·작성·편집이 동작하는지
+   확인합니다. Google native 문서 경로는 필요한 연결 도구와 권한이 있는 환경에서 구분해 확인합니다.
+3. 이전에 올린 `Documents`, `PDF`, `Spreadsheets`, `Presentations` Personal Skill 네 항목을
+   제거합니다. 이전 archive의 식별자는 `word-documents`, `pdf-files`, `workbooks`, `slide-decks`일
+   수 있으므로 같은 이름의 기본 plugin과 구분합니다. 형식별 실행 코드나 호스트 라이브러리는
+   제거하지 않습니다.
+4. 새 세션에서 Toolkit의 문서 Skill이 `document-files` 하나로 노출되고 네 별도 Skill이 사라졌는지,
+   현재 본문과 실제 문서 작업이 일치하는지 확인합니다. 기존 세션의 자동 목록과 설치 표시만으로
+   전환 완료를 판정하지 않습니다.
+
+이 절차는 단일 Skill 전환의 완료 조건이며, 안내 문서의 변경 자체가 설치 완료를 뜻하지 않습니다.
 
 ```sh
 codex plugin marketplace upgrade personal-agent-toolkit
@@ -236,8 +257,8 @@ OpenAI host 실행 환경을 사용하며, 필요한 실행 기능이 없는 작
 ### 완료 기준
 
 변경한 버전과 lockfile을 포함한 소스가 원격 저장소에 반영되고, OpenAI 통합 app·Codex plugin·개인
-ChatGPT Skills와 Claude plugin이 각각 갱신된 뒤 지원 client에서 현재 Skill과 같은 MCP 도구를
-확인해야 갱신이 완료됩니다.
+ChatGPT의 `Document Files` Skill과 Claude plugin이 각각 갱신된 뒤 지원 client에서 현재 Skill과
+같은 MCP 도구를 확인해야 갱신이 완료됩니다.
 로컬 Source를 연결한 경우 Sync의 재접속, 이동·변경 감지, 실패 복구와 권한 거부도 함께
 검증합니다.
 
@@ -363,8 +384,9 @@ plugin의 `DESIGN.md`에 둡니다.
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
 Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/document-files`는 단일 Python 정본과 Claude
-local MCP를 소유합니다. `plugins/personal-agent-toolkit`은 일곱 제품의 현재 Skill, 다섯 문서 Skill의
-host 실행 번들과 통합 등록 app을 담는 OpenAI 배포 묶음입니다.
+local MCP와 단일 `document-files` Skill을 소유합니다. `plugins/personal-agent-toolkit`은 일곱 제품의
+현재 Skill, Document Files의 형식별 내부 참고 자료·host 실행 번들과 통합 등록 app을 담는 OpenAI
+배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 상태형 제품의 OpenAI
