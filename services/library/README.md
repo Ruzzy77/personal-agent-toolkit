@@ -51,3 +51,7 @@ ChatGPT 연결에 `library.write` 권한이 없으면 읽기 도구만 노출됩
 - `LIBRARY_DESTINATION_URL`, `LIBRARY_DESTINATION_TOKEN`: 새 service와 `LIBRARY_SITE_TOKEN`
 
 복사 없이 현재 두 저장층만 다시 대조하려면 `npm run migrate:sites -- --verify-only`를 사용합니다.
+이 명령은 원본 URL이 실제로 이전 저장층을 읽을 때만 유효합니다. 현재 운영 Site는 새 service를
+중계하므로 같은 Site URL을 원본으로 지정해도 과거 이관을 재확인할 수 없습니다. 스크립트의
+대조 범위는 목록의 최대 200개 발간호와 표지·HTML에 참조된 media이며, R2의 전체 객체나
+미참조 자산의 보존을 입증하지 않습니다. 원본 저장소를 확인하지 않은 상태로 재실행하지 않습니다.

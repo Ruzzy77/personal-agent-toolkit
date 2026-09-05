@@ -17,6 +17,20 @@ Design은 제품 화면 설계·구현, 디자인 검토와 사용자 조사에 
 저장한다. Site와 MCP는 같은 서비스만 사용한다. plugin과 공개 저장소에는 개인 자산 사본을 넣지
 않는다.
 
+### 현행 저장층의 복구 확인
+
+2026-09-05 운영 D1 export와 R2 전체 67개 객체를 비공개 임시 파일로 확보했다. 수집 전후 DB
+행과 R2 목록·객체 version·metadata가 같았으며, 모든 바이트의 크기와 SHA-256을 대조했다.
+새 로컬 D1·R2에 복원한 뒤 export의 schema·전체 행과 객체 key·바이트·크기·HTTP/custom
+metadata가 일치함을 확인했다. 현재 service의 실제 HTTP 경로에서 catalog, 레시피 6개의
+메타데이터·revision·파일 목록, 전체 파일 67개의 GET·HEAD를 대조했다. 기존 파일 참조의
+누락은 없었고 읽기 후 DB 행도 유지됐다. 운영 자료는 변경하지 않았다.
+
+로컬 runtime에서 Standard storage class의 복원은 확인하지 못했다. 원본 export에 없고 Python
+SQLite가 만든 빈 `sqlite_stat4`만 실행 환경 차이로 분리했다. 수집 중 운영 쓰기를 멈추지는
+않았으며, 이 결과를 운영 인증·Site 렌더링·원격 저장소 재생성이나 상시 백업 보관의 근거로
+확대하지 않는다. 저장층을 함께 확보할 조건과 백업 정책의 경계는 루트 `DESIGN.md`에 둔다.
+
 ## 공개 표면과 권한
 
 `design.read`는 레시피와 자산 읽기, `design.write`는 레시피·파일 생성과 갱신에 사용한다. 쓰기는
