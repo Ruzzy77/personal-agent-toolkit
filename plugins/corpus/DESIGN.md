@@ -132,13 +132,15 @@ fixture로 확인했으며 운영 Context나 Source를 수정하지 않았습니
 2. **정확한 연결:** 허용된 연결의 출처에는 저장된 document·revision·projection·unit 식별자와
    `link_role`, 선택한 `connection_id`와 기존 형식의 `read_ref`를 제공합니다. 같은 Space에서
    원격 읽기가 허용된
-   indexed Source Connection과 같은 corpus가 연결되고 unit이 있을 때만 읽기 참조를 만듭니다.
+   indexed Source Connection과 같은 corpus가 연결되고 출처 행에 unit 식별자가 있을 때만 읽기
+   참조를 만듭니다. 이 목록 응답은 DO 안의 실제 unit 존재 여부를 대조하지 않습니다.
    복수의 동등한 연결은 기존 `connection_id` 정렬의 첫 연결을 명시하며 읽기 실패 시 다른 연결로
    조용히 바꾸지 않습니다. 저장된 출처 표시는 실제 unit 재읽기나 정체성 대조를 대신하지 않습니다.
-3. **권한과 부재:** 허용된 연결이나 unit이 없는 출처, provider-only 출처를 현재 파일이나 다른
+3. **권한과 부재:** 허용된 연결이나 unit 식별자가 없는 출처, provider-only 출처를 현재 파일이나 다른
    제공자의 원문으로 추정 연결하지 않습니다. 허용된 Connection이 없는 행과 provider-only 행은
    `source_ref_id`·`link_role`·`read_ref:null`·부재 사유만 반환하며 출처 개수·페이지에는 포함합니다.
-   권한은 있으나 unit이 없는 파일 출처는 식별자를 유지하고 읽기 참조만 null로 둡니다. 임의 JSON인
+   권한은 있으나 unit 식별자가 없는 파일 출처는 다른 식별자를 유지하고 읽기 참조만 null로 둡니다.
+   식별자는 남았지만 실제 unit이 없으면 참조가 반환될 수 있으며 실제 Source 읽기가 누락을 드러냅니다. 임의 JSON인
    `source_span`과 내부 corpus·snapshot 식별자는 이번 공개 응답에 추가하지 않으며 저장값은
    보존합니다. 정확한 구조는 unit을 실제로 읽어 확인합니다. 읽을 때의 소유자·Space·
    Connection·scope 검사와 원자료 오프라인 상태에서도 보존 record를 읽는 계약은 유지합니다.
@@ -195,8 +197,8 @@ projection의 식별자·본문 복원을 보장하지 않으며, Sync DB의 마
 
 2026-09-05 조사 시 [Cloudflare PITR](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api)는
 SQLite DO 하나의 SQL·KV 전체를 최근 30일 안의 bookmark로 복구할 수 있지만 로컬 실행에서는
-지원되지 않습니다. 현행 CorpusShard에는 bookmark·복구 호출 경로가 없습니다. 다음 확인은
-기존 CorpusShard와 migration을 재사용한 **원격 합성 DO 한 개와 격리 D1**으로 제한합니다.
+지원되지 않습니다. 현행 CorpusShard에는 bookmark·복구 호출 경로가 없습니다. 일회성 확인은
+기존 CorpusShard와 migration을 재사용한 **원격 합성 DO 한 개와 격리 D1**으로 제한했습니다.
 운영 저장소·인증·Sync binding과 공개 HTTP·MCP 경로를 연결하지 않고, 대상이 고정된 일회성
 비공개 호출부에서만 복구를 예약합니다. 원격 접근은 배포된 Worker를 향한
 [service binding](https://developers.cloudflare.com/workers/local-development/#using-remote-resources-with-durable-objects-and-workflows)을
@@ -212,7 +214,20 @@ SQLite DO 하나의 SQL·KV 전체를 최근 30일 안의 bookmark로 복구할 
    권한·generation, Sync 대기열·완료 응답의 대조를 포함합니다. 기존 누락과 복구로 새로 생긴 누락을
    구분하고, 대조 전에는 해당 corpus의 쓰기·유지보수를 재개하지 않습니다.
 
-위 내용은 다음 확인 계획이며 운영 복구 성공을 뜻하지 않습니다. D1 외래 키 검사는 DO의 unit 누락을
+격리 환경에서 A 복구와 두 번의 undo 뒤 DO·D1의 저장 행 hash가 각 기준 상태와 일치했습니다.
+복구한 Context의 저장 참조를 실제로 읽어 문서·revision·projection·unit 식별자, 본문 hash와
+`captured_at`도 대조했습니다. B가 현재일 때 A의 과거 revision은 `active_for_revision`과
+`stale_source_revision`을 함께 반환했습니다. 재시작 연결 중단은 별도 checkpoint로 확인했으며
+복구 요청을 자동 재시도하지 않았습니다.
+
+D1이 B를 참조하는 채 DO만 A로 복구하면 D1 FK는 정상이지만 정확히 B 출처 하나가 누락됐습니다.
+Context에는 기존 식별자와 읽기 참조가 남았고 실제 Source 읽기는 `source=null`과 정확한
+`missing_unit_ids`를 반환했습니다. 참조를 삭제·변경하지 않은 채 undo로 B를 복원한 뒤 현재 B와
+과거 A를 모두 다시 읽었습니다. 임시 클래스의 삭제 migration 뒤 namespace 부재를 확인하고,
+같은 임시 Worker와 새 D1도 삭제해 원격 자원이 남지 않음을 확인했습니다.
+
+이 확인은 합성 SQL record의 복구이며 운영 자료·KV·provider 이력·Sync 재시도 복구를 입증하지
+않습니다. 운영 복구에는 위의 교차 저장소·권한·대기열 대조가 별도로 필요합니다. D1 외래 키 검사는 DO의 unit 누락을
 검출하지 못합니다. [D1 전체 복구](https://developers.cloudflare.com/d1/reference/time-travel/)는
 같은 저장소의 다른 제품·Corpus와 현재 권한까지 되돌릴 수 있어 기본안에서 제외합니다. 같은 시각의
 bookmark도 두 저장소의 공동 transaction을 보장하지 않습니다. 실제 장애에서 이후 변경을 포기해야
