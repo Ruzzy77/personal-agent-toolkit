@@ -827,15 +827,51 @@ export class JournalRepository {
     }
   }
 
-  async findPromotionReceipt(input: PromotionReceiptInput): Promise<boolean> {
+  async findPromotionReplay(input: PromotionReceiptInput): Promise<string | null> {
     const row = await this.db
       .prepare(
-        `SELECT 1 AS found FROM corpus_promotion_receipts
-         WHERE week_id = ? AND item_id IS ? AND target_space = ? AND content_hash = ?`,
+        `SELECT week_id, item_id, event_type, payload_json
+         FROM journal_events WHERE idempotency_key = ?`,
+      )
+      .bind(input.idempotencyKey)
+      .first<Pick<EventRow, "week_id" | "item_id" | "event_type" | "payload_json">>();
+    if (!row) return null;
+    const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+    if (
+      row.event_type !== "corpus_promoted" ||
+      row.week_id !== input.weekId ||
+      row.item_id !== input.itemId ||
+      payload.targetSpace !== input.targetSpace ||
+      payload.sourcePath !== input.sourcePath ||
+      payload.contentHash !== input.contentHash ||
+      payload.status !== input.status ||
+      (Object.hasOwn(payload, "details") && payload.details !== input.details)
+    ) {
+      throw new JournalError(
+        "idempotency_conflict",
+        "the idempotency key was already used for a different operation",
+        409,
+      );
+    }
+    // Older events have no receipt ID; retain their legacy replay identifier.
+    return typeof payload.receiptId === "string"
+      ? payload.receiptId
+      : input.idempotencyKey;
+  }
+
+  async findCompletedPromotionReceipt(
+    input: PromotionReceiptInput,
+  ): Promise<string | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT id FROM corpus_promotion_receipts
+         WHERE week_id = ? AND item_id IS ? AND target_space = ? AND content_hash = ?
+           AND status IN ('applied', 'skipped')
+         ORDER BY created_at ASC, id ASC LIMIT 1`,
       )
       .bind(input.weekId, input.itemId, input.targetSpace, input.contentHash)
-      .first<{ found: number }>();
-    return row?.found === 1;
+      .first<{ id: string }>();
+    return row?.id ?? null;
   }
 
   async listPromotionReceipts(
@@ -854,17 +890,31 @@ export class JournalRepository {
   }
 
   async insertPromotionReceipt(
+    id: string,
     input: PromotionReceiptInput,
     createdAt: string,
     event: EventRow,
-  ): Promise<string> {
-    const id = crypto.randomUUID();
-    await this.db.batch([
+    expectedItemVersion: number | null,
+  ): Promise<boolean> {
+    const results = await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO corpus_promotion_receipts
             (id, week_id, item_id, target_space, source_path, content_hash, status, details, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+           FROM weeks
+           WHERE id = ? AND status = 'open'
+             AND (? IS NULL OR EXISTS (
+               SELECT 1 FROM items WHERE id = ? AND week_id = ? AND version = ?
+             ))
+             AND NOT EXISTS (
+               SELECT 1 FROM corpus_promotion_receipts
+               WHERE week_id = ? AND item_id IS ? AND target_space = ? AND content_hash = ?
+                 AND status IN ('applied', 'skipped')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM journal_events WHERE idempotency_key = ?
+             )`,
         )
         .bind(
           id,
@@ -876,10 +926,41 @@ export class JournalRepository {
           input.status,
           input.details,
           createdAt,
+          input.weekId,
+          input.itemId,
+          input.itemId,
+          input.weekId,
+          expectedItemVersion,
+          input.weekId,
+          input.itemId,
+          input.targetSpace,
+          input.contentHash,
+          input.idempotencyKey,
         ),
-      this.insertEventStatement(event),
+      this.db
+        .prepare(
+          `INSERT INTO journal_events (
+            id, week_id, item_id, event_type, actor_kind, actor_ref,
+            payload_json, idempotency_key, occurred_at, created_at
+          )
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          FROM corpus_promotion_receipts WHERE id = ?`,
+        )
+        .bind(
+          event.id,
+          event.week_id,
+          event.item_id,
+          event.event_type,
+          event.actor_kind,
+          event.actor_ref,
+          event.payload_json,
+          event.idempotency_key,
+          event.occurred_at,
+          event.created_at,
+          id,
+        ),
     ]);
-    return id;
+    return (results[0]?.meta.changes ?? 0) === 1;
   }
 
   private insertEventStatement(event: EventRow): D1PreparedStatement {

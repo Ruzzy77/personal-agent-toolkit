@@ -928,11 +928,11 @@ export class JournalService {
     if (!week) {
       throw new JournalError("week_not_found", "week was not found", 404);
     }
-    if (await this.repository.eventExists(input.idempotencyKey)) {
-      return { receiptId: input.idempotencyKey, duplicate: true };
-    }
-    if (await this.repository.findPromotionReceipt(input)) {
-      return { receiptId: input.contentHash, duplicate: true };
+    const replayId = await this.repository.findPromotionReplay(input);
+    if (replayId) return { receiptId: replayId, duplicate: true };
+    const completedId = await this.repository.findCompletedPromotionReceipt(input);
+    if (completedId) {
+      return { receiptId: completedId, duplicate: true };
     }
     if (week.status === "closed") {
       throw new JournalError(
@@ -941,6 +941,7 @@ export class JournalService {
         409,
       );
     }
+    let expectedItemVersion: number | null = null;
     if (input.itemId) {
       const item = await this.repository.getItem(input.itemId);
       if (!item || item.weekId !== input.weekId) {
@@ -960,29 +961,68 @@ export class JournalService {
           409,
         );
       }
+      expectedItemVersion = item.version;
     }
     const now = this.clock();
+    const receiptId = crypto.randomUUID();
     const event = this.event({
       weekId: input.weekId,
       itemId: input.itemId,
       eventType: "corpus_promoted",
       principal,
       payload: {
+        receiptId,
         targetSpace: input.targetSpace,
         sourcePath: input.sourcePath,
         contentHash: input.contentHash,
         status: input.status,
+        details: input.details,
       },
       idempotencyKey: input.idempotencyKey,
       occurredAt: normalizeTimestamp(input.occurredAt, now),
       createdAt: now.toISOString(),
     });
-    const receiptId = await this.repository.insertPromotionReceipt(
+    const inserted = await this.repository.insertPromotionReceipt(
+      receiptId,
       input,
       now.toISOString(),
       event,
+      expectedItemVersion,
     );
-    return { receiptId, duplicate: false };
+    if (inserted) return { receiptId, duplicate: false };
+
+    const concurrentReplayId = await this.repository.findPromotionReplay(input);
+    if (concurrentReplayId) return { receiptId: concurrentReplayId, duplicate: true };
+    const concurrentCompletedId = await this.repository.findCompletedPromotionReceipt(input);
+    if (concurrentCompletedId) {
+      return { receiptId: concurrentCompletedId, duplicate: true };
+    }
+    const currentWeek = await this.repository.getWeek(input.weekId);
+    if (!currentWeek) {
+      throw new JournalError("week_not_found", "week was not found", 404);
+    }
+    if (currentWeek.status === "closed") {
+      throw new JournalError(
+        "week_closed",
+        "Corpus reflection must be recorded before the week is closed",
+        409,
+      );
+    }
+    if (input.itemId) {
+      const currentItem = await this.repository.getItem(input.itemId);
+      if (!currentItem || currentItem.weekId !== input.weekId) {
+        throw new JournalError("item_not_found", "item was not found", 404);
+      }
+      if (currentItem.version !== expectedItemVersion) {
+        throw new JournalError(
+          "version_conflict",
+          "the item changed before its Corpus reflection could be recorded",
+          409,
+          { currentVersion: currentItem.version },
+        );
+      }
+    }
+    throw new JournalError("storage_error", "Corpus reflection could not be recorded", 500);
   }
 
   private closureSummary(

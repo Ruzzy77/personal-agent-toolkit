@@ -67,7 +67,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 
 function buildServer(env: Env, principal: Principal): McpServer {
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.2" },
+    { name: "Personal Agent Journal", version: "0.2.3" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -255,7 +255,7 @@ export function registerJournalTools(
     {
       title: "Record Corpus Reflection",
       description:
-        "Record that a durable Journal outcome was applied to an existing project-relative source and refreshed in Corpus.",
+        "Record a verified Corpus reflection outcome for an existing project-relative source. Failed attempts are retained and do not complete a candidate. Re-send the same receipt request with the same idempotency key; use a new key for a new attempt after failure. Completed candidates are not overwritten. Read the Corpus target before retrying: this records receipts, not an external-write lock.",
       inputSchema: promotionRequestSchema,
       outputSchema: promotionOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },

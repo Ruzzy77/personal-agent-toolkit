@@ -14,7 +14,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.3.0"
+        "base_version": "1.3.1"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -50,7 +50,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.3.0"
+        "surface_version": "1.3.1"
       }
     }
   },
@@ -239,7 +239,7 @@
       "display_name": "Journal",
       "plugin": {
         "path": "plugins/journal",
-        "base_version": "0.2.2"
+        "base_version": "0.2.3"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -262,7 +262,7 @@
         "url": "https://personal-agent-journal.hiyaq77.workers.dev/mcp",
         "implementation": "services/journal/src/mcp.ts",
         "surface_name": "Personal Agent Journal",
-        "surface_version": "0.2.2",
+        "surface_version": "0.2.3",
         "tools": [
           "journal_get_board",
           "journal_ingest_items",
