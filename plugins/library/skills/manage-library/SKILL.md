@@ -13,8 +13,9 @@ canonical data.
 
 For writing, substantial revision, cover selection, or publication, first open the Corpus
 library-editorial Space and apply its approved Context Skill when Corpus is available. It owns the
-current collection distinctions, candidate discovery, publication gate, editorial method, visual requirements, and
-post-publication checks. Use the current issue and cited public sources for issue facts. If Corpus is
+current collection distinctions, candidate discovery, publication gate, editorial method, and visual
+requirements. This Skill owns authentication, publication identifiers, writes, conflict handling, and
+verification of the stored result. Use the current issue and cited public sources for issue facts. If Corpus is
 unavailable, continue only with the rules and source material that are actually available rather
 than inventing the missing project context. For scheduled publication, skip the slot when required
 canonical guidance or source coverage is unavailable. Reuse already-read guidance of the same version
