@@ -6,7 +6,7 @@
   "description": "Owner-operated MCP and sync service with a unified OpenAI surface",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm ci --ignore-scripts && npm run check && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm test"

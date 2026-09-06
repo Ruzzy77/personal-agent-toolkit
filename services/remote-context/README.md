@@ -15,6 +15,14 @@ npm install
 npm run check
 ```
 
+## Deployment
+
+Use `npm run deploy` after preparing the release. This reinstalls locked
+dependencies, runs the service checks, and then deploys the Worker. With
+`install-links=true`, local product dependencies are copied into `node_modules`;
+checking product source or passing CI elsewhere does not refresh those copies.
+Do not substitute a direct `wrangler deploy` when local product source changed.
+
 Copy `wrangler.example.jsonc` to the ignored `wrangler.jsonc`, provision the D1
 database and Durable Object namespaces, and set the resource URLs to their
 final HTTPS endpoints. Credentials and production resource identifiers do not

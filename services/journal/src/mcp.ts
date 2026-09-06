@@ -67,7 +67,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 
 function buildServer(env: Env, principal: Principal): McpServer {
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.3" },
+    { name: "Personal Agent Journal", version: "0.2.4" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +

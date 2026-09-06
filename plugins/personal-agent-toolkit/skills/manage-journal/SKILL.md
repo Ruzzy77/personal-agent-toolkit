@@ -20,6 +20,8 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 
 새 자료에서 달라진 사실만 `journal_ingest_items`로 반영합니다. 원문 본문을 복사하지 않고, 사용자가 진행 상태를 판단하는 데 필요한 요약과 원본을 다시 찾을 수 있는 `sourceRef`만 둡니다.
 
+장애·실행 결과 알림은 수신 시각과 실제 사건 시각을 구분하고 원 시스템의 최신 상태와 후속 결과를 대조합니다. 이미 해소된 과거 알림을 현재 장애나 사용자 할 일로 되돌리지 않으며, 최신 상태를 읽지 못하면 미확인으로 구분합니다.
+
 - 같은 일을 계속 갱신할 수 있도록 `sourceKind`와 `sourceKey`를 안정적으로 유지합니다.
 - 실제 관찰 변경마다 고유한 `idempotencyKey`를 사용하고 같은 변경의 재시도에는 같은 키를 재사용합니다.
 - `sourceVersion`은 원본의 메시지, 파일 버전이나 확인 시점처럼 갱신 여부를 구분할 수 있을 때만 넣습니다.

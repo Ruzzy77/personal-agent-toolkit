@@ -196,6 +196,14 @@ const weekOutputSchema = z.looseObject({
   revision: z.number().int().min(1),
 });
 
+const readWeekOutputSchema = z.union([
+  weekOutputSchema,
+  weekOutputSchema.extend({
+    status: z.literal("open"),
+    revision: z.literal(0),
+  }),
+]);
+
 const itemOutputSchema = z.looseObject({
   id: z.string().uuid(),
   weekId: dateOutputSchema,
@@ -220,7 +228,7 @@ const periodSummaryOutputSchema = z.looseObject({
 });
 
 export const getBoardOutputSchema = z.looseObject({
-  week: weekOutputSchema,
+  week: readWeekOutputSchema,
   summary: openOutputObject(),
   items: z.array(itemOutputSchema),
   flow: z.array(openOutputObject()),
@@ -254,7 +262,7 @@ export const resolutionOutputSchema = z.looseObject({
 });
 
 export const weekClosePreparationOutputSchema = z.looseObject({
-  week: weekOutputSchema,
+  week: readWeekOutputSchema,
   summary: openOutputObject(),
   corpusCandidates: z.array(openOutputObject()),
   rolloverItems: z.array(openOutputObject()),
