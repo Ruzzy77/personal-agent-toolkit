@@ -158,7 +158,7 @@
       "display_name": "Document Files",
       "plugin": {
         "path": "plugins/document-files",
-        "base_version": "1.6.0"
+        "base_version": "1.7.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "host"},
@@ -169,7 +169,7 @@
         "plugins/document-files",
         "apps/sync"
       ],
-      "data_authority": "caller-owned document bytes; analyzers do not persist them",
+      "data_authority": "caller-owned document bytes; native analysis is transient; AI extraction results use private local storage",
       "versioned_packages": [],
       "mcp": {
         "server_key": "document-files",
@@ -181,6 +181,8 @@
           "document_inspect_file",
           "document_extract_file",
           "document_extract_structure",
+          "document_extract_schema",
+          "document_get_extraction",
           "document_convert_file",
           "document_create_hwpx",
           "document_edit_hwpx",
