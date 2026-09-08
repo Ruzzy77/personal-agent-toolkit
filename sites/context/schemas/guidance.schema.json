@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resolver.local/schemas/guidance.schema.json",
+  "title": "Guidance catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sources", "clauses"],
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/guidanceSource" }
+    },
+    "clauses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/guidanceClause" }
+    }
+  },
+  "$defs": {
+    "sourceKind": {
+      "type": "string",
+      "enum": [
+        "agents",
+        "sense",
+        "skill",
+        "user_instruction",
+        "project_instruction",
+        "harness",
+        "external_runtime"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hosts": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "workspaces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "repositories": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "paths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "taskTypes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "artifactTypes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "guidanceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "owner",
+        "coverage",
+        "lifecycle",
+        "sensitivity",
+        "lastObservedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/sourceKind" },
+        "canonicalUri": { "type": "string", "format": "uri-reference" },
+        "owner": { "type": "string", "minLength": 1 },
+        "coverage": {
+          "type": "string",
+          "enum": ["managed", "declared", "unavailable", "missing"]
+        },
+        "version": { "type": "string" },
+        "contentHash": { "type": "string" },
+        "lifecycle": {
+          "type": "string",
+          "enum": ["active", "deprecated", "disabled"]
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": ["ordinary", "sensitive", "restricted"]
+        },
+        "lastObservedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "guidanceClause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceRef",
+        "text",
+        "effect",
+        "authority",
+        "enforcement",
+        "scope"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "requirement",
+            "prohibition",
+            "default",
+            "method",
+            "approval_boundary",
+            "completion_criterion",
+            "interpretation"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "enum": ["runtime", "organization", "user", "project", "workspace", "task"]
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": ["hard", "default", "advisory"]
+        },
+        "scope": { "$ref": "#/$defs/scope" },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validUntil": { "type": "string", "format": "date-time" },
+        "replaces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
+}

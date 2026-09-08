@@ -472,7 +472,18 @@ class WorkExecutor:
             }
             and row["permission"] != "read_write"
         ):
-            raise PolicyDenied("the selected Connection is read-only")
+            if row["permission"] == "read_only":
+                raise PolicyDenied("the selected Connection is read-only")
+            if not (
+                row["permission"] == "create_only"
+                and operation == "work.file.write"
+                and request.get("expected_version") == "absent"
+                and request.get("replace_start_marker") is None
+                and request.get("replace_end_marker") is None
+            ):
+                raise PolicyDenied(
+                    "the selected Connection permits only absent-target creation"
+                )
         if operation == "source.refresh":
             document_id = request.get("document_id")
             expected_revision = request.get("expected_revision_sha256")

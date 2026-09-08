@@ -416,6 +416,25 @@ def _require_current_workspace_schema(path: Path) -> None:
             },
         ) from exc
     schema_version = int(rows[0]["version"]) if len(rows) == 1 else 0
+    if user_version == schema_version == 1:
+        # Legacy Work membership is not an explicit write grant. Preserve the
+        # registration but require a policy decision before its next mutation.
+        with closing(connect(path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current == 1:
+                connection.execute(
+                    "ALTER TABLE workspaces ADD COLUMN permission TEXT NOT NULL "
+                    "DEFAULT 'read_only' CHECK "
+                    "(permission IN ('read_only', 'create_only', 'read_write'))"
+                )
+                connection.execute("UPDATE workspaces SET generation = generation + 1")
+                connection.execute(
+                    "UPDATE schema_info SET version = ?", (WORKSPACE_SCHEMA_VERSION,)
+                )
+                connection.execute(f"PRAGMA user_version = {WORKSPACE_SCHEMA_VERSION}")
+        _require_current_workspace_schema(path)
+        return
     if (
         user_version == WORKSPACE_SCHEMA_VERSION
         and schema_version == WORKSPACE_SCHEMA_VERSION

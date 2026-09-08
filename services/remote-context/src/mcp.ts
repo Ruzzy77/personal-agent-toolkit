@@ -6,6 +6,7 @@ import {
 } from "@personal-agent/remote-runtime";
 
 import { CorpusService } from "./corpus";
+import { contextOperations, executeContextOperation, NATIVE_CORPUS_TOOLS } from "./context-api";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import {
@@ -175,15 +176,15 @@ export function registerSenseTools(
     {
       title: "Read Sense",
       description:
-        "Read durable guidance relevant to the current choice. Begin with view=index and then open the relevant sections.",
+        "Select relevant guidance; include_skill=false reads criteria and Skill metadata without loading detailed methods. Load the complete Skill when its method is needed, or combine both when already clear.",
       inputSchema: senseReadSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ view, section_ids }) =>
+    async ({ view, section_ids, include_skill }) =>
       safeTool(async () => {
         requireScope(principal, "sense.read");
-        return service.read(view, section_ids);
+        return service.read(view, section_ids, include_skill);
       }),
   );
   server.registerTool(
@@ -310,6 +311,17 @@ export function registerCorpusTools(
   env: Env,
   principal: Principal,
 ): void {
+  const operations = contextOperations(env, principal);
+  for (const name of NATIVE_CORPUS_TOOLS) {
+    const operation = operations[name]!;
+    server.registerTool(name, {
+      description: operation.description,
+      inputSchema: operation.schema,
+      outputSchema: contextToolOutputSchema,
+      annotations: { readOnlyHint: operation.readOnly, destructiveHint: false, idempotentHint: operation.readOnly },
+    }, async input => safeTool(() => executeContextOperation(env, principal, name, input)));
+  }
+
   const service = new CorpusService(env, principal);
   server.registerTool(
     "corpus_space_list",

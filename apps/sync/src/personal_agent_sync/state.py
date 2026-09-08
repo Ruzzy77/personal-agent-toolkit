@@ -186,9 +186,22 @@ class SyncState:
         with self.connect() as connection:
             for value in values:
                 current = connection.execute(
-                    "SELECT root_path, root_device, root_inode FROM connections WHERE connection_key = ?",
+                    "SELECT * FROM connections WHERE connection_key = ?",
                     (value.key,),
                 ).fetchone()
+                if current is not None:
+                    policy_changed = (
+                        current["permission"] != value.permission
+                        or current["access_scope"] != value.access_scope
+                        or set(json.loads(current["roles_json"])) != value.roles
+                    )
+                    if value.generation < current["generation"] or (
+                        policy_changed and value.generation <= current["generation"]
+                    ):
+                        raise SyncError(
+                            "connection_generation_conflict",
+                            "Connection policy changes require a newer configured generation",
+                        )
                 try:
                     metadata = value.root.stat()
                 except OSError:

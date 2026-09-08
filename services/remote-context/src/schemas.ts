@@ -55,6 +55,7 @@ export const senseReadSchema = z
   .object({
     view: z.enum(["index", "sections", "full"]).default("index"),
     section_ids: z.array(sectionId).max(24).nullable().optional(),
+    include_skill: z.boolean().default(true),
   })
   .strict();
 
@@ -471,6 +472,9 @@ export const corpusSpaceListSchema = z
 export const corpusSpaceGetSchema = z
   .object({
     space_id: spaceId,
+    include_context_skill: z.boolean().default(true),
+    document_limit: z.number().int().min(1).max(200).default(50),
+    document_offset: z.number().int().min(0).default(0),
     context_limit: z.number().int().min(1).max(100).default(100),
     context_offset: z.number().int().min(0).max(10_000).default(0),
     include_sources: z.boolean().default(false),
@@ -496,7 +500,9 @@ export const corpusContextItemsReviseSchema = z
               "gap",
             ]),
             body_text: z.string().min(1).max(12_000),
-            status: z.string().min(1).max(200),
+            status: z.string().min(1).max(200).optional().describe(
+              "Omit to preserve the existing status, including its absence. A body edit must not invent a status.",
+            ),
             attributes: z
               .object({
                 source_of_truth: z.string().min(1).max(12_000).nullable(),
@@ -530,11 +536,20 @@ export const corpusContextSkillReviseSchema = z
   })
   .strict();
 
+// The shard receives the entire exclusion set before ranking/LIMIT. Exceeding
+// this metadata budget must fail explicitly, never fall back to partial hiding.
+export const CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS = 10_000;
+
 export const corpusSpaceSearchSchema = z
   .object({
     space_id: spaceId,
+    search_scope: z.enum(["sources", "context", "all"]).default("sources"),
+    context_offset: z.number().int().min(0).default(0),
     query: z.string().min(1).max(2000),
     connection_id: connectionId.nullable().optional(),
+    include_historical: z.boolean().default(false).describe(
+      "Include preserved Source documents explicitly migrated to current native Context documents; results link to their native canon.",
+    ),
     limit: z.number().int().min(1).max(200).default(20),
   })
   .strict();
@@ -762,7 +777,7 @@ export const corpusMetadataImportSchema = z
               .min(1)
               .max(2),
             accessScope: z.enum(["remote_allowed", "local_only"]),
-            permission: z.enum(["read_only", "read_write"]),
+            permission: z.enum(["read_only", "create_only", "read_write"]),
             indexMode: z.enum(["indexed", "not_indexed"]),
             corpusId: migrationId.nullable().default(null),
             deviceId: z.string().min(1).max(64).nullable().default(null),

@@ -15,7 +15,7 @@ Notable direct runtime dependencies:
 | `httpx` | Personal Agent Sync | BSD-3-Clause |
 | `jose` | Optional Personal Agent Auth | MIT |
 | `mcp` | Sense, Corpus, Document Files, and Hypes local MCP | MIT |
-| `next` | Journal, Design, and Library Sites | MIT |
+| `next` | Context, Journal, Design, and Library Sites | MIT |
 | `olefile` 0.47 (dependency and vendored host fallback) | Document Files | BSD |
 | `openpyxl` | Document Files | MIT |
 | `pydantic` | Sense, Corpus, Document Files, and Hypes | MIT |
@@ -24,10 +24,10 @@ Notable direct runtime dependencies:
 | `python-hwpx`, `python-hwpx-automation` | Document Files | Apache-2.0 |
 | `python-pptx` | Document Files | MIT |
 | `reportlab` | Document Files PDF creation | BSD-3-Clause |
-| `react`, `react-dom` | Journal, Design, and Library Sites | MIT |
+| `react`, `react-dom` | Context, Journal, Design, and Library Sites | MIT |
 | `rhwp` 0.8.6 (pre-provisioned optional command-line backend) | Document Files | MIT |
 | `watchdog` | Corpus | Apache-2.0 |
-| `vinext`, `@cloudflare/vite-plugin` | Journal, Design, and Library Sites | MIT |
+| `vinext`, `@cloudflare/vite-plugin` | Context, Journal, Design, and Library Sites | MIT |
 | `zod` | Personal Agent Context, Journal, Library, and Design request validation | MIT |
 
 Bundled Library webfonts:
@@ -46,7 +46,7 @@ resolved package names, versions, source hashes, and platform markers are record
 template, remote services, and Sites are recorded in `auth/package-lock.json`,
 `services/remote-context/package-lock.json`,
 `services/design/package-lock.json`, `services/journal/package-lock.json`,
-`services/library/package-lock.json`, `sites/journal/package-lock.json`,
+`services/library/package-lock.json`, `sites/context/package-lock.json`, `sites/journal/package-lock.json`,
 `sites/design/package-lock.json`, and `sites/library/package-lock.json`.
 
 This file is informational and does not replace the license text supplied by any dependency.

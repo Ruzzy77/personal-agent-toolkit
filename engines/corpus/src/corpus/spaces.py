@@ -252,7 +252,11 @@ class SpaceService:
             )
             if present
         ]
-        permission = "read_write" if work_folders else "read_only"
+        permission = (
+            work_folders[0].get("permission", "read_only")
+            if work_folders
+            else "read_only"
+        )
         work_folder = work_folders[0] if work_folders else None
         if work_folder is not None:
             display_name = work_folder["display_name"]
@@ -280,7 +284,9 @@ class SpaceService:
             "generation": generation,
             "write_state": (
                 "unknown"
-                if work_folder is not None and connection_state == "connected"
+                if work_folder is not None
+                and permission != "read_only"
+                and connection_state == "connected"
                 else None
             ),
             "configuration_state": (
@@ -534,7 +540,7 @@ class SpaceService:
         """
 
         _validate_audience(audience)
-        if capability not in {"read", "write", "source"}:
+        if capability not in {"read", "create", "write", "source"}:
             raise SpaceValidationError("unsupported Space Connection capability")
         normalized_space_id = normalize_space_id(space_id)
         space = next(
@@ -554,7 +560,7 @@ class SpaceService:
         selected_id: str | None
         if connection_id is not None:
             selected_id = normalize_space_id(connection_id)
-        elif capability == "write":
+        elif capability in {"write", "create"}:
             selected_id = space.get("primary_work_connection_id")
         elif len(visible) == 1:
             selected_id = visible[0]["connection_id"]
@@ -593,8 +599,14 @@ class SpaceService:
                     "connection_id": selected_id,
                 },
             )
-        if capability == "write" and (
-            "work" not in roles or selected["permission"] != "read_write"
+        if capability in {"write", "create"} and (
+            "work" not in roles
+            or selected["permission"]
+            not in (
+                {"read_write", "create_only"}
+                if capability == "create"
+                else {"read_write"}
+            )
         ):
             raise SpaceValidationError(
                 "selected Connection is not writable",

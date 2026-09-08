@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resolver.local/schemas/resolve-task-input.schema.json",
+  "title": "resolver.resolve_task input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestEvent", "context", "mode"],
+  "properties": {
+    "requestEvent": { "$ref": "task-state.schema.json#/$defs/requestEvent" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client"],
+      "properties": {
+        "client": { "type": "string", "minLength": 1 },
+        "hostId": { "type": "string" },
+        "workspace": { "type": "string" },
+        "repository": { "type": "string" },
+        "cwd": { "type": "string" },
+        "taskType": { "type": "string" },
+        "artifactType": { "type": "string" }
+      }
+    },
+    "priorTaskStateRef": { "type": "string" },
+    "sourceHints": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "mode": { "type": "string", "enum": ["preview", "execute"] }
+  }
+}

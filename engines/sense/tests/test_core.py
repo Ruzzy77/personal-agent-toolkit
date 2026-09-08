@@ -14,7 +14,7 @@ from sense.errors import (
     UnsafeStorageError,
 )
 from sense.exposure import guidance_overview
-from sense.mcp_server import create_server
+from sense.mcp_server import GUIDANCE_UI_URI, create_server
 from sense.model import ProfileDocument, ProfileSection, SectionChange, section_sha256
 from sense.service import SenseService
 from sense.store import SenseStore
@@ -239,6 +239,9 @@ def test_guidance_overview_groups_current_sections_and_unknown_fallback() -> Non
         updated_at="2026-09-02T00:00:00Z",
     )
 
+    assert overview["source"] == "local"
+    assert "description" not in overview
+    assert "privacy" not in overview
     assert [group["title"] for group in overview["groups"]] == [
         "질문과 답",
         "자료와 표현",
@@ -365,7 +368,9 @@ def test_removing_section_also_removes_its_skill(tmp_path: Path) -> None:
     assert not section_root.exists()
 
 
-def test_mcp_exposes_read_and_version_checked_updates(tmp_path: Path) -> None:
+def test_mcp_exposes_read_and_version_checked_updates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = tmp_path / "Sense"
     service = SenseService(root)
     service.import_profile(profile())
@@ -384,6 +389,40 @@ def test_mcp_exposes_read_and_version_checked_updates(tmp_path: Path) -> None:
         "sense_revise",
         "sense_skill_revise",
     }
+    resource = next(iter(asyncio.run(server.read_resource(GUIDANCE_UI_URI))))
+    assert resource.mime_type == "text/html;profile=mcp-app"
+    assert "로컬 자료" in resource.content
+    monkeypatch.delenv("PERSONAL_AGENT_CONTEXT_SITE_URL", raising=False)
+    overview = asyncio.run(server.call_tool("sense_overview", {})).structured_content
+    assert overview["result"]["source"] == "local"
+    assert "context_site_url" not in overview["result"]
+    for site_url in (
+        "https://context.example.test/",
+        "http://localhost:3000/",
+        "http://127.0.0.1:3000/",
+        "http://[::1]:3000/",
+    ):
+        monkeypatch.setenv("PERSONAL_AGENT_CONTEXT_SITE_URL", site_url)
+        overview = asyncio.run(
+            server.call_tool("sense_overview", {})
+        ).structured_content
+        assert overview["result"]["context_site_url"] == site_url
+    for site_url in (
+        "http://context.example.test/",
+        "https://user:secret@context.example.test/",
+        "https://@context.example.test/",
+        "javascript:alert(1)",
+        "//context.example.test/",
+        "https://context.example.test:invalid/",
+        "https://context.example.test/\n",
+        "https://context.example.test\\@other.example.test/",
+        "http://127.1/",
+    ):
+        monkeypatch.setenv("PERSONAL_AGENT_CONTEXT_SITE_URL", site_url)
+        overview = asyncio.run(
+            server.call_tool("sense_overview", {})
+        ).structured_content
+        assert "context_site_url" not in overview["result"]
     revise_schema = str(tools["sense_revise"].input_schema)
     for removed_field in (
         "expected_revision",

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
@@ -79,6 +80,28 @@ GUIDANCE_UI_RESOURCE = (
 )
 
 
+def _context_site_url(value: str | None) -> str | None:
+    if not value or any(
+        char.isspace() or ord(char) < 32 or ord(char) == 127 or char == "\\"
+        for char in value
+    ):
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        if not host or parsed.username is not None or parsed.password is not None:
+            return None
+        # Accessing port also rejects malformed or out-of-range ports.
+        _ = parsed.port
+        if parsed.scheme == "https":
+            return parsed.geturl()
+        if parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}:
+            return parsed.geturl()
+    except ValueError:
+        return None
+    return None
+
+
 def _safe_call(operation: Callable[[], Any]) -> ToolResponse:
     try:
         result = operation()
@@ -131,11 +154,11 @@ def create_server(
         GUIDANCE_UI_URI,
         name="sense-guidance",
         title="Sense Guidance",
-        description="Read-only view of the current guidance kept in Sense.",
+        description="Read-only view of local Sense development or migration data.",
         mime_type="text/html;profile=mcp-app",
         meta={
             "ui": {
-                "prefersBorder": True,
+                "prefersBorder": False,
                 "csp": {
                     "connectDomains": [],
                     "resourceDomains": [],
@@ -192,7 +215,16 @@ def create_server(
         },
     )
     def sense_overview() -> ToolResponse:
-        return _safe_call(service.overview)
+        def overview() -> dict[str, Any]:
+            result = service.overview()
+            site_url = _context_site_url(
+                os.environ.get("PERSONAL_AGENT_CONTEXT_SITE_URL")
+            )
+            if site_url is not None:
+                result["context_site_url"] = site_url
+            return result
+
+        return _safe_call(overview)
 
     @server.tool(
         name="sense_revise",

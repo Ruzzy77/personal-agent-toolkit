@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import subprocess
 import sys
+import tomllib
 from collections import defaultdict
 from collections.abc import Mapping
 from contextlib import closing
@@ -14,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .config import SyncConfig
+from .config import SyncConfig, restrictive_permission
 from .errors import SyncError
 from .remote import RemoteClient
 from .state import SyncState, canonical
@@ -298,6 +300,29 @@ def write_discovered_config(
 
     if output.exists() and not replace:
         raise SyncError("configuration_exists", "the Sync configuration already exists")
+    previous_connections = {}
+    previous_workspaces = []
+    if output.exists():
+        try:
+            previous_text = output.read_text(encoding="utf-8")
+            previous = tomllib.loads(previous_text)
+            previous_connections = {
+                f"{item['space_id']}:{item['connection_id']}": item
+                for item in previous.get("connections", [])
+            }
+            for match in re.finditer(r"(?m)^\[\[workspaces\]\]\s*$", previous_text):
+                tail = previous_text[match.end() :]
+                next_header = re.search(r"(?m)^\[", tail)
+                end = (
+                    match.end() + next_header.start()
+                    if next_header
+                    else len(previous_text)
+                )
+                previous_workspaces.append(previous_text[match.start() : end].rstrip())
+        except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+            raise SyncError(
+                "invalid_configuration", "existing Sync configuration is invalid"
+            ) from exc
     data_root = corpus_data_root or (
         Path.home() / "Library" / "Application Support" / "Corpus"
     )
@@ -350,16 +375,38 @@ def write_discovered_config(
                     "a combined Source and Work Connection resolves to different roots",
                 )
             scope = _json(source.get("source_scope_json"), {}) if source else {}
+            key = f"{space['space_id']}:{connection['connection_id']}"
+            previous_connection = previous_connections.get(key)
+            permission = connection.get("permission", "read_only")
+            access_scope = connection["access_scope"]
+            generation = connection["generation"]
+            if previous_connection is not None:
+                permission = restrictive_permission(
+                    permission, previous_connection.get("permission", "read_only")
+                )
+                if (
+                    previous_connection.get("access_scope", "local_only")
+                    != "remote_allowed"
+                ):
+                    access_scope = "local_only"
+                changed = permission != previous_connection.get(
+                    "permission", "read_only"
+                ) or access_scope != previous_connection.get(
+                    "access_scope", "local_only"
+                )
+                generation = max(
+                    generation, previous_connection.get("generation", 1) + int(changed)
+                )
             values.append(
                 {
                     "space_id": space["space_id"],
                     "connection_id": connection["connection_id"],
                     "root": str(root),
                     "roles": connection["roles"],
-                    "access_scope": connection["access_scope"],
-                    "permission": connection["permission"],
+                    "access_scope": access_scope,
+                    "permission": permission,
                     "corpus_id": corpus_id,
-                    "generation": connection["generation"],
+                    "generation": generation,
                     "exclude_directory_names": scope.get("exclude_directory_names", []),
                     "exclude_path_prefixes": scope.get("exclude_path_prefixes", []),
                 }
@@ -403,6 +450,7 @@ def write_discovered_config(
                 "",
             ]
         )
+    lines.extend(previous_workspaces)
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = output.with_suffix(f"{output.suffix}.tmp")
     temporary.write_text("\n".join(lines), encoding="utf-8")
@@ -630,13 +678,22 @@ class LocalCorpusMigration:
                         "connectionId": raw_connection["connection_id"],
                         "displayName": raw_connection["display_name"],
                         "roles": raw_connection["roles"],
-                        "accessScope": raw_connection["access_scope"],
-                        "permission": raw_connection["permission"],
+                        "accessScope": (
+                            "remote_allowed"
+                            if raw_connection["access_scope"]
+                            == local.access_scope
+                            == "remote_allowed"
+                            else "local_only"
+                        ),
+                        "permission": restrictive_permission(
+                            raw_connection.get("permission", "read_only"),
+                            local.permission,
+                        ),
                         "indexMode": raw_connection["index_mode"],
                         "corpusId": local.corpus_id,
                         "deviceId": self.config.device_id,
                         "localConnectionKey": key,
-                        "generation": raw_connection["generation"],
+                        "generation": local.generation,
                         "configurationState": raw_connection["configuration_state"],
                         "sourceState": raw_connection.get("source_state"),
                         "recordState": raw_connection.get("record_state"),

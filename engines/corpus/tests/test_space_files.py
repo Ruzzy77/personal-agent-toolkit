@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -10,7 +11,14 @@ from unittest.mock import patch
 from corpus.adapter_registry import build_default_registry
 from corpus.adapters import AdapterDescriptor
 from corpus.database import corpus_connection, workspace_connection
-from corpus.errors import ExtractionError, SpaceConflictError, SpaceValidationError
+from corpus.errors import (
+    CorpusError,
+    ExtractionError,
+    PolicyDeniedError,
+    SpaceConflictError,
+    SpaceValidationError,
+    WorkspaceConflictError,
+)
 from corpus.scanner import scan_corpus
 from corpus.service import CorpusService
 from corpus.spaces import decode_space_reference
@@ -188,6 +196,170 @@ class SpaceFileServiceTest(unittest.TestCase):
             },
         )
 
+    def _connect_policy_folder(self, *, permission: str = "read_only") -> Path:
+        root = self.base / "work"
+        root.mkdir()
+        self.service.register(
+            corpus_id="work-source", source_root=root, execution_policy="local_only"
+        )
+        self._create_context("work", ["work-source"])
+        self.service.workspace_connect(
+            workspace_id="work",
+            context_id="work",
+            root=root,
+            execution_policy="local_only",
+            permission=permission,
+        )
+        return root
+
+    def test_work_permission_is_persisted_and_create_only_rejects_mutation(
+        self,
+    ) -> None:
+        root = self._connect_policy_folder()
+        args = {
+            "workspace_id": "work",
+            "relative_path": "result.txt",
+            "content": "first",
+            "content_encoding": "utf8",
+            "expected_version": "absent",
+            "make_current": False,
+        }
+        with self.assertRaises(PolicyDeniedError):
+            self.service.workspaces.write(**args)
+        self.assertFalse((root / "result.txt").exists())
+        changed = self.service.workspace_set_permission(
+            workspace_id="work",
+            permission="create_only",
+            expected_generation=1,
+        )["work_folder"]
+        self.assertEqual(changed["generation"], 2)
+        self.assertEqual(changed["permission"], "create_only")
+        with self.assertRaises(WorkspaceConflictError):
+            self.service.workspace_set_permission(
+                workspace_id="work",
+                permission="read_write",
+                expected_generation=1,
+            )
+        resolved = self.service.spaces.resolve_connection(
+            space_id="work",
+            connection_id="main",
+            audience="local_cli",
+            capability="create",
+        )
+        self.assertEqual(resolved["connection"]["permission"], "create_only")
+        created = self.service.space_file_write(
+            space_id="work",
+            connection_id="main",
+            relative_path="result.txt",
+            content="first",
+            content_encoding="utf8",
+            expected_version="absent",
+        )
+        version = created["file"]["version_token"]
+        with self.assertRaises(PolicyDeniedError):
+            self.service.workspaces.write(
+                **{**args, "expected_version": version, "content": "changed"}
+            )
+        with self.assertRaises(PolicyDeniedError):
+            self.service.workspaces.delete(
+                workspace_id="work",
+                relative_path="result.txt",
+                expected_version=version,
+                confirm_delete=True,
+            )
+        with self.assertRaises(PolicyDeniedError):
+            self.service.workspaces.restore(
+                workspace_id="work",
+                recovery_id="wrec_" + "0" * 32,
+                expected_version=version,
+            )
+        with self.assertRaises(WorkspaceConflictError):
+            self.service.workspaces.write(**args)
+        self.assertEqual((root / "result.txt").read_text(), "first")
+        # Permission survives a new service projection; Work membership is not a grant.
+        self.assertEqual(
+            CorpusService(self.data).workspace_status(workspace_id="work")[
+                "work_folder"
+            ]["permission"],
+            "create_only",
+        )
+
+    def test_create_only_checks_absence_aliases_and_parent_at_commit(self) -> None:
+        root = self._connect_policy_folder(permission="create_only")
+        outside = self.base / "outside"
+        outside.mkdir()
+        (root / "alias").symlink_to(outside, target_is_directory=True)
+        args = {
+            "workspace_id": "work",
+            "relative_path": "alias/out.txt",
+            "content": "new",
+            "content_encoding": "utf8",
+            "expected_version": "absent",
+            "make_current": False,
+        }
+        with self.assertRaises(CorpusError):
+            self.service.workspaces.write(**args)
+        self.assertFalse((outside / "out.txt").exists())
+        (root / "e\u0301.txt").write_text("original")
+        with self.assertRaises(WorkspaceConflictError):
+            self.service.workspaces.write(**{**args, "relative_path": "é.txt"})
+        from corpus.filesystem_ops import link_if_absent_at
+
+        def raced_create(parent, temporary, name):
+            descriptor = os.open(
+                name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=parent
+            )
+            try:
+                os.write(descriptor, b"outside edit")
+            finally:
+                os.close(descriptor)
+            return link_if_absent_at(parent, temporary, name)
+
+        with (
+            patch("corpus.workspaces.link_if_absent_at", side_effect=raced_create),
+            self.assertRaises(WorkspaceConflictError),
+        ):
+            self.service.workspaces.write(**{**args, "relative_path": "race.txt"})
+        self.assertEqual((root / "race.txt").read_text(), "outside edit")
+        (root / "child").mkdir()
+        write_temporary = self.service.workspaces._write_temporary
+
+        def moved_parent(*arguments, **keywords):
+            result = write_temporary(*arguments, **keywords)
+            (root / "child").rename(outside / "moved")
+            return result
+
+        with (
+            patch.object(
+                self.service.workspaces, "_write_temporary", side_effect=moved_parent
+            ),
+            self.assertRaises(CorpusError),
+        ):
+            self.service.workspaces.write(
+                **{**args, "relative_path": "child/result.txt"}
+            )
+        self.assertFalse((outside / "moved" / "result.txt").exists())
+
+    def test_legacy_work_registration_migrates_read_only_without_native_changes(
+        self,
+    ) -> None:
+        root = self._connect_policy_folder(permission="read_write")
+        mode = root.stat().st_mode
+        with workspace_connection(self.data) as connection:
+            connection.execute("ALTER TABLE workspaces DROP COLUMN permission")
+            connection.execute("UPDATE schema_info SET version = 1")
+            connection.execute("PRAGMA user_version = 1")
+        work = self.service.workspace_status(workspace_id="work")["work_folder"]
+        self.assertEqual(work["permission"], "read_only")
+        self.assertEqual(work["generation"], 2)
+        self.assertEqual(root.stat().st_mode, mode)
+        self.assertEqual(
+            self.service.workspace_status(workspace_id="work")["work_folder"][
+                "generation"
+            ],
+            2,
+        )
+
     @unittest.skipUnless(
         sys.platform == "darwin", "Finder identity lookup is macOS-only"
     )
@@ -204,6 +376,7 @@ class SpaceFileServiceTest(unittest.TestCase):
         )
         self._create_context("drafts", ["drafts-source"])
         self.service.workspace_connect(
+            permission="read_write",
             workspace_id="drafts",
             context_id="drafts",
             display_name="Drafts",
@@ -235,6 +408,7 @@ class SpaceFileServiceTest(unittest.TestCase):
         )
         self._create_context("drafts", ["drafts-source"])
         self.service.workspace_connect(
+            permission="read_write",
             workspace_id="drafts",
             context_id="drafts",
             display_name="Drafts",
@@ -276,6 +450,7 @@ class SpaceFileServiceTest(unittest.TestCase):
         )
         self._create_context("drafts", ["drafts-source"])
         connected = self.service.workspace_connect(
+            permission="read_write",
             workspace_id="drafts",
             context_id="drafts",
             display_name="Drafts",
@@ -355,6 +530,7 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.assertGreater(synced["summary"]["indexed"], 0)
         self._create_context("research-note", ["relation-learning-research"])
         self.service.workspace_connect(
+            permission="read_write",
             workspace_id="research-note",
             context_id="research-note",
             display_name="Research Note",
@@ -686,6 +862,7 @@ class SpaceFileServiceTest(unittest.TestCase):
         self.service.ingest("hci-virtualization")
         self._create_context("hci-server", ["hci-virtualization"])
         self.service.workspace_connect(
+            permission="read_write",
             workspace_id="hci-server",
             context_id="hci-server",
             display_name="HCI Server",

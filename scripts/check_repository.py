@@ -462,6 +462,13 @@ def check_product_versions(errors: list[str]) -> None:
                 f"{name}: MCP implementation identity differs from products.json"
             )
 
+    context_package = ROOT / "services/remote-context/package.json"
+    context_site_package = ROOT / "sites/context/package.json"
+    if context_site_package.is_file() and read_json(context_package).get(
+        "version"
+    ) != read_json(context_site_package).get("version"):
+        errors.append("Context service and Site package versions must match")
+
 
 def check_public_mcp_contracts(errors: list[str]) -> None:
     surfaces_path = ROOT / "services" / "remote-context" / "src" / "surfaces.ts"
@@ -543,9 +550,29 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
             )
 
     context_implementation = ROOT / "services/remote-context/src/mcp.ts"
-    actual_context_tools = REGISTERED_TS_TOOL.findall(
-        context_implementation.read_text(encoding="utf-8")
-    )
+    context_source = context_implementation.read_text(encoding="utf-8")
+    actual_context_tools = REGISTERED_TS_TOOL.findall(context_source)
+    # Native operations use an explicit shared list rather than repeated literal
+    # registerTool calls. Count that list only when the MCP actually registers it.
+    if re.search(
+        r"for\s*\(const name of NATIVE_CORPUS_TOOLS\)\s*\{.*?server\.registerTool\(name",
+        context_source,
+        re.DOTALL,
+    ):
+        api_source = (context_implementation.parent / "context-api.ts").read_text(
+            encoding="utf-8"
+        )
+        native_tools = re.search(
+            r"export const NATIVE_CORPUS_TOOLS\s*=\s*\[(.*?)\]\s*as const",
+            api_source,
+            re.DOTALL,
+        )
+        if native_tools is None:
+            errors.append("Context native MCP registration list could not be read")
+        else:
+            actual_context_tools.extend(
+                re.findall(r'"([a-z][a-z0-9_]*)"', native_tools.group(1))
+            )
     expected_context_tools = [
         tool
         for product in context_products.values()

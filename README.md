@@ -165,8 +165,8 @@ MCP endpoint는 서로 다른 배포 경계입니다.
 ## 버전 갱신
 
 관련 변경을 release로 묶어 소스와 원격 저장소에 반영하고, 영향을 받는 서비스·Site·클라이언트만
-갱신합니다. 작은 변경마다 삭제·설치하지 않고 기존 업데이트 기능을 먼저 사용합니다. 구체적인
-반영 단위와 확인 시점은 [`DESIGN.md`](./DESIGN.md#반영-묶음과-확인-시점)를 따릅니다.
+갱신합니다. 작은 변경마다 삭제·설치하지 않고 기존 업데이트 기능을 먼저 사용합니다. 반영 확인은
+[완료 기준](#완료-기준)을 따릅니다.
 
 - 공개 MCP 도구의 이름·설명·입출력 구조나 `annotations`가 바뀌면 OpenAI 통합 app의 등록을
   새로 고치고 해당 클라이언트의 실제 도구 설명·구조를 확인합니다. Skill·manifest·host 번들이
@@ -178,6 +178,11 @@ MCP endpoint는 서로 다른 배포 경계입니다.
   초기 이관 확인은 확인할 release의 `products.json`을 사용하고, 로컬 코드·의존성·호환 조건이
   달라질 때 로컬 환경을 갱신합니다.
 
+현재 반영 묶음은 Toolkit 1.4.0, Sense 0.4.0, Corpus 0.24.0과 공유 Context 서비스·Site 0.3.0입니다.
+Corpus의 native 문서와 Workspace 연결, 선택적인 연결 Skill 조회, 버전을 대조하는 Site 직접
+저장과 호스트 지침 연결 방법을 포함합니다. 제품 metadata와 Skill 묶음 갱신은 운영 배포나 기존
+사용자 기본 지침의 변경을 대신하지 않습니다.
+
 GitHub marketplace에서 현재 배포본을 갱신하며, 로컬 checkout marketplace는 발행 전 시험에만
 사용합니다. 설치 표시와 새 작업에서의 실제 사용 확인은 구분합니다.
 
@@ -187,6 +192,10 @@ OpenAI용 원격 제품 변경은 `Personal Agent Toolkit` 등록 app에 한 번
 Codex 통합 plugin을 갱신하고, 개인 ChatGPT에서는 같은 빌드 명령으로 `document-files` archive
 하나를 다시 만들어 기존 `Document Files`를 교체합니다. 새 작업에서 현재 Skill과 변경된 등록 app
 도구를 확인합니다.
+
+`manage-environment`와 조건부 참고 자료는 Codex 통합 plugin에 포함됩니다. 개인 ChatGPT의
+등록 app 갱신은 원격 도구를 갱신하며 로컬 관리 Skill이나 Codex projection helper를 설치하지
+않습니다. 개인 ChatGPT용 Skill 생성 대상은 계속 `document-files` 하나입니다.
 
 기존 다섯 문서 Skill을 단일 Skill로 전환할 때에는 다음을 하나의 반영 묶음으로 수행합니다.
 
@@ -230,6 +239,10 @@ claude plugin list
 
 갱신 뒤 Claude Code를 다시 시작하고 새 세션에서 각 plugin의 버전, 현재 Skill 또는 원격 MCP
 도구를 확인합니다.
+
+Claude의 관리 Skill은 Sense plugin으로 배포되지만 private base 문서를 읽는 작업에는 Corpus
+plugin 또는 같은 소유자의 Corpus 연결도 필요합니다. Sense 연결만으로 Corpus 도구가 생기지는
+않습니다. 기본 지침 projection helper는 Codex용이며 Claude의 설정 파일을 수정하지 않습니다.
 
 ### Claude Desktop
 
@@ -378,9 +391,8 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 
 ## 저장소 구조
 
-제품 사이의 공통 실행 경계와 통일 방향은 [`DESIGN.md`](./DESIGN.md), 현재 제품·version·공개 MCP와
-client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합니다. 제품 내부 동작은 각
-plugin의 `DESIGN.md`에 둡니다.
+현재 제품·version·공개 MCP와 client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합니다.
+제품 내부 동작은 각 plugin의 `DESIGN.md`에 둡니다.
 
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
 Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/document-files`는 단일 Python 정본과 Claude
@@ -395,9 +407,10 @@ Design은 `plugins/design`, `services/design`, `sites/design`으로 구성하며
 D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고,
 `sites/journal`은 소유자 전용 화면입니다. `services/library`와 `sites/library`는 Library의 서비스
 소유 저장·MCP와
-읽기·편집 화면을 나눕니다. 기존 Sites 저장층의 이전과 rollback 경계는
-[`DESIGN.md`](./DESIGN.md)에 구분해 둡니다. `auth`는 원격 제품이 함께 쓰는 소유자 인증
-구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
+읽기·편집 화면을 나눕니다. 저장층 이전과 복구 범위는
+[Library](./plugins/library/DESIGN.md#저장-변경과-이전)와
+[Design](./plugins/design/DESIGN.md#현행-저장층의-복구-확인)의 제품 설계에 둡니다. `auth`는 원격 제품이
+함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 해당 client manifest와 `products.json`을 맞춥니다. OpenAI 통합
 plugin의 packaging revision은 제품 release와 분리합니다. plugin 자체에 Python package가 있는

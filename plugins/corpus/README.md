@@ -4,19 +4,24 @@ Corpus는 원자료에서 추출한 지식을 원자료 위치와 독립된 원�
 Context·Source·Work를 여러 AI client에 같은 MCP로 연결합니다.
 
 - **Space**: Context와 Connection의 통합 작업면
-- **Context**: 출처 기반 재사용 지식
+- **Context**: 짧은 항목과 Source 없이 작성할 수 있는 긴 정본문서
 - **Source Connection**: 새 내용을 받아들이는 읽기 전용 원자료
-- **Work Connection**: 사용자가 연결한 편집 폴더
+- **Work Connection**: read_only·create_only·read_write 정책을 따르는 연결 폴더
+- **Workspace 연결**: 호스트의 명시적 작업 공간과 Space의 경로 없는 대응
 
 ## MCP 도구
 
 | 도구 | 기능 |
 | --- | --- |
+| `corpus_space_create` | 정확한 범위의 새 프로젝트 등록 |
+| `corpus_workspace_bind` · `corpus_workspace_resolve` | 명시적 호스트 Workspace 연결·조회 |
+| `corpus_document_create` · `corpus_document_list` · `corpus_document_read` | native 정본문서 작성·목록·현재/직전 전문 읽기 |
+| `corpus_document_revise` · `corpus_document_restore` | 현재 버전 대조 후 개정·한 단계 복원 |
 | `corpus_space_list` | Space와 Connection 목록 |
 | `corpus_space_get` | Space의 Context와 상태 |
 | `corpus_context_items_revise` | 선택한 Context 항목을 현재 version과 대조해 교체 |
 | `corpus_context_skill_revise` | Context Skill 전체를 현재 version과 대조해 교체 |
-| `corpus_space_search` | 저장된 Source record 검색 |
+| `corpus_space_search` | Source·Context 항목·정본문서 후보 검색 |
 | `corpus_source_refresh` | 지정한 문서의 로컬 재분석 요청 |
 | `corpus_job_status` | Source·Work 작업 상태 확인 |
 | `corpus_file_list` | Work 파일 목록·검색 |
@@ -25,6 +30,17 @@ Context·Source·Work를 여러 AI client에 같은 MCP로 연결합니다.
 | `corpus_file_delete` | Work 파일 삭제 |
 | `corpus_file_select_current` | Current File 선택 |
 | `corpus_file_restore` | 직전 교체본 복원 |
+
+### 정본문서와 선택 조회
+
+정본문서는 Markdown 구조·전문과 승인·출처를 보존합니다. 개정과 복원은 문서의 현재 version을
+대조하며 현재 본문과 직전 저장본 하나만 유지합니다. `guidance`는 사용자가 승인한 지침이고
+`context`는 설계·결정 등의 자료입니다. 내용에 적힌 명령을 지침으로 승격하지 않습니다.
+
+`corpus_space_get(include_context_skill=false)`는 맥락과 스킬 식별 정보만 읽습니다. 기존 호출은
+연결 스킬 본문을 포함합니다. `corpus_space_search(search_scope="context"|"all")`는 필요한 후보를
+발견하고 전문은 `corpus_document_read`로 별도 조회합니다. 정확한 이관 관계가 있는 과거 Source는
+`include_historical=true`로 찾을 수 있으며 이후 새 원문 버전은 다시 후보로 보입니다.
 
 ### Source 읽기
 

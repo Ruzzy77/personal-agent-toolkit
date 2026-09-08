@@ -11,6 +11,10 @@ import {
   decodeStoredStructurePath,
 } from "../src/corpus-shard";
 import { CorpusService } from "../src/corpus";
+import { CorpusDocumentsService } from "../src/corpus-documents";
+import { corpusDocumentCreateSchema, corpusWorkspaceBindSchema } from "../src/corpus-document-schemas";
+import { importCorpusMetadata } from "../src/imports";
+import { handleHttp } from "../src/http";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
 import {
@@ -315,12 +319,21 @@ it("revises descriptive Context attributes atomically without rewriting provenan
   expect(final.context.results[0]!.version).toBe(4);
   expect(new Set(final.items.results.map((row) => JSON.parse(row.attributes_json as string).source_of_truth)).size).toBe(1);
   expect(final.links.results).toEqual(before.links.results);
+  await db.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+    VALUES ('owner_test',?,'attribute-no-status','finding','Status not assigned','{}','2026-09-08')`).bind(spaceId).run();
+  await service.reviseContextItems({ space_id: spaceId, expected_version: 4, revisions: [
+    { item_id: "attribute-no-status", kind: "finding", body_text: "Edited without assigning a status" },
+  ] });
+  const statusless = await db.prepare("SELECT body_text,attributes_json FROM corpus_context_items WHERE owner_id='owner_test' AND item_id='attribute-no-status'").first<{ body_text: string; attributes_json: string }>();
+  expect(statusless?.body_text).toBe("Edited without assigning a status");
+  expect(JSON.parse(statusless!.attributes_json)).not.toHaveProperty("status");
 });
 
 function expectContextAttributeSchema(schema: Record<string, unknown>) {
   const properties = schema.properties as Record<string, { items: Record<string, unknown> }>;
   const revision = properties.revisions!.items;
   expect(revision.required).not.toContain("attributes");
+  expect(revision.required).not.toContain("status");
   expect(revision).toMatchObject({ properties: { attributes: {
     type: "object", additionalProperties: false, required: ["source_of_truth"],
     properties: { source_of_truth: { anyOf: [
@@ -987,6 +1000,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
+      version: "0.3.0",
       resources: ["toolkit", "sense", "corpus", "hypes"],
     });
 
@@ -2400,7 +2414,7 @@ describe("remote personal context service", () => {
       result: {
         mcp_surfaces: {
           sense: {
-            version: "0.3.7-remote.1",
+            version: `${sensePlugin.version}-remote.1`,
             tools: expect.arrayContaining(["sense_read"]),
           },
           corpus: {
@@ -2744,4 +2758,354 @@ describe("remote personal context service", () => {
     });
     socket!.close(1000, "test complete");
   });
+});
+
+it("keeps native Corpus documents paged, CAS-protected, and limited to one previous snapshot", async () => {
+  const service = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const space_id = "native-document-history";
+  await service.spaceCreate({ space_id, display_name: "Native documents", purpose: "Test" });
+  const input = { space_id, document_id: "design", title: "설계", body_markdown: "가😀\0끝\n".repeat(240), kind: "context" };
+  expect(await service.documentCreate(input)).toMatchObject({ version: 1, created: true });
+  await expect(service.documentCreate({ ...input, document_id: "too-large", body_markdown: "가".repeat(174_763) })).rejects.toMatchObject({ code: "document_too_large" });
+  await expect(service.documentCreate(input)).rejects.toMatchObject({ code: "document_conflict" });
+  let start = 0;
+  let joined = "";
+  while (true) {
+    const result = await service.documentRead({ space_id, document_id: "design", max_chars: 37, start_char: start, expected_version: 1 });
+    const document = result.document as Record<string, unknown>;
+    joined += document.body_markdown;
+    expect(result.offset_unit).toBe("unicode_code_point");
+    if (!result.has_more) break;
+    start = Number(result.next_start_char);
+  }
+  expect(joined).toBe(input.body_markdown);
+  await expect(service.documentRestore({ space_id, document_id: "design", expected_version: 1 })).rejects.toMatchObject({ code: "previous_snapshot_not_found" });
+  const race = await Promise.allSettled([
+    service.documentRevise({ ...input, body_markdown: "second-a", expected_version: 1 }),
+    service.documentRevise({ ...input, body_markdown: "second-b", expected_version: 1 }),
+  ]);
+  expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(race.filter((result) => result.status === "rejected")).toHaveLength(1);
+  await expect(service.documentRead({ space_id, document_id: "design", expected_version: 1 })).rejects.toMatchObject({ code: "document_conflict" });
+  expect(await service.documentRead({ space_id, document_id: "design", snapshot: "previous", max_chars: 5000 })).toMatchObject({ document: { version: 1, body_markdown: input.body_markdown } });
+  expect(await service.documentRestore({ space_id, document_id: "design", expected_version: 2 })).toMatchObject({ version: 3, restored_from_version: 1 });
+  expect(await service.documentRead({ space_id, document_id: "design", max_chars: 5000 })).toMatchObject({ document: { version: 3, body_markdown: input.body_markdown } });
+  const retained = await runtime.STATE_DB.prepare("SELECT snapshot,version FROM corpus_document_snapshots WHERE owner_id=? AND space_id=? ORDER BY snapshot")
+    .bind(ownerPrincipal.ownerId, space_id).all();
+  expect(retained.results).toEqual([{ snapshot: "current", version: 3 }, { snapshot: "previous", version: 2 }]);
+  const listed = await service.documentList({ space_id, limit: 1 });
+  expect(listed).toMatchObject({ returned_count: 1, has_more: false });
+  expect((listed.items as Record<string, unknown>[])[0]).not.toHaveProperty("body_markdown");
+});
+
+it("requires explicit guidance approval and owner-safe, path-free Workspace bindings", async () => {
+  const service = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const space_id = "native-guidance-binding";
+  await service.spaceCreate({ space_id, display_name: "Guidance" });
+  await expect(service.spaceCreate({ space_id, display_name: "Replacement" })).rejects.toMatchObject({ code: "space_conflict" });
+  const input = { space_id, document_id: "instructions", title: "Instructions", body_markdown: "Approved text", kind: "guidance" };
+  expect(corpusDocumentCreateSchema.safeParse(input).success).toBe(false);
+  expect(corpusDocumentCreateSchema.safeParse({ ...input, kind: "context", guidance_approval: { explicit_user_approval: true, basis: "No automatic promotion" } }).success).toBe(false);
+  await service.documentCreate({ ...input, kind: "context", migration_provenance: { source_id: "local-notes", relative_path: "AGENTS.md" } });
+  expect(await service.documentRead({ space_id, document_id: input.document_id })).toMatchObject({ document: { kind: "context", guidance_approval: null, provenance: "native_context" } });
+  await service.documentRevise({ ...input, expected_version: 1, guidance_approval: { explicit_user_approval: true, basis: "User approved these project instructions" } });
+  expect(await service.documentRead({ space_id, document_id: input.document_id })).toMatchObject({ document: { kind: "guidance", provenance: "user_approved_guidance", guidance_approval: { explicit_user_approval: true } } });
+  const binding = { workspace_id: "checkout-1", host_id: "host-1", project_id: "project-1", space_id, environment_kind: "remote", expected_version: "absent" };
+  expect(await service.workspaceBind(binding)).toMatchObject({ version: 1 });
+  await expect(service.workspaceBind(binding)).rejects.toMatchObject({ code: "workspace_conflict" });
+  expect(corpusWorkspaceBindSchema.safeParse({ ...binding, root: "/private/work" }).success).toBe(false);
+  expect(corpusWorkspaceBindSchema.safeParse({ ...binding, host_id: "/private/work" }).success).toBe(false);
+  expect(await service.workspaceResolve({ workspace_id: binding.workspace_id, host_id: binding.host_id })).toMatchObject({ workspace: { space_id, environment_kind: "remote", version: 1 }, filesystem_authority: false });
+  const otherOwner = new CorpusDocumentsService(runtime, { ...ownerPrincipal, ownerId: "other-owner" });
+  await expect(otherOwner.documentRead({ space_id, document_id: input.document_id })).rejects.toMatchObject({ code: "space_not_found" });
+  await expect(otherOwner.workspaceResolve({ workspace_id: binding.workspace_id, host_id: binding.host_id })).rejects.toMatchObject({ code: "workspace_not_found" });
+  await expect(otherOwner.workspaceBind(binding)).rejects.toMatchObject({ code: "space_not_found" });
+  await expect(new CorpusDocumentsService(runtime, { ...ownerPrincipal, scopes: new Set(["corpus.read"]) }).documentCreate({ ...input, kind: "context" })).rejects.toMatchObject({ code: "insufficient_scope" });
+});
+
+it("searches native documents and Context items without returning full bodies", async () => {
+  const service = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const space_id = "native-context-search";
+  await service.spaceCreate({ space_id, display_name: "Search" });
+  await service.documentCreate({ space_id, document_id: "design", title: "지식전이 설계", body_markdown: "본문".repeat(1000) });
+  await runtime.STATE_DB.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+    VALUES (?,?,?,'finding',?,'{}',?)`).bind(ownerPrincipal.ownerId, space_id, "native-search-item", "확정한 지식전이 판단", new Date().toISOString()).run();
+  const first = await service.contextSearch({ space_id, query: "지식전이", limit: 1 });
+  expect(first).toMatchObject({ returned_count: 1, has_more: true, next_offset: 1, match_mode: "literal_substring" });
+  const result = (first.items as Record<string, unknown>[])[0]!;
+  expect(result).toMatchObject({ result_type: "document", canonical: true, provenance: "native_context", version: 1,
+    document_ref: { space_id, document_id: "design", expected_version: 1 }, snippet_is_excerpt: true,
+    source_refs: [], source_refs_count: 0, source_refs_has_more: false });
+  expect(Array.from(String(result.snippet)).length).toBeLessThanOrEqual(400);
+  expect(result).not.toHaveProperty("body_markdown");
+  const second = await service.contextSearch({ space_id, query: "지식전이", limit: 1, offset: 1 });
+  expect(second).toMatchObject({ returned_count: 1, has_more: false, items: [{ result_type: "context_item", canonical: true,
+    provenance: "stored_context_item", version: 1, context_version: 1,
+    context_item_ref: { item_id: "native-search-item", expected_version: 1 } }] });
+});
+
+it("protects exact Source references in current and previous native document snapshots", async () => {
+  const space_id = "native-source-protection";
+  const fixture = await sourceReadFixture(space_id, [{ content: "Source evidence" }]);
+  await runtime.STATE_DB.prepare(`INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
+    VALUES (?,?,'Native references','Test','{}',1,?)`).bind(ownerPrincipal.ownerId, space_id, new Date().toISOString()).run();
+  const service = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const source = { connection_id: "main", document_id: fixture.header.document.documentId,
+    revision_id: fixture.header.revision.revisionId, projection_id: fixture.header.projection.projectionId, unit_id: fixture.units[0]!.unitId };
+  const input = { space_id, document_id: "decision", title: "Decision", body_markdown: "Adopted result", source_refs: [source] };
+  await expect(service.documentCreate({ ...input, source_refs: [{ ...source, unit_id: "unit_missing" }] })).rejects.toMatchObject({ code: "source_reference_not_found" });
+  const indeterminateDb = {
+    prepare: (query: string) => runtime.STATE_DB.prepare(query),
+    batch: async () => { throw new Error("simulated indeterminate D1 reply"); },
+  } as unknown as D1Database;
+  const indeterminateService = new CorpusDocumentsService({ ...runtime, STATE_DB: indeterminateDb }, ownerPrincipal);
+  await expect(indeterminateService.documentCreate(input)).rejects.toMatchObject({ code: "document_write_outcome_unknown",
+    details: { warnings: [{ code: "source_protection_outcome_pending" }] } });
+  const pendingPins = await runInDurableObject(fixture.shard, (_instance, state) => [...state.storage.sql.exec<{reservation_id: string}>("SELECT reservation_id FROM context_document_reservations")]);
+  expect(pendingPins).toHaveLength(1);
+  expect(await body(await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
+    corpusId: space_id, removeDocumentIds: [source.document_id], removeProjectionIds: [], removeUploadIds: [],
+  }))).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
+  // This injected failure never dispatched a D1 batch. Only after establishing
+  // that outcome is it safe for the synthetic operator to release its pin.
+  const released = await fixture.shard.fetch("https://corpus.internal/context-document/release", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Id": ownerPrincipal.ownerId },
+    body: JSON.stringify({ corpusId: space_id, reservation_id: pendingPins[0]!.reservation_id }),
+  });
+  expect(released.ok).toBe(true);
+  await service.documentCreate(input);
+  const read = await service.documentRead({ space_id, document_id: input.document_id });
+  const refs = (read.document as Record<string, unknown>).source_refs as Array<Record<string, unknown>>;
+  expect(refs[0]).toMatchObject(source);
+  expect(refs[0]!.read_ref).toMatch(/^read1\./);
+  await runtime.STATE_DB.batch([
+    runtime.STATE_DB.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+      VALUES (?,?,?,'finding','Adopted source conclusion','{}',?)`).bind(ownerPrincipal.ownerId, space_id, "native-linked-item", new Date().toISOString()),
+    runtime.STATE_DB.prepare(`INSERT INTO corpus_context_sources(owner_id,source_ref_id,item_id,corpus_id,document_id,revision_id,projection_id,source_unit_id,link_role,source_span_json)
+      VALUES (?,?,?,?,?,?,?,?,'evidence','{}')`).bind(ownerPrincipal.ownerId, "native-linked-source", "native-linked-item", space_id,
+        source.document_id, source.revision_id, source.projection_id, source.unit_id),
+  ]);
+  const search = await service.contextSearch({ space_id, query: "Adopted" });
+  expect(search.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ result_type: "document", source_refs_count: 1, source_refs: [expect.objectContaining({ ...source,
+      read_ref: refs[0]!.read_ref, existence_checked: false, availability: "not_checked" })] }),
+    expect.objectContaining({ result_type: "context_item", context_version: 1, source_refs_count: 1, source_refs: [expect.objectContaining({ ...source,
+      source_ref_id: "native-linked-source", read_ref: refs[0]!.read_ref, existence_checked: false })] }),
+  ]));
+  for (const result of search.items as Record<string, unknown>[]) {
+    expect(result).toMatchObject({ related_candidates_count: 1, related_candidates_has_more: false,
+      related_candidates_scope: "returned_page_visible_source_refs", related_candidates: [expect.objectContaining({
+        relation: "shared_source_projection", shared_source_ref: { connection_id: source.connection_id,
+          document_id: source.document_id, revision_id: source.revision_id, projection_id: source.projection_id },
+      })] });
+  }
+  await runtime.STATE_DB.prepare("UPDATE corpus_connections SET access_scope='local_only' WHERE owner_id=? AND space_id=?")
+    .bind(ownerPrincipal.ownerId, space_id).run();
+  const unavailable = await service.contextSearch({ space_id, query: "Adopted" });
+  for (const result of unavailable.items as Array<Record<string, unknown>>) {
+    expect(result.source_refs).toEqual([expect.objectContaining({ read_ref: null, availability: "unavailable", unavailable_reason: "source_connection_unavailable" })]);
+    expect((result.source_refs as Record<string, unknown>[])[0]).not.toHaveProperty("document_id");
+    expect(result).toMatchObject({ related_candidates: [], related_candidates_count: 0 });
+  }
+  await runtime.STATE_DB.prepare("UPDATE corpus_connections SET access_scope='remote_allowed' WHERE owner_id=? AND space_id=?")
+    .bind(ownerPrincipal.ownerId, space_id).run();
+  await runtime.STATE_DB.prepare("DELETE FROM corpus_context_items WHERE owner_id=? AND item_id='native-linked-item'").bind(ownerPrincipal.ownerId).run();
+  const pins = await runInDurableObject(fixture.shard, (_instance, state) => [...state.storage.sql.exec("SELECT * FROM context_document_reservations")]);
+  expect(pins).toHaveLength(0);
+  const maintain = async () => body(await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
+    corpusId: space_id, removeDocumentIds: [source.document_id], removeProjectionIds: [], removeUploadIds: [],
+  }));
+  expect(await maintain()).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
+  await service.documentRevise({ ...input, source_refs: [], expected_version: 1 });
+  expect(await maintain()).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
+  await service.documentRevise({ ...input, source_refs: [], expected_version: 2 });
+  expect(await maintain()).toMatchObject({ result: { removed: { documents: 1 } } });
+});
+
+it("refuses destructive metadata import when native Corpus canon or bindings exist", async () => {
+  const service = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const space_id = "native-import-guard";
+  await service.spaceCreate({ space_id, display_name: "Do not replace", purpose: "Canonical project" });
+  await service.documentCreate({ space_id, document_id: "design", title: "Design", body_markdown: "Current canonical text" });
+  await service.workspaceBind({ space_id, host_id: "host-1", workspace_id: "workspace-1", environment_kind: "local", expected_version: "absent" });
+  const snapshot = async () => Promise.all([
+    runtime.STATE_DB.prepare("SELECT * FROM corpus_contexts WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
+    runtime.STATE_DB.prepare("SELECT * FROM corpus_document_snapshots WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
+    runtime.STATE_DB.prepare("SELECT * FROM corpus_workspace_bindings WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
+  ]).then((results) => results.map((result) => result.results));
+  const before = await snapshot();
+  await expect(importCorpusMetadata(runtime.STATE_DB, ownerPrincipal.ownerId, {
+    schemaVersion: 1, sourceDigest: "f".repeat(64), sourceSchemaVersion: 1,
+    spaces: [], contexts: [], connections: [], currentFiles: [], devices: [],
+  })).rejects.toMatchObject({ code: "native_canon_present" });
+  expect(await snapshot()).toEqual(before);
+  // The trigger protects the atomic batch even if native canon appears after
+  // the import's read-only preflight. Earlier statements must also roll back.
+  await expect(runtime.STATE_DB.batch([
+    runtime.STATE_DB.prepare("UPDATE corpus_contexts SET title='Wrong title' WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id),
+    runtime.STATE_DB.prepare("DELETE FROM corpus_contexts WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id),
+  ])).rejects.toThrow(/native_canon_present/);
+  expect(await snapshot()).toEqual(before);
+});
+
+it("upserts only authenticated Sync Connections with atomic generation guards", async () => {
+  const connectionPrincipal = { ...ownerPrincipal, ownerId: "native-connection-owner" };
+  const connectionRuntime = { ...runtime, SYNC_OWNER_ID: connectionPrincipal.ownerId };
+  const service = new CorpusDocumentsService(connectionRuntime, connectionPrincipal);
+  const spaceId = "native-connection-upsert";
+  const now = new Date().toISOString();
+  await service.spaceCreate({ space_id: spaceId, display_name: "Preserved Space", purpose: "Preserved purpose" });
+  await service.documentCreate({ space_id: spaceId, document_id: "design", title: "Preserved document", body_markdown: "Native canon survives Connection publication" });
+  await service.workspaceBind({ space_id: spaceId, workspace_id: "connection-workspace-1", host_id: "host-1", environment_kind: "local", expected_version: "absent" });
+  const connection = {
+    spaceId, connectionId: "output", displayName: "Output", roles: ["work"], accessScope: "remote_allowed", permission: "read_only",
+    indexMode: "not_indexed", corpusId: null, deviceId: "test-mac", localConnectionKey: `${spaceId}:output`, generation: 3,
+    configurationState: "ready", sourceState: null, recordState: null, capturedAt: null, updatedAt: now,
+  };
+  const publish = (connections: unknown[], expected_generations: Record<string, number | string>) =>
+    handleHttp(new Request("https://context.test/sync/v1/connections:upsert", {
+      method: "POST", headers: syncHeaders, body: JSON.stringify({ connections, expected_generations }),
+    }), connectionRuntime);
+  const key = `${spaceId}:output`;
+  expect(await body(await publish([connection], { [key]: "absent" }))).toMatchObject({ error: { code: "device_not_registered" } });
+  await runtime.STATE_DB.prepare(`INSERT INTO sync_devices(owner_id,device_id,display_name,credential_id,status,capabilities_json,created_at,updated_at)
+    VALUES (?,'test-mac','Test device','native-connection:test-mac','active','[]',?,?)`).bind(connectionPrincipal.ownerId, now, now).run();
+  expect(await body(await publish([connection], { [key]: "absent" }))).toMatchObject({ result: { updated_count: 1, updated_connections: [{ generation: 3 }] } });
+  expect(await body(await publish([{ ...connection, deviceId: "socket-mac" }], { [key]: 3 }))).toMatchObject({ error: { code: "connection_device_mismatch" } });
+  expect(await body(await publish([{ ...connection, localConnectionKey: "/private/business" }], { [key]: 3 }))).toMatchObject({ error: { code: "private_path_rejected" } });
+  expect(await body(await publish([{ ...connection, permission: "create_only" }], { [key]: 3 }))).toMatchObject({ error: { code: "connection_generation_required" } });
+  const next = { ...connection, permission: "create_only", generation: 4 };
+  expect(await body(await publish([next], { [key]: 3 }))).toMatchObject({ result: { updated_connections: [{ generation: 4 }] } });
+  const raced = await Promise.all([
+    publish([{ ...next, permission: "read_only", generation: 5 }], { [key]: 4 }),
+    publish([{ ...next, permission: "read_write", generation: 5 }], { [key]: 4 }),
+  ]);
+  expect(raced.map((response) => response.status).sort()).toEqual([200, 409]);
+  const second = { ...connection, connectionId: "second", localConnectionKey: `${spaceId}:second`, generation: 1 };
+  const secondKey = `${spaceId}:second`;
+  expect((await publish([second], { [secondKey]: "absent" })).status).toBe(200);
+  const guardedDb = {
+    prepare: (query: string) => runtime.STATE_DB.prepare(query),
+    batch: async (statements: D1PreparedStatement[]) => {
+      // Simulate a policy publication between the preflight and atomic batch.
+      await runtime.STATE_DB.prepare("UPDATE corpus_connections SET generation=2 WHERE owner_id=? AND space_id=? AND connection_id='second'")
+        .bind(connectionPrincipal.ownerId, spaceId).run();
+      return runtime.STATE_DB.batch(statements);
+    },
+  } as unknown as D1Database;
+  const conflict = await handleHttp(new Request("https://context.test/sync/v1/connections:upsert", {
+    method: "POST", headers: syncHeaders, body: JSON.stringify({
+      connections: [{ ...next, displayName: "Must not commit", generation: 6 }, { ...second, generation: 2 }],
+      expected_generations: { [key]: 5, [secondKey]: 1 },
+    }),
+  }), { ...connectionRuntime, STATE_DB: guardedDb });
+  expect(conflict.status).toBe(409);
+  expect(await body(conflict)).toMatchObject({ error: { code: "connection_generation_conflict" } });
+  expect(await runtime.STATE_DB.prepare("SELECT display_name,generation FROM corpus_connections WHERE owner_id=? AND space_id=? AND connection_id='output'")
+    .bind(connectionPrincipal.ownerId, spaceId).first()).toEqual({ display_name: "Output", generation: 5 });
+  expect(await service.documentRead({ space_id: spaceId, document_id: "design" })).toMatchObject({ document: { version: 1, body_markdown: "Native canon survives Connection publication" } });
+  expect(await service.workspaceResolve({ host_id: "host-1", workspace_id: "connection-workspace-1" })).toMatchObject({ workspace: { version: 1, space_id: spaceId } });
+  expect(await runtime.STATE_DB.prepare("SELECT title,purpose FROM corpus_contexts WHERE owner_id=? AND space_id=?")
+    .bind(connectionPrincipal.ownerId, spaceId).first()).toEqual({ title: "Preserved Space", purpose: "Preserved purpose" });
+});
+
+it("routes the Context Site through fixed server-owned credentials and strict operations", async () => {
+  const siteEnv = { ...runtime, CONTEXT_SITE_TOKEN: "synthetic-context-site-token",
+    CONTEXT_SITE_USER_ID: "synthetic-site-user", CONTEXT_SITE_OWNER_ID: "synthetic-site-owner" };
+  const headers = { Authorization: "Bearer synthetic-context-site-token", "X-Personal-Agent-Site-User-Id": "synthetic-site-user", "Content-Type": "application/json" };
+  const call = (operation: string, value: unknown, selectedHeaders: HeadersInit = headers) => handleHttp(new Request(`https://context.test/site/v1/${operation}`, {
+    method: "POST", headers: selectedHeaders, body: JSON.stringify(value),
+  }), siteEnv);
+  const space_id = "site-native-project";
+  const createSpace = { space_id, display_name: "Site project", purpose: "Owned by the configured user" };
+  expect((await call("corpus_space_create", createSpace, { "Content-Type": "application/json" })).status).toBe(401);
+  expect((await call("corpus_space_create", createSpace, { ...headers, "X-Personal-Agent-Site-User-Id": "other-user" })).status).toBe(401);
+  expect((await call("corpus_space_create", { ...createSpace, owner_id: "attacker" })).status).toBe(400);
+  expect((await call("constructor", {})).status).toBe(404);
+  expect(await body(await call("corpus_space_create", createSpace))).toMatchObject({ result: { space_id, created: true } });
+  const document = { space_id, document_id: "design", title: "Site document", body_markdown: "Canonical Site text" };
+  expect((await call("corpus_document_create", { ...document, kind: "guidance" })).status).toBe(400);
+  expect((await call("corpus_document_create", { ...document, body_markdown: "가".repeat(174_763) })).status).toBe(400);
+  expect((await call("corpus_document_create", document)).status).toBe(200);
+  expect(await body(await call("corpus_document_read", { space_id, document_id: "design" }))).toMatchObject({ result: {
+    document: { body_markdown: document.body_markdown, provenance: "native_context", kind: "context", guidance_approval: null }, has_more: false,
+  } });
+  expect(await runtime.STATE_DB.prepare("SELECT owner_id FROM corpus_documents WHERE space_id=? AND document_id='design'")
+    .bind(space_id).first()).toEqual({ owner_id: "synthetic-site-owner" });
+});
+
+it("hides only explicitly migrated Source versions before ranking and resurfaces changed sources", async () => {
+  const space_id = "native-migrated-source";
+  const fixture = await sourceReadFixture(space_id, Array.from({ length: 25 }, () => ({ content: "migrationneedle" })));
+  await runtime.STATE_DB.prepare(`INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
+    VALUES (?,?,'Migration canon','Test','{}',1,?)`).bind(ownerPrincipal.ownerId, space_id, fixture.capturedAt).run();
+  const documents = new CorpusDocumentsService(runtime, ownerPrincipal);
+  const source = { connection_id: "main", document_id: fixture.header.document.documentId,
+    revision_id: fixture.header.revision.revisionId, projection_id: fixture.header.projection.projectionId, unit_id: fixture.units[0]!.unitId };
+  const canon = { space_id, document_id: "canon", title: "Migration canon", body_markdown: "migrationneedle adopted project canon", source_refs: [source] };
+  const upload = async (suffix: string, documentId: string, relativePath: string, content: string) => {
+    const uploadId = `upload_${crypto.randomUUID().replaceAll("-", "")}`;
+    const header = { ...fixture.header, uploadId,
+      document: { ...fixture.header.document, documentId, relativePath },
+      revision: { ...fixture.header.revision, revisionId: `rev_${space_id}_${suffix}`, sha256: await sha256Hex(content) },
+      projection: { ...fixture.header.projection, projectionId: `projection_${space_id}_${suffix}`, declaredUnitCount: 1 },
+    };
+    const unit = { ...fixture.units[0]!, unitId: `unit_${space_id}_${suffix}`, content, contentSha256: await sha256Hex(content) };
+    for (const [path, value] of [
+      ["projections:begin", header], ["projection-units:append", { uploadId, units: [unit] }],
+      ["projections:commit", { uploadId, expectedUnitCount: 1, expectedManifestHash: header.projection.resultManifestHash }],
+    ] as const) {
+      const response = await syncPost(`/sync/v1/corpora/${space_id}/${path}`, value);
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    return { header, unit };
+  };
+  const other = await upload("ordinary", `doc_${space_id}_ordinary`, "fixtures/z-other.txt", "migrationneedle " + "ordinary independent evidence ".repeat(20));
+  await documents.documentCreate(canon);
+  const search = (extra: Record<string, unknown> = {}) => fixture.service.spaceSearch({ space_id, query: "migrationneedle", limit: 1, ...extra });
+  // An ordinary citation, or a migration pair without its exact protected
+  // reference, cannot suppress evidence or assert that its Source changed.
+  expect(await search()).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
+  await documents.documentRevise({ ...canon, expected_version: 1, source_refs: [], migration_provenance: { source_id: "main", document_id: source.document_id } });
+  expect(await search()).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
+  await documents.documentRevise({ ...canon, expected_version: 2, migration_provenance: { source_id: "main", document_id: source.document_id, relative_path: "fixtures/read.txt" } });
+  const nativeRef = { space_id, document_id: "canon", snapshot: "current", expected_version: 3 };
+  // Twenty-five top-ranked migrated units exceed the shard's candidate limit;
+  // filtering after LIMIT would incorrectly lose the independent document.
+  expect(await search()).toMatchObject({ include_historical: false, count: 1,
+    candidates: [{ document_id: other.header.document.documentId, historical: false }] });
+  const historical = await search({ include_historical: true, search_scope: "all" });
+  expect(historical).toMatchObject({ include_historical: true, candidates: [{ document_id: source.document_id,
+    historical: true, native_document_ref: nativeRef }], context: { items: [expect.objectContaining({ canonical: true, document_ref: nativeRef })] } });
+  const candidate = (historical.candidates as Record<string, unknown>[])[0]!;
+  expect(await fixture.service.fileRead({ space_id, read_ref: candidate.read_ref, source_view: "text", max_chars: 1000 })).toMatchObject({
+    untrusted_content: expect.stringContaining("migrationneedle"),
+  });
+  // Both FTS storage versions apply the exclusion before their own LIMIT.
+  await runInDurableObject(fixture.shard, (_instance, state) => {
+    state.storage.sql.exec("DELETE FROM source_units_fts");
+    state.storage.sql.exec(`INSERT INTO source_units_fts(unit_id,projection_id,document_id,relative_path,structure_path,normalized_content)
+      SELECT unit.unit_id,unit.projection_id,revision.document_id,document.relative_path,unit.structure_path_json,unit.normalized_content
+      FROM source_units unit JOIN revisions revision ON revision.revision_id=unit.revision_id
+      JOIN documents document ON document.document_id=revision.document_id`);
+    state.storage.sql.exec("UPDATE projections SET search_index_version=1");
+  });
+  expect(await search()).toMatchObject({ candidates: [{ document_id: other.header.document.documentId }] });
+  expect(await search({ include_historical: true })).toMatchObject({ candidates: [{ historical: true, native_document_ref: nativeRef }] });
+  await runtime.STATE_DB.prepare(`INSERT INTO corpus_connections(
+    owner_id,space_id,connection_id,display_name,roles_json,access_scope,permission,index_mode,corpus_id,generation,configuration_state,updated_at)
+    VALUES (?,?,'alias','Same source, separate connection','["source"]','remote_allowed','read_only','indexed',?,1,'ready',?)`)
+    .bind(ownerPrincipal.ownerId, space_id, space_id, fixture.capturedAt).run();
+  expect(await search({ connection_id: "alias" })).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
+  // A later Source revision is a review signal, not a reason to overwrite the
+  // native canon or permanently exclude that Source document ID.
+  const changed = await upload("changed", source.document_id, "fixtures/read.txt", "migrationneedle revised source");
+  expect(await search({ connection_id: "main" })).toMatchObject({ candidates: [{ document_id: source.document_id,
+    revision_id: changed.header.revision.revisionId, historical: false, source_changed: true, related_native_document_ref: nativeRef }] });
+  expect(await documents.documentRead({ space_id, document_id: "canon" })).toMatchObject({ document: { version: 3, body_markdown: canon.body_markdown } });
+  await documents.documentRevise({ ...canon, expected_version: 3, migration_provenance: null });
+  const unmigrated = (await search({ connection_id: "main" })).candidates as Record<string, unknown>[];
+  expect(unmigrated[0]).toMatchObject({ document_id: source.document_id, historical: false });
+  expect(unmigrated[0]).not.toHaveProperty("source_changed");
+  expect(unmigrated[0]).not.toHaveProperty("related_native_document_ref");
 });

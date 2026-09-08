@@ -1648,7 +1648,7 @@ class CorpusService:
             space_id=space_id,
             connection_id=connection_id,
             audience=audience,
-            capability="write",
+            capability="create" if expected_version == "absent" else "write",
         )
         if replace_start_marker is not None or replace_end_marker is not None:
             if (
@@ -1812,6 +1812,7 @@ class CorpusService:
         display_name: str | None = None,
         root: Path,
         execution_policy: str,
+        permission: str = "read_only",
     ) -> dict:
         return self.workspaces.connect(
             workspace_id=workspace_id,
@@ -1819,6 +1820,16 @@ class CorpusService:
             display_name=display_name,
             root=root,
             execution_policy=execution_policy,
+            permission=permission,
+        )
+
+    def workspace_set_permission(
+        self, *, workspace_id: str, permission: str, expected_generation: int
+    ) -> dict:
+        return self.workspaces.set_permission(
+            workspace_id=workspace_id,
+            permission=permission,
+            expected_generation=expected_generation,
         )
 
     def workspace_rebind_root(

@@ -1,0 +1,75 @@
+{
+  "surface": "sense-corpus-workspace",
+  "pageBound": true,
+  "standard": "document.modelContext",
+  "tools": [
+    {
+      "name": "load_guidance_sources",
+      "kind": "write",
+      "input": {
+        "sources": "GuidanceSource[]"
+      },
+      "description": "Load exact canonical snapshots into this tab. It preserves unsaved drafts and reports version conflicts; it does not save or activate instructions."
+    },
+    {
+      "name": "list_guidance_sources",
+      "kind": "read",
+      "input": {
+        "query": "string?"
+      },
+      "description": "List tab-local source metadata, optionally filtered by title, name, description, or draft text."
+    },
+    {
+      "name": "read_guidance_source",
+      "kind": "read",
+      "input": {
+        "id": "string",
+        "sectionKey": "string?"
+      },
+      "description": "Read one tab-local source with its version, draftId, draft, and sections."
+    },
+    {
+      "name": "open_guidance_section",
+      "kind": "view_change",
+      "input": {
+        "id": "string",
+        "sectionKey": "string?"
+      },
+      "description": "Open an existing source and optional section in the visible reading view."
+    },
+    {
+      "name": "update_guidance_draft",
+      "kind": "write",
+      "input": {
+        "id": "string",
+        "expectedVersion": "string",
+        "expectedDraftId": "string",
+        "content": "Content"
+      },
+      "description": "Replace one tab-local draft after exact version and draftId checks. It never writes the canonical source."
+    },
+    {
+      "name": "get_pending_guidance_changes",
+      "kind": "read",
+      "input": {},
+      "description": "Read full pending replacements for an explicit user-requested canonical save through the normal authorized source tool."
+    },
+    {
+      "name": "acknowledge_guidance_saved",
+      "kind": "write",
+      "input": {
+        "id": "string",
+        "expectedVersion": "string",
+        "draftId": "string",
+        "savedSource": "GuidanceSource"
+      },
+      "description": "Confirm a save only after the canonical source was written through its normal tool and reread with exact matching content. It marks saved, never active in the current model."
+    }
+  ],
+  "boundary": "The seven WebMCP tools act only on this tab. Direct user Save calls the same owner-authorized Context service as MCP; source originals remain read-only. Both paths reread canonical content and compare original version and submitted draftId. Saved does not mean active in the current model.",
+  "sourceExtensions": {
+    "canonical": "optional typed Sense/Corpus locator; exact identity must match reread",
+    "permission": "read_only | read_write",
+    "content.applicability": "optional native document activities/targets/topics/paths"
+  }
+}

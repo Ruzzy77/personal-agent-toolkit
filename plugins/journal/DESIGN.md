@@ -118,7 +118,8 @@ Site·Skill의 마감 안내를 함께 맞추는 것이다. 마감된 후보와 
 
 Codex 통합 plugin과 Claude Code의 Journal을 정상 갱신해 현재 Skill의 소스 일치를 확인했다.
 새 비지속 Codex 세션에서 두 재시도 지침과 당시 주의 항목 21개를 실제로 읽었다. 이후 플랫폼별
-갱신 결과와 남은 확인은 루트 [`DESIGN.md`](../../DESIGN.md)의 05 진행 상태에서 관리한다.
+갱신 결과와 남은 확인은 Corpus `personal-agent-toolkit` Space의 `design` 문서에 있는
+05 진행 상태에서 관리한다.
 클라이언트의 실제 도구 설명·읽기 확인을 서비스 반영이나 설치 성공으로 대신하지 않는다.
 
 이 변경이 보호하는 범위는 **영수증 저장의 중복과 경쟁**이다. 현행 Skill은 Corpus에 실제로 반영한

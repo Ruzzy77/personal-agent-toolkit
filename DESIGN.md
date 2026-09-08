@@ -21,7 +21,7 @@ MCP 표면과 release version은 [`products.json`](./products.json)에 둔다. �
 | 제품 | 구성 | 데이터 정본 |
 | --- | --- | --- |
 | Sense | product plugin + shared context service + local engine | context service |
-| Corpus | product plugin + context service + Sync + local engine | context service와 연결된 로컬 파일 |
+| Corpus | product plugin + context service + Sync + local engine | Context 문서·항목은 원격 service, 업무 원본은 연결 위치 |
 | Hypes | product plugin + shared context service + local engine | context service |
 | Journal | product plugin + service + Site | Journal service D1 |
 | Library | product plugin + service + Site | Library service D1·R2 |
@@ -72,6 +72,31 @@ Codex의 로컬 package 또는 OpenAI 통합 plugin·개인 ChatGPT Skill의 hos
 원문 바이트는 Personal Agent Toolkit 서비스나 Corpus 원격 저장층으로 보내지 않고 Sync는 로컬에서
 완료된 projection만 전송한다. Claude는 로컬 파일 권한을 위해 독립 Document Files local MCP를 쓴다.
 LibreOffice, macOS PDFKit/Vision과 Office 앱 제어는 실행 경계에 포함하지 않는다.
+
+## Sense·Corpus와 Workspace
+
+Sense는 사용자 의도·판단 기준·범용 방법, Corpus는 프로젝트 자료·설계·결정·승인된 프로젝트
+방법과 개인 base 지침의 정본을 맡는다. Toolkit은 연결 절차와 공통 도구만 배포하며 개인 지침
+전문은 공개 소스·Skill 묶음에 넣지 않는다.
+
+Corpus의 native Context 문서는 Source 없이 Markdown 전문을 저장한다. 문서별 현재 상태와 직전
+저장본 하나만 보존하며 개정·복원 모두 현재 버전을 대조한다. 승인된 guidance, 작성 맥락과 외부
+Source의 provenance를 구분한다. 긴 설계는 문서, 짧은 질문·관계·판단은 기존 Context 항목에 둔다.
+
+Workspace는 실제 폴더를 옮기는 기능이 아니라 호스트 작업 공간의 논리적 연결이다. 호스트가 실제
+경로·파일시스템 정체성을 확인하고 원격에는 host/workspace/Space 식별자만 등록한다. 명시적 연결이
+없으면 폴더명으로 영구 연결을 만들지 않는다. 업무 원본은 read_only, 승인된 전달 위치는 create_only,
+맡긴 내부 작업은 read_write로 다루며 Sync와 원격/로컬 도구에서 같은 정책을 검사한다. 일반 파일
+도구의 OS 권한, 원격 실행환경 생성과 자동 산출물 전달은 이번 기능의 범위가 아니다.
+
+`sites/context`는 기존 비공개 작업대를 이어받은 Sense·Corpus 공통 화면이다. Site와 MCP가 같은
+Context service를 사용하고 탭에는 초안만 보관한다. 직접 저장, 정본 재조회, 원본 변경과 늦은
+저장 확인을 구분한다. 기본 지침은 원격 정본에서 검증한 관리용 파일로만 배포하고 Codex의 기존
+model_instructions_file 교체 경로를 사용한다. 화면이나 시작 훅으로 base를 다시 주입하지 않는다.
+
+조회는 목록·짧은 후보에서 필요한 전문으로 이어진다. Sense 기준과 연결 Skill, Corpus 맥락과
+Context Skill은 함께 또는 따로 선택할 수 있으며 기존 호출 기본값은 보존한다. 같은 버전을 재사용하되
+활동·결과물 변경에 따라 범위를 다시 판단한다. Source 변경 신호가 저장된 판단을 자동 교체하지 않는다.
 
 ## 데이터와 변경
 

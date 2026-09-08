@@ -1,0 +1,40 @@
+{
+  "resolutionId": "resolution-continuation-r4",
+  "taskStateRef": "task://continuation?revision=4",
+  "status": "ready",
+  "executionBrief": {
+    "objective": "Resolver의 데이터 계약과 핵심 화면을 구현 가능한 수준으로 만든다.",
+    "targets": ["JSON Schema", "MCP 계약", "화면 프로토타입"],
+    "effectiveConstraints": [
+      "한국어 생성 Skill을 사용한다",
+      "최상위 작업 폴더를 독립 프로젝트로 다룬다",
+      "제작·검증·배포 상태를 구분한다"
+    ],
+    "methods": ["구조적 범위 판정", "의미적 관련성 판정"],
+    "requiredEvidence": [],
+    "allowedActions": ["로컬 읽기", "프로토타입 편집"],
+    "approvalRequired": [],
+    "successCriteria": [
+      "현재 요청과 이 작업에 필요한 기준을 한 화면에서 확인할 수 있습니다."
+    ],
+    "assumptions": [
+      "이번 단계의 ‘진행’은 배포 전 검토용 프로토타입 제작을 뜻합니다."
+    ]
+  },
+  "guidance": {
+    "appliedRefs": [
+      "sense-korean-generation",
+      "workspace-project-boundary",
+      "sense-evidence-state"
+    ],
+    "shadowedRefs": [],
+    "conflictRefs": []
+  },
+  "questions": [],
+  "missingSources": [],
+  "manifest": {
+    "resolverVersion": "0.3.0-prototype",
+    "sourceSnapshotHash": "prototype:continuation:4",
+    "createdAt": "2026-08-27T10:51:00Z"
+  }
+}

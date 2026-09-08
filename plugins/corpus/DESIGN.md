@@ -6,7 +6,7 @@ Corpus는 원자료를 매번 다시 찾거나 읽지 않아도 작업에 필요
 
 1. 등록한 Source에서 본문과 구조를 추출해 지속 가능한 record로 보관합니다.
 2. 원자료와 사용자 판단을 미리 정리한 Context를 여러 클라이언트가 함께 읽게 합니다.
-3. 사용자가 연결한 Work 폴더의 파일을 읽고 충돌 없이 교체하거나 삭제합니다.
+3. Source 없는 긴 정본문서·승인된 프로젝트 지침을 전문으로 관리하고, 연결된 Work 폴더는 명시된 권한 안에서 편집합니다.
 
 원자료는 새 내용을 받아들이는 입력이지만 Corpus record의 생존 조건은 아닙니다. 원자료가 이동·삭제되거나 일시적으로 연결되지 않아도 마지막 정상 record와 Context는 계속 사용할 수 있습니다. 다만 Corpus는 원본 파일 백업 제품이 아니므로 원본 바이트, 서식의 완전한 재현과 현재 원문 일치는 보장하지 않습니다. 문서 형식별 고급 편집과 에이전트의 최종 해석도 Corpus의 책임이 아닙니다.
 
@@ -42,7 +42,7 @@ SQLite-backed Durable Object에 둡니다. 자세한 배치와 원자적 업로�
 - `workspaces.sqlite3`: Work Connection, Current File과 recovery 기록
 - `workspace-runtime/<id>`: 교체용 staging과 recovery copy
 
-Space는 별도 데이터베이스나 고정된 색인 세대로 저장하지 않습니다. Context, Source 등록과 Work Connection의 현재 정본을 읽어 동적으로 만듭니다.
+원격 Space는 명시적 프로젝트 등록이며 Context 항목·문서·Connection을 묶습니다. 로컬 최초 이관 구현의 동적 Space 투영을 원격 정본에 대한 전체 덮어쓰기 수단으로 사용하지 않습니다.
 
 ## 정체성과 경로 이동
 
@@ -96,6 +96,21 @@ Sync의 운영 상태도 회전하는 현재 상태와 제한된 대기열만 �
 상세 목록을 장기 실행 기록으로 남기지 않습니다.
 
 ## Context
+
+Source 없는 native 문서는 제목·Markdown 전문·활동/대상/분야 범위·출처를 보존하며 current/previous
+두 상태만 저장합니다. `corpus_document_*`의 쓰기·복원은 현재 version을 대조합니다. guidance는
+명시적 사용자 승인, context는 저장 맥락으로 구분하며 본문 명령을 자동 실행하지 않습니다. 현재와
+직전 문서가 참조하는 정확한 Source revision/projection은 maintenance 삭제에서 보호합니다.
+
+명시적 migration provenance와 보호된 출처가 일치하는 Source 버전만 기본 검색에서 과거자료로
+제외합니다. include_historical로 다시 찾을 수 있고, 이후 새 Source 버전은 변경 신호와 native
+문서 연결을 함께 보여 줍니다. 다른 Space·Connection이나 일반 인용 자료에는 확장하지 않습니다.
+
+Context 문서·항목 검색은 짧은 발췌와 버전·종류·출처를 반환합니다. 관련 Source를 공유하는 같은
+페이지의 보조 후보는 추가 조회 판단을 돕는 metadata이지 지침이나 채택 결정이 아닙니다. 기존
+Source 검색 기본값을 보존하고 search_scope로 Context 또는 양쪽을 고릅니다. Space의 연결 Skill
+전문은 include_context_skill로 선택하며 기본값 true를 유지합니다.
+
 
 Context는 Source 원문을 매번 다시 읽지 않아도 쓸 수 있는, 미리 분석·정리된 재사용 맥락입니다. 제목, 목적, 범위, 연결 Source와 질문·관계·판단·gap item을 저장합니다. Context item 본문은 durable representation이고 Source unit 또는 provider record 연결은 근거와 갱신 판단을 위한 provenance입니다.
 
@@ -258,6 +273,16 @@ bookmark도 두 저장소의 공동 transaction을 보장하지 않습니다. �
 하거나 PITR 기간 밖의 이력·원문 바이트까지 보존하려면 사용자의 복구 범위 선택을 먼저 받습니다.
 
 ## Work 파일
+
+업무 원본 read_only, 승인된 새 산출물 위치 create_only, Workspace 내부 read_write를 원격·Sync·
+로컬 Work 등록에서 함께 검사합니다. create_only는 absent 파일의 최초 생성만 허용하며 교체·삭제·
+복원과 이름 충돌을 거부합니다. 누락된 기존 권한은 read_only로 이관하고 명시적으로 복원합니다.
+일반 파일 도구의 OS 권한까지 변경하거나 원격 실행환경을 새로 제공하는 기능은 아닙니다.
+
+호스트 Workspace는 명시적 ID·실제 등록 경로/정체성을 로컬에서 관리합니다. 원격 binding은
+host/workspace/Space ID만 저장하고 버전으로 개정을 대조합니다. 등록이 없거나 모호하면 실패하며
+폴더명에서 영구 연결을 추정하지 않습니다. 경로 이동과 연결 권한은 서로 다른 계약입니다.
+
 
 Work Connection은 사용자가 명시적으로 연결한 폴더만 다룹니다. 경로는 root 기준 상대 경로로 정규화하며 symlink와 root 밖 이동을 허용하지 않습니다. 연결 이후에는 디렉터리 inode로 root 교체를 감지하고, 같은 볼륨에서 위치만 바뀐 경우 자동으로 새 경로를 등록합니다. 각 파일 작업에서는 현재 descriptor의 identity를 고정합니다.
 

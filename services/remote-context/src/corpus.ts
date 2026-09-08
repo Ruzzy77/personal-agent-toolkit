@@ -1,7 +1,9 @@
+import { CorpusDocumentsService } from "./corpus-documents";
 import { canonicalJson, nowIso, sha256Hex } from "./canonical";
 import { ContextError } from "./errors";
 import { assertSourceReadBudget, serializedBytes } from "./corpus-read";
 import {
+  CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS,
   corpusContextItemsReviseSchema,
   corpusContextSkillReviseSchema,
   corpusFileDeleteSchema,
@@ -70,7 +72,7 @@ interface ConnectionRow {
   display_name: string;
   roles_json: string;
   access_scope: "remote_allowed" | "local_only";
-  permission: "read_only" | "read_write";
+  permission: "read_only" | "create_only" | "read_write";
   index_mode: "indexed" | "not_indexed";
   corpus_id: string | null;
   device_id: string | null;
@@ -469,7 +471,7 @@ export class CorpusService {
   async spaceGet(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusSpaceGetSchema.parse(raw);
     const space = await this.space(input.space_id);
-    const result = await this.publicSpace(space, true);
+    const result: Record<string, unknown> = await this.publicSpace(space, input.include_context_skill);
     const context = await this.context(input.space_id);
     if (context) {
       const rows = await this.env.STATE_DB.prepare(
@@ -574,6 +576,9 @@ export class CorpusService {
         }
       }
     }
+    result.documents = await new CorpusDocumentsService(this.env, this.principal).documentList({
+      space_id: input.space_id, limit: input.document_limit, offset: input.document_offset,
+    });
     const response = { space: result };
     if (input.include_sources) assertContextReadBudget(response);
     return response;
@@ -628,7 +633,7 @@ export class CorpusService {
         );
       }
       const attributes = parseObject(row.attributes_json);
-      attributes.status = revision.status;
+      if (revision.status !== undefined) attributes.status = revision.status;
       if (revision.attributes) {
         if (revision.attributes.source_of_truth === null) {
           delete attributes.source_of_truth;
@@ -878,10 +883,49 @@ export class CorpusService {
 
   async spaceSearch(raw: unknown): Promise<Record<string, unknown>> {
     const input = corpusSpaceSearchSchema.parse(raw);
-    const connections = await this.sourceConnections(
-      input.space_id,
-      input.connection_id,
-    );
+    const context = input.search_scope === "sources" ? undefined :
+      await new CorpusDocumentsService(this.env, this.principal).contextSearch({
+        space_id: input.space_id, query: input.query, limit: input.limit, offset: input.context_offset,
+      });
+    if (input.search_scope === "context") return { query: input.query, context };
+    let connections: ConnectionRow[];
+    try { connections = await this.sourceConnections(input.space_id, input.connection_id); }
+    catch (error) {
+      if (input.search_scope === "all" && error instanceof ContextError && error.code === "source_connection_not_found") connections = [];
+      else throw error;
+    }
+    // A citation alone is not a migration. The explicit migration pair and a
+    // protected exact Source reference must agree with the current Connection.
+    const migrated = connections.length ? await this.env.STATE_DB.prepare(
+      `SELECT DISTINCT native.document_id,native.version,
+              json_extract(ref.value,'$.connection_id') AS connection_id,
+              json_extract(ref.value,'$.document_id') AS source_document_id,
+              json_extract(ref.value,'$.revision_id') AS source_revision_id,
+              json_extract(ref.value,'$.projection_id') AS source_projection_id
+       FROM corpus_document_snapshots AS native
+       JOIN json_each(?) AS connection
+         ON json_extract(connection.value,'$.connection_id')=json_extract(native.migration_provenance_json,'$.source_id')
+       JOIN json_each(native.source_refs_json) AS ref
+         ON json_extract(ref.value,'$.connection_id')=json_extract(connection.value,'$.connection_id')
+        AND json_extract(ref.value,'$.corpus_id')=json_extract(connection.value,'$.corpus_id')
+        AND json_extract(ref.value,'$.document_id')=json_extract(native.migration_provenance_json,'$.document_id')
+       WHERE native.owner_id=? AND native.space_id=? AND native.snapshot='current'
+       ORDER BY connection_id,source_document_id,native.document_id,source_revision_id,source_projection_id LIMIT ?`,
+    ).bind(canonicalJson(connections.map(({ connection_id, corpus_id }) => ({ connection_id, corpus_id }))),
+      this.principal.ownerId, input.space_id, CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS + 1)
+      .all<{ document_id: string; version: number; connection_id: string; source_document_id: string; source_revision_id: string; source_projection_id: string }>() : { results: [] };
+    if (migrated.results.length > CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS) {
+      throw new ContextError("historical_search_budget_exceeded", "Migration metadata exceeds the complete Source search exclusion budget", 413);
+    }
+    type HistoricalRecord = { document_id: string; revision_id: string; projection_id: string; native_ref: Record<string, unknown> };
+    const historicalByConnection = new Map<string, HistoricalRecord[]>();
+    for (const row of migrated.results) {
+      const records = historicalByConnection.get(row.connection_id) ?? [];
+      records.push({ document_id: row.source_document_id, revision_id: row.source_revision_id, projection_id: row.source_projection_id,
+        native_ref: { space_id: input.space_id, document_id: row.document_id, snapshot: "current", expected_version: row.version },
+      });
+      historicalByConnection.set(row.connection_id, records);
+    }
     const perShardLimit = Math.min(100, Math.max(input.limit, 20));
     const results = await Promise.all(
       connections.map(async (connection) => ({
@@ -889,6 +933,8 @@ export class CorpusService {
         result: await this.callShard(connection.corpus_id!, "/search", {
           query: input.query,
           limit: perShardLimit,
+          exclude_document_versions: input.include_historical ? [] : (historicalByConnection.get(connection.connection_id) ?? [])
+            .map(({ document_id, revision_id, projection_id }) => ({ document_id, revision_id, projection_id })),
         }),
       })),
     );
@@ -904,8 +950,15 @@ export class CorpusService {
           continue;
         const item = candidate as Record<string, unknown>;
         if (typeof item.unit_id !== "string") continue;
+        const migratedRecords = historicalByConnection.get(connection.connection_id) ?? [];
+        const nativeDocumentRef = migratedRecords.find((record) => record.document_id === item.document_id &&
+          record.revision_id === item.revision_id && record.projection_id === item.projection_id)?.native_ref;
+        const relatedNativeRef = nativeDocumentRef ? undefined : migratedRecords.find((record) => record.document_id === item.document_id)?.native_ref;
         candidates.push({
           ...item,
+          historical: Boolean(nativeDocumentRef),
+          ...(nativeDocumentRef ? { native_document_ref: nativeDocumentRef } : {}),
+          ...(relatedNativeRef ? { source_changed: true, related_native_document_ref: relatedNativeRef } : {}),
           connection_id: connection.connection_id,
           read_ref: encodeReadReference({
             version: 1,
@@ -918,7 +971,7 @@ export class CorpusService {
       }
     }
     const selected = candidates.slice(0, input.limit);
-    return { query: input.query, count: selected.length, candidates: selected };
+    return { query: input.query, include_historical: input.include_historical, count: selected.length, candidates: selected, ...(context ? { context } : {}) };
   }
 
   async sourceRefresh(raw: unknown): Promise<Record<string, unknown>> {
@@ -943,6 +996,7 @@ export class CorpusService {
     spaceId: string,
     connectionId?: string | null,
     write = false,
+    create = false,
   ): Promise<ConnectionRow> {
     const space = await this.space(spaceId);
     const rows = (await this.connections(spaceId)).filter((row) =>
@@ -961,10 +1015,10 @@ export class CorpusService {
         { available_connection_ids: rows.map((row) => row.connection_id) },
       );
     }
-    if (write && selected.permission !== "read_write") {
+    if (write && selected.permission !== "read_write" && !(create && selected.permission === "create_only")) {
       throw new ContextError(
-        "connection_read_only",
-        "selected Work Connection is read-only",
+        selected.permission === "create_only" ? "connection_create_only" : "connection_read_only",
+        selected.permission === "create_only" ? "selected Work Connection only permits new files" : "selected Work Connection is read-only",
         403,
       );
     }
@@ -1189,6 +1243,7 @@ export class CorpusService {
       input.space_id,
       input.connection_id,
       true,
+      input.expected_version === "absent",
     );
     const result = this.unwrapJob(
       await this.runJob(

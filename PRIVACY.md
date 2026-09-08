@@ -27,10 +27,20 @@ history.
 Corpus keeps durable Context and extracted Source records independent of the current Finder path.
 Only sources and Work folders that the owner explicitly connects are represented remotely.
 
+Native Corpus documents can also be authored directly without a local Source file. Their Markdown,
+applicability and approved source references remain in owner-scoped D1 storage. A document keeps
+its current and previous saved snapshots; restoring the previous one requires the current version.
+Guidance documents require explicit user approval and remain distinct from project Context.
+
 - Space, Context, Context Skill, Connection, Current File, Sync-device, and migration-receipt state
   is stored in the owner-scoped D1 database. Each Source's documents, revisions, extraction
   projections, Source units, issues, provider metadata, and search index are stored in a separate
   owner-scoped SQLite Durable Object.
+- Host Workspace bindings store opaque host, Workspace and project identifiers, not authoritative
+  local paths. They associate project Context and grant no filesystem authority or OS sandbox.
+  Local host registration and Sync permissions determine the actual file boundary. A `read_only`
+  Connection cannot change business originals; `create_only` permits approved new exports without
+  replacing, deleting, restoring or selecting existing files.
 - Corpus retains extracted text, structural units, provenance anchors, and the revisions needed for
   durable reading. It does not retain original document bytes. Failed or incomplete uploads never
   replace the last committed projection.
@@ -53,6 +63,21 @@ Only sources and Work folders that the owner explicitly connects are represented
   Source snapshots use private local storage and are deleted after analysis or failure. Ordinary
   unsupported files may retain path, size, presence, and format metadata, but their bytes and
   extracted content are not stored remotely.
+
+## Context Site and host guidance
+
+The owner-only Context Site and remote MCP use the same Sense and Corpus service operations and
+version checks. The Site has no product database. Its server-to-server credential remains in secret
+runtime configuration; the service verifies the forwarded Site user against its configured user and
+maps it to a configured owner. Browser content and arbitrary owner headers cannot select another
+owner. Authenticated responses are not cached.
+
+The base guidance document remains private Corpus content. Toolkit distributes the management
+Skill and projection helper, not that document or a machine-path map. An explicitly requested host
+update passes a caller-verified complete current document to the local helper. It maintains only the
+managed base projection and its Codex configuration setting, with old-hash checks and preservation
+of unrelated settings. Ordinary runs do not fetch the body over the network or run an update hook.
+Local installation validation and later authorized cleanup of superseded Skills are separate steps.
 
 ## Hypes
 
@@ -210,5 +235,5 @@ The authentication template, remote services, and Sites record their resolved Ja
 dependencies in `auth/package-lock.json`, `services/remote-context/package-lock.json`,
 `services/design/package-lock.json`,
 `services/journal/package-lock.json`, `services/library/package-lock.json`,
-`sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
+`sites/context/package-lock.json`, `sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
 `sites/library/package-lock.json`.

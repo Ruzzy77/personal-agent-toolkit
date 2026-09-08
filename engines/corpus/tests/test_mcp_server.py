@@ -92,6 +92,7 @@ class MCPServerTest(unittest.TestCase):
                 },
             )
             service.workspace_connect(
+                permission="read_write",
                 workspace_id="thesis",
                 context_id="thesis",
                 display_name="Thesis",

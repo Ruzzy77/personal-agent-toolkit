@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resolver.local/schemas/resolution-packet.schema.json",
+  "title": "Resolution Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resolutionId",
+    "taskStateRef",
+    "status",
+    "executionBrief",
+    "guidance",
+    "questions",
+    "missingSources",
+    "manifest"
+  ],
+  "properties": {
+    "resolutionId": { "type": "string", "minLength": 1 },
+    "taskStateRef": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "needs_input", "degraded", "blocked"]
+    },
+    "executionBrief": { "$ref": "#/$defs/executionBrief" },
+    "guidance": { "$ref": "#/$defs/guidanceSummary" },
+    "questions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/materialQuestion" }
+    },
+    "missingSources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/missingSource" }
+    },
+    "manifest": { "$ref": "#/$defs/manifest" }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "executionBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective",
+        "targets",
+        "effectiveConstraints",
+        "methods",
+        "requiredEvidence",
+        "allowedActions",
+        "approvalRequired",
+        "successCriteria",
+        "assumptions"
+      ],
+      "properties": {
+        "objective": { "type": "string", "minLength": 1 },
+        "targets": { "$ref": "#/$defs/stringList" },
+        "effectiveConstraints": { "$ref": "#/$defs/stringList" },
+        "methods": { "$ref": "#/$defs/stringList" },
+        "requiredEvidence": { "$ref": "#/$defs/stringList" },
+        "allowedActions": { "$ref": "#/$defs/stringList" },
+        "approvalRequired": { "$ref": "#/$defs/stringList" },
+        "successCriteria": { "$ref": "#/$defs/stringList" },
+        "assumptions": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "guidanceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appliedRefs", "shadowedRefs", "conflictRefs"],
+      "properties": {
+        "appliedRefs": { "$ref": "#/$defs/stringList" },
+        "shadowedRefs": { "$ref": "#/$defs/stringList" },
+        "conflictRefs": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "materialQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "reason", "blocksExecution"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "blocksExecution": { "type": "boolean" }
+      }
+    },
+    "missingSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRef", "required"],
+      "properties": {
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolverVersion", "sourceSnapshotHash"],
+      "properties": {
+        "resolverVersion": { "type": "string", "minLength": 1 },
+        "sourceSnapshotHash": { "type": "string", "minLength": 1 },
+        "modelRef": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

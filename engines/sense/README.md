@@ -4,6 +4,8 @@ Sense의 로컬 개발·최초 이관용 Python 구현입니다. 운영 정본�
 `services/remote-context`의 원격 MCP를 사용하며 이 engine의 SQLite 자료와 자동 동기화하지
 않습니다.
 
+로컬 HTML은 읽기 전용이며, `PERSONAL_AGENT_CONTEXT_SITE_URL`에 HTTPS 또는 localhost HTTP 주소를 설정한 경우에만 통합 Site의 Sense 모음으로 연결합니다.
+
 ```sh
 uv sync --frozen
 ./launchers/sense read --view full

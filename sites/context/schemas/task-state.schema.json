@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resolver.local/schemas/task-state.schema.json",
+  "title": "Task State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "revision",
+    "assertions",
+    "requestEventRefs",
+    "status",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "threadRef": { "type": "string" },
+    "assertions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/taskAssertion" }
+    },
+    "requestEventRefs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "needs_input", "degraded", "blocked"]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "requestEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rawText", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "threadRef": { "type": "string" },
+        "rawText": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "references": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "replacesEventRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "taskAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "text", "epistemicStatus", "sourceRefs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "objective",
+            "target",
+            "constraint",
+            "decision",
+            "assumption",
+            "approval_boundary",
+            "success_criterion"
+          ]
+        },
+        "text": { "type": "string", "minLength": 1 },
+        "epistemicStatus": {
+          "type": "string",
+          "enum": ["explicit", "adopted", "inferred", "open", "superseded"]
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "replaces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+        "reversible": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -335,6 +335,23 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("local_only", "external_host_allowed"),
         required=True,
     )
+    workspace_connect.add_argument(
+        "--permission",
+        choices=["read_only", "create_only", "read_write"],
+        default="read_only",
+    )
+    workspace_policy = workspace_commands.add_parser(
+        "set-permission",
+        help="Change a connected folder policy without changing files.",
+    )
+    workspace_policy.add_argument("--id", required=True, dest="workspace_id")
+    workspace_policy.add_argument(
+        "--permission",
+        required=True,
+        choices=["read_only", "create_only", "read_write"],
+    )
+    workspace_policy.add_argument("--expected-generation", required=True, type=int)
+
     workspace_rebind = workspace_commands.add_parser(
         "rebind-root",
         help="Replace a copied or restored work-folder root after validation.",
@@ -913,6 +930,13 @@ def execute(args: argparse.Namespace) -> dict | list:
                 display_name=args.display_name,
                 root=args.root,
                 execution_policy=args.execution_policy,
+                permission=args.permission,
+            )
+        if args.workspace_command == "set-permission":
+            return service.workspace_set_permission(
+                workspace_id=args.workspace_id,
+                permission=args.permission,
+                expected_generation=args.expected_generation,
             )
         if args.workspace_command == "rebind-root":
             return service.workspace_rebind_root(

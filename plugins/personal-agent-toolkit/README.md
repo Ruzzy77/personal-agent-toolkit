@@ -33,4 +33,5 @@ archive를 올리고 같은 이름의 **기존 항목 교체**를 선택합니�
 `document-files` 하나의 노출과 실제 작업을 확인하기 전에는 단일 Skill 전환을 완료로 보지 않습니다.
 세부 절차는 저장소 루트 [갱신 안내](../../README.md#chatgpt와-codex)를 따릅니다.
 
-제품별 구현과 Claude 배포 방식은 저장소 루트의 `DESIGN.md`와 각 제품의 `DESIGN.md`를 따릅니다.
+제품별 구현은 각 제품의 `DESIGN.md`, Claude 배포 방식은 저장소 루트의
+[설치](../../README.md#설치)와 [버전 갱신](../../README.md#버전-갱신) 안내를 따릅니다.

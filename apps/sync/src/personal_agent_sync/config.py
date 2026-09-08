@@ -17,7 +17,38 @@ from urllib.parse import urlparse
 from .errors import SyncError
 
 AccessScope = Literal["remote_allowed", "local_only"]
-Permission = Literal["read_only", "read_write"]
+Permission = Literal["read_only", "create_only", "read_write"]
+PERMISSIONS = {"read_only": 0, "create_only": 1, "read_write": 2}
+
+
+def restrictive_permission(*permissions: str) -> Permission:
+    """Intersect authority layers; unknown/legacy values fail closed."""
+    return (
+        min(permissions, key=lambda value: PERMISSIONS.get(value, -1))
+        if permissions and all(value in PERMISSIONS for value in permissions)
+        else "read_only"
+    )
+
+
+@dataclass(frozen=True)
+class WorkspaceConfig:
+    """Logical host binding, not a Connection or an operating-system grant."""
+
+    workspace_id: str
+    space_id: str
+    host_id: str
+    environment_kind: Literal["local", "remote"]
+    root: Path | None = None
+    project_id: str | None = None
+
+    def public_binding(self) -> dict[str, str | None]:
+        return {
+            "workspace_id": self.workspace_id,
+            "space_id": self.space_id,
+            "host_id": self.host_id,
+            "environment_kind": self.environment_kind,
+            "project_id": self.project_id,
+        }
 
 
 @dataclass(frozen=True)
@@ -51,6 +82,64 @@ class SyncConfig:
     full_reconcile_seconds: float
     event_debounce_seconds: float
     connections: tuple[ConnectionConfig, ...]
+    workspaces: tuple[WorkspaceConfig, ...] = ()
+
+    def resolve_workspace(
+        self, *, host_id: str, workspace_id: str | None = None, path: Path | None = None
+    ) -> dict[str, object]:
+        """Resolve only registered IDs/roots; never infer projects from names."""
+        registrations = [item for item in self.workspaces if item.host_id == host_id]
+        if workspace_id is not None:
+            selected = [
+                item for item in registrations if item.workspace_id == workspace_id
+            ]
+            if not selected:
+                raise SyncError(
+                    "workspace_not_found", "Workspace is not registered on this host"
+                )
+            return {
+                "workspace": selected[0].public_binding(),
+                "matched_by": "workspace_id",
+            }
+        if path is None or not path.is_absolute():
+            raise SyncError(
+                "workspace_match_required",
+                "an explicit Workspace or absolute current path is required",
+            )
+        try:
+            actual = path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise SyncError(
+                "workspace_unavailable", "the current Workspace path is unavailable"
+            ) from exc
+        candidates: list[tuple[int, WorkspaceConfig]] = []
+        for item in registrations:
+            if item.environment_kind != "local" or item.root is None:
+                continue
+            try:
+                root = item.root.resolve(strict=True)
+                if not root.is_dir():
+                    continue
+                actual.relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            candidates.append((len(root.parts), item))
+        if not candidates:
+            raise SyncError(
+                "workspace_not_found",
+                "no registered Workspace contains the current path",
+            )
+        depth = max(item[0] for item in candidates)
+        selected = [item for length, item in candidates if length == depth]
+        if len(selected) != 1:
+            raise SyncError(
+                "workspace_ambiguous",
+                "multiple registered Workspaces match; select an explicit Workspace ID",
+            )
+        return {
+            "workspace": selected[0].public_binding(),
+            "matched_by": "registered_root",
+        }
 
     @property
     def websocket_url(self) -> str:
@@ -81,6 +170,14 @@ def _identifier(value: object, *, field: str) -> str:
     allowed = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
     if value[0] not in set("abcdefghijklmnopqrstuvwxyz0123456789") or any(
         character not in allowed for character in value
+    ):
+        raise SyncError("invalid_configuration", f"{field} is invalid")
+    return value
+
+
+def _workspace_identifier(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}", value
     ):
         raise SyncError("invalid_configuration", f"{field} is invalid")
     return value
@@ -189,6 +286,87 @@ def rewrite_connection_roots(
     return {
         "updated_connections": sorted(updated),
         "root": replacement,
+    }
+
+
+def rewrite_connection_policy(
+    path: Path | None, connection_key: str, *, permission: str, expected_generation: int
+) -> dict[str, object]:
+    """Explicit operator policy change; preserve other configuration and locators."""
+    if (
+        permission not in PERMISSIONS
+        or type(expected_generation) is not int
+        or expected_generation < 1
+    ):
+        raise SyncError(
+            "invalid_configuration", "Connection permission or generation is invalid"
+        )
+    source = (path or default_config_path()).expanduser()
+    try:
+        original = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SyncError(
+            "invalid_configuration", "Sync configuration could not be read"
+        ) from exc
+    matches = list(re.finditer(r"(?m)^\[\[connections\]\]\s*$", original))
+    result = None
+    for match in matches:
+        next_header = re.search(r"(?m)^\[", original[match.end() :])
+        end = match.end() + next_header.start() if next_header else len(original)
+        chunk = original[match.start() : end]
+        try:
+            value = tomllib.loads(chunk)["connections"][0]
+        except (KeyError, IndexError, TypeError, tomllib.TOMLDecodeError) as exc:
+            raise SyncError(
+                "invalid_configuration", "Connection configuration is invalid"
+            ) from exc
+        if f"{value.get('space_id')}:{value.get('connection_id')}" != connection_key:
+            continue
+        if result is not None:
+            raise SyncError("invalid_configuration", "Connection is ambiguous")
+        if value.get("generation", 1) != expected_generation:
+            raise SyncError(
+                "connection_generation_conflict", "Connection binding changed"
+            )
+        changed = value.get("permission", "read_only") != permission
+        generation = expected_generation + int(changed)
+        rewritten = chunk
+        for key, replacement in {
+            "permission": json.dumps(permission),
+            "generation": str(generation),
+        }.items():
+            line = re.compile(rf"(?m)^\s*{key}\s*=.*$")
+            if line.search(rewritten):
+                rewritten = line.sub(f"{key} = {replacement}", rewritten, count=1)
+            else:
+                rewritten = rewritten.rstrip() + f"\n{key} = {replacement}\n"
+        result = (match.start(), end, rewritten, changed, generation)
+    if result is None:
+        raise SyncError("connection_not_found", "Connection is not configured")
+    start, end, rewritten, changed, generation = result
+    if changed:
+        descriptor, name = tempfile.mkstemp(
+            prefix=f".{source.name}.", dir=source.parent
+        )
+        temporary = Path(name)
+        try:
+            os.fchmod(descriptor, stat.S_IMODE(source.stat().st_mode))
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(original[:start] + rewritten + original[end:])
+                stream.flush()
+                os.fsync(stream.fileno())
+            if source.read_text(encoding="utf-8") != original:
+                raise SyncError(
+                    "connection_generation_conflict", "Sync configuration changed"
+                )
+            os.replace(temporary, source)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return {
+        "connection_key": connection_key,
+        "permission": permission,
+        "generation": generation,
+        "changed": changed,
     }
 
 
@@ -312,7 +490,7 @@ def load_config(path: Path | None = None) -> SyncConfig:
             raise SyncError(
                 "invalid_configuration", "Connection access scope is invalid"
             )
-        if permission not in {"read_only", "read_write"}:
+        if permission not in PERMISSIONS:
             raise SyncError("invalid_configuration", "Connection permission is invalid")
         corpus_id = value.get("corpus_id")
         if "source" in roles:
@@ -385,6 +563,63 @@ def load_config(path: Path | None = None) -> SyncConfig:
         raise SyncError(
             "invalid_configuration", "corpus_python is required for Work Connections"
         )
+    workspaces: list[WorkspaceConfig] = []
+    workspace_keys: set[tuple[str, str]] = set()
+    raw_workspaces = raw.get("workspaces", [])
+    if not isinstance(raw_workspaces, list):
+        raise SyncError("invalid_configuration", "Workspaces must be a list")
+    for value in raw_workspaces:
+        if not isinstance(value, dict):
+            raise SyncError(
+                "invalid_configuration", "Workspace registration is invalid"
+            )
+        workspace_id = _workspace_identifier(
+            value.get("workspace_id"), field="workspace_id"
+        )
+        host_id = _workspace_identifier(
+            value.get("host_id", device_id), field="host_id"
+        )
+        space_id = _identifier(value.get("space_id"), field="space_id")
+        kind = value.get("environment_kind")
+        if kind not in {"local", "remote"}:
+            raise SyncError(
+                "invalid_configuration", "Workspace environment kind is invalid"
+            )
+        locator = value.get("root")
+        root = None
+        if kind == "local":
+            if (
+                not isinstance(locator, str)
+                or not Path(locator).expanduser().is_absolute()
+            ):
+                raise SyncError(
+                    "invalid_configuration", "local Workspace root must be absolute"
+                )
+            root = Path(locator).expanduser()
+        elif locator is not None:
+            raise SyncError(
+                "invalid_configuration",
+                "remote Workspace registrations do not contain local roots",
+            )
+        project_id = value.get("project_id")
+        if project_id is not None:
+            project_id = _workspace_identifier(project_id, field="project_id")
+        key = (host_id, workspace_id)
+        if key in workspace_keys:
+            raise SyncError(
+                "invalid_configuration", "Workspace IDs must be unique on each host"
+            )
+        workspace_keys.add(key)
+        workspaces.append(
+            WorkspaceConfig(
+                workspace_id=workspace_id,
+                space_id=space_id,
+                host_id=host_id,
+                environment_kind=kind,
+                root=root,
+                project_id=project_id,
+            )
+        )
     return SyncConfig(
         service_url=service_url.rstrip("/"),
         device_id=device_id,
@@ -396,6 +631,7 @@ def load_config(path: Path | None = None) -> SyncConfig:
         full_reconcile_seconds=float(full_reconcile_seconds),
         event_debounce_seconds=float(event_debounce_seconds),
         connections=tuple(connections),
+        workspaces=tuple(workspaces),
     )
 
 

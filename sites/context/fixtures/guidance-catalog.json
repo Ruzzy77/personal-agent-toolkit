@@ -1,0 +1,54 @@
+{
+  "sources": [
+    {
+      "id": "source-workspace-agents",
+      "kind": "agents",
+      "canonicalUri": "file:///workspace/AGENTS.md",
+      "owner": "user",
+      "coverage": "managed",
+      "version": "4e820fb1",
+      "contentHash": "sha256:4e820fb1",
+      "lifecycle": "active",
+      "sensitivity": "ordinary",
+      "lastObservedAt": "2026-08-27T10:50:10Z"
+    },
+    {
+      "id": "source-sense",
+      "kind": "sense",
+      "canonicalUri": "sense://profile/current",
+      "owner": "user",
+      "coverage": "managed",
+      "version": "profile-23",
+      "contentHash": "sha256:profile-23",
+      "lifecycle": "active",
+      "sensitivity": "sensitive",
+      "lastObservedAt": "2026-08-27T10:50:12Z"
+    }
+  ],
+  "clauses": [
+    {
+      "id": "workspace-project-boundary",
+      "sourceRef": "source-workspace-agents",
+      "text": "최상위 작업 폴더마다 독립된 프로젝트로 다룬다.",
+      "effect": "method",
+      "authority": "workspace",
+      "enforcement": "hard",
+      "scope": {
+        "paths": ["/workspace/**"]
+      },
+      "tags": ["project-boundary"]
+    },
+    {
+      "id": "sense-evidence-state",
+      "sourceRef": "source-sense",
+      "text": "제작, 검증과 배포 완료를 서로 다른 상태로 다룬다.",
+      "effect": "completion_criterion",
+      "authority": "user",
+      "enforcement": "hard",
+      "scope": {
+        "taskTypes": ["product-design", "implementation", "deployment"]
+      },
+      "tags": ["state", "verification"]
+    }
+  ]
+}

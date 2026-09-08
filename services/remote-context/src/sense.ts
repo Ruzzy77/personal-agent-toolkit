@@ -146,6 +146,7 @@ export class SenseService {
   async read(
     view: "index" | "sections" | "full",
     sectionIds?: string[] | null,
+    includeSkill = true,
   ): Promise<Record<string, unknown>> {
     const stored = await this.profile();
     const skills = await this.skills();
@@ -185,7 +186,7 @@ export class SenseService {
             const skill = skills.get(section.id);
             return {
               ...section,
-              ...(skill ? { skill: skillProjection(skill, true) } : {}),
+              ...(skill ? { skill: skillProjection(skill, includeSkill) } : {}),
             };
           }),
         },
@@ -216,7 +217,7 @@ export class SenseService {
       sections.push({
         ...section,
         section_sha256: await sectionDigest(section),
-        ...(skill ? { skill: skillProjection(skill, true) } : {}),
+        ...(skill ? { skill: skillProjection(skill, includeSkill) } : {}),
       });
     }
     return { sections };

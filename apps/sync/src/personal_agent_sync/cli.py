@@ -11,11 +11,21 @@ import shutil
 import sys
 from pathlib import Path
 
-from .config import default_config_path, load_config, rewrite_connection_roots
+from .config import (
+    default_config_path,
+    load_config,
+    rewrite_connection_policy,
+    rewrite_connection_roots,
+)
 from .credentials import read_token, store_token
 from .daemon import SyncDaemon
 from .errors import SyncError
-from .migration import migrate_local, verify_local, write_discovered_config
+from .migration import (
+    LocalCorpusMigration,
+    migrate_local,
+    verify_local,
+    write_discovered_config,
+)
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState
@@ -39,6 +49,34 @@ def parser() -> argparse.ArgumentParser:
     rebind.add_argument("connection_key")
     rebind.add_argument("root", type=Path)
     commands.add_parser("status", help="show local queue and Connection status")
+    workspace = commands.add_parser(
+        "workspace-resolve", help="match an explicitly registered host Workspace"
+    )
+    workspace.add_argument("--host-id")
+    selection = workspace.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--workspace-id")
+    selection.add_argument("--path", type=Path)
+    commands.add_parser("workspace-list", help="list path-free logical host bindings")
+    policy = commands.add_parser(
+        "set-permission", help="change one configured Connection policy and generation"
+    )
+    policy.add_argument("connection_key")
+    policy.add_argument(
+        "--permission",
+        choices=["read_only", "create_only", "read_write"],
+        required=True,
+    )
+    policy.add_argument("--expected-generation", type=int, required=True)
+    publish = commands.add_parser(
+        "publish-connection",
+        help="publish one guarded Connection without importing Context metadata",
+    )
+    publish.add_argument("connection_key")
+    publish.add_argument(
+        "--expected-generation",
+        required=True,
+        help="current remote generation, or absent",
+    )
     storage_report = commands.add_parser(
         "storage-report", help="show current remote Corpus storage use"
     )
@@ -111,6 +149,35 @@ async def _import(config_path: Path | None, product: str, source: Path) -> dict:
     remote = RemoteClient(config, token)
     try:
         return await remote.import_payload(product, value)
+    finally:
+        await remote.close()
+
+
+async def _publish_connection(config, connection_key: str, expected: str) -> dict:
+    if expected == "absent":
+        expected_generation = expected
+    elif expected.isdecimal() and int(expected) >= 1:
+        expected_generation = int(expected)
+    else:
+        raise SyncError(
+            "invalid_configuration", "expected remote generation is invalid"
+        )
+    # The payload is projection metadata only. It contains no local root locator.
+    payload = LocalCorpusMigration(config).metadata_payload()
+    selected = [
+        item
+        for item in payload["connections"]
+        if f"{item['spaceId']}:{item['connectionId']}" == connection_key
+    ]
+    if len(selected) != 1:
+        raise SyncError(
+            "connection_not_found", "Connection is not available for publication"
+        )
+    remote = RemoteClient(config, read_token(config.device_id))
+    try:
+        return await remote.upsert_connections(
+            selected, expected_generations={connection_key: expected_generation}
+        )
     finally:
         await remote.close()
 
@@ -228,7 +295,30 @@ def main() -> None:
         if arguments.command == "run":
             asyncio.run(_run(arguments.config))
             return
-        if arguments.command == "set-credential":
+        if arguments.command == "set-permission":
+            result = rewrite_connection_policy(
+                arguments.config,
+                arguments.connection_key,
+                permission=arguments.permission,
+                expected_generation=arguments.expected_generation,
+            )
+        elif arguments.command == "publish-connection":
+            result = asyncio.run(
+                _publish_connection(
+                    config, arguments.connection_key, arguments.expected_generation
+                )
+            )
+        elif arguments.command == "workspace-resolve":
+            result = config.resolve_workspace(
+                host_id=arguments.host_id or config.device_id,
+                workspace_id=arguments.workspace_id,
+                path=arguments.path,
+            )
+        elif arguments.command == "workspace-list":
+            result = {
+                "workspaces": [item.public_binding() for item in config.workspaces]
+            }
+        elif arguments.command == "set-credential":
             store_token(config.device_id, arguments.token)
             result = {"stored": True, "device_id": config.device_id}
         elif arguments.command == "validate":

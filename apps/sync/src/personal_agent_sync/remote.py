@@ -63,6 +63,19 @@ class RemoteClient:
             raise SyncError("remote_protocol_error", "remote result is invalid")
         return result
 
+    async def upsert_connections(
+        self,
+        connections: list[dict[str, Any]],
+        *,
+        expected_generations: dict[str, int | str],
+    ) -> dict[str, Any]:
+        """Update only device Connection policies; never replace Corpus metadata."""
+        return await self._json(
+            "POST",
+            "/sync/v1/connections:upsert",
+            {"connections": connections, "expected_generations": expected_generations},
+        )
+
     async def upload_projection(
         self,
         corpus_id: str,

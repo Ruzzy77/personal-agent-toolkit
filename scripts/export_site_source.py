@@ -30,7 +30,7 @@ def ignored(_directory: str, names: list[str]) -> set[str]:
     return {
         name
         for name in names
-        if name in IGNORED_NAMES or name == ".env" or name.startswith(".env.")
+        if name in IGNORED_NAMES or name == ".env" or name.startswith(".env.") or name == ".dev.vars" or name.startswith(".dev.vars.")
     }
 
 

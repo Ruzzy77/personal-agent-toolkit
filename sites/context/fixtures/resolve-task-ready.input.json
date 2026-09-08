@@ -1,0 +1,24 @@
+{
+  "requestEvent": {
+    "id": "event-20260827-001",
+    "threadRef": "codex://task/current",
+    "rawText": "다음 설계도 이어서 해보자.",
+    "createdAt": "2026-08-27T10:50:00Z",
+    "references": ["task://context-control-plane?revision=3"]
+  },
+  "context": {
+    "client": "codex",
+    "hostId": "local",
+    "workspace": "/workspace/context-control-plane",
+    "repository": "context-control-plane",
+    "cwd": "/workspace/context-control-plane",
+    "taskType": "product-design",
+    "artifactType": "interactive-prototype"
+  },
+  "priorTaskStateRef": "task://context-control-plane?revision=3",
+  "sourceHints": [
+    "agents://current",
+    "sense://index"
+  ],
+  "mode": "preview"
+}

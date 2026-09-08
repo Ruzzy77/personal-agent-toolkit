@@ -35,6 +35,8 @@ belong in the repository.
 - `/corpus/mcp`
 - `/hypes/mcp`
 - `/sync/v1/connect`
+- `/sync/v1/connections:upsert` (device-scoped generation CAS, no Context replacement)
+- `/site/v1/{operation}` (configured private Site principal, same product service)
 - `/health`
 
 The Sync endpoint accepts only the dedicated device credential. MCP endpoints
@@ -86,3 +88,34 @@ writes and complete bounded search maintenance while the legacy index remains
 intact. After search verification, enable
 `SEARCH_INDEX_V2_CUTOVER_ENABLED=true` and run maintenance once more to reclaim
 the legacy index. Retain the dual-reader deployment as the rollback floor.
+
+## Native Context and Workspace
+
+Native Context documents live in owner/Space-scoped D1 tables without Source files.
+`corpus_document_create/list/read/revise/restore` preserve complete Markdown and
+current plus one previous snapshot. Paging uses Unicode code points and can pin
+an expected snapshot version. Guidance needs explicit approval provenance; Context
+text is not an instruction just because it contains imperative sentences.
+
+`corpus_space_create` registers an exact project scope. `corpus_workspace_bind` and
+`corpus_workspace_resolve` map explicit host/workspace IDs without storing host paths
+or filesystem authority. Whole metadata import is refused once native documents or
+Workspace bindings exist. Use individual operations, not full import, for edits.
+
+Current and previous exact Source references are protected through durable shard
+reservations and maintenance gates. Uncertain commits retain the reservation rather
+than risking deletion. Missing or revoked references are not silently substituted.
+An explicit migration relation hides only the migrated Source revision/projection
+from default search, not subsequent Source changes or references in other Spaces.
+`include_historical` exposes the saved Source with a link to its native replacement.
+
+`sense_read.include_skill` and `corpus_space_get.include_context_skill` default true
+for compatibility. False keeps criteria/context and Skill metadata without method
+text. `corpus_space_search.search_scope` selects sources (legacy default), context,
+or all; Context candidates carry identity, version, provenance and bounded source
+metadata. Read selected full documents separately.
+
+The Context Site uses server-only CONTEXT_SITE_TOKEN plus the verified Site-specific
+user ID mapped by CONTEXT_SITE_USER_ID/CONTEXT_SITE_OWNER_ID. Browser-supplied owner
+IDs are never accepted. Site and MCP share the same Zod/service/CAS logic. A saved
+remote base is distinct from a host projection and from an already running model.

@@ -1,0 +1,131 @@
+{
+  "protocolVersion": "2025-11-25",
+  "server": {
+    "name": "resolver",
+    "version": "0.3.0-prototype",
+    "description": "Resolve a user's current request against managed guidance and return a traceable execution brief."
+  },
+  "tools": [
+    {
+      "name": "resolver.resolve_task",
+      "title": "Resolve current task",
+      "description": "Create a new Task State revision, compute effective guidance, and return a Resolution Packet. Preview mode does not record an execution run.",
+      "inputSchemaRef": "../schemas/resolve-task-input.schema.json",
+      "outputSchemaRef": "../schemas/resolve-task-output.schema.json",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "resolver.explain_resolution",
+      "title": "Explain a resolution decision",
+      "description": "Explain why a guidance clause applied, was shadowed, fell out of scope, or remained in conflict.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["resolutionId", "clauseId"],
+        "properties": {
+          "resolutionId": { "type": "string" },
+          "clauseId": { "type": "string" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "resolver.simulate",
+      "title": "Simulate task context",
+      "description": "Recompute a saved Resolution Packet against proposed context or source versions without changing canonical guidance.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["resolutionId", "changes"],
+        "properties": {
+          "resolutionId": { "type": "string" },
+          "changes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cwd": { "type": "string" },
+              "taskType": { "type": "string" },
+              "artifactType": { "type": "string" },
+              "sourceVersions": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "resolver.list_conflicts",
+      "title": "List unresolved conflicts",
+      "description": "Return unresolved guidance conflicts and material questions for a Task State revision.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskStateRef"],
+        "properties": {
+          "taskStateRef": { "type": "string" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "resourceTemplates": [
+    {
+      "uriTemplate": "guidance://sources/{sourceId}",
+      "name": "Guidance source snapshot",
+      "mimeType": "application/json"
+    },
+    {
+      "uriTemplate": "guidance://clauses/{clauseId}",
+      "name": "Guidance clause",
+      "mimeType": "application/json"
+    },
+    {
+      "uriTemplate": "request://tasks/{taskId}/state{?revision}",
+      "name": "Task State revision",
+      "mimeType": "application/json"
+    },
+    {
+      "uriTemplate": "resolution://{resolutionId}",
+      "name": "Resolution Packet",
+      "mimeType": "application/json"
+    },
+    {
+      "uriTemplate": "run://{runId}/manifest",
+      "name": "Run manifest",
+      "mimeType": "application/json"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "review_current_task",
+      "description": "Review the current Task State and effective guidance with the user."
+    },
+    {
+      "name": "review_guidance_change",
+      "description": "Compare a proposed guidance change against representative tasks before publication."
+    }
+  ]
+}

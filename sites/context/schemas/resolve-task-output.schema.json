@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resolver.local/schemas/resolve-task-output.schema.json",
+  "title": "resolver.resolve_task output",
+  "$ref": "resolution-packet.schema.json"
+}

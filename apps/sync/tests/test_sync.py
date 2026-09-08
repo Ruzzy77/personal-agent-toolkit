@@ -8,11 +8,13 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 from typing import Self
 
 import personal_agent_sync.analysis as analysis_module
+import personal_agent_sync.cli as cli_module
 import personal_agent_sync.daemon as daemon_module
 import personal_agent_sync.migration as migration_module
 import personal_agent_sync.state as state_module
@@ -20,7 +22,13 @@ import personal_agent_sync.storage as storage_module
 import personal_agent_sync.work as work_module
 import pytest
 from personal_agent_sync.analysis import analyze_local, build_projection
-from personal_agent_sync.config import load_config, rewrite_connection_roots
+from personal_agent_sync.config import (
+    WorkspaceConfig,
+    load_config,
+    restrictive_permission,
+    rewrite_connection_policy,
+    rewrite_connection_roots,
+)
 from personal_agent_sync.daemon import SyncDaemon
 from personal_agent_sync.errors import PolicyDenied, SyncError
 from personal_agent_sync.paths import (
@@ -1928,6 +1936,235 @@ def test_work_jobs_recheck_scope_generation_and_write_permission(
     )
     assert refreshed["requested"] is True
     assert state.due_changes()[0]["event_kind"] == "refresh"
+
+
+@pytest.mark.parametrize("permission", ["read_only", "create_only", "read_write"])
+def test_connection_permission_round_trip_and_generation_guard(
+    tmp_path: Path, permission: str
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    path = write_config(tmp_path, root)
+    original = load_config(path)
+    SyncState(original)
+    changed = rewrite_connection_policy(
+        path, "notes:main", permission=permission, expected_generation=3
+    )
+    config = load_config(path)
+    row = SyncState(config).connection_for_scope("notes", "main")
+    assert row["permission"] == permission
+    assert row["generation"] == changed["generation"]
+    assert row["root_path"] == str(root)
+    assert restrictive_permission("read_write", permission) == permission
+    assert restrictive_permission("read_only", permission) == "read_only"
+    if permission != "read_write":
+        with pytest.raises(SyncError, match="binding changed"):
+            rewrite_connection_policy(
+                path, "notes:main", permission="read_write", expected_generation=3
+            )
+        # A manually edited policy cannot silently reuse the previous job generation.
+        path.write_text(
+            path.read_text().replace(
+                f'permission = "{permission}"', 'permission = "read_write"'
+            )
+        )
+        with pytest.raises(SyncError, match="newer configured generation"):
+            SyncState(load_config(path))
+
+
+def test_create_only_jobs_allow_only_absent_target_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    path = write_config(tmp_path, root)
+    rewrite_connection_policy(
+        path, "notes:main", permission="create_only", expected_generation=3
+    )
+    config = load_config(path)
+    state = SyncState(config)
+    executor = WorkExecutor(config, state)
+    monkeypatch.setattr(executor, "_invoke", lambda *args: {"invoked": True})
+    scope = {"spaceId": "notes", "connectionId": "main", "generation": 4}
+    request = {
+        "space_id": "notes",
+        "connection_id": "main",
+        "expected_version": "absent",
+    }
+    assert executor.execute("work.file.write", scope, request) == {"invoked": True}
+    for operation in (
+        "work.file.delete",
+        "work.file.restore",
+        "work.file.select_current",
+    ):
+        with pytest.raises(PolicyDenied):
+            executor.execute(operation, scope, request)
+    for update in (
+        {"expected_version": "v1:existing"},
+        {"replace_start_marker": "start"},
+    ):
+        with pytest.raises(PolicyDenied):
+            executor.execute("work.file.write", scope, {**request, **update})
+
+
+def test_host_workspace_matching_uses_only_registered_roots_and_no_public_locators(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    child = root / "nested"
+    child.mkdir(parents=True)
+    file = child / "note.txt"
+    file.write_text("one")
+    path = write_config(tmp_path, root)
+    path.write_text(
+        path.read_text()
+        + f'\n[[workspaces]]\nworkspace_id = "outer"\nspace_id = "notes"\nhost_id = "test-mac"\nenvironment_kind = "local"\nroot = {json.dumps(str(root))}\n'
+    )
+    config = load_config(path)
+    outer = config.workspaces[0]
+    inner = replace(outer, workspace_id="inner", space_id="nested-project", root=child)
+    remote = WorkspaceConfig(
+        workspace_id="remote",
+        space_id="remote-project",
+        host_id="remote-host",
+        environment_kind="remote",
+        project_id="project-1",
+    )
+    config = replace(config, workspaces=(outer, inner, remote))
+    assert (
+        config.resolve_workspace(host_id="test-mac", path=file)["workspace"]["space_id"]
+        == "nested-project"
+    )
+    assert (
+        config.resolve_workspace(host_id="test-mac", workspace_id="outer", path=file)[
+            "matched_by"
+        ]
+        == "workspace_id"
+    )
+    assert (
+        config.resolve_workspace(host_id="remote-host", workspace_id="remote")[
+            "workspace"
+        ]["environment_kind"]
+        == "remote"
+    )
+    assert str(root) not in json.dumps(
+        config.resolve_workspace(host_id="test-mac", path=file)
+    )
+    ambiguous = replace(
+        config, workspaces=(outer, inner, replace(inner, workspace_id="other"))
+    )
+    with pytest.raises(SyncError) as error:
+        ambiguous.resolve_workspace(host_id="test-mac", path=file)
+    assert error.value.code == "workspace_ambiguous"
+    with pytest.raises(SyncError) as error:
+        config.resolve_workspace(host_id="other-host", path=file)
+    assert error.value.code == "workspace_not_found"
+    with pytest.raises(SyncError):
+        config.resolve_workspace(host_id="test-mac", path=tmp_path)
+
+
+def test_rediscovery_preserves_restricted_permission_and_workspace_bindings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    path = write_config(tmp_path, root)
+    rewrite_connection_policy(
+        path, "notes:main", permission="create_only", expected_generation=3
+    )
+    path.write_text(
+        path.read_text()
+        + f'\n[[workspaces]]\nworkspace_id = "Project:1"\nspace_id = "notes"\nhost_id = "Host:Mac"\nenvironment_kind = "local"\nroot = {json.dumps(str(root))}\n'
+    )
+    public_connection = {
+        "connection_id": "main",
+        "roles": ["source", "work"],
+        "access_scope": "remote_allowed",
+        "permission": "read_write",
+        "generation": 3,
+        "_workspace_id": "notes",
+        "_source_ids": ["notes"],
+    }
+    monkeypatch.setattr(
+        migration_module,
+        "_corpus_projection",
+        lambda *_: {
+            "spaces": [{"space_id": "notes", "connections": [public_connection]}]
+        },
+    )
+    monkeypatch.setattr(
+        migration_module.LocalCorpusMigration,
+        "_read_all",
+        lambda path, _: (
+            [{"corpus_id": "notes", "source_root": str(root)}]
+            if path.name == "catalog.sqlite"
+            else [{"workspace_id": "notes", "root_path": str(root)}]
+        ),
+    )
+    migration_module.write_discovered_config(
+        output=path,
+        service_url="https://context.example.test",
+        device_id="test-mac",
+        display_name="Test Mac",
+        corpus_python=Path(sys.executable),
+        corpus_data_root=tmp_path / "corpus",
+        replace=True,
+    )
+    # Parse only: discovery's default runtime locator must never create live test state.
+    result = tomllib.loads(path.read_text())
+    assert result["connections"][0]["permission"] == "create_only"
+    assert result["connections"][0]["generation"] == 4
+    assert result["workspaces"][0]["workspace_id"] == "Project:1"
+    assert result["workspaces"][0]["root"] == str(root)
+
+
+def test_publish_connection_uses_narrow_generation_guarded_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+    exported = {
+        "spaceId": "notes",
+        "connectionId": "main",
+        "permission": "create_only",
+        "generation": 4,
+    }
+
+    class FakeMigration:
+        def __init__(self, _config):
+            pass
+
+        def metadata_payload(self):
+            return {
+                "connections": [exported],
+                "contexts": [{"private": "never upload"}],
+            }
+
+    calls = []
+
+    class FakeRemote:
+        def __init__(self, _config, _token):
+            pass
+
+        async def upsert_connections(self, connections, *, expected_generations):
+            calls.append((connections, expected_generations))
+            return {"updated": 1}
+
+        async def import_payload(self, *_):
+            raise AssertionError("full metadata import is not a policy update")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "LocalCorpusMigration", FakeMigration)
+    monkeypatch.setattr(cli_module, "RemoteClient", FakeRemote)
+    monkeypatch.setattr(cli_module, "read_token", lambda _: "test-token")
+    assert asyncio.run(cli_module._publish_connection(config, "notes:main", "3")) == {
+        "updated": 1
+    }
+    assert calls == [([exported], {"notes:main": 3})]
+    assert str(root) not in json.dumps(calls)
 
 
 def test_broker_advertises_only_executable_local_operations() -> None:

@@ -9,12 +9,20 @@ export type McpSurface = {
 export const MCP_SURFACES = {
   toolkit: {
     name: "Personal Agent Toolkit",
-    version: "1.3.2",
+    version: "1.4.0",
     tools: [
       "sense_read",
       "sense_overview",
       "sense_revise",
       "sense_skill_revise",
+      "corpus_space_create",
+      "corpus_workspace_bind",
+      "corpus_workspace_resolve",
+      "corpus_document_create",
+      "corpus_document_list",
+      "corpus_document_read",
+      "corpus_document_revise",
+      "corpus_document_restore",
       "corpus_space_list",
       "corpus_space_get",
       "corpus_context_items_revise",
@@ -57,7 +65,7 @@ export const MCP_SURFACES = {
   },
   sense: {
     name: "Sense",
-    version: "0.3.7-remote.1",
+    version: "0.4.0-remote.1",
     tools: [
       "sense_read",
       "sense_overview",
@@ -67,8 +75,16 @@ export const MCP_SURFACES = {
   },
   corpus: {
     name: "Corpus",
-    version: "0.23.0-remote.1",
+    version: "0.24.0-remote.1",
     tools: [
+      "corpus_space_create",
+      "corpus_workspace_bind",
+      "corpus_workspace_resolve",
+      "corpus_document_create",
+      "corpus_document_list",
+      "corpus_document_read",
+      "corpus_document_revise",
+      "corpus_document_restore",
       "corpus_space_list",
       "corpus_space_get",
       "corpus_context_items_revise",

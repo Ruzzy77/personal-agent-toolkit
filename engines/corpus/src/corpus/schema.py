@@ -4,7 +4,7 @@ CATALOG_SCHEMA_VERSION = 2
 CORPUS_SCHEMA_VERSION = 6
 EXTRACTION_SCHEMA_VERSION = 6
 CONTEXT_SCHEMA_VERSION = 6
-WORKSPACE_SCHEMA_VERSION = 1
+WORKSPACE_SCHEMA_VERSION = 2
 
 PROVENANCE_GUARD_SCHEMA = """
 CREATE TRIGGER IF NOT EXISTS guard_documents_current_revision_insert
@@ -257,7 +257,7 @@ CREATE TABLE IF NOT EXISTS schema_info (
     version INTEGER NOT NULL
 );
 INSERT INTO schema_info(version)
-SELECT 1
+SELECT 2
 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -270,6 +270,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     root_inode INTEGER NOT NULL,
     execution_policy TEXT NOT NULL
         CHECK (execution_policy IN ('local_only', 'external_host_allowed')),
+    permission TEXT NOT NULL DEFAULT 'read_only'
+        CHECK (permission IN ('read_only', 'create_only', 'read_write')),
     current_relative_path TEXT,
     generation INTEGER NOT NULL CHECK (generation >= 1),
     created_at TEXT NOT NULL,

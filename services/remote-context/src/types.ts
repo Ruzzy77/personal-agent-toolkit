@@ -30,13 +30,16 @@ export interface Env {
   SYNC_DEVICE_ID?: string;
   SYNC_DEVICE_TOKENS_JSON?: string;
   SYNC_OWNER_ID?: string;
+  CONTEXT_SITE_TOKEN?: string;
+  CONTEXT_SITE_USER_ID?: string;
+  CONTEXT_SITE_OWNER_ID?: string;
 }
 
 export interface Principal {
   ownerId: string;
   scopes: ReadonlySet<string>;
   clientId: string;
-  auth: "oauth" | "sync-device";
+  auth: "oauth" | "sync-device" | "site";
   owner?: import("@personal-agent/remote-runtime").AuthenticatedOwner;
   deviceId?: string;
 }

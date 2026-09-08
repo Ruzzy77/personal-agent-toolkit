@@ -14,7 +14,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.3.2"
+        "base_version": "1.4.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -42,7 +42,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.3.2"
+        "surface_version": "1.4.0"
       }
     }
   },
@@ -51,7 +51,7 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.3.7"
+        "base_version": "0.4.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -61,7 +61,8 @@
       "components": [
         "plugins/sense",
         "engines/sense",
-        "services/remote-context"
+        "services/remote-context",
+        "sites/context"
       ],
       "data_authority": "services/remote-context",
       "versioned_packages": [],
@@ -71,7 +72,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.3.7-remote.1",
+        "surface_version": "0.4.0-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",
@@ -84,7 +85,7 @@
       "display_name": "Corpus",
       "plugin": {
         "path": "plugins/corpus",
-        "base_version": "0.23.0"
+        "base_version": "0.24.0"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -95,7 +96,8 @@
         "plugins/corpus",
         "engines/corpus",
         "services/remote-context",
-        "apps/sync"
+        "apps/sync",
+        "sites/context"
       ],
       "data_authority": "services/remote-context",
       "versioned_packages": [],
@@ -105,8 +107,16 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Corpus",
-        "surface_version": "0.23.0-remote.1",
+        "surface_version": "0.24.0-remote.1",
         "tools": [
+          "corpus_space_create",
+          "corpus_workspace_bind",
+          "corpus_workspace_resolve",
+          "corpus_document_create",
+          "corpus_document_list",
+          "corpus_document_read",
+          "corpus_document_revise",
+          "corpus_document_restore",
           "corpus_space_list",
           "corpus_space_get",
           "corpus_context_items_revise",

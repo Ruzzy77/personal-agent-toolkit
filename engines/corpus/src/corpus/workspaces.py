@@ -66,6 +66,7 @@ WORKSPACE_MAX_DISPLAY_NAME_CHARS = 160
 WORKSPACE_RECOVERY_RETENTION_DAYS = 14
 WORKSPACE_RECOVERY_MAINTENANCE_LIMIT = 100
 WORKSPACE_EXPECTED_ABSENT = "absent"
+WORKSPACE_PERMISSIONS = {"read_only", "create_only", "read_write"}
 WORKSPACE_VERSION_PREFIX = "v1:"
 WORKSPACE_MAX_ENCODED_CONTENT_CHARS = 3 * WORKSPACE_MAX_FILE_BYTES
 WORKSPACE_RECOVERY_ID_RE = re.compile(r"^wrec_[0-9a-f]{32}$")
@@ -787,6 +788,7 @@ class WorkspaceService:
             "context_state": self._context_lifecycle_state(row),
             "display_name": display_name,
             "execution_policy": row["execution_policy"],
+            "permission": row["permission"],
             "current_relative_path": row["current_relative_path"],
             "generation": row["generation"],
             "connection_state": state,
@@ -917,7 +919,9 @@ class WorkspaceService:
         display_name: str | None,
         root: Path,
         execution_policy: str,
+        permission: str = "read_only",
     ) -> dict[str, Any]:
+        self._validate_permission(permission)
         root = _normalize_root(root)
         default_identifier = root.name
         workspace_id = normalize_workspace_id(workspace_id or default_identifier)
@@ -1009,9 +1013,9 @@ class WorkspaceService:
                 """
                 INSERT INTO workspaces(
                     workspace_id, context_id, display_name, root_path,
-                    root_path_nfc, root_device, root_inode, execution_policy,
+                    root_path_nfc, root_device, root_inode, execution_policy, permission,
                     current_relative_path, generation, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)
                 """,
                 (
                     workspace_id,
@@ -1022,6 +1026,7 @@ class WorkspaceService:
                     identity[0],
                     identity[1],
                     execution_policy,
+                    permission,
                     now,
                     now,
                 ),
@@ -1275,6 +1280,54 @@ class WorkspaceService:
         row = self._load_row(workspace_id, audience=audience)
         return {"work_folder": self._project(row, audience=audience)}
 
+    @staticmethod
+    def _validate_permission(permission: str) -> None:
+        if permission not in WORKSPACE_PERMISSIONS:
+            raise WorkspaceValidationError("unsupported workspace permission")
+
+    @staticmethod
+    def _require_permission(row: dict[str, Any], operation: str) -> None:
+        permission = row.get("permission", "read_only")
+        if permission == "read_write" or (
+            permission == "create_only" and operation == "create"
+        ):
+            return
+        raise PolicyDeniedError(
+            "work folder policy does not permit this operation",
+            details={"permission": permission, "operation": operation},
+        )
+
+    def set_permission(
+        self, *, workspace_id: str, permission: str, expected_generation: int
+    ) -> dict[str, Any]:
+        """Change only a local Connection policy with an explicit generation guard."""
+        self._validate_permission(permission)
+        if type(expected_generation) is not int or expected_generation < 1:
+            raise WorkspaceValidationError("expected generation is invalid")
+        with (
+            workspace_writer_lock(self.data_root),
+            workspace_connection(self.data_root) as connection,
+        ):
+            row = self._load_row(
+                workspace_id, audience="local_cli", connection=connection
+            )
+            if row["generation"] != expected_generation:
+                raise WorkspaceConflictError("work folder generation changed")
+            changed = row["permission"] != permission
+            if changed:
+                connection.execute(
+                    "UPDATE workspaces SET permission = ?, generation = generation + 1, "
+                    "updated_at = ? WHERE workspace_id = ? AND generation = ?",
+                    (permission, utc_now(), row["workspace_id"], expected_generation),
+                )
+                row = self._load_row(
+                    workspace_id, audience="local_cli", connection=connection
+                )
+        return {
+            "work_folder": self._project(row, audience="local_cli"),
+            "changed": changed,
+        }
+
     def roots(self, *, resolve_locations: bool = True) -> list[Path]:
         if resolve_locations:
             self._resolve_all_workspace_locations()
@@ -1507,6 +1560,7 @@ class WorkspaceService:
                 audience=audience,
                 connection=connection,
             )
+            self._require_permission(row, "select_current")
             identity = self._require_connected(row)
             observation = access.observe_workspace_file(
                 Path(row["root_path"]),
@@ -2128,6 +2182,7 @@ class WorkspaceService:
         self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
+            self._require_permission(row, operation)
             identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()
@@ -2212,6 +2267,29 @@ class WorkspaceService:
                         )
                         try:
                             try:
+                                self._require_permission(row, "create")
+                                with (
+                                    access.opened_workspace_root(
+                                        root, identity
+                                    ) as checked_root,
+                                    access.opened_workspace_parent(
+                                        checked_root, canonical
+                                    ) as (checked_parent, _checked_name, current_name),
+                                ):
+                                    before_parent = os.fstat(parent_descriptor)
+                                    current_parent = os.fstat(checked_parent)
+                                    if (before_parent.st_dev, before_parent.st_ino) != (
+                                        current_parent.st_dev,
+                                        current_parent.st_ino,
+                                    ):
+                                        raise WorkspaceBoundaryError(
+                                            "work folder parent changed before create"
+                                        )
+                                    if current_name is not None:
+                                        raise WorkspaceConflictError(
+                                            "work folder file appeared before create",
+                                            details={"reason": "create_conflict"},
+                                        )
                                 link_if_absent_at(
                                     parent_descriptor,
                                     temporary_name,
@@ -2659,6 +2737,7 @@ class WorkspaceService:
         self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
+            self._require_permission(row, "delete")
             identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()
@@ -2878,6 +2957,7 @@ class WorkspaceService:
         self._resolve_workspace_location(workspace_id)
         with workspace_writer_lock(self.data_root):
             row = self._load_row(workspace_id, audience=audience)
+            self._require_permission(row, "restore")
             identity = self._require_connected(row)
             paths = WorkspaceRuntimePaths(self.data_root, row["workspace_id"])
             paths.ensure()

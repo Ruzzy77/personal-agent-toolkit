@@ -11,6 +11,7 @@ on:
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
+      - "sites/context/**"
       - "sites/design/**"
       - "sites/journal/**"
       - "sites/library/**"
@@ -26,6 +27,7 @@ on:
       - "services/journal/**"
       - "services/library/**"
       - "services/remote-context/**"
+      - "sites/context/**"
       - "sites/design/**"
       - "sites/journal/**"
       - "sites/library/**"
@@ -59,6 +61,9 @@ jobs:
           - component: Design Site
             directory: sites/design
             command: npm run check
+          - component: Context Site
+            directory: sites/context
+            command: npm run lint && npm run build
           - component: Journal Site
             directory: sites/journal
             command: npm run lint && npm run build && npm test

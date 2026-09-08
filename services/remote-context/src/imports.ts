@@ -39,6 +39,15 @@ export async function importCorpusMetadata(
     };
   }
 
+  const nativeCanon = await db.prepare(
+    `SELECT 1 AS present FROM corpus_documents WHERE owner_id = ?
+     UNION ALL SELECT 1 AS present FROM corpus_workspace_bindings WHERE owner_id = ? LIMIT 1`,
+  ).bind(ownerId, ownerId).first();
+  if (nativeCanon) {
+    throw new ContextError("native_canon_present",
+      "Whole-owner metadata import cannot replace native Corpus documents or Workspace bindings", 409);
+  }
+
   const spaceIds = new Set(input.spaces.map((space) => space.spaceId));
   if (spaceIds.size !== input.spaces.length) {
     throw new ContextError(
@@ -354,7 +363,15 @@ export async function importCorpusMetadata(
         importedAt,
       ),
   );
-  await db.batch(statements);
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("native_canon_present")) {
+      throw new ContextError("native_canon_present",
+        "Native Corpus canon appeared before import; the entire metadata import was rolled back", 409);
+    }
+    throw error;
+  }
   return {
     changed: true,
     sourceDigest: input.sourceDigest,
