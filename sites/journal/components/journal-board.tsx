@@ -3,6 +3,7 @@
 import {
   Archive,
   Check,
+  ChevronDown,
   History,
   Pause,
   Plus,
@@ -10,6 +11,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import {
   type ReactNode,
   type SyntheticEvent,
@@ -241,14 +243,120 @@ function Modal({
   );
 }
 
+function dateRange(startsOn: string, endsOn: string): string {
+  return `${Number(startsOn.slice(5, 7))}.${Number(
+    startsOn.slice(8, 10),
+  )}–${Number(endsOn.slice(5, 7))}.${Number(endsOn.slice(8, 10))}`;
+}
+
+function BoardRow({
+  item,
+  disabled,
+  pending,
+  onDetail,
+  onResolution,
+}: {
+  item: JournalItem;
+  disabled: boolean;
+  pending: boolean;
+  onDetail: (itemId: string) => void;
+  onResolution: (itemId: string, resolution: Resolution) => void;
+}) {
+  return (
+    <tr className={`board-row is-${item.resolution}`}>
+      <td>
+        <span className={`lane-label is-${item.lane}`}>
+          <span aria-hidden="true" />
+          {laneLabels[item.lane]}
+        </span>
+      </td>
+      <td>
+        <button
+          type="button"
+          className="item-title-button"
+          onClick={() => onDetail(item.id)}
+        >
+          {item.title}
+        </button>
+        <p className="item-project">
+          {item.projectKey ?? item.sourceKind}
+          {item.resolution !== 'active' && (
+            <span className={`resolution-tag is-${item.resolution}`}>
+              {resolutionLabels[item.resolution]}
+            </span>
+          )}
+        </p>
+      </td>
+      <td className="item-state">{item.summary}</td>
+      <td className="row-actions" aria-label={`${item.title} 처리 상태`}>
+        <button
+          type="button"
+          aria-label={`${item.title} 이력`}
+          title="이력"
+          onClick={() => onDetail(item.id)}
+        >
+          <History aria-hidden="true" />
+        </button>
+        {item.resolution !== 'active' && (
+          <button
+            type="button"
+            aria-label={`${item.title} 다시 진행`}
+            title="다시 진행"
+            disabled={disabled || pending}
+            onClick={() => onResolution(item.id, 'active')}
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
+        )}
+        <button
+          type="button"
+          className={item.resolution === 'completed' ? 'is-selected' : ''}
+          aria-label={`${item.title} 완료`}
+          aria-pressed={item.resolution === 'completed'}
+          title="완료"
+          disabled={disabled || pending}
+          onClick={() => onResolution(item.id, 'completed')}
+        >
+          <Check aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={item.resolution === 'held' ? 'is-selected' : ''}
+          aria-label={`${item.title} 보류`}
+          aria-pressed={item.resolution === 'held'}
+          title="보류"
+          disabled={disabled || pending}
+          onClick={() => onResolution(item.id, 'held')}
+        >
+          <Pause aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={item.resolution === 'canceled' ? 'is-selected' : ''}
+          aria-label={`${item.title} 취소`}
+          aria-pressed={item.resolution === 'canceled'}
+          title="취소"
+          disabled={disabled || pending}
+          onClick={() => onResolution(item.id, 'canceled')}
+        >
+          <X aria-hidden="true" />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 export function JournalBoard({
   initialBoard,
+  initialPreviousBoard,
   today,
 }: {
   initialBoard: BoardResult;
+  initialPreviousBoard: BoardResult | null;
   today: string;
 }) {
   const [board, setBoard] = useState(initialBoard);
+  const [previousBoard, setPreviousBoard] = useState(initialPreviousBoard);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [closingWeek, setClosingWeek] = useState(false);
   const [message, setMessage] = useState('');
@@ -260,13 +368,20 @@ export function JournalBoard({
   const [detailError, setDetailError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchProject, setSearchProject] = useState('');
-  const [searchResult, setSearchResult] = useState<ItemSearchResult | null>(null);
+  const [searchResult, setSearchResult] = useState<ItemSearchResult | null>(
+    null,
+  );
   const [searching, setSearching] = useState(false);
   const boardRef = useRef(board);
+  const previousBoardRef = useRef(previousBoard);
 
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
+
+  useEffect(() => {
+    previousBoardRef.current = previousBoard;
+  }, [previousBoard]);
 
   const refreshBoard = useCallback(async () => {
     const refreshed = await fetchBoard(boardRef.current.week.id);
@@ -275,50 +390,70 @@ export function JournalBoard({
     return refreshed;
   }, []);
 
-  async function setResolution(itemId: string, resolution: Resolution) {
-      const item = boardRef.current.items.find((entry) => entry.id === itemId);
-      if (!item) throw new Error('항목을 찾지 못했습니다.');
-      if (boardRef.current.week.status === 'closed') {
-        throw new Error('마감된 주차는 상태를 바꿀 수 없습니다.');
-      }
-      if (item.resolution === resolution) {
-        return { item, weekId: boardRef.current.week.id, unchanged: true };
-      }
+  const refreshPreviousBoard = useCallback(async () => {
+    const current = previousBoardRef.current;
+    if (!current) throw new Error('이전 주 항목을 찾지 못했습니다.');
+    const refreshed = await fetchBoard(current.week.id);
+    previousBoardRef.current = refreshed;
+    setPreviousBoard(refreshed);
+    return refreshed;
+  }, []);
 
-      setPendingId(itemId);
-      setMessage('');
-      try {
-        await responseResult<ResolutionResult>(
-          await fetch(
-            `/api/journal/items/${encodeURIComponent(itemId)}/resolution`,
-            {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                resolution,
-                expectedVersion: item.version,
-              }),
-            },
-          ),
-          '상태를 바꾸지 못했습니다.',
-        );
-        const refreshed = await refreshBoard();
-        const updated = refreshed.items.find((entry) => entry.id === itemId);
-        if (!updated) throw new Error('변경한 항목을 다시 읽지 못했습니다.');
-        setMessage(`${updated.title}: ${resolutionLabels[updated.resolution]}`);
-        return {
-          item: {
-            id: updated.id,
-            title: updated.title,
-            resolution: updated.resolution,
-            version: updated.version,
+  async function setResolution(itemId: string, resolution: Resolution) {
+    const currentItem = boardRef.current.items.find(
+      (entry) => entry.id === itemId,
+    );
+    const previousItem = previousBoardRef.current?.items.find(
+      (entry) => entry.id === itemId,
+    );
+    const item = currentItem ?? previousItem;
+    const sourceBoard = currentItem
+      ? boardRef.current
+      : previousBoardRef.current;
+    if (!item || !sourceBoard) throw new Error('항목을 찾지 못했습니다.');
+    if (sourceBoard.week.status === 'closed') {
+      throw new Error('마감된 주차는 상태를 바꿀 수 없습니다.');
+    }
+    if (item.resolution === resolution) {
+      return { item, weekId: sourceBoard.week.id, unchanged: true };
+    }
+
+    setPendingId(itemId);
+    setMessage('');
+    try {
+      await responseResult<ResolutionResult>(
+        await fetch(
+          `/api/journal/items/${encodeURIComponent(itemId)}/resolution`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resolution,
+              expectedVersion: item.version,
+            }),
           },
-          weekId: refreshed.week.id,
-          unchanged: false,
-        };
-      } finally {
-        setPendingId(null);
-      }
+        ),
+        '상태를 바꾸지 못했습니다.',
+      );
+      const refreshed = currentItem
+        ? await refreshBoard()
+        : await refreshPreviousBoard();
+      const updated = refreshed.items.find((entry) => entry.id === itemId);
+      if (!updated) throw new Error('변경한 항목을 다시 읽지 못했습니다.');
+      setMessage(`${updated.title}: ${resolutionLabels[updated.resolution]}`);
+      return {
+        item: {
+          id: updated.id,
+          title: updated.title,
+          resolution: updated.resolution,
+          version: updated.version,
+        },
+        weekId: refreshed.week.id,
+        unchanged: false,
+      };
+    } finally {
+      setPendingId(null);
+    }
   }
 
   const addItem = useCallback(
@@ -501,6 +636,7 @@ export function JournalBoard({
           annotations: { readOnlyHint: true, untrustedContentHint: false },
           execute() {
             const current = boardRef.current;
+            const previous = previousBoardRef.current;
             return {
               week: { id: current.week.id, status: current.week.status },
               summary: current.summary,
@@ -515,6 +651,22 @@ export function JournalBoard({
                 summary: item.summary,
                 version: item.version,
               })),
+              previousUnfinished:
+                previous?.items
+                  .filter((item) =>
+                    ['active', 'held'].includes(item.resolution),
+                  )
+                  .map((item) => ({
+                    id: item.id,
+                    weekId: item.weekId,
+                    title: item.title,
+                    projectKey: item.projectKey,
+                    lane: item.lane,
+                    resolution: item.resolution,
+                    responsibility: item.responsibility,
+                    summary: item.summary,
+                    version: item.version,
+                  })) ?? [],
             };
           },
         },
@@ -636,6 +788,10 @@ export function JournalBoard({
 
   const isClosed = board.week.status === 'closed';
   const visibleItems = board.items.slice(0, 8);
+  const previousUnfinished =
+    previousBoard?.items.filter((item) =>
+      ['active', 'held'].includes(item.resolution),
+    ) ?? [];
   const focus = board.items.find(
     (item) => item.lane === 'today' && item.resolution === 'active',
   );
@@ -677,7 +833,9 @@ export function JournalBoard({
       })
       .catch((error) => {
         setMessage(
-          error instanceof Error ? error.message : '항목을 추가하지 못했습니다.',
+          error instanceof Error
+            ? error.message
+            : '항목을 추가하지 못했습니다.',
         );
       });
   }
@@ -703,13 +861,13 @@ export function JournalBoard({
     const note = typeof rawNote === 'string' ? rawNote.trim() : '';
     if (!note) return;
     void fetch(
-        `/api/journal/weeks/${encodeURIComponent(detail.item.weekId)}/corrections`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itemId: detail.item.id, note }),
-        },
-      )
+      `/api/journal/weeks/${encodeURIComponent(detail.item.weekId)}/corrections`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: detail.item.id, note }),
+      },
+    )
       .then((response) =>
         responseResult<{ eventId: string }>(
           response,
@@ -764,6 +922,59 @@ export function JournalBoard({
         </section>
       )}
 
+      {previousBoard && previousUnfinished.length > 0 && (
+        <section
+          className="carryover-section"
+          aria-labelledby="carryover-title"
+        >
+          <div className="section-heading carryover-heading">
+            <div>
+              <p className="section-kicker">잊지 않도록 가져온 항목</p>
+              <h2 id="carryover-title">이전 주 미완료</h2>
+            </div>
+            <div className="carryover-meta">
+              <span>{previousUnfinished.length}개</span>
+              <Link
+                href={`/?week=${previousBoard.week.id}&period=week`}
+                aria-label={`${dateRange(
+                  previousBoard.week.startsOn,
+                  previousBoard.week.endsOn,
+                )} 기록 보기`}
+              >
+                {dateRange(
+                  previousBoard.week.startsOn,
+                  previousBoard.week.endsOn,
+                )}
+              </Link>
+            </div>
+          </div>
+          <table className="board carryover-board" aria-label="이전 주 미완료">
+            <thead>
+              <tr className="board-head">
+                <th scope="col">구분</th>
+                <th scope="col">항목</th>
+                <th scope="col">현재 상태</th>
+                <th className="sr-only" scope="col">
+                  처리 상태
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {previousUnfinished.map((item) => (
+                <BoardRow
+                  item={item}
+                  disabled={previousBoard.week.status === 'closed'}
+                  pending={pendingId === item.id}
+                  onDetail={(itemId) => void openItemDetail(itemId)}
+                  onResolution={handleClick}
+                  key={item.id}
+                />
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <section className="board-section" aria-labelledby="board-title">
         <div className="section-heading">
           <h2 id="board-title">진행 보드</h2>
@@ -803,93 +1014,14 @@ export function JournalBoard({
             </thead>
             <tbody>
               {visibleItems.map((item) => (
-                <tr className={`board-row is-${item.resolution}`} key={item.id}>
-                  <td>
-                    <span className={`lane-label is-${item.lane}`}>
-                      <span aria-hidden="true" />
-                      {laneLabels[item.lane]}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="item-title-button"
-                      onClick={() => void openItemDetail(item.id)}
-                    >
-                      {item.title}
-                    </button>
-                    <p className="item-project">
-                      {item.projectKey ?? item.sourceKind}
-                      {item.resolution !== 'active' && (
-                        <span className={`resolution-tag is-${item.resolution}`}>
-                          {resolutionLabels[item.resolution]}
-                        </span>
-                      )}
-                    </p>
-                  </td>
-                  <td className="item-state">{item.summary}</td>
-                  <td
-                    className="row-actions"
-                    aria-label={`${item.title} 처리 상태`}
-                  >
-                    <button
-                      type="button"
-                      aria-label={`${item.title} 이력`}
-                      title="이력"
-                      onClick={() => void openItemDetail(item.id)}
-                    >
-                      <History aria-hidden="true" />
-                    </button>
-                    {item.resolution !== 'active' && (
-                      <button
-                        type="button"
-                        aria-label={`${item.title} 다시 진행`}
-                        title="다시 진행"
-                        disabled={isClosed || pendingId === item.id}
-                        onClick={() => handleClick(item.id, 'active')}
-                      >
-                        <RotateCcw aria-hidden="true" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={
-                        item.resolution === 'completed' ? 'is-selected' : ''
-                      }
-                      aria-label={`${item.title} 완료`}
-                      aria-pressed={item.resolution === 'completed'}
-                      title="완료"
-                      disabled={isClosed || pendingId === item.id}
-                      onClick={() => handleClick(item.id, 'completed')}
-                    >
-                      <Check aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className={item.resolution === 'held' ? 'is-selected' : ''}
-                      aria-label={`${item.title} 보류`}
-                      aria-pressed={item.resolution === 'held'}
-                      title="보류"
-                      disabled={isClosed || pendingId === item.id}
-                      onClick={() => handleClick(item.id, 'held')}
-                    >
-                      <Pause aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        item.resolution === 'canceled' ? 'is-selected' : ''
-                      }
-                      aria-label={`${item.title} 취소`}
-                      aria-pressed={item.resolution === 'canceled'}
-                      title="취소"
-                      disabled={isClosed || pendingId === item.id}
-                      onClick={() => handleClick(item.id, 'canceled')}
-                    >
-                      <X aria-hidden="true" />
-                    </button>
-                  </td>
-                </tr>
+                <BoardRow
+                  item={item}
+                  disabled={isClosed}
+                  pending={pendingId === item.id}
+                  onDetail={(itemId) => void openItemDetail(itemId)}
+                  onResolution={handleClick}
+                  key={item.id}
+                />
               ))}
             </tbody>
           </table>
@@ -902,7 +1034,11 @@ export function JournalBoard({
 
       <section className="week-section" aria-labelledby="week-title">
         <div className="section-heading">
-          <h2 id="week-title">이번 주 흐름</h2>
+          <h2 id="week-title">
+            {board.week.startsOn <= today && today <= board.week.endsOn
+              ? '이번 주 흐름'
+              : '주간 흐름'}
+          </h2>
           <div className="week-heading-meta">
             <p>
               {Number(board.week.startsOn.slice(5, 7))}월{' '}
@@ -934,7 +1070,10 @@ export function JournalBoard({
         </div>
         <ol className="week-grid">
           {days.map((day) => (
-            <li className={day.date === today ? 'is-current' : ''} key={day.date}>
+            <li
+              className={day.date === today ? 'is-current' : ''}
+              key={day.date}
+            >
               <p>
                 {shortDate(day.date, day.index)}
                 {day.date === today ? ' · 오늘' : ''}
@@ -958,11 +1097,17 @@ export function JournalBoard({
         </ol>
       </section>
 
-      <section className="records-section" aria-labelledby="records-title">
-        <div className="section-heading records-heading">
-          <h2 id="records-title">항목 찾기</h2>
-          {searchResult && <p>{searchResult.count}개</p>}
-        </div>
+      <details className="records-section secondary-details">
+        <summary className="secondary-summary">
+          <div>
+            <p className="section-kicker">기록 도구</p>
+            <h2 id="records-title">항목 찾기</h2>
+          </div>
+          <div className="secondary-summary-meta">
+            {searchResult && <span>{searchResult.count}개</span>}
+            <ChevronDown aria-hidden="true" />
+          </div>
+        </summary>
         <form className="record-search" onSubmit={handleSearch}>
           <label>
             <span className="sr-only">검색어</span>
@@ -1012,9 +1157,13 @@ export function JournalBoard({
             )}
           </ol>
         )}
-      </section>
+      </details>
 
-      <Modal open={addOpen} titleId="add-item-title" onClose={() => setAddOpen(false)}>
+      <Modal
+        open={addOpen}
+        titleId="add-item-title"
+        onClose={() => setAddOpen(false)}
+      >
         <div className="dialog-header">
           <h2 id="add-item-title">항목 추가</h2>
           <button
@@ -1162,7 +1311,9 @@ export function JournalBoard({
             {detailError}
           </p>
         )}
-        {!detail && !detailError && <p className="dialog-status">불러오는 중</p>}
+        {!detail && !detailError && (
+          <p className="dialog-status">불러오는 중</p>
+        )}
         {detail && (
           <>
             <p className="detail-summary">{detail.item.summary}</p>

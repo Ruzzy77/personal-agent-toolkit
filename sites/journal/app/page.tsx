@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
 import { requireChatGPTUser } from '@/app/chatgpt-auth';
@@ -9,6 +9,7 @@ import {
   emptyBoard,
   getBoard,
   getPeriod,
+  type BoardResult,
   type PeriodKind,
   type PeriodResult,
   weekIdForDate,
@@ -119,6 +120,22 @@ async function AuthenticatedHome({
   const nextWeek = addDays(board.week.id, 7);
   const isCurrentWeek =
     board.week.startsOn <= today && today <= board.week.endsOn;
+  let previousOpenBoard: BoardResult | null = null;
+  if (!unavailable && isCurrentWeek) {
+    try {
+      const candidate = await getBoard(previousWeek);
+      if (
+        candidate.week.status === 'open' &&
+        candidate.items.some((item) =>
+          ['active', 'held'].includes(item.resolution),
+        )
+      ) {
+        previousOpenBoard = candidate;
+      }
+    } catch {
+      previousOpenBoard = null;
+    }
+  }
   const boardTitle = isCurrentWeek
     ? `${headerDate(today)} 진행 보드`
     : `${headerDate(board.week.startsOn)}–${headerDate(board.week.endsOn)} 기록`;
@@ -173,17 +190,28 @@ async function AuthenticatedHome({
         <JournalBoard
           key={board.week.id}
           initialBoard={board}
+          initialPreviousBoard={previousOpenBoard}
           today={today}
         />
 
-        <section className="period-section" aria-labelledby="period-title">
-          <div className="section-heading period-heading">
+        <details
+          className="period-section secondary-details"
+          open={selectedPeriod !== 'week'}
+        >
+          <summary className="secondary-summary">
             <div>
-              <p className="section-kicker">기록</p>
+              <p className="section-kicker">기간 기록</p>
               <h2 id="period-title">
                 {period ? periodLabel(period) : '기간별 기록'}
               </h2>
             </div>
+            <div className="secondary-summary-meta">
+              {period && <span>{periodTotal}개</span>}
+              <ChevronDown aria-hidden="true" />
+            </div>
+          </summary>
+
+          <div className="period-details-body">
             <nav className="period-tabs" aria-label="기록 기간">
               {PERIODS.map(({ kind, label }) => (
                 <Link
@@ -196,108 +224,108 @@ async function AuthenticatedHome({
                 </Link>
               ))}
             </nav>
-          </div>
 
-          {period ? (
-            <div className="period-overview">
-              <PeriodSummary
-                kind={period.kind}
-                anchor={period.anchor}
-                initialVersions={period.summaryVersions}
-              />
-              <dl className="period-totals">
-                <div>
-                  <dt>전체</dt>
-                  <dd>{periodTotal}</dd>
+            {period ? (
+              <div className="period-overview">
+                <PeriodSummary
+                  kind={period.kind}
+                  anchor={period.anchor}
+                  initialVersions={period.summaryVersions}
+                />
+                <dl className="period-totals">
+                  <div>
+                    <dt>전체</dt>
+                    <dd>{periodTotal}</dd>
+                  </div>
+                  <div>
+                    <dt>진행</dt>
+                    <dd>{period.totals.active}</dd>
+                  </div>
+                  <div>
+                    <dt>보류</dt>
+                    <dd>{period.totals.held}</dd>
+                  </div>
+                  <div className="is-complete">
+                    <dt>완료</dt>
+                    <dd>{period.totals.completed}</dd>
+                  </div>
+                  <div>
+                    <dt>취소</dt>
+                    <dd>{period.totals.canceled}</dd>
+                  </div>
+                </dl>
+                <div className="project-rollup">
+                  <h3>프로젝트</h3>
+                  {period.projects.length > 0 ? (
+                    <ol>
+                      {period.projects.slice(0, 8).map((project) => (
+                        <li key={project.projectKey}>
+                          <span>{project.projectKey}</span>
+                          <span>
+                            {project.completed}/{project.total}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p>기록 없음</p>
+                  )}
                 </div>
-                <div>
-                  <dt>진행</dt>
-                  <dd>{period.totals.active}</dd>
-                </div>
-                <div>
-                  <dt>보류</dt>
-                  <dd>{period.totals.held}</dd>
-                </div>
-                <div className="is-complete">
-                  <dt>완료</dt>
-                  <dd>{period.totals.completed}</dd>
-                </div>
-                <div>
-                  <dt>취소</dt>
-                  <dd>{period.totals.canceled}</dd>
-                </div>
-              </dl>
-              <div className="project-rollup">
-                <h3>프로젝트</h3>
-                {period.projects.length > 0 ? (
-                  <ol>
-                    {period.projects.slice(0, 8).map((project) => (
-                      <li key={project.projectKey}>
-                        <span>{project.projectKey}</span>
+                {(period.highlights.length > 0 ||
+                  period.longRunning.length > 0) && (
+                  <div className="period-flows">
+                    {period.highlights.length > 0 && (
+                      <section>
+                        <h3>주요 결과</h3>
+                        <ol>
+                          {period.highlights.slice(0, 8).map((item) => (
+                            <li key={item.itemId}>
+                              <span>{item.title}</span>
+                              <span>{item.projectKey ?? '미분류'}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    )}
+                    {period.longRunning.length > 0 && (
+                      <section>
+                        <h3>장기 이월</h3>
+                        <ol>
+                          {period.longRunning.slice(0, 8).map((item) => (
+                            <li key={item.logicalItemId}>
+                              <span>{item.title}</span>
+                              <span>{item.weekCount}주</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    )}
+                  </div>
+                )}
+                {period.weeks.length > 0 && (
+                  <nav className="period-weeks" aria-label="기간 내 주차">
+                    {period.weeks.map((week) => (
+                      <Link
+                        href={`/?week=${week.id}&period=${selectedPeriod}`}
+                        aria-current={
+                          week.id === board.week.id ? 'page' : undefined
+                        }
+                        key={week.id}
+                      >
+                        <span>{week.id}</span>
                         <span>
-                          {project.completed}/{project.total}
+                          {week.status === 'closed' ? '마감' : '진행 중'}
                         </span>
-                      </li>
+                      </Link>
                     ))}
-                  </ol>
-                ) : (
-                  <p>기록 없음</p>
+                  </nav>
                 )}
               </div>
-              {(period.highlights.length > 0 ||
-                period.longRunning.length > 0) && (
-                <div className="period-flows">
-                  {period.highlights.length > 0 && (
-                    <section>
-                      <h3>주요 결과</h3>
-                      <ol>
-                        {period.highlights.slice(0, 8).map((item) => (
-                          <li key={item.itemId}>
-                            <span>{item.title}</span>
-                            <span>{item.projectKey ?? '미분류'}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                  )}
-                  {period.longRunning.length > 0 && (
-                    <section>
-                      <h3>장기 이월</h3>
-                      <ol>
-                        {period.longRunning.slice(0, 8).map((item) => (
-                          <li key={item.logicalItemId}>
-                            <span>{item.title}</span>
-                            <span>{item.weekCount}주</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                  )}
-                </div>
-              )}
-              {period.weeks.length > 0 && (
-                <nav className="period-weeks" aria-label="기간 내 주차">
-                  {period.weeks.map((week) => (
-                    <Link
-                      href={`/?week=${week.id}&period=${selectedPeriod}`}
-                      aria-current={
-                        week.id === board.week.id ? 'page' : undefined
-                      }
-                      key={week.id}
-                    >
-                      <span>{week.id}</span>
-                      <span>
-                        {week.status === 'closed' ? '마감' : '진행 중'}
-                      </span>
-                    </Link>
-                  ))}
-                </nav>
-              )}
-            </div>
-          ) : (
-            <p className="period-empty">기간 기록을 불러오지 못했습니다.</p>
-          )}
-        </section>
+            ) : (
+              <p className="period-empty">기간 기록을 불러오지 못했습니다.</p>
+            )}
+          </div>
+        </details>
       </section>
     </main>
   );

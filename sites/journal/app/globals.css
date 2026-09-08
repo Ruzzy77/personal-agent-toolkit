@@ -272,6 +272,64 @@ a {
   padding: 0 32px 30px;
 }
 
+.carryover-section {
+  margin: 0 32px 30px;
+  padding: 18px 20px 5px;
+  background: color-mix(in srgb, var(--waiting) 5%, var(--surface));
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--waiting);
+}
+
+.summary-strip + .carryover-section {
+  margin-top: 26px;
+}
+
+.carryover-heading {
+  align-items: flex-end;
+  margin-bottom: 5px;
+}
+
+.carryover-heading .section-kicker {
+  color: var(--waiting);
+}
+
+.carryover-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.carryover-meta a {
+  padding-left: 9px;
+  color: inherit;
+  border-left: 1px solid var(--line);
+  text-underline-offset: 3px;
+}
+
+.carryover-meta a:hover {
+  color: var(--ink);
+}
+
+.carryover-meta a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.carryover-board {
+  border-top: 1px solid var(--line);
+}
+
+.carryover-board thead {
+  display: none;
+}
+
+.carryover-board .board-row {
+  min-height: 64px;
+  padding-block: 11px;
+}
+
 .section-heading {
   display: flex;
   align-items: baseline;
@@ -681,6 +739,58 @@ a {
   border-top: 1px solid var(--line);
 }
 
+.secondary-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.secondary-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.secondary-summary h2,
+.secondary-summary p {
+  margin: 0;
+}
+
+.secondary-summary h2 {
+  font-size: 17px;
+  font-weight: 740;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+
+.secondary-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.secondary-summary-meta svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 160ms ease;
+}
+
+.secondary-details[open] > summary .secondary-summary-meta svg {
+  transform: rotate(180deg);
+}
+
+.period-section[open] > summary {
+  margin-bottom: 18px;
+}
+
+.period-details-body > .period-tabs {
+  width: fit-content;
+  margin: 0 0 18px auto;
+}
+
 .period-heading {
   align-items: flex-end;
   margin-bottom: 18px;
@@ -964,6 +1074,10 @@ a {
 .records-section {
   padding: 24px 32px 28px;
   border-top: 1px solid var(--line);
+}
+
+.records-section[open] > summary {
+  margin-bottom: 12px;
 }
 
 .records-heading {
@@ -1334,6 +1448,15 @@ a {
 
   .board-section {
     padding: 0 20px 24px;
+  }
+
+  .carryover-section {
+    margin: 0 20px 24px;
+    padding: 16px 16px 4px;
+  }
+
+  .summary-strip + .carryover-section {
+    margin-top: 20px;
   }
 
   .records-section {
