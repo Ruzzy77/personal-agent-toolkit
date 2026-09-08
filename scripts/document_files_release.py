@@ -143,17 +143,7 @@ def document_source() -> Path:
                 for item in files
             ):
                 root = destination / "document-files"
-                import tomllib
-
-                if (
-                    tomllib.loads((root / "pyproject.toml").read_text())["project"][
-                        "version"
-                    ]
-                    != lock["version"]
-                ):
-                    raise ValueError(
-                        "Release metadata does not match the pinned version"
-                    )
+                _check_source_identity(root, lock)
                 return root
             raise ValueError(
                 "Prepared release cache changed; remove that cache and prepare again"
@@ -168,15 +158,28 @@ def document_source() -> Path:
                 output.chmod(0o755 if (item.external_attr >> 16) & 0o111 else 0o644)
             os.replace(staged, destination)
     root = destination / "document-files"
+    try:
+        _check_source_identity(root, lock)
+    except (ValueError, OSError):
+        shutil.rmtree(destination)
+        raise
+    return root
+
+
+def _check_source_identity(root: Path, lock: dict) -> None:
     import tomllib
 
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    provenance = json.loads((root / "BUILD.json").read_text(encoding="utf-8"))
     if (
-        tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
-        != lock["version"]
+        version != lock["version"]
+        or provenance.get("version") != lock["version"]
+        or provenance.get("sourceCommit") != lock["sourceCommit"]
+        or provenance.get("dirtySource") is not False
     ):
-        shutil.rmtree(destination)
-        raise ValueError("Release metadata does not match the pinned version")
-    return root
+        raise ValueError(
+            "Release metadata does not match the clean pinned source/version"
+        )
 
 
 def main() -> None:

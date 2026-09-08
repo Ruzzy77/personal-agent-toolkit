@@ -23,6 +23,12 @@ class ReleaseConsumerTests(unittest.TestCase):
                 "document-files/pyproject.toml", '[project]\nversion = "1.8.0"\n'
             )
             output.writestr("document-files/src/example.py", "value = 1\n")
+            output.writestr(
+                "document-files/BUILD.json",
+                json.dumps(
+                    {"version": "1.8.0", "sourceCommit": "a" * 40, "dirtySource": False}
+                ),
+            )
         self.lock = self.root / "lock.json"
         self.data = {
             "schemaVersion": "document-files.release-lock.v1",
@@ -89,6 +95,13 @@ class ReleaseConsumerTests(unittest.TestCase):
         release.artifact_path("host", prepare=True, local=self.archive)
         release.document_source()
         self.data["version"] = "9.9.9"
+        self.write_lock()
+        with self.assertRaisesRegex(ValueError, "metadata"):
+            release.document_source()
+
+    def test_source_commit_mismatch_rejected(self):
+        release.artifact_path("host", prepare=True, local=self.archive)
+        self.data["sourceCommit"] = "b" * 40
         self.write_lock()
         with self.assertRaisesRegex(ValueError, "metadata"):
             release.document_source()
