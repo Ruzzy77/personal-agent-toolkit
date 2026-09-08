@@ -928,10 +928,7 @@ export function JournalBoard({
           aria-labelledby="carryover-title"
         >
           <div className="section-heading carryover-heading">
-            <div>
-              <p className="section-kicker">잊지 않도록 가져온 항목</p>
-              <h2 id="carryover-title">이전 주 미완료</h2>
-            </div>
+            <h2 id="carryover-title">이전 주 미완료</h2>
             <div className="carryover-meta">
               <span>{previousUnfinished.length}개</span>
               <Link

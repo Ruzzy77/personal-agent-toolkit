@@ -285,12 +285,8 @@ a {
 }
 
 .carryover-heading {
-  align-items: flex-end;
+  align-items: center;
   margin-bottom: 5px;
-}
-
-.carryover-heading .section-kicker {
-  color: var(--waiting);
 }
 
 .carryover-meta {
@@ -326,8 +322,13 @@ a {
 }
 
 .carryover-board .board-row {
-  min-height: 64px;
-  padding-block: 11px;
+  grid-template-columns: 78px minmax(180px, 1fr) 164px;
+  min-height: 54px;
+  padding-block: 9px;
+}
+
+.carryover-board .item-state {
+  display: none;
 }
 
 .section-heading {
@@ -1453,6 +1454,10 @@ a {
   .carryover-section {
     margin: 0 20px 24px;
     padding: 16px 16px 4px;
+  }
+
+  .carryover-board .board-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .summary-strip + .carryover-section {
