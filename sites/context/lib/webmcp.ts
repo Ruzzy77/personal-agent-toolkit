@@ -70,7 +70,7 @@ export function guidanceTools(host: Host): Tool[] {
       annotations: { readOnlyHint: false, untrustedContentHint: true },
       execute: input => {
         const sources = parseSources(object(input));
-        change(loadSources(host.read(), sources)); host.report(sources.length + '개 자료를 가져왔습니다.');
+        change(loadSources(host.read(), sources)); host.report('');
         return summary();
       },
     },
@@ -143,7 +143,7 @@ export function guidanceTools(host: Host): Tool[] {
       execute: input => {
         const args = object(input); const source = parseSource(args.savedSource);
         change(acknowledgeSaved(host.read(), text(args.id), text(args.expectedVersion), text(args.draftId), source));
-        host.report('정본에 저장된 내용을 확인했습니다.');
+        host.report('저장됨');
         return { id: source.id, saved: true, version: source.version, activation: source.activation, activeInCurrentModel: 'not_verified' };
       },
     },
@@ -166,7 +166,7 @@ export function registerGuidanceTools(host: Host, ready: (supported: boolean) =>
     }),
   )).then(() => { if (!lifecycle.signal.aborted) ready(true); }).catch(() => {
     lifecycle.abort(); ready(false);
-    host.report('Codex 연결을 준비하지 못했습니다. 자료 가져오기와 수정안 복사로 계속할 수 있습니다.');
+    host.report('Codex 연결 실패');
   });
   return () => lifecycle.abort();
 }
