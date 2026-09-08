@@ -170,7 +170,11 @@ async function AuthenticatedHome({
           </p>
         )}
 
-        <JournalBoard initialBoard={board} today={today} />
+        <JournalBoard
+          key={board.week.id}
+          initialBoard={board}
+          today={today}
+        />
 
         <section className="period-section" aria-labelledby="period-title">
           <div className="section-heading period-heading">
