@@ -51,7 +51,7 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.4.0"
+        "base_version": "0.4.1"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -72,7 +72,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.4.0-remote.1",
+        "surface_version": "0.4.1-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",

@@ -65,7 +65,7 @@ export const MCP_SURFACES = {
   },
   sense: {
     name: "Sense",
-    version: "0.4.0-remote.1",
+    version: "0.4.1-remote.1",
     tools: [
       "sense_read",
       "sense_overview",
