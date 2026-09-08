@@ -271,6 +271,10 @@ a {
   padding: 0 32px 30px;
 }
 
+.summary-strip + .board-section {
+  padding-top: 26px;
+}
+
 .carryover-section {
   margin: 0 32px 30px;
   padding: 18px 20px 5px;
@@ -1436,6 +1440,10 @@ a {
 
   .board-section {
     padding: 0 20px 24px;
+  }
+
+  .summary-strip + .board-section {
+    padding-top: 20px;
   }
 
   .carryover-section {
