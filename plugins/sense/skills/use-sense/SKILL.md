@@ -9,7 +9,7 @@ Sense provides durable context for important choices and reusable work. The curr
 
 ## Access
 
-For substantive work whose relevant guidance is not already available, use `sense_read` with `view=index` to select the relevant sections. A known relevant section can be opened directly; this is not a mandatory two-call sequence. Consider adjacent guidance when it materially affects the task rather than treating the first match as exclusive.
+For substantive work whose relevant guidance is not already available, use `sense_read` with `view="index"` to select relevant section IDs. Read their bodies with `view="sections"` and `section_ids` (an array of those IDs); omitting `view` returns only the index. A known relevant section can be opened directly; this is not a mandatory two-call sequence. Consider adjacent guidance when it materially affects the task rather than treating the first match as exclusive.
 
 An ordinary index entry may include a user-approved Section Skill's name and description. When the exposed schema supports `include_skill`, use `false` when only the section's criteria are needed and `true` when its method is needed. Omission keeps the legacy complete-Skill response. Apply the selected method only to its matching activity and target; an optional procedure or output convention does not redefine the user's purpose or editing scope.
 

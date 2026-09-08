@@ -176,7 +176,7 @@ export function registerSenseTools(
     {
       title: "Read Sense",
       description:
-        "Select relevant guidance; include_skill=false reads criteria and Skill metadata without loading detailed methods. Load the complete Skill when its method is needed, or combine both when already clear.",
+        'Read selected guidance with view="sections" and section_ids from the index. Default view="index" returns metadata, not section bodies. include_skill=false omits linked Skill instructions; include the complete Skill when its method is needed.',
       inputSchema: senseReadSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },

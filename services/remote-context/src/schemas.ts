@@ -53,9 +53,12 @@ export const senseProfileSchema = z
 
 export const senseReadSchema = z
   .object({
-    view: z.enum(["index", "sections", "full"]).default("index"),
-    section_ids: z.array(sectionId).max(24).nullable().optional(),
-    include_skill: z.boolean().default(true),
+    view: z.enum(["index", "sections", "full"]).default("index")
+      .describe('Use "sections" with section_ids to read selected bodies. Omission returns the index, not section text.'),
+    section_ids: z.array(sectionId).max(24).nullable().optional()
+      .describe('IDs from the index. For selected bodies, also set view="sections".'),
+    include_skill: z.boolean().default(true)
+      .describe("False omits linked Skill instructions while retaining criteria and Skill metadata; true includes the complete method."),
   })
   .strict();
 

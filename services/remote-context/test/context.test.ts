@@ -1167,6 +1167,36 @@ describe("remote personal context service", () => {
     const service = new SenseService(runtime.STATE_DB, "owner_test");
     const read = await service.read("sections", ["questions-and-choices"]);
     expect(JSON.stringify(read)).toContain("Continue autonomously");
+    const callRead = async (args: Record<string, unknown>) => mcpPayload(await handleMcp(
+      new Request("https://context.test/sense/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
+          params: { name: "sense_read", arguments: args } }),
+      }), runtime, ownerPrincipal, "sense",
+    ));
+    const indexResult = await callRead({});
+    expect(indexResult).toMatchObject({ result: { structuredContent: { ok: true, result: {
+      sections: [{ id: "questions-and-choices" }],
+    } } } });
+    expect(JSON.stringify(indexResult)).not.toContain(profile.sections[0]!.text);
+    expect(await callRead({ view: "sections", section_ids: ["questions-and-choices"] }))
+      .toMatchObject({ result: { structuredContent: { ok: true, result: read } } });
+    const criteriaOnly = await callRead({ view: "sections", section_ids: ["questions-and-choices"], include_skill: false });
+    expect(criteriaOnly).toMatchObject({ result: { structuredContent: { ok: true, result: {
+      sections: [{ text: profile.sections[0]!.text, skill: { name: "questions-and-choices" } }],
+    } } } });
+    expect(JSON.stringify(criteriaOnly)).not.toContain("Continue autonomously");
+    // Direct MCP rejects misspelled inputs; an upstream connector may discard
+    // unknown keys before this boundary, so the call contract must be explicit.
+    for (const args of [
+      { section: "questions-and-choices" },
+      { section_id: "questions-and-choices" },
+      { view: "section", section_ids: ["questions-and-choices"] },
+      { view: "sections" },
+    ]) {
+      expect(await callRead(args)).toMatchObject({ result: { isError: true } });
+    }
     const overview = await service.overview();
     expect(overview).not.toHaveProperty("context_site_url");
     const siteUrl = "https://context-site.example/sense";
