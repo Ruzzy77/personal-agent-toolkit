@@ -424,3 +424,21 @@ Document Files는 자체 형식 설정과 전체 테스트를 사용합니다. `
 ## License
 
 [Apache License 2.0](./LICENSE). Runtime dependency는 각 라이선스를 따릅니다. [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 함께 보십시오.
+
+## Document Files 독립 제품 전환
+
+Document Files의 새 개발 정본은 [독립 저장소](https://github.com/Ruzzy77/document-files)입니다.
+Toolkit의 기존 1.7.0 제품 경로는 전환 검증용 기준으로 보존하며 새 기능을 이중으로 개발하지
+않습니다. `dependencies/document-files.json`의 현재 상태는 `migration_pending`입니다.
+독립 1.8.0의 정식 릴리스와 소비 측 검증 전에는 개인 설치본이나 Sync를 자동 전환하지 않습니다.
+
+릴리스 전환 시 lock에 정확한 버전·source commit과 host/wheel/운영체제 runtime의
+GitHub Release URL·SHA-256을 기록합니다. 설치 준비에서
+`scripts/document_files_release.py prepare --artifact host`와 해당 wheel/runtime을
+검증해 확보한 뒤 사용합니다. 문서 처리 중에는 다운로드하지 않습니다.
+`DOCUMENT_FILES_RELEASE_LOCK`은 후보 릴리스를 별도 환경에서 검사하기 위한 명시적
+lock 경로이며 작업 폴더의 최신 소스를 대신 가져오는 우회 경로가 아닙니다.
+
+소비 측 검사 후 제품 등록·Sync dependency/lock·Claude marketplace의 고정 source commit을
+같은 릴리스에 맞추고 lock을 `pinned`로 전환합니다. 실패하면 이전 lock과 설치본을 유지합니다.
+기존 소스 경로 제거는 이 전환의 마지막 단계이며 미검증 후보를 정식 버전처럼 설치하지 않습니다.

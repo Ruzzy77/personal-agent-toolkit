@@ -156,6 +156,11 @@
     },
     "document-files": {
       "display_name": "Document Files",
+      "independent_product": {
+        "repository": "https://github.com/Ruzzy77/document-files",
+        "release_lock": "dependencies/document-files.json",
+        "state": "migration_pending"
+      },
       "plugin": {
         "path": "plugins/document-files",
         "base_version": "1.7.0"

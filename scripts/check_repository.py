@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+
+from document_files_release import document_source, release_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
@@ -45,7 +48,29 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def relative(path: Path) -> str:
-    return path.relative_to(ROOT).as_posix()
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def product_root(name: str) -> Path:
+    return (
+        document_source()
+        if name == "document-files"
+        else ROOT / PRODUCTS[name]["plugin"]["path"]
+    )
+
+
+def registered_path(path: str) -> Path:
+    prefix = "plugins/document-files"
+    if path == prefix or path.startswith(prefix + "/"):
+        return document_source() / path.removeprefix(prefix).lstrip("/")
+    return ROOT / path
+
+
+def independent_pinned(name: str) -> bool:
+    return name == "document-files" and release_lock()["state"] == "pinned"
 
 
 def tracked_files() -> list[Path]:
@@ -89,7 +114,7 @@ def check_product_registry(errors: list[str]) -> None:
             errors.append(f"{name}: products.json has an invalid Sync delivery")
 
         for component in product.get("components", []):
-            if not (ROOT / component).exists():
+            if not registered_path(component).exists():
                 errors.append(f"{name}: missing registered component {component}")
 
         mcp = product.get("mcp")
@@ -98,7 +123,7 @@ def check_product_registry(errors: list[str]) -> None:
             continue
         if mcp.get("server_key") != name:
             errors.append(f"{name}: MCP server key must match the product name")
-        if not (ROOT / str(mcp.get("implementation", ""))).is_file():
+        if not registered_path(str(mcp.get("implementation", ""))).is_file():
             errors.append(f"{name}: registered MCP implementation is missing")
         tools = mcp.get("tools", [])
         if not tools or len(tools) != len(set(tools)):
@@ -128,7 +153,15 @@ def check_marketplaces(errors: list[str]) -> None:
         )
 
     for name in sorted(REQUIRED_PLUGINS):
-        expected = f"./plugins/{name}"
+        expected = (
+            {
+                "source": "url",
+                "url": "https://github.com/Ruzzy77/document-files.git",
+                "ref": release_lock()["sourceCommit"],
+            }
+            if independent_pinned(name)
+            else f"./plugins/{name}"
+        )
         if claude_entries.get(name, {}).get("source") != expected:
             errors.append(f"Claude marketplace source for {name} must be {expected}")
 
@@ -151,7 +184,7 @@ def check_marketplaces(errors: list[str]) -> None:
 def check_plugin(name: str, errors: list[str]) -> None:
     product = PRODUCTS[name]
     plugin = product["plugin"]
-    root = ROOT / plugin["path"]
+    root = product_root(name)
     claude_path = root / ".claude-plugin" / "plugin.json"
     required_files = [
         root / "README.md",
@@ -170,7 +203,7 @@ def check_plugin(name: str, errors: list[str]) -> None:
     codex = read_json(codex_path) if codex_path.is_file() else None
     if claude.get("name") != name:
         errors.append(f"{name}: manifest name differs from its directory")
-    if codex is not None:
+    if codex is not None and not independent_pinned(name):
         errors.append(
             f"{name}: product-specific Codex manifest must be replaced by the OpenAI bundle"
         )
@@ -178,7 +211,12 @@ def check_plugin(name: str, errors: list[str]) -> None:
     base = claude.get("version")
     if base != plugin["base_version"]:
         errors.append(f"{name}: manifest version differs from products.json")
-    if codex is not None:
+    if codex is not None and independent_pinned(name):
+        if codex.get("version") != base or codex.get("name") != name:
+            errors.append(
+                f"{name}: independent Codex manifest differs from pinned release"
+            )
+    elif codex is not None:
         match = CODEX_SUFFIX.fullmatch(str(codex.get("version", "")))
         if match is None or match.group("base") != base:
             errors.append(f"{name}: Claude and Codex base versions differ")
@@ -274,7 +312,7 @@ def check_openai_distribution(errors: list[str]) -> None:
     distribution = OPENAI_DISTRIBUTION
     document_skills = {
         path.parent.name
-        for path in (PLUGIN_ROOT / "document-files" / "skills").glob("*/SKILL.md")
+        for path in (product_root("document-files") / "skills").glob("*/SKILL.md")
     }
     if document_skills != {"document-files"}:
         errors.append("Document Files must expose only the document-files Skill")
@@ -338,7 +376,7 @@ def check_openai_distribution(errors: list[str]) -> None:
     expected_skills = {
         path.parent.name
         for product in bundled_products
-        for path in (PLUGIN_ROOT / product / "skills").glob("*/SKILL.md")
+        for path in (product_root(product) / "skills").glob("*/SKILL.md")
     }
     actual_skills = {path.parent.name for path in (root / "skills").glob("*/SKILL.md")}
     if actual_skills != expected_skills:
@@ -411,7 +449,7 @@ def check_product_versions(errors: list[str]) -> None:
         mcp = product.get("mcp")
         if not mcp or "surface_version" not in mcp:
             continue
-        implementation = ROOT / mcp["implementation"]
+        implementation = registered_path(mcp["implementation"])
         if implementation == ROOT / "services/remote-context/src/mcp.ts":
             continue
         source = implementation.read_text(encoding="utf-8")
@@ -524,7 +562,7 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
         mcp = product.get("mcp")
         if not mcp or name in context_products:
             continue
-        implementation = ROOT / mcp["implementation"]
+        implementation = registered_path(mcp["implementation"])
         source = implementation.read_text(encoding="utf-8")
         pattern = (
             REGISTERED_PYTHON_TOOL
@@ -558,6 +596,48 @@ def check_sync_version(errors: list[str]) -> None:
     ]
     if locked != [version]:
         errors.append(f"apps/sync/uv.lock project version differs from {version}")
+
+
+def check_document_release(errors: list[str]) -> None:
+    lock = release_lock()
+    product = PRODUCTS["document-files"]
+    independent = product.get("independent_product", {})
+    if independent.get("state") != lock["state"]:
+        errors.append("Document Files product state differs from release lock")
+    expected = lock["version"] if lock["state"] == "pinned" else lock["baselineVersion"]
+    if product["plugin"]["base_version"] != expected:
+        errors.append("Document Files product version differs from release lock")
+    sync = tomllib.loads((ROOT / "apps/sync/pyproject.toml").read_text())
+    if f"document-files=={expected}" not in sync["project"]["dependencies"]:
+        errors.append("Sync must depend on the exact Document Files consumer version")
+    packages = tomllib.loads((ROOT / "apps/sync/uv.lock").read_text()).get(
+        "package", []
+    )
+    entries = [item for item in packages if item.get("name") == "document-files"]
+    if len(entries) != 1 or entries[0].get("version") != expected:
+        errors.append("Sync lock must match the Document Files consumer version")
+        return
+    if lock["state"] == "pinned":
+        wheel = lock["artifacts"]["wheel"]
+        configured = (
+            sync.get("tool", {}).get("uv", {}).get("sources", {}).get("document-files")
+        )
+        if configured != {"url": wheel["url"]}:
+            errors.append(
+                "Pinned Sync source must reference the exact independent wheel URL"
+            )
+        entry = entries[0]
+        if entry.get("source") != {"url": wheel["url"]}:
+            errors.append(
+                "Pinned Sync lock cannot retain a local Document Files source"
+            )
+        wheels = entry.get("wheels", [])
+        if not any(
+            item.get("url") == wheel["url"]
+            and item.get("hash") == "sha256:" + wheel["sha256"]
+            for item in wheels
+        ):
+            errors.append("Pinned Sync lock wheel checksum differs from release lock")
 
 
 def check_markdown_links(files: list[Path], errors: list[str]) -> None:
@@ -599,7 +679,19 @@ def check_tracked_residue(files: list[Path], errors: list[str]) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--document-files-only", action="store_true")
+    args = parser.parse_args()
     errors: list[str] = []
+    try:
+        check_document_release(errors)
+    except (ValueError, OSError, KeyError) as exc:
+        print(f"Document Files release check failed: {exc}")
+        return 1
+    if args.document_files_only:
+        for error in errors:
+            print(error)
+        return 1 if errors else 0
     files = tracked_files()
     check_product_registry(errors)
     check_marketplaces(errors)

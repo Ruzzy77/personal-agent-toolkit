@@ -10,6 +10,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from document_files_release import document_source
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
 TARGET = PLUGIN_ROOT / "personal-agent-toolkit"
@@ -24,7 +26,10 @@ def copy_skills(target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
     for product in PRODUCTS:
-        for source in sorted((PLUGIN_ROOT / product / "skills").iterdir()):
+        product_root = (
+            document_source() if product == "document-files" else PLUGIN_ROOT / product
+        )
+        for source in sorted((product_root / "skills").iterdir()):
             if not source.is_dir():
                 continue
             if source.name in seen:
@@ -40,7 +45,7 @@ def copy_skills(target: Path) -> None:
 def copy_document_runtime(target: Path) -> None:
     """Copy the canonical Python source without provisioning during document work."""
 
-    source = PLUGIN_ROOT / "document-files"
+    source = document_source()
     shutil.copytree(
         source / "openai-runtime",
         target,
@@ -52,6 +57,8 @@ def copy_document_runtime(target: Path) -> None:
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
     shutil.copy2(source / "pyproject.toml", target / "pyproject.toml")
+    for name in ("LICENSE", "NOTICE"):
+        shutil.copy2(source / name, target / name)
 
 
 def same_tree(left: Path, right: Path) -> bool:
@@ -73,7 +80,11 @@ def main() -> int:
         action="store_true",
         help="fail when the checked-in OpenAI Skill bundle is stale",
     )
+    parser.add_argument(
+        "--output", type=Path, help="Build outside the installed Toolkit bundle"
+    )
     args = parser.parse_args()
+    target = args.output.resolve() if args.output else TARGET
 
     with tempfile.TemporaryDirectory() as directory:
         built = Path(directory) / "bundle"
@@ -81,24 +92,22 @@ def main() -> int:
         copy_document_runtime(built / "runtime" / "document-files")
         if args.check:
             if (
-                (TARGET / "skills").is_dir()
-                and (TARGET / "runtime").is_dir()
-                and same_tree(built / "skills", TARGET / "skills")
-                and same_tree(built / "runtime", TARGET / "runtime")
+                (target / "skills").is_dir()
+                and (target / "runtime").is_dir()
+                and same_tree(built / "skills", target / "skills")
+                and same_tree(built / "runtime", target / "runtime")
             ):
                 print("OpenAI plugin bundle is current.")
                 return 0
             print("OpenAI plugin bundle is stale; run scripts/build_openai_plugin.py")
             return 1
 
-        shutil.rmtree(TARGET / "skills", ignore_errors=True)
-        shutil.rmtree(TARGET / "runtime", ignore_errors=True)
-        shutil.copytree(built / "skills", TARGET / "skills")
-        shutil.copytree(built / "runtime", TARGET / "runtime")
-        skill_count = len(list((TARGET / "skills").iterdir()))
-        print(
-            f"Built {skill_count} Skills and the hosted runtime in {TARGET.relative_to(ROOT)}"
-        )
+        shutil.rmtree(target / "skills", ignore_errors=True)
+        shutil.rmtree(target / "runtime", ignore_errors=True)
+        shutil.copytree(built / "skills", target / "skills")
+        shutil.copytree(built / "runtime", target / "runtime")
+        skill_count = len(list((target / "skills").iterdir()))
+        print(f"Built {skill_count} Skills and the hosted runtime in {target}")
         return 0
 
 

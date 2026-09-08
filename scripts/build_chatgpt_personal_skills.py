@@ -9,9 +9,11 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from document_files_release import document_source
+
 ROOT = Path(__file__).resolve().parent.parent
-DOCUMENT_FILES = ROOT / "plugins" / "document-files"
-TOOLKIT_ICON = ROOT / "plugins" / "personal-agent-toolkit" / "assets" / "icon.png"
+DOCUMENT_FILES = document_source()
+TOOLKIT_ICON = DOCUMENT_FILES / "assets" / "icon.png"
 SKILL_NAME = "document-files"
 
 
@@ -52,6 +54,8 @@ def stage_skill(target: Path) -> None:
         runtime / "src" / "document_files",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
+    for name in ("LICENSE", "NOTICE"):
+        shutil.copy2(DOCUMENT_FILES / name, target / name)
     skill_path = target / "SKILL.md"
     contents = skill_path.read_text(encoding="utf-8")
     old = "${SKILL_DIR}/../../runtime/document-files/document-files"

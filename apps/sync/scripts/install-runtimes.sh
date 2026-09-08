@@ -50,11 +50,74 @@ install_runtime() {
 
 sync_destination="$STAGING_ROOT/sync"
 uv venv --relocatable "$sync_destination"
-uv pip install --python "$sync_destination/bin/python" \
-  "$REPOSITORY_ROOT/plugins/document-files" "$REPOSITORY_ROOT/apps/sync"
+"$sync_destination/bin/python" "$REPOSITORY_ROOT/scripts/check_repository.py" --document-files-only
+release_state=$("$sync_destination/bin/python" - "$REPOSITORY_ROOT" <<'PYCODE'
+import sys
+sys.path.insert(0, sys.argv[1] + "/scripts")
+from document_files_release import release_lock
+print(release_lock()["state"])
+PYCODE
+)
+if [ "$release_state" = "pinned" ]; then
+  # Preparation is explicit. Neither this resolver nor document processing downloads a backend.
+  document_wheel=$("$sync_destination/bin/python" "$REPOSITORY_ROOT/scripts/document_files_release.py" wheel)
+  (cd "$REPOSITORY_ROOT/apps/sync" && uv export --frozen --no-emit-project \
+    --no-emit-package document-files --format requirements-txt \
+    --output-file "$STAGING_ROOT/sync-dependencies.txt")
+  uv pip install --python "$sync_destination/bin/python" --require-hashes \
+    -r "$STAGING_ROOT/sync-dependencies.txt"
+  uv pip install --python "$sync_destination/bin/python" --no-deps \
+    "$document_wheel" "$REPOSITORY_ROOT/apps/sync"
+  rm "$STAGING_ROOT/sync-dependencies.txt"
+  "$sync_destination/bin/python" - "$REPOSITORY_ROOT" "$sync_destination" <<'PYCODE'
+import hashlib
+import json
+import platform
+import sys
+import zipfile
+from pathlib import Path
+sys.path.insert(0, sys.argv[1] + "/scripts")
+from document_files_release import artifact_path, release_lock
+root = Path(sys.argv[2])
+machine = platform.machine().lower()
+target = "macos-aarch64" if machine in {"aarch64", "arm64"} else "macos-x86_64"
+name = "runtime-" + target
+lock = release_lock()
+if name not in lock.get("artifacts", {}):
+    print("No pinned rhwp runtime provided; no backend will be provisioned.")
+else:
+    archive = artifact_path(name)
+    with zipfile.ZipFile(archive) as bundle:
+        members = {name: bundle.getinfo("document-files/rhwp/" + name)
+                   for name in ("rhwp", "LICENSE", "build.json")}
+        if any(item.file_size > 128 * 1024 * 1024 for item in members.values()):
+            raise ValueError("Pinned rhwp files exceed installation budget")
+        binary = bundle.read(members["rhwp"])
+        metadata = json.loads(bundle.read(members["build.json"]))
+        if (metadata.get("version") != "0.8.6+pat.checkbox.1" or
+                metadata.get("binarySha256") != hashlib.sha256(binary).hexdigest()):
+            raise ValueError("Pinned rhwp binary metadata is invalid")
+        (root / "bin/rhwp").write_bytes(binary)
+        (root / "bin/rhwp").chmod(0o755)
+        notices = root / "share/document-files/rhwp"
+        notices.mkdir(parents=True, exist_ok=True)
+        for name in ("LICENSE", "build.json"):
+            (notices / name).write_bytes(bundle.read(members[name]))
+    # Resolve the bundled binary even when launchd's PATH omits the venv bin directory.
+    entry = root / "bin/personal-agent-sync"
+    entry.write_text('#!/bin/sh\nset -eu\n'
+                     'BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
+                     'export DOCUMENT_FILES_RHWP=${DOCUMENT_FILES_RHWP:-"$BIN/rhwp"}\n'
+                     'exec "$BIN/python" -m personal_agent_sync.cli "$@"\n')
+    entry.chmod(0o755)
+PYCODE
+else
+  uv pip install --python "$sync_destination/bin/python" \
+    "$REPOSITORY_ROOT/plugins/document-files" "$REPOSITORY_ROOT/apps/sync"
+  "$sync_destination/bin/python" \
+    "$REPOSITORY_ROOT/plugins/document-files/scripts/provision_rhwp.py" >/dev/null
+fi
 install_runtime corpus "$REPOSITORY_ROOT/engines/corpus"
-"$sync_destination/bin/python" \
-  "$REPOSITORY_ROOT/plugins/document-files/scripts/provision_rhwp.py" >/dev/null
 
 if [ "$RUNTIME_ROOT" = "$DEFAULT_RUNTIME_ROOT" ] &&
   launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" >/dev/null 2>&1; then

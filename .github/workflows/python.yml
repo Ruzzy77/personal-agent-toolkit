@@ -9,6 +9,8 @@ on:
       - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
+      - "dependencies/document-files.json"
+      - "scripts/document_files_release.py"
       - "plugins/hypes/**"
       - "plugins/sense/**"
   push:
@@ -21,6 +23,8 @@ on:
       - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
+      - "dependencies/document-files.json"
+      - "scripts/document_files_release.py"
       - "plugins/hypes/**"
       - "plugins/sense/**"
 
@@ -62,8 +66,24 @@ jobs:
             command: uv run --frozen python -m unittest discover -s tests -q
           - component: Document Files
             os: macos-latest
-            directory: plugins/document-files
-            command: uv run --frozen pytest -q tests
+            directory: .
+            command: |
+              state=$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from document_files_release import release_lock; print(release_lock()["state"])')
+              source=$(python3 scripts/document_files_release.py source)
+              if [ "$state" = "pinned" ]; then
+                work=$(mktemp -d)
+                trap 'rm -rf "$work"' EXIT
+                wheel=$(python3 scripts/document_files_release.py wheel)
+                cp "$source/pyproject.toml" "$source/uv.lock" "$work/"
+                uv export --directory "$work" --frozen --no-emit-project --format requirements-txt --output-file "$work/requirements.txt"
+                uv venv "$work/venv"
+                uv pip install --python "$work/venv/bin/python" --require-hashes -r "$work/requirements.txt"
+                uv pip install --python "$work/venv/bin/python" --no-deps "$wheel"
+                "$work/venv/bin/document-files" diagnose
+                DOCUMENT_FILES_AI_ENDPOINT= DOCUMENT_FILES_AI_MODEL= "$work/venv/bin/python" -c 'import io; from document_files.api import AnalysisInput, AnalysisJob, extract_schema_from_stream; data=b"Document Files consumer check"; result=extract_schema_from_stream(AnalysisJob(job_id="consumer",input=AnalysisInput.from_bytes(data,format_id="txt")),io.BytesIO(data)); assert result["document"]["nodes"]'
+              else
+                uv run --directory "$source" --frozen pytest -q tests
+              fi
           - component: Hypes
             os: ubuntu-latest
             directory: engines/hypes
@@ -82,6 +102,15 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "${{ matrix.directory }}/uv.lock"
+      - name: Prepare exact independent consumer artifacts
+        if: matrix.component == 'Document Files' || matrix.component == 'Personal Agent Sync'
+        run: |
+          state=$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from document_files_release import release_lock; print(release_lock()["state"])')
+          if [ "$state" = "pinned" ]; then
+            python3 scripts/document_files_release.py prepare --artifact host
+            python3 scripts/document_files_release.py prepare --artifact wheel
+            python3 scripts/check_repository.py --document-files-only
+          fi
       - name: Run tests
         run: ${{ matrix.command }}
         working-directory: ${{ matrix.directory }}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "document-files.release-lock.v1",
+  "state": "migration_pending",
+  "repository": "https://github.com/Ruzzy77/document-files",
+  "targetVersion": "1.8.0",
+  "baselineVersion": "1.7.0",
+  "baselineSourceCommit": "ff7bdf88aa5ea85988bedc86defb872c7487a72c",
+  "reason": "Activate a checksummed independent release only after release and consumer qualification. Existing source is a frozen compatibility baseline, not a second development source."
+}

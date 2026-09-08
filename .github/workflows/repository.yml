@@ -18,5 +18,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Prepare exact independent Document Files source
+        run: |
+          state=$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from document_files_release import release_lock; print(release_lock()["state"])')
+          if [ "$state" = "pinned" ]; then
+            python3 scripts/document_files_release.py prepare --artifact host
+          fi
+      - name: Test independent release preparation contracts
+        run: python3 -m unittest discover -s scripts -p test_document_files_release.py -v
       - name: Check plugin, package, and documentation contracts
         run: python3 scripts/check_repository.py

@@ -837,3 +837,14 @@ Library의 과거 D1·R2 식별자와 보존 종료는 아직 미확인이다. G
 증거가 아니며 현재 Site는 새 service를 중계하므로 같은 두 URL의 대조로 과거 이관을 입증하지
 않는다. 이 한계를 기존 이관 명령 안내에도 반영했다. 새 백업 시스템이나 보존·삭제 정책 변경은
 이 조사에서 만들지 않는다.
+
+## Document Files의 독립 제품 소비
+
+Document Files의 새 정본은 Ruzzy77/document-files다. Toolkit은 제품의 독립 릴리스에서
+생성한 host bundle과 Skill을 포함하며 Sync는 같은 릴리스의 wheel과 runtime backend를
+사용한다. 제품 내부 코드를 Toolkit에서 다시 수정하지 않는다.
+
+전환 상태와 정확한 공급 artifact는 `dependencies/document-files.json`이 맡는다.
+`migration_pending`에서는 기존 1.7.0 경로를 호환 기준으로 유지하고 `pinned`에서는
+URL·SHA-256·source commit이 고정된 독립 릴리스를 준비 단계에만 확보한다.
+배포·소비 검증이 끝나지 않은 상태에서 기존 소스를 제거하거나 설치를 전환하지 않는다.
