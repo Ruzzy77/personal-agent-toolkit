@@ -44,6 +44,7 @@ MCP와 Site는 같은 서비스·소유자·범위·버전 검사 경로를 사�
 ## 소스와 배포
 
 - `app/page.tsx`: 읽기·목차·편집·비교 화면
+- 화면 아이콘: 고정 버전 `lucide-react`의 개별 아이콘을 사용하며, 버튼의 접근성 이름과 공통 크기·선 굵기를 유지합니다. 배포 라이선스는 `public/lucide-license.txt`에 포함합니다.
 - `lib/context.ts`: 목록·선택 조회와 정본 저장 어댑터
 - `lib/guidance.ts`: 탭 초안·원본 충돌·저장 확인
 - `lib/webmcp.ts`, `contracts/webmcp-contract.json`: 기존 페이지 계약
