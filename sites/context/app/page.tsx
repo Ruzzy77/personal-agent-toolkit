@@ -119,6 +119,7 @@ export default function Home() {
   const selectedGroup = catalog.find(g => g.id === selectedGroupId);
   const browseGroup = catalog.find(g => g.id === groupId);
   const documentTitle = entry?.draft.name ?? entry?.source.title;
+  const titleOnlySection = sections[0]?.text.trim() === '# ' + documentTitle ? sections[0] : null;
   const changes = pendingChanges(workspace);
   const filtered = workspace.entries.filter(e => [e.source.title, e.draft.name, e.draft.description, e.draft.body].join('\n').toLocaleLowerCase().includes(query.toLocaleLowerCase()));
 
@@ -343,7 +344,7 @@ export default function Home() {
         <div className="status-area" role="status" aria-live="polite">{message}</div>
         {storageError && <div className="notice"><p>{storageError}</p><button onClick={downloadRecovery}>보관본 내려받기</button></div>}
         {!entry ? <div className="welcome"><h1>Sense · Corpus</h1><button onClick={() => openNavigation()}>자료 열기</button></div> : <>
-          <header className="document-header">
+          <header className="document-header" id={titleOnlySection?.key} data-guidance-section={titleOnlySection ? true : undefined} tabIndex={titleOnlySection ? -1 : undefined} aria-labelledby="document-title">
             <p className="eyebrow">{entry.source.kind === 'base' ? '기본 지침' : entry.source.role === 'guidance' ? '프로젝트 지침' : entry.source.role === 'context' ? 'Context' : kindNames[entry.source.kind]}</p>
             <h1 id="document-title" tabIndex={-1}>{selectedLocator?.product === 'context-item' ? 'Context 항목' : documentTitle}</h1>
             {entry.draft.description && <p className="lead">{entry.draft.description}</p>}
@@ -380,7 +381,7 @@ export default function Home() {
                   setEditing({ ...editing, end: editing.start + value.length });
                 })} />
 
-              </section> : sections.map(section => <section className="reading-section" id={section.key} key={section.key} data-guidance-section tabIndex={-1}>
+              </section> : sections.filter(section => section.key !== titleOnlySection?.key).map(section => <section className="reading-section" id={section.key} key={section.key} data-guidance-section tabIndex={-1}>
                 <div className="prose"><Markdown text={section.text} title={entry.draft.name ?? entry.source.title} /></div>
                 <IconButton className="edit-section" disabled={Boolean(entry.incoming) || entry.source.permission === 'read_only'} onClick={() => setEditing({ start: section.start, end: section.end, title: section.title })} label={section.title + ' 편집'}><Pencil aria-hidden="true" /></IconButton>
               </section>)}
