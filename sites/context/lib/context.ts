@@ -135,7 +135,7 @@ export async function readCanonical(locator: Locator, snapshot: 'current' | 'pre
       body += str(row(data.document).body_markdown);
     }
     id = `corpus:${locator.spaceId}:${locator.documentId}`; title = str(doc.title); version = String(doc.version);
-    kind = locator.spaceId === 'base-instructions' ? 'base' : 'project';
+    kind = locator.spaceId === 'base-instructions' && locator.documentId === 'base-instructions' ? 'base' : 'project';
     role = doc.kind === 'guidance' ? 'guidance' : 'context';
     links = list(doc.source_refs).map(ref => ({ label: str(ref.document_id) || '접근 불가', ...(ref.read_ref ? { locator: { product: 'source' as const, spaceId: locator.spaceId, readRef: str(ref.read_ref) } } : {}) }));
     content = { name: title, body, applicability: row(doc.applicability) as Content['applicability'] };
@@ -190,10 +190,12 @@ export async function saveCanonical(entries: Entry[]): Promise<GuidanceSource[]>
     if (first.product === 'corpus') {
       const data = await contextCall('corpus_document_read', { space_id: first.spaceId, document_id: first.documentId, max_chars: 1 });
       const doc = row(data.document);
+      const approval = doc.guidance_approval ? row(doc.guidance_approval) : null;
       if (list(doc.source_refs).some(ref => ref.unavailable_reason)) throw new ContextFailure('source_connection_unavailable', 409);
       await contextCall('corpus_document_revise', { space_id: first.spaceId, document_id: first.documentId, expected_version: Number(e.source.version),
         title: draft.name, body_markdown: draft.body, kind: doc.kind, applicability: draft.applicability,
-        guidance_approval: doc.guidance_approval, migration_provenance: doc.migration_provenance,
+        guidance_approval: approval ? { explicit_user_approval: approval.explicit_user_approval, basis: approval.basis } : null,
+        migration_provenance: doc.migration_provenance,
         source_refs: list(doc.source_refs).map(ref => Object.fromEntries(['connection_id','document_id','revision_id','projection_id','unit_id','link_role'].map(k => [k, ref[k]]))) });
     }
   }

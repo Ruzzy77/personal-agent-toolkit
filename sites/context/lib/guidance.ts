@@ -29,7 +29,11 @@ export const kindNames: Record<SourceKind, string> = {
   base: '기본 지침', sense: 'Sense', skill: '스킬', project: '프로젝트',
 };
 export const sameContent = (a: Content, b: Content) =>
-  a.body === b.body && a.name === b.name && a.description === b.description && JSON.stringify(a.applicability) === JSON.stringify(b.applicability);
+  a.body === b.body && a.name === b.name && a.description === b.description &&
+  (a.applicability === undefined || b.applicability === undefined
+    ? a.applicability === b.applicability
+    : (['activities','targets','topics','paths'] as const).every(key =>
+      JSON.stringify(a.applicability![key]) === JSON.stringify(b.applicability![key])));
 export const isDirty = (entry: Entry) => !sameContent(entry.source.content, entry.draft);
 
 function record(value: unknown): Record<string, unknown> {

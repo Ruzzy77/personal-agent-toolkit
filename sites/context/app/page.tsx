@@ -340,7 +340,7 @@ export default function Home() {
           <article className={'article' + (compare ? ' comparison' : '')}>
             {compare ? <>
               <div className="compare-summary">{previous && <span>직전 저장본 · {previous.version}</span>}{previous && <button disabled={busy || isDirty(entry)} onClick={() => void restorePrevious()}>이 버전 복원</button>}{isDirty(entry) && <button onClick={() => act(() => { commit(resetDraft(stateRef.current, entry.source.id)); setEditing(null); setMessage('이 자료의 수정안을 원본으로 되돌렸습니다.'); })}>수정안 되돌리기</button>}</div>
-              <div className="compare-grid">{[{ title: previous ? '직전 저장본' : '원본', content: previous?.content ?? entry.source.content }, { title: previous ? '현재' : '수정안', content: entry.draft }].map(column => <section key={column.title}><h2 className="compare-label">{column.title}</h2>{column.content.name && <h3>{column.content.name}</h3>}{column.content.description && <p>{column.content.description}</p>}{column.content.applicability && <dl>{Object.entries(column.content.applicability).map(([key, values], index) => <Fragment key={key}><dt>{['활동','대상','분야','경로'][index]}</dt><dd>{values.join(', ') || '—'}</dd></Fragment>)}</dl>}<div className="prose"><Markdown text={column.content.body} /></div></section>)}</div>
+              <div className="compare-grid">{[{ title: previous ? '직전 저장본' : '원본', content: previous?.content ?? entry.source.content }, { title: previous ? '현재' : '수정안', content: entry.draft }].map(column => <section key={column.title}><h2 className="compare-label">{column.title}</h2>{column.content.name && <h3>{column.content.name}</h3>}{column.content.description && <p>{column.content.description}</p>}{column.content.applicability && <dl>{Object.entries(column.content.applicability).map(([key, values]) => <Fragment key={key}><dt>{{activities:'활동',targets:'대상',topics:'분야',paths:'경로'}[key as 'activities'|'targets'|'topics'|'paths']}</dt><dd>{values.join(', ') || '—'}</dd></Fragment>)}</dl>}<div className="prose"><Markdown text={column.content.body} /></div></section>)}</div>
             </> : <>
               {(entry.draft.name !== undefined || entry.draft.description !== undefined) && <details className="metadata-editor"><summary>문서 정보</summary>
                 {entry.draft.name !== undefined && <label>이름<input aria-invalid={Boolean(contentIssue(entry.draft))} aria-describedby={contentIssue(entry.draft) ? 'name-issue' : undefined} disabled={Boolean(entry.incoming) || entry.source.permission === 'read_only'} value={entry.draft.name} onChange={e => act(() => editContent({ ...entry.draft, name: e.target.value }))} /></label>}
@@ -360,7 +360,7 @@ export default function Home() {
                   editContent({ ...entry.draft, body: entry.draft.body.slice(0, editing.start) + value + entry.draft.body.slice(editing.end) });
                   setEditing({ ...editing, end: editing.start + value.length });
                 })} />
-                
+
               </section> : sections.map(section => <section className="reading-section" id={section.key} key={section.key} data-guidance-section tabIndex={-1}>
                 <div className="prose"><Markdown text={section.text} title={entry.draft.name ?? entry.source.title} /></div>
                 <button className="edit-section" disabled={Boolean(entry.incoming) || entry.source.permission === 'read_only'} onClick={() => setEditing({ start: section.start, end: section.end, title: section.title })} aria-label={section.title + ' 편집'}>✎</button>
@@ -373,7 +373,7 @@ export default function Home() {
     </div>
     {importOpen && <Modal titleId="import-title" close={() => setImportOpen(false)}>
       <div className="dialog-head"><h2 id="import-title">자료 가져오기</h2><button onClick={() => setImportOpen(false)} aria-label="가져오기 닫기">닫기</button></div>
-      
+
       <label htmlFor="import-text">지침 자료</label><textarea id="import-text" autoFocus rows={9} value={importText} onChange={e => setImportText(e.target.value)}  />
       <div className="actions"><button className="primary" disabled={!importText.trim()} onClick={() => act(() => importSources(JSON.parse(importText)))}>가져오기</button><label className="file-button">파일 선택<input type="file" accept=".json,application/json" onChange={async e => {
         const file = e.target.files?.[0]; if (!file) return;

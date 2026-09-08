@@ -4,6 +4,15 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
 DEFAULT_RUNTIME_ROOT="$HOME/Library/Application Support/Personal Agent Sync/runtimes"
+LINK_CLI_ONLY=0
+if [ "${1:-}" = "--link-cli-only" ]; then
+  LINK_CLI_ONLY=1
+  shift
+  [ "$#" -eq 0 ] || {
+    printf '%s\n' '--link-cli-only accepts no runtime path.' >&2
+    exit 1
+  }
+fi
 RUNTIME_ROOT=${1:-"$DEFAULT_RUNTIME_ROOT"}
 STAGING_ROOT="${RUNTIME_ROOT}.install.$$"
 BACKUP_ROOT="${RUNTIME_ROOT}.backup.$$"
@@ -23,6 +32,38 @@ esac
   printf '%s\n' 'The filesystem root cannot be used as the Sync runtime root.' >&2
   exit 1
 }
+
+# The user PATH entry is an absent-only link to the durable default runtime.
+# Custom runtime installations must not replace the host's registered command.
+link_default_cli() {
+  "$DEFAULT_RUNTIME_ROOT/sync/bin/python" - "$DEFAULT_RUNTIME_ROOT" <<'PYLINK'
+import os
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+target = root / "sync/bin/personal-agent-sync"
+link = Path.home() / ".local/bin/personal-agent-sync"
+if not target.is_file() or not os.access(target, os.X_OK):
+    raise SystemExit("The installed Sync executable is unavailable; no PATH link was changed.")
+if os.path.lexists(link):
+    if not link.is_symlink() or os.readlink(link) != str(target):
+        raise SystemExit("The PATH entry already belongs to another executable; it was not changed.")
+else:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(target, link)
+    except FileExistsError:
+        raise SystemExit("The PATH entry changed during setup; it was not replaced.") from None
+print(link)
+PYLINK
+}
+
+if [ "$LINK_CLI_ONLY" -eq 1 ]; then
+  umask 077
+  link_default_cli
+  exit 0
+fi
 
 command -v uv >/dev/null 2>&1 || {
   printf '%s\n' 'uv is required to install Personal Agent Sync runtimes.' >&2
@@ -106,7 +147,7 @@ else:
     # Resolve the bundled binary even when launchd's PATH omits the venv bin directory.
     entry = root / "bin/personal-agent-sync"
     entry.write_text('#!/bin/sh\nset -eu\n'
-                     'BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
+                     'BIN=$(CDPATH= cd -- "$(dirname -- "$(realpath -- "$0")")" && pwd)\n'
                      'export DOCUMENT_FILES_RHWP=${DOCUMENT_FILES_RHWP:-"$BIN/rhwp"}\n'
                      'exec "$BIN/python" -m personal_agent_sync.cli "$@"\n')
     entry.chmod(0o755)
@@ -158,6 +199,10 @@ if [ "$AGENT_WAS_LOADED" -eq 1 ]; then
     printf '%s\n' 'The updated Sync agent did not start; the previous runtimes were restored.' >&2
     exit 1
   fi
+fi
+
+if [ "$RUNTIME_ROOT" = "$DEFAULT_RUNTIME_ROOT" ]; then
+  link_default_cli
 fi
 
 rm -rf "$BACKUP_ROOT"
