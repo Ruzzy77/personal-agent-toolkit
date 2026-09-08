@@ -200,7 +200,6 @@ async function AuthenticatedHome({
         >
           <summary className="secondary-summary">
             <div>
-              <p className="section-kicker">기간 기록</p>
               <h2 id="period-title">
                 {period ? periodLabel(period) : '기간별 기록'}
               </h2>

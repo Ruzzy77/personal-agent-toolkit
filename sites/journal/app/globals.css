@@ -84,7 +84,6 @@ a {
   justify-content: space-between;
   gap: 24px;
   padding: 28px 32px 22px;
-  border-top: 4px solid var(--ink);
 }
 
 .journal-kicker,
@@ -278,10 +277,6 @@ a {
   background: color-mix(in srgb, var(--waiting) 5%, var(--surface));
   border: 1px solid var(--line);
   border-left: 4px solid var(--waiting);
-}
-
-.summary-strip + .carryover-section {
-  margin-top: 26px;
 }
 
 .carryover-heading {
@@ -795,14 +790,6 @@ a {
 .period-heading {
   align-items: flex-end;
   margin-bottom: 18px;
-}
-
-.section-kicker {
-  margin: 0 0 3px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 720;
-  letter-spacing: 0.08em;
 }
 
 .period-tabs {
@@ -1458,10 +1445,6 @@ a {
 
   .carryover-board .board-row {
     grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .summary-strip + .carryover-section {
-    margin-top: 20px;
   }
 
   .records-section {

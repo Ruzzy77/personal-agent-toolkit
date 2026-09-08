@@ -922,56 +922,6 @@ export function JournalBoard({
         </section>
       )}
 
-      {previousBoard && previousUnfinished.length > 0 && (
-        <section
-          className="carryover-section"
-          aria-labelledby="carryover-title"
-        >
-          <div className="section-heading carryover-heading">
-            <h2 id="carryover-title">이전 주 미완료</h2>
-            <div className="carryover-meta">
-              <span>{previousUnfinished.length}개</span>
-              <Link
-                href={`/?week=${previousBoard.week.id}&period=week`}
-                aria-label={`${dateRange(
-                  previousBoard.week.startsOn,
-                  previousBoard.week.endsOn,
-                )} 기록 보기`}
-              >
-                {dateRange(
-                  previousBoard.week.startsOn,
-                  previousBoard.week.endsOn,
-                )}
-              </Link>
-            </div>
-          </div>
-          <table className="board carryover-board" aria-label="이전 주 미완료">
-            <thead>
-              <tr className="board-head">
-                <th scope="col">구분</th>
-                <th scope="col">항목</th>
-                <th scope="col">현재 상태</th>
-                <th className="sr-only" scope="col">
-                  처리 상태
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {previousUnfinished.map((item) => (
-                <BoardRow
-                  item={item}
-                  disabled={previousBoard.week.status === 'closed'}
-                  pending={pendingId === item.id}
-                  onDetail={(itemId) => void openItemDetail(itemId)}
-                  onResolution={handleClick}
-                  key={item.id}
-                />
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
       <section className="board-section" aria-labelledby="board-title">
         <div className="section-heading">
           <h2 id="board-title">진행 보드</h2>
@@ -1028,6 +978,56 @@ export function JournalBoard({
           {isClosed ? '마감된 주차' : message}
         </output>
       </section>
+
+      {previousBoard && previousUnfinished.length > 0 && (
+        <section
+          className="carryover-section"
+          aria-labelledby="carryover-title"
+        >
+          <div className="section-heading carryover-heading">
+            <h2 id="carryover-title">이전 주 미완료</h2>
+            <div className="carryover-meta">
+              <span>{previousUnfinished.length}개</span>
+              <Link
+                href={`/?week=${previousBoard.week.id}&period=week`}
+                aria-label={`${dateRange(
+                  previousBoard.week.startsOn,
+                  previousBoard.week.endsOn,
+                )} 기록 보기`}
+              >
+                {dateRange(
+                  previousBoard.week.startsOn,
+                  previousBoard.week.endsOn,
+                )}
+              </Link>
+            </div>
+          </div>
+          <table className="board carryover-board" aria-label="이전 주 미완료">
+            <thead>
+              <tr className="board-head">
+                <th scope="col">구분</th>
+                <th scope="col">항목</th>
+                <th scope="col">현재 상태</th>
+                <th className="sr-only" scope="col">
+                  처리 상태
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {previousUnfinished.map((item) => (
+                <BoardRow
+                  item={item}
+                  disabled={previousBoard.week.status === 'closed'}
+                  pending={pendingId === item.id}
+                  onDetail={(itemId) => void openItemDetail(itemId)}
+                  onResolution={handleClick}
+                  key={item.id}
+                />
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section className="week-section" aria-labelledby="week-title">
         <div className="section-heading">
@@ -1097,7 +1097,6 @@ export function JournalBoard({
       <details className="records-section secondary-details">
         <summary className="secondary-summary">
           <div>
-            <p className="section-kicker">기록 도구</p>
             <h2 id="records-title">항목 찾기</h2>
           </div>
           <div className="secondary-summary-meta">
