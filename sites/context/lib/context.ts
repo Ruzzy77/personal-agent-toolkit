@@ -26,7 +26,7 @@ export type Locator =
   | { product: 'context-item'; spaceId: string; itemId: string }
   | { product: 'context-skill'; spaceId: string }
   | { product: 'source'; spaceId: string; readRef: string };
-export type Candidate = { id: string; title: string; subtitle?: string; locator: Locator; readonly?: boolean };
+export type Candidate = { id: string; title: string; subtitle?: string; locator: Locator; readonly?: boolean; excerpt?: boolean };
 export type Group = { id: string; title: string; product: 'sense' | 'corpus' };
 const titles: Record<string, string> = {
   'questions-and-choices': '질문과 선택', 'scope-and-checking': '업무 범위',
@@ -47,7 +47,7 @@ export async function groups(): Promise<Group[]> {
 }
 const itemCandidate = (spaceId: string, item: Row): Candidate => ({
   id: `context-item:${spaceId}:${item.item_id}`, title: str(item.body_text).split('\n')[0].replace(/^#+\s*/, '').slice(0, 90) || str(item.item_id),
-  subtitle: str(item.kind), locator: { product: 'context-item', spaceId, itemId: str(item.item_id) },
+  subtitle: '발췌', excerpt: true, locator: { product: 'context-item', spaceId, itemId: str(item.item_id) },
 });
 const docCandidate = (spaceId: string, doc: Row): Candidate => ({
   id: `corpus:${spaceId}:${doc.document_id}`, title: str(doc.title), subtitle: doc.kind === 'guidance' ? '지침' : 'Context',
@@ -158,15 +158,17 @@ export async function readCanonical(locator: Locator, snapshot: 'current' | 'pre
   return { id, kind, title, version, content, reference: id, canonical: locator, ...(role ? { role } : {}), ...(links ? { links } : {}),
     permission: locator.product === 'source' ? 'read_only' : 'read_write', activation: kind === 'base' ? 'new_session' : 'next_use' };
 }
-export async function saveCanonical(entries: Entry[]): Promise<GuidanceSource[]> {
+export async function saveCanonical(entries: Entry[], contextVersion?: string): Promise<GuidanceSource[]> {
   if (!entries.length) return [];
   const first = locatorOf(entries[0].source);
   if (!first || first.product === 'source') throw new Error('읽기 전용 자료');
   for (const e of entries) {
     const loc = locatorOf(e.source); if (!loc) throw new Error('정본 연결 없음');
     const current = await readCanonical(loc);
-    if (current.version !== e.source.version || current.id !== e.source.id || current.reference !== e.source.reference || !sameContent(current.content, e.source.content)) throw new ContextFailure('version_conflict', 409);
+    const expectedVersion = first.product === 'context-item' ? contextVersion ?? e.source.version : e.source.version;
+    if (current.version !== expectedVersion || current.id !== e.source.id || current.reference !== e.source.reference || !sameContent(current.content, e.source.content)) throw new ContextFailure('version_conflict', 409);
   }
+  let committedVersion: string | undefined;
   if (first.product === 'sense' && !first.skill) {
     const ids = entries.map(e => (locatorOf(e.source) as Extract<Locator, { product: 'sense' }>).sectionId);
     const data = await contextCall('sense_read', { view: 'sections', section_ids: ids, include_skill: false });
@@ -182,7 +184,8 @@ export async function saveCanonical(entries: Entry[]): Promise<GuidanceSource[]>
       const { item } = await currentItem(loc.spaceId, loc.itemId);
       return { item_id: loc.itemId, kind: item.kind, body_text: e.draft.body, status: row(item.attributes).status };
     }));
-    await contextCall('corpus_context_items_revise', { space_id: first.spaceId, expected_version: Number(entries[0].source.version), revisions });
+    const receipt = await contextCall('corpus_context_items_revise', { space_id: first.spaceId, expected_version: Number(contextVersion ?? entries[0].source.version), revisions });
+    committedVersion = String(receipt.version);
   } else {
     const e = entries[0], draft = e.draft;
     if (first.product === 'sense') await contextCall('sense_skill_revise', { section_id: first.sectionId, expected_version: e.source.version, new_skill: { name: draft.name, description: draft.description, instructions: draft.body } });
@@ -199,7 +202,10 @@ export async function saveCanonical(entries: Entry[]): Promise<GuidanceSource[]>
         source_refs: list(doc.source_refs).map(ref => Object.fromEntries(['connection_id','document_id','revision_id','projection_id','unit_id','link_role'].map(k => [k, ref[k]]))) });
     }
   }
-  return Promise.all(entries.map(e => readCanonical(locatorOf(e.source)!)));
+  const saved = await Promise.all(entries.map(e => readCanonical(locatorOf(e.source)!)));
+  // Do not adopt an unrelated writer's version as our own batch continuation.
+  if (committedVersion && saved.some(source => source.version !== committedVersion)) throw new ContextFailure('version_conflict', 409);
+  return saved;
 }
 export function saveGroups(entries: Entry[]): Entry[][] {
   const grouped = new Map<string, Entry[]>();

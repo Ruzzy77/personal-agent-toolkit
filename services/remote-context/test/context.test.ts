@@ -1167,6 +1167,25 @@ describe("remote personal context service", () => {
     const service = new SenseService(runtime.STATE_DB, "owner_test");
     const read = await service.read("sections", ["questions-and-choices"]);
     expect(JSON.stringify(read)).toContain("Continue autonomously");
+    const overview = await service.overview();
+    expect(overview).not.toHaveProperty("context_site_url");
+    const siteUrl = "https://context-site.example/sense";
+    expect(await service.overview(siteUrl)).toEqual({ ...overview, context_site_url: siteUrl });
+    for (const invalidUrl of ["", "http://context-site.example", "javascript:alert(1)",
+      "/sense", "https://owner:secret@context-site.example", "https://context-site.example\n",
+      "https://context-site.example\\other", "https://"]) {
+      expect(await service.overview(invalidUrl)).toEqual(overview);
+    }
+    const overviewResponse = await handleMcp(new Request("https://context.test/sense/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
+        params: { name: "sense_overview", arguments: {} } }),
+    }), { ...runtime, CONTEXT_SITE_URL: siteUrl }, ownerPrincipal, "sense");
+    expect(overviewResponse.status, await overviewResponse.clone().text()).toBe(200);
+    expect(await mcpPayload(overviewResponse)).toMatchObject({
+      result: { structuredContent: { ok: true, result: { ...overview, context_site_url: siteUrl } } },
+    });
     const section = profile.sections[0]!;
     const updated = await service.revise({
       changes: [

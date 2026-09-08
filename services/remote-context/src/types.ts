@@ -33,6 +33,7 @@ export interface Env {
   CONTEXT_SITE_TOKEN?: string;
   CONTEXT_SITE_USER_ID?: string;
   CONTEXT_SITE_OWNER_ID?: string;
+  CONTEXT_SITE_URL?: string;
 }
 
 export interface Principal {

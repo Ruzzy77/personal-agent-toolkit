@@ -57,6 +57,18 @@ function skillProjection(skill: SkillRow, includeInstructions: boolean) {
   };
 }
 
+function safeContextSiteUrl(value?: string): string | undefined {
+  if (!value || value.length > 2048 || !/^https:\/\//i.test(value) ||
+      /[\u0000-\u0020\u007f\\]/.test(value)) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 async function sectionDigest(section: ProfileSection): Promise<string> {
   return contentSha256(section);
 }
@@ -223,9 +235,10 @@ export class SenseService {
     return { sections };
   }
 
-  async overview(): Promise<Record<string, unknown>> {
+  async overview(contextSiteUrl?: string): Promise<Record<string, unknown>> {
     const stored = await this.profile();
     const skills = await this.skills();
+    const siteUrl = safeContextSiteUrl(contextSiteUrl);
     const grouped = new Map<string, Array<Record<string, unknown>>>();
     for (const name of GROUP_ORDER) grouped.set(name, []);
     for (const section of stored.profile.sections) {
@@ -245,6 +258,7 @@ export class SenseService {
     }
     return {
       title: "Sense 지침",
+      ...(siteUrl ? { context_site_url: siteUrl } : {}),
       description:
         "사용자 의도와 의사결정에 관한 범용 지침과 연결된 작업 방법입니다. " +
         "대화 기록과 프로젝트 자료는 각 시스템에서 관리합니다.",

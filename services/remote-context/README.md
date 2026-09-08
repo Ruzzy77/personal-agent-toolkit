@@ -119,3 +119,11 @@ The Context Site uses server-only CONTEXT_SITE_TOKEN plus the verified Site-spec
 user ID mapped by CONTEXT_SITE_USER_ID/CONTEXT_SITE_OWNER_ID. Browser-supplied owner
 IDs are never accepted. Site and MCP share the same Zod/service/CAS logic. A saved
 remote base is distinct from a host projection and from an already running model.
+
+Optionally set the Worker binding `CONTEXT_SITE_URL` in private operator
+configuration (for example, a Wrangler secret) to the Context Site's HTTPS URL.
+`sense_overview` then includes `context_site_url` alongside its existing response.
+Unconfigured or invalid URLs are omitted; credentials, whitespace/control characters,
+and non-HTTPS URLs are rejected. This is a navigation link only, not a fetch or an
+authentication credential. Keep the owner's actual Site address out of committed
+configuration; no database migration or new Site service is needed.

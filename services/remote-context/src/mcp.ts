@@ -199,7 +199,7 @@ export function registerSenseTools(
     async () =>
       safeTool(async () => {
         requireScope(principal, "sense.read");
-        return service.overview();
+        return service.overview(env.CONTEXT_SITE_URL);
       }),
   );
   server.registerTool(
