@@ -348,7 +348,7 @@ export function registerCorpusTools(
     {
       title: "Revise Context Items",
       description:
-        "Atomically replace selected existing Context item content after an explicit user request.",
+        "Atomically replace selected existing Context item content after an explicit user request. Optionally patch attributes.source_of_truth as descriptive text (null removes it); omission preserves it. Other attributes and all historical Source links are preserved. This does not move files or revise evidence links.",
       inputSchema: corpusContextItemsReviseSchema,
       outputSchema: contextToolOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },

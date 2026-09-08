@@ -107,6 +107,25 @@ Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source �
 
 Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료 변경이나 Source 갱신으로 오래된 출처를 새 원문에 자동 연결하지 않습니다.
 
+### 설명용 속성 수정 — 구현, 배포 대기
+
+`corpus_context_items_revise`의 선택 입력 `attributes: {source_of_truth: string | null}`은
+해당 문자열만 수정하며, 생략하면 보존하고 null이면 제거합니다. 기존 필수 입력인 종류·본문·상태와
+같은 Context version 및 transaction을 사용합니다. 나머지 속성, 출처 행과 파일 접근 권한은
+바꾸지 않습니다. 속성만 정비할 때에는 방금 읽은 종류·본문·상태를 그대로 전달합니다.
+
+`source_of_truth`는 설명용 문자열이며 실제 근거는 `corpus_context_sources`의
+document·revision·projection·unit 연결입니다. 파일 이동으로 현재 경로가 바뀌어도 당시 근거의
+식별자는 보존할 수 있습니다. 내용 개정에 따른 새 근거 추가와 역사적 근거 제거는 별도 판단입니다.
+출처 연결 수정은 계속 공개 범위 밖에 둡니다. 새 연결을 안전하게 추가하려면 D1의 Context version
+검사뿐 아니라 shard의 자동 정리와 조정되는 보호 예약·확정·실패 복구가 필요합니다.
+unit 존재 확인 뒤 D1에 연결만 추가하는 방식은 그 사이 정리와 경쟁할 수 있습니다.
+
+이 확장은 서비스 소스와 Skill 생성물에만 반영합니다. 현행 공개 규격에는 `attributes` 입력이
+없으며, release 승인 시 제품 version·packaging revision을 맞추고 원격 서비스와 영향을 받는
+클라이언트를 정상 갱신한 뒤 실제 입력 노출을 확인해야 사용할 수 있습니다. 재로딩만으로 기존
+서버에 없는 입력이 추가되지 않습니다. 운영 Context와 Source는 이 구현의 시험 대상으로 쓰지 않습니다.
+
 ### Context 출처 읽기
 
 2026-09-05 격리 조사에서 `corpus_context_sources`에 정확한 document·revision·projection·unit

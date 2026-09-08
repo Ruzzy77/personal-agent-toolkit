@@ -629,6 +629,13 @@ export class CorpusService {
       }
       const attributes = parseObject(row.attributes_json);
       attributes.status = revision.status;
+      if (revision.attributes) {
+        if (revision.attributes.source_of_truth === null) {
+          delete attributes.source_of_truth;
+        } else {
+          attributes.source_of_truth = revision.attributes.source_of_truth;
+        }
+      }
       const attributesJson = canonicalJson(attributes);
       if (
         row.kind === revision.kind &&

@@ -61,6 +61,18 @@ The small, cross-product state is stored in D1:
 No operational Finder locator is stored in D1. Source-derived or user-authored
 text may contain a literal path, but it has no filesystem authority.
 
+The pending Context item revision extension accepts an optional
+`attributes: {source_of_truth: string | null}`. Omission preserves the descriptive
+attribute; null removes it. It shares the existing owner/Space boundary,
+`corpus.write` scope and version-guarded D1 batch with kind/body/status revisions.
+Other attributes and all `corpus_context_sources` rows remain unchanged. No
+schema migration, filesystem action or evidence reassignment is involved.
+Source-link mutation remains unsupported: validating a shard unit then inserting
+a D1 reference can race shard retention. A future link-edit contract must coordinate
+protection and recovery across both stores rather than rely only on Context CAS.
+This implementation is not a deployment; release metadata and client exposure
+must be updated and verified in an approved release.
+
 ### CorpusShard Durable Objects
 
 Each Corpus Source has one SQLite-backed Durable Object named from the owner

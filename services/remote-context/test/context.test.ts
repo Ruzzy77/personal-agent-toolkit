@@ -14,6 +14,7 @@ import { CorpusService } from "../src/corpus";
 import { HypesService } from "../src/hypes";
 import { handleMcp } from "../src/mcp";
 import {
+  corpusContextItemsReviseSchema,
   corpusFileReadSchema,
   corpusFileWriteSchema,
 } from "../src/schemas";
@@ -232,6 +233,101 @@ const legacyToolkitPrincipal: Principal = {
     scopes: ownerPrincipal.owner!.scopes.filter((scope) => !scope.startsWith("design.")),
   },
 };
+
+it("revises descriptive Context attributes atomically without rewriting provenance", async () => {
+  const db = runtime.STATE_DB;
+  const spaceId = "attribute-revision";
+  await db.batch([
+    db.prepare(`INSERT INTO corpus_spaces(owner_id, space_id, display_name, state, access_scope, updated_at)
+      VALUES ('owner_test', ?, 'Attributes', 'active', 'remote_allowed', '2026-09-08')`).bind(spaceId),
+    db.prepare(`INSERT INTO corpus_contexts(owner_id, space_id, title, purpose, scope_json, version, updated_at)
+      VALUES ('owner_test', ?, 'Attributes', 'Test', '{}', 1, '2026-09-08')`).bind(spaceId),
+    ...["attribute-a", "attribute-b"].map((id) => db.prepare(
+      `INSERT INTO corpus_context_items(owner_id, space_id, item_id, kind, body_text, attributes_json, created_at)
+       VALUES ('owner_test', ?, ?, 'finding', 'Existing judgment', ?, '2026-09-08')`,
+    ).bind(spaceId, id, '{"confidence":0.8,"source_of_truth":"old.md","status":"active"}')),
+    db.prepare(`INSERT INTO corpus_context_sources(owner_id, source_ref_id, item_id, corpus_id,
+      document_id, revision_id, projection_id, source_unit_id, link_role, source_span_json)
+      VALUES ('owner_test', 'attribute-link', 'attribute-a', 'corpus-old', 'doc-old', 'rev-old',
+      'projection-old', 'unit-old', 'direct', '{"paragraph":1}')`),
+  ]);
+  const service = new CorpusService(runtime, ownerPrincipal);
+  const revision = (itemId: string, value = "current.md") => ({
+    item_id: itemId, kind: "finding" as const, body_text: "Existing judgment", status: "active",
+    attributes: { source_of_truth: value },
+  });
+  const input = { space_id: spaceId, expected_version: 1, revisions: [revision("attribute-a"), revision("attribute-b")] };
+  const snapshot = async () => ({
+    context: await db.prepare("SELECT * FROM corpus_contexts WHERE space_id = ?").bind(spaceId).all(),
+    items: await db.prepare("SELECT * FROM corpus_context_items WHERE space_id = ? ORDER BY item_id").bind(spaceId).all(),
+    links: await db.prepare("SELECT * FROM corpus_context_sources WHERE source_ref_id = 'attribute-link'").all(),
+  });
+  const before = await snapshot();
+  for (const revisions of [[revision("attribute-a"), revision("missing")], [revision("attribute-a"), revision("attribute-a")]]) {
+    await expect(service.reviseContextItems({ ...input, revisions })).rejects.toBeDefined();
+    const after = await snapshot();
+    expect(after.context.results).toEqual(before.context.results);
+    expect(after.items.results).toEqual(before.items.results);
+  }
+  await expect(new CorpusService(runtime, { ...ownerPrincipal, ownerId: "other-owner" }).reviseContextItems(input)).rejects.toMatchObject({ code: "space_not_found" });
+  await expect(service.reviseContextItems(input)).resolves.toMatchObject({ changed: true, version: 2 });
+  const changed = await snapshot();
+  expect(changed.links.results).toEqual(before.links.results);
+  for (const row of changed.items.results) {
+    expect(JSON.parse(row.attributes_json as string)).toEqual({ confidence: 0.8, status: "active", source_of_truth: "current.md" });
+    expect(row.body_text).toBe("Existing judgment");
+  }
+  await expect(service.reviseContextItems(input)).rejects.toMatchObject({ code: "context_conflict" });
+  await expect(service.reviseContextItems({ ...input, expected_version: 2 })).resolves.toMatchObject({ changed: false, version: 2 });
+  const { attributes: _attributes, ...legacy } = revision("attribute-a");
+  await expect(service.reviseContextItems({ ...input, expected_version: 2, revisions: [legacy] })).resolves.toMatchObject({ changed: false, version: 2 });
+  await expect(service.reviseContextItems({ ...input, expected_version: 2, revisions: [{ ...legacy, attributes: { source_of_truth: null } }] })).resolves.toMatchObject({ changed: true, version: 3 });
+  const removed = await snapshot();
+  expect(JSON.parse(removed.items.results[0]!.attributes_json as string)).toEqual({ confidence: 0.8, status: "active" });
+  expect(removed.links.results).toEqual(before.links.results);
+
+  for (const attributes of [{}, { source_of_truth: "" }, { source_of_truth: "x".repeat(12_001) }, { source_of_truth: "current.md", access_scope: "remote_allowed" }]) {
+    expect(corpusContextItemsReviseSchema.safeParse({ ...input, revisions: [{ ...legacy, attributes }] }).success).toBe(false);
+  }
+
+  const request = new Request("https://context.test/corpus/mcp", {
+    method: "POST",
+    headers: { Accept: "application/json, text/event-stream", "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+      name: "corpus_context_items_revise", arguments: { ...input, expected_version: 3 },
+    } }),
+  });
+  const denied = await mcpPayload(await handleMcp(request, runtime, {
+    ...ownerPrincipal, scopes: new Set(["corpus.read"]),
+  }, "corpus"));
+  expect(denied.result).toMatchObject({ isError: true });
+  expect((await snapshot()).items.results).toEqual(removed.items.results);
+
+  const concurrent = await Promise.allSettled(["first.md", "second.md"].map((value) =>
+    service.reviseContextItems({ ...input, expected_version: 3,
+      revisions: [revision("attribute-a", value), revision("attribute-b", value)],
+    }),
+  ));
+  expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const rejected = concurrent.find((result) => result.status === "rejected");
+  expect(rejected?.reason).toMatchObject({ code: "context_conflict" });
+  const final = await snapshot();
+  expect(final.context.results[0]!.version).toBe(4);
+  expect(new Set(final.items.results.map((row) => JSON.parse(row.attributes_json as string).source_of_truth)).size).toBe(1);
+  expect(final.links.results).toEqual(before.links.results);
+});
+
+function expectContextAttributeSchema(schema: Record<string, unknown>) {
+  const properties = schema.properties as Record<string, { items: Record<string, unknown> }>;
+  const revision = properties.revisions!.items;
+  expect(revision.required).not.toContain("attributes");
+  expect(revision).toMatchObject({ properties: { attributes: {
+    type: "object", additionalProperties: false, required: ["source_of_truth"],
+    properties: { source_of_truth: { anyOf: [
+      { type: "string", minLength: 1, maxLength: 12_000 }, { type: "null" },
+    ] } },
+  } } });
+}
 
 async function mcpPayload(
   response: Response,
@@ -944,6 +1040,7 @@ describe("remote personal context service", () => {
     for (const tool of result.tools) {
       expect(tool.inputSchema).toMatchObject({ type: "object" });
       expect(tool.outputSchema).toMatchObject({ type: "object" });
+      if (tool.name === "corpus_context_items_revise") expectContextAttributeSchema(tool.inputSchema);
     }
   });
 
@@ -976,6 +1073,7 @@ describe("remote personal context service", () => {
       );
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
+        if (tool.name === "corpus_context_items_revise") expectContextAttributeSchema(tool.inputSchema);
         if (tool.name === "corpus_file_read") {
           expect(tool.inputSchema).toMatchObject({ properties: { source_view: { enum: ["text", "full"] } } });
           expect(tool.inputSchema.required).not.toContain("source_view");

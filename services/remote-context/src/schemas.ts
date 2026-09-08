@@ -497,6 +497,13 @@ export const corpusContextItemsReviseSchema = z
             ]),
             body_text: z.string().min(1).max(12_000),
             status: z.string().min(1).max(200),
+            attributes: z
+              .object({
+                source_of_truth: z.string().min(1).max(12_000).nullable(),
+              })
+              .strict()
+              .optional()
+              .describe("Optional descriptive attribute patch. Omit to preserve; null removes source_of_truth. Does not change Source provenance or filesystem authority."),
           })
           .strict(),
       )
