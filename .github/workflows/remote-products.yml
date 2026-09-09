@@ -63,7 +63,7 @@ jobs:
             command: npm run check
           - component: Context Site
             directory: sites/context
-            command: npm run lint && npm run build
+            command: npm run lint && npm run build && npm test
           - component: Journal Site
             directory: sites/journal
             command: npm run lint && npm run build && npm test

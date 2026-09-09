@@ -4,6 +4,8 @@ import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, F
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, type ReactNode, type ButtonHTMLAttributes } from 'react';
 import { candidates, groups, readCanonical, saveCanonical, saveGroups, locatorOf, contextCall, type Candidate, type Group } from '../lib/context';
 import { registerGuidanceTools } from '../lib/webmcp';
+import { InlineDocument } from './inline-document';
+import { replaceBodyIfCurrent } from '../lib/inline-markdown';
 import {
   acknowledgeSaved, contentIssue, emptyWorkspace, isDirty, loadSources, parseSources, pendingChanges,
   resetDraft, resolveIncoming, restoreWorkspace, sectionsOf, storageKey, updateDraft,
@@ -365,9 +367,7 @@ export default function Home() {
       <div className="workspace-home"><IconButton label="자료와 목차 열기" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><Menu aria-hidden="true" /></IconButton><span className="wordmark">Workspace</span></div>
       <div className="document-actions">
         {entry && <>
-          <IconButton label={editing ? '읽기로 돌아가기' : '문서 편집'} aria-pressed={editing} disabled={!canEdit && !editing} onClick={() => switchView(editing ? 'read' : 'edit')}>
-            {editing ? <Eye aria-hidden="true" /> : <Pencil aria-hidden="true" />}
-          </IconButton>
+          {editing && <IconButton label="본문으로 돌아가기" onClick={() => switchView('read')}><Eye aria-hidden="true" /></IconButton>}
           <IconButton label={compare ? '비교 닫기' : '변경 비교'} aria-pressed={compare} onClick={() => switchView(compare ? 'read' : 'compare')}><Columns2 aria-hidden="true" /></IconButton>
         </>}
         {changes.length > 0 && <IconButton label="모든 수정안 저장" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}><Save aria-hidden="true" /></IconButton>}
@@ -405,9 +405,15 @@ export default function Home() {
                     {(['activities','targets','topics','paths'] as const).map((key, index) => <label key={key}>{['활동','대상','분야','프로젝트 내 경로'][index]}<input value={entry.draft.applicability![key].join(', ')} onChange={e => act(() => editContent({ ...entry.draft, applicability: { ...entry.draft.applicability!, [key]: e.target.value.split(',').map(v => v.trim()).filter(Boolean) } }))} /></label>)}
                   </details>}
                 </fieldset>
-              </section> : sections.filter(section => section.key !== titleOnlySection?.key).map(section => <section className="reading-section" id={section.key} key={section.key} data-guidance-section tabIndex={-1}>
-                <div className="prose"><Markdown text={section.text} title={documentTitle} /></div>
-              </section>)}
+              </section> : <InlineDocument key={entry.source.id} body={entry.draft.body} title={documentTitle} editable={Boolean(canEdit)} onChange={(body, expected) => {
+                try {
+                  const current = stateRef.current.entries.find(e => e.source.id === entry.source.id);
+                  if (!current || current.source.id !== stateRef.current.selectedId) return false;
+                  const nextBody = replaceBodyIfCurrent(current.draft.body, expected, body);
+                  commit(updateDraft(stateRef.current, current.source.id, { ...current.draft, body: nextBody }, current.source.version, current.draftId));
+                  setMessage(''); return true;
+                } catch (error) { setMessage(error instanceof Error ? error.message : '수정안을 확인해 주세요.'); return false; }
+              }} />}
             </>}
           </article>
         </>}
@@ -436,6 +442,7 @@ export default function Home() {
       <div className="dialog-head"><h2 id="more-title">더 보기</h2><IconButton label="더 보기 닫기" onClick={() => setMoreOpen(false)}><X aria-hidden="true" /></IconButton></div>
       <div className="option-list">
         {entry && <>
+          <button disabled={!canEdit} onClick={() => { setMoreOpen(false); switchView('edit'); }}><Pencil aria-hidden="true" />마크다운 편집</button>
           <button disabled={busy || !entry.source.canonical} onClick={() => { setMoreOpen(false); void refresh(); }}><RefreshCw aria-hidden="true" />다시 불러오기</button>
           {entry.source.canonical?.product === 'corpus' && <button disabled={busy || historyLoading} onClick={() => { setMoreOpen(false); void previousVersion(); }}><History aria-hidden="true" />직전 저장본 비교</button>}
           <button onClick={() => { setMoreOpen(false); setInfoOpen(true); }}><Info aria-hidden="true" />원본 정보</button>

@@ -12,3 +12,15 @@ svg{width:20px;height:20px;stroke-width:1.5;flex:none}.icon-control{display:inli
 @media(max-width:360px){.wordmark{display:none}.workspace-bar{padding-inline:.5rem}.layout{padding-inline:1rem}.document-actions{gap:0}}
 @media(prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}a,button{transition:color .15s,background-color .15s}}
 @media print{body,:root[data-theme="dark"]{--paper:#fff;--ink:#111;--muted:#444;--line:#bbb;--soft:#f5f5f5;background:#fff;color:#111}.workspace-bar,.skip,.notice,.status-area,.document-state,dialog{display:none!important}.layout{padding:0;max-width:none}.document-header{padding:1cm 0 1.3cm}.document-header h1{font-size:32pt}.article{max-width:none}.reading-section{margin-bottom:1.2cm}.prose h2{font-size:20pt}.prose h2,.prose h3{break-after:avoid}tr,blockquote{break-inside:avoid}p{orphans:3;widows:3}main{padding-bottom:0}@page{size:A4;margin:20mm}}
+
+.inline-field{cursor:text;outline:0;border-radius:1px;white-space:pre-wrap;min-height:1.2em}
+.inline-field:focus{outline:1px solid var(--line);outline-offset:5px}
+.inline-field:focus-visible{outline-color:var(--focus)}
+.inline-field:empty::before{content:attr(data-placeholder);color:var(--muted);pointer-events:none}
+.inline-document li>p{margin:.45rem 0}
+.inline-document li>input[type="checkbox"]{width:1em;min-height:0;margin:0 .55rem 0 0;vertical-align:middle;accent-color:var(--ink)}
+.inline-document li>input[type="checkbox"]+p{display:inline}
+.inline-document li>input[type="checkbox"]+p:empty{display:inline-block;min-width:2em}
+.inline-document th>span,.inline-document td>span,.inline-document pre>code{display:block;min-height:1.3em}
+.inline-document pre>code{white-space:pre-wrap}
+@media print{.inline-field:focus,.inline-field:focus-visible{outline:none}}
