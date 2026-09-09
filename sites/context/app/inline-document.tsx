@@ -36,7 +36,7 @@ export function InlineDocument({ body, title, editable, onChange }: Props) {
       ...html,
       contentEditable: 'plaintext-only', suppressContentEditableWarning: true, spellCheck: false,
       className: 'inline-field', tabIndex: 0,
-      'aria-label': node.type === 'heading' ? '제목 편집' : node.type === 'tableCell' ? '표 셀 편집' : node.type === 'code' ? '코드 편집' : '본문 편집',
+      'aria-label': node.type === 'heading' ? (visibleText(node) || '제목') + ' 편집' : node.type === 'tableCell' ? '표 셀 편집' : node.type === 'code' ? '코드 편집' : '본문 편집',
       onFocus: () => { transaction.current = { base: body, expected: body }; setSnapshot(body); },
       onCompositionStart: () => { composing.current = true; },
       onCompositionEnd: e => { composing.current = false; update(e.currentTarget, node, table); },
