@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  Archive,
   Check,
   ChevronDown,
   History,
@@ -11,7 +10,6 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import Link from 'next/link';
 import {
   type ReactNode,
   type SyntheticEvent,
@@ -31,8 +29,6 @@ import type {
   PeriodResult,
   Resolution,
   Responsibility,
-  WeekClosePreparation,
-  WeekClosureResult,
 } from '@/lib/journal';
 
 const laneLabels = {
@@ -243,12 +239,6 @@ function Modal({
   );
 }
 
-function dateRange(startsOn: string, endsOn: string): string {
-  return `${Number(startsOn.slice(5, 7))}.${Number(
-    startsOn.slice(8, 10),
-  )}–${Number(endsOn.slice(5, 7))}.${Number(endsOn.slice(8, 10))}`;
-}
-
 function BoardRow({
   item,
   disabled,
@@ -348,21 +338,15 @@ function BoardRow({
 
 export function JournalBoard({
   initialBoard,
-  initialPreviousBoard,
   today,
 }: {
   initialBoard: BoardResult;
-  initialPreviousBoard: BoardResult | null;
   today: string;
 }) {
   const [board, setBoard] = useState(initialBoard);
-  const [previousBoard, setPreviousBoard] = useState(initialPreviousBoard);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [closingWeek, setClosingWeek] = useState(false);
   const [message, setMessage] = useState('');
   const [addOpen, setAddOpen] = useState(false);
-  const [closePreparation, setClosePreparation] =
-    useState<WeekClosePreparation | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ItemDetailResult | null>(null);
   const [detailError, setDetailError] = useState('');
@@ -373,15 +357,10 @@ export function JournalBoard({
   );
   const [searching, setSearching] = useState(false);
   const boardRef = useRef(board);
-  const previousBoardRef = useRef(previousBoard);
 
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
-
-  useEffect(() => {
-    previousBoardRef.current = previousBoard;
-  }, [previousBoard]);
 
   const refreshBoard = useCallback(async () => {
     const refreshed = await fetchBoard(boardRef.current.week.id);
@@ -390,26 +369,12 @@ export function JournalBoard({
     return refreshed;
   }, []);
 
-  const refreshPreviousBoard = useCallback(async () => {
-    const current = previousBoardRef.current;
-    if (!current) throw new Error('이전 주 항목을 찾지 못했습니다.');
-    const refreshed = await fetchBoard(current.week.id);
-    previousBoardRef.current = refreshed;
-    setPreviousBoard(refreshed);
-    return refreshed;
-  }, []);
-
   async function setResolution(itemId: string, resolution: Resolution) {
     const currentItem = boardRef.current.items.find(
       (entry) => entry.id === itemId,
     );
-    const previousItem = previousBoardRef.current?.items.find(
-      (entry) => entry.id === itemId,
-    );
-    const item = currentItem ?? previousItem;
-    const sourceBoard = currentItem
-      ? boardRef.current
-      : previousBoardRef.current;
+    const item = currentItem;
+    const sourceBoard = boardRef.current;
     if (!item || !sourceBoard) throw new Error('항목을 찾지 못했습니다.');
     if (sourceBoard.week.status === 'closed') {
       throw new Error('마감된 주차는 상태를 바꿀 수 없습니다.');
@@ -421,7 +386,7 @@ export function JournalBoard({
     setPendingId(itemId);
     setMessage('');
     try {
-      await responseResult<ResolutionResult>(
+      const result = await responseResult<ResolutionResult>(
         await fetch(
           `/api/journal/items/${encodeURIComponent(itemId)}/resolution`,
           {
@@ -435,10 +400,10 @@ export function JournalBoard({
         ),
         '상태를 바꾸지 못했습니다.',
       );
-      const refreshed = currentItem
-        ? await refreshBoard()
-        : await refreshPreviousBoard();
-      const updated = refreshed.items.find((entry) => entry.id === itemId);
+      const refreshed = await refreshBoard();
+      const updated = refreshed.items.find(
+        (entry) => entry.id === result.item.id,
+      );
       if (!updated) throw new Error('변경한 항목을 다시 읽지 못했습니다.');
       setMessage(`${updated.title}: ${resolutionLabels[updated.resolution]}`);
       return {
@@ -557,55 +522,6 @@ export function JournalBoard({
     }
   }
 
-  async function prepareClose() {
-    setClosingWeek(true);
-    setMessage('');
-    try {
-      const weekId = boardRef.current.week.id;
-      const preparation = await responseResult<WeekClosePreparation>(
-        await fetch(
-          `/api/journal/weeks/${encodeURIComponent(weekId)}/prepare-close`,
-          { method: 'POST' },
-        ),
-        '주간 마감을 준비하지 못했습니다.',
-      );
-      setClosePreparation(preparation);
-    } finally {
-      setClosingWeek(false);
-    }
-  }
-
-  async function confirmClose() {
-    if (!closePreparation) return;
-    setClosingWeek(true);
-    setMessage('');
-    try {
-      const weekId = boardRef.current.week.id;
-      const result = await responseResult<WeekClosureResult>(
-        await fetch(
-          `/api/journal/weeks/${encodeURIComponent(weekId)}/confirm-close`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              preparationVersion: closePreparation.preparationVersion,
-            }),
-          },
-        ),
-        '주간 기록을 마감하지 못했습니다.',
-      );
-      await refreshBoard();
-      setClosePreparation(null);
-      setMessage(
-        result.summary.rolloverCount > 0
-          ? `주간 마감 · 다음 주 이월 ${result.summary.rolloverCount}개`
-          : '주간 마감',
-      );
-    } finally {
-      setClosingWeek(false);
-    }
-  }
-
   const actionRef = useRef(setResolution);
   const addRef = useRef(addItem);
   const findRef = useRef(findVisibleItems);
@@ -636,7 +552,6 @@ export function JournalBoard({
           annotations: { readOnlyHint: true, untrustedContentHint: false },
           execute() {
             const current = boardRef.current;
-            const previous = previousBoardRef.current;
             return {
               week: { id: current.week.id, status: current.week.status },
               summary: current.summary,
@@ -651,22 +566,6 @@ export function JournalBoard({
                 summary: item.summary,
                 version: item.version,
               })),
-              previousUnfinished:
-                previous?.items
-                  .filter((item) =>
-                    ['active', 'held'].includes(item.resolution),
-                  )
-                  .map((item) => ({
-                    id: item.id,
-                    weekId: item.weekId,
-                    title: item.title,
-                    projectKey: item.projectKey,
-                    lane: item.lane,
-                    resolution: item.resolution,
-                    responsibility: item.responsibility,
-                    summary: item.summary,
-                    version: item.version,
-                  })) ?? [],
             };
           },
         },
@@ -787,11 +686,7 @@ export function JournalBoard({
   }, []);
 
   const isClosed = board.week.status === 'closed';
-  const visibleItems = board.items.slice(0, 8);
-  const previousUnfinished =
-    previousBoard?.items.filter((item) =>
-      ['active', 'held'].includes(item.resolution),
-    ) ?? [];
+  const visibleItems = board.items;
   const focus = board.items.find(
     (item) => item.lane === 'today' && item.resolution === 'active',
   );
@@ -800,13 +695,6 @@ export function JournalBoard({
     const date = addDays(board.week.startsOn, index);
     return { date, index, events: flowByDate.get(date)?.events ?? [] };
   });
-  const pendingCorpusCount = closePreparation
-    ? closePreparation.corpusCandidates.filter(
-        (candidate) =>
-          !closePreparation.reflectedCandidateIds.includes(candidate.itemId),
-      ).length
-    : 0;
-
   function handleClick(itemId: string, resolution: Resolution) {
     void setResolution(itemId, resolution).catch((error) => {
       setMessage(
@@ -926,11 +814,7 @@ export function JournalBoard({
         <div className="section-heading">
           <h2 id="board-title">진행 보드</h2>
           <div className="board-heading-actions">
-            <p>
-              {board.items.length > 8
-                ? `최근 8/${board.items.length}`
-                : `${board.items.length}개`}
-            </p>
+            <p>{`${board.items.length}개`}</p>
             {!isClosed && (
               <button
                 type="button"
@@ -979,56 +863,6 @@ export function JournalBoard({
         </output>
       </section>
 
-      {previousBoard && previousUnfinished.length > 0 && (
-        <section
-          className="carryover-section"
-          aria-labelledby="carryover-title"
-        >
-          <div className="section-heading carryover-heading">
-            <h2 id="carryover-title">이전 주 미완료</h2>
-            <div className="carryover-meta">
-              <span>{previousUnfinished.length}개</span>
-              <Link
-                href={`/?week=${previousBoard.week.id}&period=week`}
-                aria-label={`${dateRange(
-                  previousBoard.week.startsOn,
-                  previousBoard.week.endsOn,
-                )} 기록 보기`}
-              >
-                {dateRange(
-                  previousBoard.week.startsOn,
-                  previousBoard.week.endsOn,
-                )}
-              </Link>
-            </div>
-          </div>
-          <table className="board carryover-board" aria-label="이전 주 미완료">
-            <thead>
-              <tr className="board-head">
-                <th scope="col">구분</th>
-                <th scope="col">항목</th>
-                <th scope="col">현재 상태</th>
-                <th className="sr-only" scope="col">
-                  처리 상태
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {previousUnfinished.map((item) => (
-                <BoardRow
-                  item={item}
-                  disabled={previousBoard.week.status === 'closed'}
-                  pending={pendingId === item.id}
-                  onDetail={(itemId) => void openItemDetail(itemId)}
-                  onResolution={handleClick}
-                  key={item.id}
-                />
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
       <section className="week-section" aria-labelledby="week-title">
         <div className="section-heading">
           <h2 id="week-title">
@@ -1043,26 +877,6 @@ export function JournalBoard({
               {Number(board.week.endsOn.slice(5, 7))}월{' '}
               {Number(board.week.endsOn.slice(8, 10))}일
             </p>
-            {!isClosed && (
-              <button
-                type="button"
-                className="week-close-button"
-                aria-label="이번 주 마감 준비"
-                title="주간 마감"
-                disabled={closingWeek}
-                onClick={() =>
-                  void prepareClose().catch((error) => {
-                    setMessage(
-                      error instanceof Error
-                        ? error.message
-                        : '주간 마감을 준비하지 못했습니다.',
-                    );
-                  })
-                }
-              >
-                <Archive aria-hidden="true" />
-              </button>
-            )}
           </div>
         </div>
         <ol className="week-grid">
@@ -1213,76 +1027,6 @@ export function JournalBoard({
             </button>
           </div>
         </form>
-      </Modal>
-
-      <Modal
-        open={Boolean(closePreparation)}
-        titleId="close-week-title"
-        onClose={() => setClosePreparation(null)}
-      >
-        {closePreparation && (
-          <>
-            <div className="dialog-header">
-              <h2 id="close-week-title">주간 마감</h2>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="닫기"
-                title="닫기"
-                onClick={() => setClosePreparation(null)}
-              >
-                <X aria-hidden="true" />
-              </button>
-            </div>
-            <dl className="close-summary">
-              <div>
-                <dt>완료</dt>
-                <dd>{closePreparation.summary.completedTitles.length}</dd>
-              </div>
-              <div>
-                <dt>이월</dt>
-                <dd>{closePreparation.summary.rolloverCount}</dd>
-              </div>
-              <div>
-                <dt>Corpus</dt>
-                <dd>{closePreparation.corpusCandidates.length}</dd>
-              </div>
-            </dl>
-            {closePreparation.rolloverItems.length > 0 && (
-              <ul className="close-list">
-                {closePreparation.rolloverItems.map((item) => (
-                  <li key={item.itemId}>{item.title}</li>
-                ))}
-              </ul>
-            )}
-            {pendingCorpusCount > 0 && (
-              <output className="dialog-status">
-                Corpus 반영 대기 {pendingCorpusCount}개
-              </output>
-            )}
-            <div className="dialog-actions">
-              <button type="button" onClick={() => setClosePreparation(null)}>
-                취소
-              </button>
-              <button
-                type="button"
-                className="primary-action"
-                disabled={closingWeek || pendingCorpusCount > 0}
-                onClick={() =>
-                  void confirmClose().catch((error) => {
-                    setMessage(
-                      error instanceof Error
-                        ? error.message
-                        : '주간 기록을 마감하지 못했습니다.',
-                    );
-                  })
-                }
-              >
-                마감
-              </button>
-            </div>
-          </>
-        )}
       </Modal>
 
       <Modal

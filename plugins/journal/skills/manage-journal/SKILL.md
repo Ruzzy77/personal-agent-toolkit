@@ -16,6 +16,12 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 완료나 취소 항목도 포함해 주간 전체 흐름을 볼 때만 `includeResolved=true`를 사용합니다.
 여러 주의 특정 항목을 찾을 때는 `journal_find_items`, 출처와 상태 변경 경로를 확인할 때는 `journal_get_item_history`를 사용합니다.
 
+## 미완료 업무의 연속성
+
+현재 주 보드는 이전 주의 최신 진행 중·보류 항목을 함께 보여 줍니다. 여러 주가 지나도 같은 일을 한 번만 표시하며, 나중에 완료·취소된 항목의 과거 인스턴스를 되살리지 않습니다. 별도의 주간 마감이나 이월 요청은 필요하지 않습니다. 이전 주가 열려 있다는 이유로 마감을 독촉하지 않습니다.
+
+보드 조회는 저장된 주·항목을 바꾸지 않습니다. 현재 보드에 이전 `weekId`의 항목이 있어도 정상입니다. 이후 관찰·처리 상태를 저장할 때 같은 `logicalItemId`의 이번 주 인스턴스를 만들고 과거 기록을 보존합니다. 쓰기 응답의 새 `id`로 저장 결과를 확인하며, 오래된 인스턴스의 충돌은 현재 보드를 다시 읽어 처리합니다. 대기 담당과 사용자가 정한 보류 상태를 그대로 유지합니다.
+
 ## 모니터링 결과 반영
 
 새 자료에서 달라진 사실만 `journal_ingest_items`로 반영합니다. 원문 본문을 복사하지 않고, 사용자가 진행 상태를 판단하는 데 필요한 요약과 원본을 다시 찾을 수 있는 `sourceRef`만 둡니다.
@@ -44,8 +50,9 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 
 먼저 `journal_prepare_week_close`로 요약, 이월 항목과 Corpus 후보를 읽습니다. 후보가 있으면 `reflect-journal-outcomes`의 반영·영수증 처리 절차를 적용합니다. 후보별 반영 또는 명시적 건너뛰기가 확인된 뒤 준비 응답의 `preparationVersion`과 사용자의 명시적 확인으로 `journal_confirm_week_close`를 호출합니다. 준비 뒤 항목이 달라졌다면 새 준비 결과를 다시 보여 줍니다.
 
-진행 중과 보류 항목은 같은 `logicalItemId`를 가진 다음 주 인스턴스로 이월되며, 다음 주에서는
-모두 `active`로 다시 시작합니다. 완료와 취소 항목은 마감 주에 남습니다. 마감된 주는 항목을 다시
+명시적인 기록 동결을 원할 때만 이 절차를 사용합니다. 일상적인 업무 연속성과 주간 회고에는 마감이 필요하지 않으며, Corpus 반영도 자동 이월의 선행 조건이 아닙니다.
+
+마감 시 아직 후속 인스턴스가 없는 진행 중·보류 항목은 같은 `logicalItemId`로 다음 주에 이어집니다. `held`는 유지하고 이미 존재하는 후속 상태를 덮어쓰지 않습니다. 완료와 취소 항목은 마감 주에 남습니다. 마감된 주는 항목을 다시
 쓰지 않고, 사후 사실 정정만 `journal_add_correction`으로 남깁니다.
 
 마감 결과의 `corpusCandidates`는 Corpus에 자동 복제할 일반 기록이 아닙니다. 대상 프로젝트에 재사용할 확정 결과만 `reflect-journal-outcomes`로 넘깁니다. 결과 반영 요청만으로 주간 마감까지 승인됐다고 보지 않습니다.

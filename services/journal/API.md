@@ -22,6 +22,8 @@
 
 쓰기 요청에는 호출자가 만든 `idempotencyKey`가 필요합니다. 같은 키를 다시 보내면 새 사건을 만들지 않습니다. 항목 처리 결과 변경은 `expectedVersion`으로 낙관적 동시성 검사를 할 수 있습니다.
 
+현재 주의 board·week 검색·주간 집계에는 이전 주의 최신 진행 중·보류 항목도 포함됩니다. 읽기는 저장을 바꾸지 않으며 응답 항목의 `weekId`는 원본 주를 유지할 수 있습니다. 이전 항목을 현재 주에서 처리하면 새 인스턴스를 반환하므로 쓰기 응답의 `item.id`를 사용합니다. 과거 원본과 사건은 보존되며 최신 후속 상태가 있는 원본에 대한 쓰기는 충돌로 거절합니다. 자동 수집은 새 주에서도 사용자 resolution을 유지합니다.
+
 항목 응답의 `id`는 해당 주차의 조작 가능한 인스턴스이고, `logicalItemId`는 여러 주에 걸친 같은 일을 연결합니다. `responsibility`는 `user`, `counterparty`, `system` 가운데 하나입니다. 주간 마감에서는 `active`와 `held` 항목을 다음 주 인스턴스로 만들며 `summary.rolloverCount`와 `summary.rolloverTitles`에 결과를 남깁니다.
 
 마감은 준비와 확정을 분리합니다. 준비 응답의 `preparationVersion`은 주간 항목 버전과 다음 주 이월 상태를 포함합니다. 확정 전에 항목이 달라지면 `close_preparation_stale`로 거부합니다. `corpusCandidates`가 있으면 각 후보의 `contentHash`와 일치하는 `applied` 또는 `skipped` 영수증이 모두 기록되어야 확정할 수 있습니다. 이전 `/api/v1/weeks/{id}:close` 경로는 호환 별칭으로만 남고 같은 준비 버전을 요구합니다.

@@ -39,12 +39,7 @@ import type {
 } from "./types";
 
 const LANES: Lane[] = ["today", "direct", "waiting", "attention"];
-const RESOLUTIONS: Resolution[] = [
-  "active",
-  "held",
-  "completed",
-  "canceled",
-];
+const RESOLUTIONS: Resolution[] = ["active", "held", "completed", "canceled"];
 
 function emptySummary(): BoardSummary {
   return {
@@ -139,22 +134,20 @@ export class JournalService {
     this.repository = new JournalRepository(db);
   }
 
-  async getBoard(
-    weekId: string | null,
-    includeResolved = false,
-  ): Promise<BoardResult> {
+  async getBoard(weekId: string | null, includeResolved = false): Promise<BoardResult> {
     const now = this.clock();
     const selected = validateWeekId(weekId ?? currentWeekId(now));
     const storedWeek = await this.repository.getWeek(selected);
     const week = storedWeek ?? this.repository.virtualWeek(selected, now.toISOString());
-    const allItems = storedWeek
-      ? await this.repository.listAllItems(selected)
-      : [];
+    const allItems =
+      selected === currentWeekId(now) && week.status === "open"
+        ? await this.repository.listCurrentItems(selected)
+        : storedWeek
+          ? await this.repository.listAllItems(selected)
+          : [];
     const items = includeResolved
       ? allItems
-      : allItems.filter((item) =>
-          ["active", "held"].includes(item.resolution),
-        );
+      : allItems.filter((item) => ["active", "held"].includes(item.resolution));
     const summary = emptySummary();
     for (const item of allItems) {
       if (item.resolution === "active") summary[item.lane] += 1;
@@ -183,19 +176,60 @@ export class JournalService {
     return { week, summary, items, flow };
   }
 
+  private continuation(source: ItemRecord, weekId: string, now: string): ItemRecord {
+    return {
+      ...source,
+      id: crypto.randomUUID(),
+      weekId,
+      version: 1,
+      durableOutcome: null,
+      corpusTargetSpace: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private continuationEvent(source: ItemRecord, item: ItemRecord, principal: Principal): EventRow {
+    return this.event({
+      weekId: item.weekId,
+      itemId: item.id,
+      eventType: "item_rolled_over",
+      principal,
+      payload: {
+        fromWeekId: source.weekId,
+        fromItemId: source.id,
+        logicalItemId: source.logicalItemId,
+        previousResolution: source.resolution,
+        resolution: source.resolution,
+      },
+      idempotencyKey: `continue:${item.weekId}:${source.id}`,
+      occurredAt: item.createdAt,
+      createdAt: item.createdAt,
+    });
+  }
+
   async findItems(input: ItemSearchInput): Promise<ItemSearchResult> {
     if ((input.startsOn && !input.endsOn) || (!input.startsOn && input.endsOn)) {
-      throw new JournalError(
-        "invalid_request",
-        "startsOn and endsOn must be provided together",
-      );
+      throw new JournalError("invalid_request", "startsOn and endsOn must be provided together");
     }
     if (input.weekId) validateWeekId(input.weekId);
     if (input.startsOn && input.endsOn && input.startsOn > input.endsOn) {
-      throw new JournalError(
-        "invalid_request",
-        "startsOn must not be after endsOn",
+      throw new JournalError("invalid_request", "startsOn must not be after endsOn");
+    }
+    if (input.weekId === currentWeekId(this.clock())) {
+      const board = await this.getBoard(input.weekId, true);
+      const query = input.query?.toLocaleLowerCase();
+      const matching = board.items.filter(
+        (item) =>
+          (!input.projectKey || item.projectKey === input.projectKey) &&
+          (!input.lane || item.lane === input.lane) &&
+          (!input.resolution || item.resolution === input.resolution) &&
+          (!query ||
+            [item.title, item.summary, item.projectKey, item.sourceRef].some((value) =>
+              value?.toLocaleLowerCase().includes(query),
+            )),
       );
+      return { items: matching.slice(0, input.limit), count: matching.length };
     }
     return this.repository.findItems(input);
   }
@@ -218,10 +252,7 @@ export class JournalService {
     };
   }
 
-  async ingestItems(
-    inputs: IngestItemInput[],
-    principal: Principal,
-  ): Promise<IngestResult[]> {
+  async ingestItems(inputs: IngestItemInput[], principal: Principal): Promise<IngestResult[]> {
     const results: IngestResult[] = [];
     for (const input of inputs) {
       results.push(await this.ingestOne(input, principal));
@@ -229,10 +260,7 @@ export class JournalService {
     return results;
   }
 
-  private async ingestOne(
-    input: IngestItemInput,
-    principal: Principal,
-  ): Promise<IngestResult> {
+  private async ingestOne(input: IngestItemInput, principal: Principal): Promise<IngestResult> {
     const now = this.clock();
     const nowIso = now.toISOString();
     const occurredAt = normalizeTimestamp(input.occurredAt, now);
@@ -240,19 +268,19 @@ export class JournalService {
     if (receipt) {
       const duplicateItem = await this.repository.getItem(receipt.item_id);
       if (!duplicateItem) {
-        throw new JournalError(
-          "storage_error",
-          "ingest receipt points to a missing item",
-          500,
-        );
+        throw new JournalError("storage_error", "ingest receipt points to a missing item", 500);
       }
       return { item: duplicateItem, created: false, duplicate: true };
     }
 
-    const derivedDate = input.dueAt
-      ? kstEventDate(input.dueAt)
-      : kstEventDate(occurredAt);
-    const weekId = validateWeekId(input.weekId ?? weekIdForDate(derivedDate));
+    const derivedDate = input.dueAt ? kstEventDate(input.dueAt) : kstEventDate(occurredAt);
+    const latest = await this.repository.getLatestItemBySource(input.sourceKind, input.sourceKey);
+    const current = currentWeekId(now);
+    let weekId = validateWeekId(
+      input.weekId ?? (weekIdForDate(derivedDate) > current ? weekIdForDate(derivedDate) : current),
+    );
+    if (weekId < current && latest && ["active", "held"].includes(latest.resolution))
+      weekId = current;
     const week = await this.repository.ensureWeek(weekId, nowIso);
     if (week.status === "closed") {
       throw new JournalError(
@@ -286,9 +314,9 @@ export class JournalService {
         title: input.title,
         summary: input.summary,
         lane: input.lane,
-        resolution: "active",
+        resolution: previous?.resolution ?? "active",
         responsibility:
-          input.responsibility ?? defaultResponsibility(input.lane),
+          input.responsibility ?? previous?.responsibility ?? defaultResponsibility(input.lane),
         dueAt: input.dueAt,
         durableOutcome: input.durableOutcome,
         corpusTargetSpace: input.corpusTargetSpace,
@@ -312,13 +340,23 @@ export class JournalService {
         occurredAt,
         createdAt: nowIso,
       });
-      await this.repository.insertItem(item, event, {
-        idempotencyKey: input.idempotencyKey,
-        sourceKind: input.sourceKind,
-        sourceKey: input.sourceKey,
-        sourceVersion: input.sourceVersion,
-        createdAt: nowIso,
-      });
+      if (previous && previous.weekId < weekId) {
+        await this.repository.continueItem(
+          previous,
+          item,
+          event,
+          this.continuationEvent(previous, item, principal),
+          input.idempotencyKey,
+        );
+      } else {
+        await this.repository.insertItem(item, event, {
+          idempotencyKey: input.idempotencyKey,
+          sourceKind: input.sourceKind,
+          sourceKey: input.sourceKey,
+          sourceVersion: input.sourceVersion,
+          createdAt: nowIso,
+        });
+      }
       return { item, created: true, duplicate: false };
     }
 
@@ -378,7 +416,7 @@ export class JournalService {
       );
     }
     if (await this.repository.eventExists(input.idempotencyKey)) {
-      const duplicate = await this.repository.getItem(itemId);
+      const duplicate = await this.repository.getEventItem(input.idempotencyKey);
       if (!duplicate) {
         throw new JournalError("item_not_found", "item was not found", 404);
       }
@@ -388,39 +426,43 @@ export class JournalService {
     if (!existing) {
       throw new JournalError("item_not_found", "item was not found", 404);
     }
-    const week = await this.repository.getWeek(existing.weekId);
-    if (!week || week.status === "closed") {
+    const current = currentWeekId(this.clock());
+    const latest = await this.repository.getLatestItemBySource(
+      existing.sourceKind,
+      existing.sourceKey,
+    );
+    if (latest && latest.weekId > existing.weekId) {
       throw new JournalError(
-        "week_closed",
-        "items in a closed week cannot be changed",
+        "version_conflict",
+        "this item has a newer weekly instance; read the current board again",
         409,
       );
     }
-    if (
-      input.expectedVersion !== null &&
-      input.expectedVersion !== existing.version
-    ) {
-      throw new JournalError(
-        "version_conflict",
-        "the item changed after it was shown",
-        409,
-        { currentVersion: existing.version },
-      );
+    const continues = existing.weekId < current && ["active", "held"].includes(existing.resolution);
+    const week = await this.repository.getWeek(existing.weekId);
+    if (!week || (week.status === "closed" && !continues)) {
+      throw new JournalError("week_closed", "items in a closed week cannot be changed", 409);
+    }
+    if (input.expectedVersion !== null && input.expectedVersion !== existing.version) {
+      throw new JournalError("version_conflict", "the item changed after it was shown", 409, {
+        currentVersion: existing.version,
+      });
     }
     if (existing.resolution === input.resolution) {
       return { item: existing, duplicate: true };
     }
     const now = this.clock();
     const nowIso = now.toISOString();
+    const base = continues ? this.continuation(existing, current, nowIso) : existing;
     const updated: ItemRecord = {
-      ...existing,
+      ...base,
       resolution: input.resolution,
-      version: existing.version + 1,
+      version: continues ? 1 : existing.version + 1,
       updatedAt: nowIso,
     };
     const event = this.event({
-      weekId: existing.weekId,
-      itemId: existing.id,
+      weekId: updated.weekId,
+      itemId: updated.id,
       eventType: "resolution_changed",
       principal,
       payload: {
@@ -431,7 +473,17 @@ export class JournalService {
       occurredAt: normalizeTimestamp(input.occurredAt, now),
       createdAt: nowIso,
     });
-    await this.repository.setResolution(updated, existing.resolution, event);
+    if (continues) {
+      await this.repository.ensureWeek(current, nowIso);
+      await this.repository.continueItem(
+        existing,
+        updated,
+        event,
+        this.continuationEvent(existing, updated, principal),
+      );
+    } else {
+      await this.repository.setResolution(updated, existing.resolution, event);
+    }
     return { item: updated, duplicate: false };
   }
 
@@ -460,18 +512,15 @@ export class JournalService {
     const storedWeek = await this.repository.getWeek(selected);
     const week = storedWeek ?? this.repository.virtualWeek(selected, nowIso);
     if (week.status === "closed") {
-      throw new JournalError(
-        "week_already_closed",
-        "the week is already closed",
-        409,
-      );
+      throw new JournalError("week_already_closed", "the week is already closed", 409);
     }
-    const items = storedWeek
-      ? await this.repository.listAllItems(selected)
-      : [];
-    const rolloverSources = items.filter((item) =>
-      ["active", "held"].includes(item.resolution),
-    );
+    const items = storedWeek ? await this.repository.listAllItems(selected) : [];
+    const rolloverSources: ItemRecord[] = [];
+    for (const item of items) {
+      if (!["active", "held"].includes(item.resolution)) continue;
+      const latest = await this.repository.getLatestItemBySource(item.sourceKind, item.sourceKey);
+      if (latest?.id === item.id) rolloverSources.push(item);
+    }
     const nextWeekId = addDays(selected, 7);
     const nextWeek = await this.repository.getWeek(nextWeekId);
     if (rolloverSources.length > 0 && nextWeek?.status === "closed") {
@@ -586,10 +635,7 @@ export class JournalService {
         alreadyClosed: true,
       };
     }
-    const { preparation, items } = await this.prepareWeekCloseSnapshot(
-      selected,
-      principal,
-    );
+    const { preparation, items } = await this.prepareWeekCloseSnapshot(selected, principal);
     if (preparation.preparationVersion !== preparationVersion) {
       throw new JournalError(
         "close_preparation_stale",
@@ -618,15 +664,14 @@ export class JournalService {
     }
     const week = await this.repository.ensureWeek(selected, nowIso);
     if (week.status === "closed") {
-      throw new JournalError(
-        "week_already_closed",
-        "the week is already closed",
-        409,
-      );
+      throw new JournalError("week_already_closed", "the week is already closed", 409);
     }
-    const rolloverSources = items.filter((item) =>
-      ["active", "held"].includes(item.resolution),
-    );
+    const rolloverSources: ItemRecord[] = [];
+    for (const item of items) {
+      if (!["active", "held"].includes(item.resolution)) continue;
+      const latest = await this.repository.getLatestItemBySource(item.sourceKind, item.sourceKey);
+      if (latest?.id === item.id) rolloverSources.push(item);
+    }
     const rolloverItems: Array<{ item: ItemRecord; event: EventRow }> = [];
     if (rolloverSources.length > 0) {
       const nextWeekId = addDays(selected, 7);
@@ -649,7 +694,7 @@ export class JournalService {
           ...source,
           id: crypto.randomUUID(),
           weekId: nextWeekId,
-          resolution: "active",
+          resolution: source.resolution,
           durableOutcome: null,
           corpusTargetSpace: null,
           version: 1,
@@ -728,11 +773,7 @@ export class JournalService {
     const selected = validateWeekId(weekId);
     const week = await this.repository.getWeek(selected);
     if (!week || week.status !== "closed") {
-      throw new JournalError(
-        "week_not_closed",
-        "corrections are only for closed weeks",
-        409,
-      );
+      throw new JournalError("week_not_closed", "corrections are only for closed weeks", 409);
     }
     if (await this.repository.eventExists(input.idempotencyKey)) {
       return { eventId: input.idempotencyKey, duplicate: true };
@@ -766,26 +807,22 @@ export class JournalService {
     return { eventId: event.id, duplicate: false };
   }
 
-  async getPeriod(
-    kind: PeriodKind,
-    anchorInput: string | null,
-  ): Promise<PeriodResult> {
+  async getPeriod(kind: PeriodKind, anchorInput: string | null): Promise<PeriodResult> {
     const anchor = anchorInput ?? kstDate(this.clock());
     const { startsOn, endsOn } = periodRange(kind, anchor);
     const weeks = await this.repository.listWeeksOverlapping(startsOn, endsOn);
-    const items = await this.repository.listItemsInWeeks(
-      weeks.map((week) => week.id),
-    );
-    const summaryVersions = await this.repository.listPeriodSummaries(
-      kind,
-      anchor,
-    );
-    const totals = Object.fromEntries(
-      RESOLUTIONS.map((resolution) => [resolution, 0]),
-    ) as Record<Resolution, number>;
-    const lanes = Object.fromEntries(
-      LANES.map((lane) => [lane, 0]),
-    ) as Record<Lane, number>;
+    const current = currentWeekId(this.clock());
+    const currentStored = weeks.find((week) => week.id === current);
+    const items =
+      kind === "week" && startsOn === current && currentStored?.status !== "closed"
+        ? await this.repository.listCurrentItems(current)
+        : await this.repository.listItemsInWeeks(weeks.map((week) => week.id));
+    const summaryVersions = await this.repository.listPeriodSummaries(kind, anchor);
+    const totals = Object.fromEntries(RESOLUTIONS.map((resolution) => [resolution, 0])) as Record<
+      Resolution,
+      number
+    >;
+    const lanes = Object.fromEntries(LANES.map((lane) => [lane, 0])) as Record<Lane, number>;
     const projects = new Map<
       string,
       { projectKey: string; total: number; completed: number; active: number }
@@ -832,13 +869,9 @@ export class JournalService {
       weeks,
       totals,
       lanes,
-      projects: [...projects.values()].sort(
-        (left, right) => right.total - left.total,
-      ),
+      projects: [...projects.values()].sort((left, right) => right.total - left.total),
       highlights: items
-        .filter(
-          (item) => item.resolution === "completed" || item.durableOutcome,
-        )
+        .filter((item) => item.resolution === "completed" || item.durableOutcome)
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
         .slice(0, 20)
         .map((item) => ({
@@ -880,16 +913,11 @@ export class JournalService {
         403,
       );
     }
-    const duplicate = await this.repository.getPeriodSummaryByIdempotency(
-      input.idempotencyKey,
-    );
+    const duplicate = await this.repository.getPeriodSummaryByIdempotency(input.idempotencyKey);
     if (duplicate) return { summary: duplicate, duplicate: true };
 
     const { startsOn, endsOn } = periodRange(input.kind, input.anchor);
-    const versions = await this.repository.listPeriodSummaries(
-      input.kind,
-      input.anchor,
-    );
+    const versions = await this.repository.listPeriodSummaries(input.kind, input.anchor);
     const currentVersion = versions.at(-1)?.version ?? 0;
     if (
       input.expectedVersion !== null &&
@@ -903,9 +931,7 @@ export class JournalService {
       );
     }
     const weeks = await this.repository.listWeeksOverlapping(startsOn, endsOn);
-    const events = await this.repository.listEventsInWeeks(
-      weeks.map((week) => week.id),
-    );
+    const events = await this.repository.listEventsInWeeks(weeks.map((week) => week.id));
     const now = this.clock().toISOString();
     const summary: PeriodSummaryVersion = {
       id: crypto.randomUUID(),
@@ -924,11 +950,7 @@ export class JournalService {
       createdBy: actorRef(principal),
       createdAt: now,
     };
-    await this.repository.insertPeriodSummary(
-      summary,
-      input.idempotencyKey,
-      currentVersion,
-    );
+    await this.repository.insertPeriodSummary(summary, input.idempotencyKey, currentVersion);
     return { summary, duplicate: false };
   }
 
@@ -1043,12 +1065,11 @@ export class JournalService {
     items: ItemRecord[],
     rolloverItems: ItemRecord[],
   ): WeekClosureSummary {
-    const counts = Object.fromEntries(
-      RESOLUTIONS.map((resolution) => [resolution, 0]),
-    ) as Record<Resolution, number>;
-    const laneCounts = Object.fromEntries(
-      LANES.map((lane) => [lane, 0]),
-    ) as Record<Lane, number>;
+    const counts = Object.fromEntries(RESOLUTIONS.map((resolution) => [resolution, 0])) as Record<
+      Resolution,
+      number
+    >;
+    const laneCounts = Object.fromEntries(LANES.map((lane) => [lane, 0])) as Record<Lane, number>;
     const projectCounts = new Map<string, number>();
     for (const item of items) {
       counts[item.resolution] += 1;

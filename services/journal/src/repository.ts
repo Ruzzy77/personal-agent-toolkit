@@ -138,9 +138,7 @@ function toPeriodSummary(row: PeriodSummaryRow): PeriodSummaryVersion {
   try {
     const parsed = JSON.parse(row.source_event_ids_json) as unknown;
     if (Array.isArray(parsed)) {
-      sourceEventIds = parsed.filter(
-        (value): value is string => typeof value === "string",
-      );
+      sourceEventIds = parsed.filter((value): value is string => typeof value === "string");
     }
   } catch {
     sourceEventIds = [];
@@ -200,10 +198,7 @@ export class JournalRepository {
     return week;
   }
 
-  async listItems(
-    weekId: string,
-    includeResolved: boolean,
-  ): Promise<ItemRecord[]> {
+  async listItems(weekId: string, includeResolved: boolean): Promise<ItemRecord[]> {
     const where = includeResolved
       ? "week_id = ?"
       : "week_id = ? AND resolution IN ('active', 'held')";
@@ -227,6 +222,66 @@ export class JournalRepository {
     return rows.results.map(toItem);
   }
 
+  // Read-only current-work projection. Latest terminal instances suppress older work.
+  async listCurrentItems(weekId: string): Promise<ItemRecord[]> {
+    const rows = await this.db
+      .prepare(`
+      SELECT i.* FROM items i WHERE i.week_id <= ?
+        AND (i.week_id = ? OR i.resolution IN ('active', 'held'))
+        AND NOT EXISTS (
+          SELECT 1 FROM items newer
+          WHERE newer.source_kind = i.source_kind AND newer.source_key = i.source_key
+            AND newer.week_id > i.week_id AND newer.week_id <= ?
+        )
+      ORDER BY CASE i.resolution WHEN 'active' THEN 0 WHEN 'held' THEN 1 ELSE 2 END,
+        CASE i.lane WHEN 'today' THEN 0 WHEN 'direct' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
+        i.updated_at DESC, i.id
+    `)
+      .bind(weekId, weekId, weekId)
+      .all<ItemRow>();
+    return rows.results.map(toItem);
+  }
+
+  async getEventItem(idempotencyKey: string): Promise<ItemRecord | null> {
+    const row = await this.db
+      .prepare(`SELECT i.* FROM items i
+      JOIN journal_events e ON e.item_id = i.id WHERE e.idempotency_key = ?`)
+      .bind(idempotencyKey)
+      .first<ItemRow>();
+    return row ? toItem(row) : null;
+  }
+
+  // Materialize a new weekly instance only on a write, preserving the source snapshot.
+  async continueItem(
+    source: ItemRecord,
+    item: ItemRecord,
+    event: EventRow,
+    rolloverEvent: EventRow,
+    receiptKey?: string,
+  ): Promise<void> {
+    const statements = [
+      this.insertItemStatement(item, source),
+      this.insertEventForItemVersionStatement(rolloverEvent, item.id, item.version, item.updatedAt),
+      this.insertEventForItemVersionStatement(event, item.id, item.version, item.updatedAt),
+    ];
+    if (receiptKey)
+      statements.push(
+        this.db
+          .prepare(`INSERT INTO ingest_receipts
+      (idempotency_key, source_kind, source_key, source_version, item_id, created_at)
+      SELECT ?, source_kind, source_key, source_version, id, updated_at FROM items WHERE id = ?`)
+          .bind(receiptKey, item.id),
+      );
+    const results = await this.db.batch(statements);
+    if ((results[0]?.meta.changes ?? 0) !== 1) {
+      throw new JournalError(
+        "version_conflict",
+        "the item or target week changed; read the current board again",
+        409,
+      );
+    }
+  }
+
   async listAllItems(weekId: string): Promise<ItemRecord[]> {
     return this.listItems(weekId, true);
   }
@@ -245,18 +300,13 @@ export class JournalRepository {
     sourceKey: string,
   ): Promise<ItemRecord | null> {
     const row = await this.db
-      .prepare(
-        "SELECT * FROM items WHERE week_id = ? AND source_kind = ? AND source_key = ?",
-      )
+      .prepare("SELECT * FROM items WHERE week_id = ? AND source_kind = ? AND source_key = ?")
       .bind(weekId, sourceKind, sourceKey)
       .first<ItemRow>();
     return row ? toItem(row) : null;
   }
 
-  async getLatestItemBySource(
-    sourceKind: string,
-    sourceKey: string,
-  ): Promise<ItemRecord | null> {
+  async getLatestItemBySource(sourceKind: string, sourceKey: string): Promise<ItemRecord | null> {
     const row = await this.db
       .prepare(
         `SELECT * FROM items
@@ -340,10 +390,7 @@ export class JournalRepository {
     return rows.results.map(toItem);
   }
 
-  async listEventsByLogicalId(
-    logicalItemId: string,
-    limit = 500,
-  ): Promise<EventRow[]> {
+  async listEventsByLogicalId(logicalItemId: string, limit = 500): Promise<EventRow[]> {
     const rows = await this.db
       .prepare(
         `SELECT e.*, i.title AS item_title
@@ -358,10 +405,7 @@ export class JournalRepository {
     return rows.results;
   }
 
-  async listCorrectionsForLogicalItem(
-    logicalItemId: string,
-    limit = 100,
-  ): Promise<EventRow[]> {
+  async listCorrectionsForLogicalItem(logicalItemId: string, limit = 100): Promise<EventRow[]> {
     const rows = await this.db
       .prepare(
         `SELECT e.*, i.title AS item_title
@@ -379,9 +423,7 @@ export class JournalRepository {
 
   async getReceipt(idempotencyKey: string): Promise<ReceiptRow | null> {
     return this.db
-      .prepare(
-        "SELECT idempotency_key, item_id FROM ingest_receipts WHERE idempotency_key = ?",
-      )
+      .prepare("SELECT idempotency_key, item_id FROM ingest_receipts WHERE idempotency_key = ?")
       .bind(idempotencyKey)
       .first<ReceiptRow>();
   }
@@ -407,12 +449,7 @@ export class JournalRepository {
   ): Promise<void> {
     const results = await this.db.batch([
       this.insertItemStatement(item),
-      this.insertEventForItemVersionStatement(
-        event,
-        item.id,
-        item.version,
-        item.updatedAt,
-      ),
+      this.insertEventForItemVersionStatement(event, item.id, item.version, item.updatedAt),
       this.db
         .prepare(
           `INSERT INTO ingest_receipts
@@ -466,6 +503,7 @@ export class JournalRepository {
             responsibility = ?, corpus_target_space = ?,
             version = version + 1, updated_at = ?
            WHERE id = ? AND version = ?
+             AND NOT EXISTS (SELECT 1 FROM items newer WHERE newer.logical_item_id = items.logical_item_id AND newer.week_id > items.week_id)
              AND EXISTS (
                SELECT 1 FROM weeks
                WHERE id = items.week_id AND status = 'open'
@@ -487,12 +525,7 @@ export class JournalRepository {
           item.id,
           item.version - 1,
         ),
-      this.insertEventForItemVersionStatement(
-        event,
-        item.id,
-        item.version,
-        item.updatedAt,
-      ),
+      this.insertEventForItemVersionStatement(event, item.id, item.version, item.updatedAt),
       this.db
         .prepare(
           `INSERT INTO ingest_receipts
@@ -545,24 +578,14 @@ export class JournalRepository {
           `UPDATE items
            SET resolution = ?, version = version + 1, updated_at = ?
            WHERE id = ? AND version = ? AND resolution = ?
+             AND NOT EXISTS (SELECT 1 FROM items newer WHERE newer.logical_item_id = items.logical_item_id AND newer.week_id > items.week_id)
              AND EXISTS (
                SELECT 1 FROM weeks
                WHERE id = items.week_id AND status = 'open'
              )`,
         )
-        .bind(
-          item.resolution,
-          item.updatedAt,
-          item.id,
-          item.version - 1,
-          previousResolution,
-        ),
-      this.insertEventForItemVersionStatement(
-        event,
-        item.id,
-        item.version,
-        item.updatedAt,
-      ),
+        .bind(item.resolution, item.updatedAt, item.id, item.version - 1, previousResolution),
+      this.insertEventForItemVersionStatement(event, item.id, item.version, item.updatedAt),
     ]);
     if ((results[0]?.meta.changes ?? 0) !== 1) {
       const week = await this.getWeek(item.weekId);
@@ -609,9 +632,7 @@ export class JournalRepository {
     if (!row) return null;
     return {
       summary: JSON.parse(row.summary_json) as WeekClosureSummary,
-      corpusCandidates: JSON.parse(
-        row.corpus_candidates_json,
-      ) as CorpusCandidate[],
+      corpusCandidates: JSON.parse(row.corpus_candidates_json) as CorpusCandidate[],
       closedBy: row.closed_by,
       closedAt: row.closed_at,
     };
@@ -633,11 +654,7 @@ export class JournalRepository {
           "AND EXISTS (SELECT 1 FROM items expected WHERE expected.id = ? AND expected.version = ? AND expected.week_id = ?)",
       )
       .join("\n");
-    const expectedBindings = expectedItems.flatMap((item) => [
-      item.id,
-      item.version,
-      weekId,
-    ]);
+    const expectedBindings = expectedItems.flatMap((item) => [item.id, item.version, weekId]);
     const rolloverWeekId = rolloverItems[0]?.item.weekId ?? null;
     const rolloverWeekGuard = rolloverWeekId
       ? "AND EXISTS (SELECT 1 FROM weeks rollover_week WHERE rollover_week.id = ? AND rollover_week.status = 'open')"
@@ -682,11 +699,7 @@ export class JournalRepository {
     ];
     for (const rollover of rolloverItems) {
       statements.push(
-        this.insertRolloverItemStatement(
-          rollover.item,
-          weekId,
-          closedAt,
-        ),
+        this.insertRolloverItemStatement(rollover.item, weekId, closedAt),
         this.insertRolloverEventStatement(
           rollover.event,
           rollover.item.id,
@@ -711,10 +724,7 @@ export class JournalRepository {
     await this.insertEventStatement(event).run();
   }
 
-  async listWeeksOverlapping(
-    startsOn: string,
-    endsOn: string,
-  ): Promise<WeekRecord[]> {
+  async listWeeksOverlapping(startsOn: string, endsOn: string): Promise<WeekRecord[]> {
     const rows = await this.db
       .prepare(
         `SELECT * FROM weeks
@@ -756,10 +766,7 @@ export class JournalRepository {
     return rows.results;
   }
 
-  async listPeriodSummaries(
-    kind: PeriodKind,
-    anchor: string,
-  ): Promise<PeriodSummaryVersion[]> {
+  async listPeriodSummaries(kind: PeriodKind, anchor: string): Promise<PeriodSummaryVersion[]> {
     const rows = await this.db
       .prepare(
         `SELECT * FROM period_summary_versions
@@ -775,9 +782,7 @@ export class JournalRepository {
     idempotencyKey: string,
   ): Promise<PeriodSummaryVersion | null> {
     const row = await this.db
-      .prepare(
-        "SELECT * FROM period_summary_versions WHERE idempotency_key = ?",
-      )
+      .prepare("SELECT * FROM period_summary_versions WHERE idempotency_key = ?")
       .bind(idempotencyKey)
       .first<PeriodSummaryRow>();
     return row ? toPeriodSummary(row) : null;
@@ -859,9 +864,7 @@ export class JournalRepository {
       : input.idempotencyKey;
   }
 
-  async findCompletedPromotionReceipt(
-    input: PromotionReceiptInput,
-  ): Promise<string | null> {
+  async findCompletedPromotionReceipt(input: PromotionReceiptInput): Promise<string | null> {
     const row = await this.db
       .prepare(
         `SELECT id FROM corpus_promotion_receipts
@@ -874,9 +877,7 @@ export class JournalRepository {
     return row?.id ?? null;
   }
 
-  async listPromotionReceipts(
-    weekId: string,
-  ): Promise<PromotionReceiptRow[]> {
+  async listPromotionReceipts(weekId: string): Promise<PromotionReceiptRow[]> {
     const rows = await this.db
       .prepare(
         `SELECT item_id, target_space, content_hash, status
@@ -985,7 +986,7 @@ export class JournalRepository {
       );
   }
 
-  private insertItemStatement(item: ItemRecord): D1PreparedStatement {
+  private insertItemStatement(item: ItemRecord, source?: ItemRecord): D1PreparedStatement {
     return this.db
       .prepare(
         `INSERT INTO items (
@@ -996,7 +997,14 @@ export class JournalRepository {
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         FROM weeks
-        WHERE id = ? AND status = 'open'`,
+        WHERE id = ? AND status = 'open'
+          ${
+            source
+              ? `AND EXISTS (SELECT 1 FROM items s WHERE s.id = ? AND s.version = ?)
+            AND NOT EXISTS (SELECT 1 FROM items n WHERE n.source_kind = ? AND n.source_key = ?
+              AND n.week_id > ? AND n.week_id <= ?)`
+              : ""
+          }`,
       )
       .bind(
         item.id,
@@ -1019,6 +1027,16 @@ export class JournalRepository {
         item.createdAt,
         item.updatedAt,
         item.weekId,
+        ...(source
+          ? [
+              source.id,
+              source.version,
+              source.sourceKind,
+              source.sourceKey,
+              source.weekId,
+              item.weekId,
+            ]
+          : []),
       );
   }
 

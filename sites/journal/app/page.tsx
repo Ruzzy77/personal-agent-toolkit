@@ -9,7 +9,6 @@ import {
   emptyBoard,
   getBoard,
   getPeriod,
-  type BoardResult,
   type PeriodKind,
   type PeriodResult,
   weekIdForDate,
@@ -120,22 +119,6 @@ async function AuthenticatedHome({
   const nextWeek = addDays(board.week.id, 7);
   const isCurrentWeek =
     board.week.startsOn <= today && today <= board.week.endsOn;
-  let previousOpenBoard: BoardResult | null = null;
-  if (!unavailable && isCurrentWeek) {
-    try {
-      const candidate = await getBoard(previousWeek);
-      if (
-        candidate.week.status === 'open' &&
-        candidate.items.some((item) =>
-          ['active', 'held'].includes(item.resolution),
-        )
-      ) {
-        previousOpenBoard = candidate;
-      }
-    } catch {
-      previousOpenBoard = null;
-    }
-  }
   const boardTitle = isCurrentWeek
     ? `${headerDate(today)} 진행 보드`
     : `${headerDate(board.week.startsOn)}–${headerDate(board.week.endsOn)} 기록`;
@@ -164,7 +147,7 @@ async function AuthenticatedHome({
             <p className="journal-meta">
               {isCurrentWeek ? weekday(today) : '주간 기록'}
               <span>
-                {board.week.status === 'closed' ? '마감' : '진행 중'} ·{' '}
+                {isCurrentWeek ? '이번 주' : '주간 기록'} ·{' '}
                 {Number(board.week.startsOn.slice(5, 7))}.
                 {Number(board.week.startsOn.slice(8, 10))}–
                 {Number(board.week.endsOn.slice(5, 7))}.
@@ -187,12 +170,7 @@ async function AuthenticatedHome({
           </p>
         )}
 
-        <JournalBoard
-          key={board.week.id}
-          initialBoard={board}
-          initialPreviousBoard={previousOpenBoard}
-          today={today}
-        />
+        <JournalBoard key={board.week.id} initialBoard={board} today={today} />
 
         <details
           className="period-section secondary-details"
@@ -312,9 +290,7 @@ async function AuthenticatedHome({
                         key={week.id}
                       >
                         <span>{week.id}</span>
-                        <span>
-                          {week.status === 'closed' ? '마감' : '진행 중'}
-                        </span>
+                        <span>주간 기록</span>
                       </Link>
                     ))}
                   </nav>

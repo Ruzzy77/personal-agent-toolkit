@@ -1,5 +1,12 @@
 import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Historical fixtures must not depend on the test runner clock.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-08-01T00:00:00Z"));
+});
+afterEach(() => vi.useRealTimers());
 
 const ORIGIN = "https://journal.example.test";
 const SITE_AUTH = { Authorization: "Bearer test-site-token" };
@@ -407,7 +414,7 @@ describe("Journal API and MCP spike", () => {
     );
     expect(rolledOver).toMatchObject({
       weekId: "2026-08-24",
-      resolution: "active",
+      resolution: "held",
       version: 1,
     });
 

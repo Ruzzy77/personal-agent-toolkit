@@ -1,9 +1,5 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import {
-  mcpTextError,
-  mcpTextResult,
-  shortLivedMcpAuth,
-} from "@personal-agent/remote-runtime";
+import { mcpTextError, mcpTextResult, shortLivedMcpAuth } from "@personal-agent/remote-runtime";
 
 import { JournalError, asJournalError } from "./errors";
 import {
@@ -67,11 +63,11 @@ async function safeTool(operation: () => Promise<unknown>) {
 
 function buildServer(env: Env, principal: Principal): McpServer {
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.4" },
+    { name: "Personal Agent Journal", version: "0.2.5" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
-        "Read the current board before changing an item. Automated observations may update " +
+        "Read the current board before changing an item. Unfinished work continues automatically; preserve held and waiting states and do not request routine week close. Use the returned item ID after a write because a new weekly instance may be created. Automated observations may update " +
         "classification and summaries but must not infer completion, hold, or cancellation. " +
         "Use source references instead of copying email or document bodies.",
     },
@@ -90,7 +86,7 @@ export function registerJournalTools(
     {
       title: "Read Journal Board",
       description:
-        "Read one KST week of Journal items, status counts, and concise event flow.",
+        "Read a KST weekly board. The current week includes latest unfinished work from earlier weeks without closing them; reads never modify storage.",
       inputSchema: getBoardToolSchema,
       outputSchema: getBoardOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -225,11 +221,7 @@ export function registerJournalTools(
     async ({ weekId, ...input }) =>
       safeTool(async () => {
         requireAnyScope(principal, ["journal.write"]);
-        return service.addCorrection(
-          weekId ?? currentWeekId(),
-          input,
-          principal,
-        );
+        return service.addCorrection(weekId ?? currentWeekId(), input, principal);
       }),
   );
 
