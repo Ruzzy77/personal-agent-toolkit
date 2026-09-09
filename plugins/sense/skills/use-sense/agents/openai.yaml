@@ -7,6 +7,7 @@ dependencies:
     - type: "mcp"
       value: "sense"
       description: "Read or revise the private guidance kept in Sense"
-      transport: "stdio"
+      transport: "streamable_http"
+      url: "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp"
 policy:
   allow_implicit_invocation: true

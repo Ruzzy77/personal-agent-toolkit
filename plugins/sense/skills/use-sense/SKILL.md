@@ -13,6 +13,8 @@ For substantive work whose relevant guidance is not already available, use `sens
 
 An ordinary index entry may include a user-approved Section Skill's name and description. When the exposed schema supports `include_skill`, use `false` when only the section's criteria are needed and `true` when its method is needed. Omission keeps the legacy complete-Skill response. Apply the selected method only to its matching activity and target; an optional procedure or output convention does not redefine the user's purpose or editing scope.
 
+Applying a quality criterion, loading its detailed method, and executing that method are separate decisions. Reuse available guidance; load missing detail when it affects the requested work. Reading a Skill does not require every procedure or a report of its checks. A literal or surface correction does not become a full composition workflow merely because writing criteria apply.
+
 A direct continuation can open a known section immediately. Reuse already-read guidance of the same version within the task. Read again when the purpose changes, the user requests a reread, or an update or freshness check matters. Do not reread an already-injected common instruction body just to route back here. Trivial requests do not need a Sense lookup. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
 
 ## Content
