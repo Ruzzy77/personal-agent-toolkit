@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import errno
 import hashlib
 import os
 import stat
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+import uuid
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import SyncError
+from .materialization import SF_DATALESS, NativeCapture
 
 DIRECTORY_FLAGS = (
     os.O_RDONLY
@@ -213,6 +217,7 @@ def capture_snapshot(
     max_bytes: int,
     *,
     expected_file_identity: tuple[int, int],
+    native_capture: NativeCapture | None = None,
 ) -> Iterator[Snapshot]:
     root_descriptor = open_root(root, expected_root_identity)
     source_descriptor = -1
@@ -229,14 +234,53 @@ def capture_snapshot(
                 "source_too_large", "Source file exceeds its Connection budget"
             )
         staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor, name = tempfile.mkstemp(prefix="capture-", dir=staging_root)
-        temporary = Path(name)
-        os.fchmod(descriptor, 0o600)
+        dataless = bool(getattr(before, "st_flags", 0) & SF_DATALESS)
+        native_result = None
+        if dataless:
+            if native_capture is None:
+                raise SyncError(
+                    "source_materializer_unavailable",
+                    "Online-only Source capture requires a File Provider helper",
+                )
+            temporary = staging_root / f"capture-{uuid.uuid4().hex}"
+            native_result = native_capture.copy(
+                source_descriptor,
+                root,
+                root.joinpath(*safe_parts(relative_path)),
+                temporary,
+                max_bytes,
+            )
+            descriptor = os.open(temporary, FILE_FLAGS)
+            captured = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(captured.st_mode)
+                or captured.st_size != before.st_size
+                or captured.st_uid != os.getuid()
+                or stat.S_IMODE(captured.st_mode) != 0o600
+            ):
+                os.close(descriptor)
+                raise SyncError("source_capture_failed", "Native capture is invalid")
+        else:
+            descriptor, name = tempfile.mkstemp(prefix="capture-", dir=staging_root)
+            temporary = Path(name)
+            os.fchmod(descriptor, 0o600)
         digest = hashlib.sha256()
         copied = 0
         try:
             while True:
-                chunk = os.read(source_descriptor, COPY_CHUNK)
+                try:
+                    chunk = os.read(
+                        descriptor if dataless else source_descriptor, COPY_CHUNK
+                    )
+                except OSError as exc:
+                    code = (
+                        "source_download_pending"
+                        if exc.errno in {errno.EDEADLK, errno.EAGAIN, errno.ETIMEDOUT}
+                        else "source_unavailable"
+                    )
+                    raise SyncError(
+                        code, "Source bytes are not currently readable"
+                    ) from exc
                 if not chunk:
                     break
                 copied += len(chunk)
@@ -245,29 +289,93 @@ def capture_snapshot(
                         "source_too_large", "Source file exceeds its Connection budget"
                     )
                 digest.update(chunk)
-                offset = 0
-                while offset < len(chunk):
-                    offset += os.write(descriptor, chunk[offset:])
-            os.fsync(descriptor)
+                if not dataless:
+                    offset = 0
+                    while offset < len(chunk):
+                        written = os.write(descriptor, chunk[offset:])
+                        if written <= 0:
+                            raise SyncError(
+                                "staging_unavailable", "Capture write made no progress"
+                            )
+                        offset += written
+            if not dataless:
+                os.fsync(descriptor)
         finally:
             os.close(descriptor)
         after = os.fstat(source_descriptor)
-        if copied != before.st_size or (
-            before.st_dev,
-            before.st_ino,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        ) != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
+        native_after = native_result.get("sourceAfter", {}) if native_result else {}
+        materialized = (
+            dataless
+            and not (getattr(after, "st_flags", 0) & SF_DATALESS)
+            and native_result is not None
+            and native_result.get("stable") is True
+            and native_result.get("identityStable") is True
+            and native_result.get("exactByteCount") is True
+            and native_result.get("bytesCopied") == copied
+            and all(
+                native_after.get(key) == value
+                for key, value in {
+                    "device": str(after.st_dev),
+                    "inode": str(after.st_ino),
+                    "logicalSize": after.st_size,
+                    "modificationTimeNanoseconds": after.st_mtime_ns,
+                    "changeTimeNanoseconds": after.st_ctime_ns,
+                }.items()
+            )
+            and (
+                native_result.get("versionStable") is True
+                or native_result.get("hydrationStateChanged") is True
+            )
+        )
+        if (
+            copied != before.st_size
+            or (dataless and not materialized)
+            or (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+            )
+            or (
+                not materialized
+                and (before.st_mtime_ns, before.st_ctime_ns)
+                != (after.st_mtime_ns, after.st_ctime_ns)
+            )
         ):
             raise SyncError(
                 "source_changed", "Source file changed while it was captured"
             )
+        # A download can take time. Verify the path still names this pinned
+        # version, not merely an old descriptor after a rename/replacement.
+        current_root = open_root(root, expected_root_identity)
+        try:
+            current_file = open_relative(current_root, relative_path)
+            try:
+                current = os.fstat(current_file)
+                if (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_size,
+                    current.st_mtime_ns,
+                    current.st_ctime_ns,
+                ) != (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_size,
+                    after.st_mtime_ns,
+                    after.st_ctime_ns,
+                ):
+                    raise SyncError(
+                        "source_changed", "Source path changed during capture"
+                    )
+            finally:
+                os.close(current_file)
+        finally:
+            os.close(current_root)
         yield Snapshot(
             path=temporary,
             byte_size=copied,
@@ -286,3 +394,23 @@ def capture_snapshot(
                 temporary.unlink()
             except OSError:
                 pass
+
+
+@asynccontextmanager
+async def capture_snapshot_async(*args, **kwargs) -> AsyncIterator[Snapshot]:
+    """Keep provider waits off the broker loop and clean up even on cancellation."""
+    manager = capture_snapshot(*args, **kwargs)
+    pending = asyncio.create_task(asyncio.to_thread(manager.__enter__))
+    try:
+        snapshot = await asyncio.shield(pending)
+    except asyncio.CancelledError:
+        # Cancelling to_thread does not stop its worker. Wait for the bounded
+        # capture before closing its descriptors and deleting its private copy.
+        with suppress(Exception):
+            await pending
+            manager.__exit__(None, None, None)
+        raise
+    try:
+        yield snapshot
+    finally:
+        manager.__exit__(None, None, None)

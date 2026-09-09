@@ -2243,3 +2243,337 @@ def test_local_analysis_uses_embedded_document_files(tmp_path: Path) -> None:
 
     assert result["input"]["sha256"] == snapshot.sha256
     assert [unit["content"] for unit in result["extraction"]["units"]] == ["로컬 분석"]
+
+
+def _capture_source(tmp_path: Path):
+    root = tmp_path / "source"
+    root.mkdir()
+    source = root / "note.txt"
+    source.write_bytes(b"captured")
+    return (
+        root,
+        source,
+        {
+            "expected_root_identity": (root.stat().st_dev, root.stat().st_ino),
+            "expected_file_identity": (source.stat().st_dev, source.stat().st_ino),
+            "relative_path": source.name,
+            "staging_root": tmp_path / "staging",
+            "max_bytes": 1000,
+        },
+    )
+
+
+def _fake_online_capture(source: Path, monkeypatch: pytest.MonkeyPatch):
+    from types import SimpleNamespace
+
+    import personal_agent_sync.paths as paths_module
+
+    original_fstat = os.fstat
+    inode = source.stat().st_ino
+    state = {"online": True}
+
+    def metadata(fd):
+        value = original_fstat(fd)
+        if value.st_ino != inode:
+            return value
+        fields = {
+            key: getattr(value, key) for key in dir(value) if key.startswith("st_")
+        }
+        fields["st_flags"] = 0x40000000 if state["online"] else 0
+        # Providers may normalize mtime and ctime during materialization.
+        fields["st_mtime_ns"] = value.st_mtime_ns + int(state["online"])
+        fields["st_ctime_ns"] = value.st_ctime_ns + int(state["online"])
+        return SimpleNamespace(**fields)
+
+    monkeypatch.setattr(paths_module.os, "fstat", metadata)
+
+    class Capture:
+        def copy(self, fd, root, path, destination, maximum_bytes):
+            assert path == source
+            assert maximum_bytes == 1000
+            destination.write_bytes(os.read(fd, maximum_bytes))
+            destination.chmod(0o600)
+            state["online"] = False
+            after = os.fstat(fd)
+            return {
+                "stable": True,
+                "identityStable": True,
+                "exactByteCount": True,
+                "bytesCopied": 8,
+                "versionStable": False,
+                "hydrationStateChanged": True,
+                "sourceAfter": {
+                    "device": str(after.st_dev),
+                    "inode": str(after.st_ino),
+                    "logicalSize": after.st_size,
+                    "modificationTimeNanoseconds": after.st_mtime_ns,
+                    "changeTimeNanoseconds": after.st_ctime_ns,
+                },
+            }
+
+    return Capture()
+
+
+def test_online_capture_accepts_only_verified_provider_transition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, source, kwargs = _capture_source(tmp_path)
+    native = _fake_online_capture(source, monkeypatch)
+    with capture_snapshot(root, **kwargs, native_capture=native) as snapshot:
+        assert snapshot.path.read_bytes() == b"captured"
+        assert snapshot.sha256 == hashlib.sha256(b"captured").hexdigest()
+        assert snapshot.byte_size == 8
+        assert snapshot.modified_ns == source.stat().st_mtime_ns
+    assert list(kwargs["staging_root"].iterdir()) == []
+    assert source.read_bytes() == b"captured"
+
+
+@pytest.mark.parametrize("change", ["replaced", "edited_after_capture", "unverified"])
+def test_online_capture_rejects_path_and_version_races(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    root, source, kwargs = _capture_source(tmp_path)
+    native = _fake_online_capture(source, monkeypatch)
+    copy = native.copy
+
+    def changed(*args):
+        result = copy(*args)
+        if change == "replaced":
+            source.rename(root / "moved.txt")
+            source.write_bytes(b"new data")
+        elif change == "edited_after_capture":
+            os.utime(
+                source, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns + 10)
+            )
+        else:
+            result["identityStable"] = False
+        return result
+
+    monkeypatch.setattr(native, "copy", changed)
+    with (
+        pytest.raises(SyncError) as error,
+        capture_snapshot(root, **kwargs, native_capture=native),
+    ):
+        pass
+    assert error.value.code == "source_changed"
+    assert list(kwargs["staging_root"].iterdir()) == []
+
+
+def test_online_capture_checks_budget_before_requesting_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, source, kwargs = _capture_source(tmp_path)
+    native = _fake_online_capture(source, monkeypatch)
+    kwargs["max_bytes"] = 7
+    monkeypatch.setattr(
+        native, "copy", lambda *args: pytest.fail("download exceeded budget")
+    )
+    with (
+        pytest.raises(SyncError) as error,
+        capture_snapshot(root, **kwargs, native_capture=native),
+    ):
+        pass
+    assert error.value.code == "source_too_large"
+    assert not kwargs["staging_root"].exists()
+
+
+def test_online_capture_without_runtime_does_not_attempt_direct_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, source, kwargs = _capture_source(tmp_path)
+    _fake_online_capture(source, monkeypatch)
+    with pytest.raises(SyncError) as error, capture_snapshot(root, **kwargs):
+        pass
+    assert error.value.code == "source_materializer_unavailable"
+    assert list(kwargs["staging_root"].iterdir()) == []
+
+
+@pytest.mark.parametrize("errno_value", [11, 60, 5])
+def test_source_read_oserror_is_classified_and_capture_is_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, errno_value: int
+) -> None:
+    import errno
+
+    import personal_agent_sync.paths as paths_module
+
+    root, _source, kwargs = _capture_source(tmp_path)
+
+    def fail_read(*args):
+        raise OSError(errno_value, "read unavailable")
+
+    monkeypatch.setattr(paths_module.os, "read", fail_read)
+    with pytest.raises(SyncError) as error, capture_snapshot(root, **kwargs):
+        pass
+    expected = (
+        "source_download_pending"
+        if errno_value in {errno.EDEADLK, errno.EAGAIN, errno.ETIMEDOUT}
+        else "source_unavailable"
+    )
+    assert error.value.code == expected
+    assert list(kwargs["staging_root"].iterdir()) == []
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_download_wait_keeps_event_loop_live_and_cleans_up_on_cancel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel: bool
+) -> None:
+    import threading
+
+    from personal_agent_sync.paths import capture_snapshot_async
+
+    root, source, kwargs = _capture_source(tmp_path)
+    native = _fake_online_capture(source, monkeypatch)
+    copy = native.copy
+    entered = threading.Event()
+    release = threading.Event()
+
+    def waiting(*args):
+        entered.set()
+        assert release.wait(timeout=5)
+        return copy(*args)
+
+    monkeypatch.setattr(native, "copy", waiting)
+
+    async def consume():
+        async with capture_snapshot_async(
+            root, **kwargs, native_capture=native
+        ) as snapshot:
+            assert not cancel
+            assert snapshot.path.read_bytes() == b"captured"
+
+    async def exercise():
+        task = asyncio.create_task(consume())
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            assert not task.done()
+            if cancel:
+                task.cancel()
+                await asyncio.sleep(0)
+        finally:
+            release.set()
+        if cancel:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await task
+
+    asyncio.run(exercise())
+    assert list(kwargs["staging_root"].iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        ("timeout", "source_download_pending"),
+        ("source_download_pending", "source_download_pending"),
+        ("source_read_failed", "source_download_pending"),
+        ("source_changed_during_copy", "source_changed"),
+        ("source_exceeds_maximum_bytes", "source_too_large"),
+        ("invalid_payload", "source_capture_failed"),
+    ],
+)
+def test_native_capture_protocol_errors_are_bounded_and_cleanup_partial_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str, expected: str
+) -> None:
+    from personal_agent_sync import materialization
+
+    corpus_root = tmp_path / "corpus"
+    runtime = corpus_root / "runtime"
+    runtime.mkdir(parents=True)
+    helper = runtime / "corpus-hydrator-test"
+    helper.touch(mode=0o700)
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o700)
+    target = staging / "capture-test"
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            assert command[:3] == [sys.executable, "-I", "-c"]
+            return subprocess.CompletedProcess(command, 0, str(helper), "")
+        assert kwargs["timeout"] == 120
+        assert kwargs["pass_fds"][0] == 42
+        target.write_bytes(b"partial")
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 120)
+        stderr = (
+            "garbage"
+            if failure == "invalid_payload"
+            else json.dumps({"ok": False, "error": {"code": failure}})
+        )
+        return subprocess.CompletedProcess(command, 5, "", stderr)
+
+    monkeypatch.setattr(materialization.sys, "platform", "darwin")
+    monkeypatch.setattr(materialization.subprocess, "run", run)
+    native = materialization.NativeCapture(Path(sys.executable), corpus_root, "notes")
+    with pytest.raises(SyncError) as error:
+        native.copy(42, tmp_path, tmp_path / "source", target, 1000)
+    assert error.value.code == expected
+    assert not target.exists()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS File Provider helper")
+def test_packaged_native_helper_preserves_pinned_capture_contract(
+    tmp_path: Path,
+) -> None:
+    native_source = (
+        Path(__file__).resolve().parents[3]
+        / "engines/corpus/src/corpus/native/corpus_file_provider.swift"
+    )
+    helper = tmp_path / "helper"
+    subprocess.run(
+        ["swiftc", "-O", str(native_source), "-o", str(helper)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    root, source, _kwargs = _capture_source(tmp_path)
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o700)
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    directory = os.open(staging, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+
+        def copy(maximum_bytes):
+            return subprocess.run(
+                [
+                    str(helper),
+                    "copy",
+                    "--source",
+                    str(source),
+                    "--source-fd",
+                    str(fd),
+                    "--source-root",
+                    str(root),
+                    "--destination",
+                    str(staging / "capture-test"),
+                    "--destination-dir-fd",
+                    str(directory),
+                    "--destination-name",
+                    "capture-test",
+                    "--max-bytes",
+                    str(maximum_bytes),
+                ],
+                capture_output=True,
+                text=True,
+                pass_fds=(fd, directory),
+                timeout=10,
+                check=False,
+            )
+
+        result = copy(1000)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["result"]["stable"] is True
+        assert (staging / "capture-test").read_bytes() == b"captured"
+        (staging / "capture-test").unlink()
+        rejected = copy(7)
+        assert rejected.returncode != 0
+        assert (
+            json.loads(rejected.stderr)["error"]["code"]
+            == "source_exceeds_maximum_bytes"
+        )
+        assert list(staging.iterdir()) == []
+    finally:
+        os.close(fd)
+        os.close(directory)

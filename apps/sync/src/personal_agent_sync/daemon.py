@@ -23,7 +23,12 @@ from .analysis import (
 from .config import SyncConfig
 from .errors import SyncError
 from .events import SourceEventMonitor
-from .paths import capture_snapshot, cleanup_abandoned_captures, resolve_moved_root
+from .materialization import NativeCapture
+from .paths import (
+    capture_snapshot_async,
+    cleanup_abandoned_captures,
+    resolve_moved_root,
+)
 from .reconcile import reconcile_all
 from .remote import RemoteClient
 from .state import SyncState, canonical, now_iso
@@ -212,6 +217,12 @@ class SyncDaemon:
                 try:
                     await self._process_change(current)
                 except SyncError as error:
+                    LOGGER.warning(
+                        "Source update deferred: %s/%s (%s)",
+                        current["connection_key"],
+                        current["document_id"],
+                        error.code,
+                    )
                     self.state.fail_change(
                         current["connection_key"],
                         current["document_id"],
@@ -220,7 +231,9 @@ class SyncDaemon:
                     )
                 except Exception:
                     LOGGER.exception(
-                        "Unexpected failure while processing a Source change"
+                        "Unexpected Source failure: %s/%s",
+                        current["connection_key"],
+                        current["document_id"],
                     )
                     self.state.fail_change(
                         current["connection_key"],
@@ -284,13 +297,16 @@ class SyncDaemon:
         )
         if root is None:
             raise SyncError("source_unavailable", "Connection root is unavailable")
-        with capture_snapshot(
+        async with capture_snapshot_async(
             root,
             (int(change["root_device"]), int(change["root_inode"])),
             change["local_relative_path"],
             self.config.data_root / "staging",
             MAX_LOCAL_DOCUMENT_BYTES,
             expected_file_identity=(int(change["device"]), int(change["inode"])),
+            native_capture=NativeCapture(
+                self.config.corpus_python, self.config.corpus_data_root, corpus_id
+            ),
         ) as snapshot:
             if (
                 not force_refresh

@@ -83,6 +83,21 @@ There is no Cloudflare analyzer, remote fallback, approval record, or document
 byte upload. If the embedded runtime cannot run, the queue records
 `runtime_unavailable` and leaves the last committed projection active.
 
+Online-only macOS Source files are captured selectively through Corpus's native
+File Provider helper in its isolated runtime. Sync checks the file's identity
+and size before asking for contents; the helper coordinates a read without
+writing or permanently pinning the original. Download/copy waits are bounded
+to 120 seconds and run off the broker event loop. Root, path, byte count and
+version checks still apply, including after a provider residency transition.
+Temporary captures are removed on failure, completion or task cancellation.
+
+Unavailable downloads remain queued as `source_download_pending`, with a compact
+log entry containing local Connection/document IDs rather than a traceback or
+private filename. Missing helper/runtime failures use
+`source_materializer_unavailable`; neither error discards the last committed
+projection. These states use the existing retry schedule and do not authorize
+bulk folder downloads, original-byte uploads or changes to Connection policies.
+
 ## Setup
 
 1. Run `scripts/install-runtimes.sh`. It prepares Corpus and a Sync environment

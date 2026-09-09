@@ -490,8 +490,7 @@ private func validateCopyPaths(
       directoryFD: nil,
       name: nil
     )
-  } else if
-    let rawDestination, let directoryFD = destinationDirectoryFD,
+  } else if let rawDestination, let directoryFD = destinationDirectoryFD,
     let name = destinationName
   {
     let destinationPath = try absoluteStandardizedPath(
@@ -578,6 +577,17 @@ private func validateCopyPaths(
   }
 
   let canonicalRoot = try canonicalExistingPath(sourceRoot, label: "sourceRoot")
+  let canonicalSource = try canonicalExistingPath(source, label: "source")
+  let pathSource = try lstatSnapshot(source)
+  try requireRegularNonSymlink(pathSource, path: source)
+  guard path(canonicalSource, isWithin: canonicalRoot),
+    openedSource.hasSameIdentity(as: pathSource)
+  else {
+    throw HelperFailure(
+      "source_changed_during_copy", "Source path no longer names the pinned file.",
+      exitCode: 6
+    )
+  }
 
   let destinationURL = URL(fileURLWithPath: destination.path)
   let destinationParent = destinationURL.deletingLastPathComponent().path
@@ -633,8 +643,7 @@ private func copySequentially(
   sourceDescriptor: Int32,
   destinationDescriptor: Int32,
   maximumBytes: Int64
-) throws -> Int64
-{
+) throws -> Int64 {
   var buffer = [UInt8](repeating: 0, count: copyBufferSize)
   var total: Int64 = 0
 
@@ -731,99 +740,151 @@ private func copyInheritedSource(
       ]
     )
   }
-  guard lseek(validated.sourceFD, 0, SEEK_SET) == 0 else {
-    throw posixFailure(
-      "source_seek_failed",
-      "Could not rewind inherited source descriptor."
+  func capture() throws -> CopyResult {
+    let readBefore = try fstatSnapshot(validated.sourceFD, label: "source")
+    guard readBefore.logicalSize <= maximumBytes else {
+      throw HelperFailure("source_exceeds_maximum_bytes", "Source grew while waiting for contents.")
+    }
+    if sourceBefore.dataless && readBefore.dataless {
+      throw HelperFailure("source_download_pending", "Source contents are still online-only.")
+    }
+    guard lseek(validated.sourceFD, 0, SEEK_SET) == 0 else {
+      throw posixFailure(
+        "source_seek_failed",
+        "Could not rewind inherited source descriptor."
+      )
+    }
+
+    var destinationCreated = false
+    var copyCompleted = false
+    defer {
+      if destinationCreated && !copyCompleted {
+        unlinkDestination(validated.destination)
+      }
+    }
+    let destinationDescriptor = openDestination(validated.destination)
+    guard destinationDescriptor >= 0 else {
+      throw posixFailure(
+        "destination_open_failed",
+        "Could not create destination.",
+        details: ["destination": validated.destination.path]
+      )
+    }
+    destinationCreated = true
+    defer { _ = close(destinationDescriptor) }
+
+    guard fchmod(destinationDescriptor, mode_t(0o600)) == 0 else {
+      throw posixFailure(
+        "destination_chmod_failed",
+        "Could not enforce mode 0600 on destination.",
+        details: ["destination": validated.destination.path]
+      )
+    }
+    let bytesCopied = try copySequentially(
+      sourceDescriptor: validated.sourceFD,
+      destinationDescriptor: destinationDescriptor,
+      maximumBytes: maximumBytes
+    )
+    guard fsync(destinationDescriptor) == 0 else {
+      throw posixFailure(
+        "destination_fsync_failed",
+        "Could not flush staged bytes.",
+        details: ["destination": validated.destination.path]
+      )
+    }
+
+    let sourceAfter = try fstatSnapshot(validated.sourceFD, label: "source")
+    let destination = try fstatSnapshot(destinationDescriptor, label: "destination")
+    let identityStable = sourceBefore.hasSameIdentity(as: sourceAfter)
+    let versionStable = sourceBefore.hasSameVersion(as: sourceAfter)
+    let hydrationStateChanged =
+      sourceBefore.dataless && !sourceAfter.dataless
+    let exactByteCount =
+      bytesCopied == sourceBefore.logicalSize
+      && bytesCopied == sourceAfter.logicalSize
+      && bytesCopied == destination.logicalSize
+    // File Provider may normalize mtime while an SF_DATALESS placeholder becomes
+    // resident. The inherited descriptor and byte-count checks still pin the copy.
+    let stable =
+      identityStable && exactByteCount
+      && readBefore.hasSameVersion(as: sourceAfter)
+      && readBefore.changeTimeNanoseconds == sourceAfter.changeTimeNanoseconds
+      && (versionStable || hydrationStateChanged)
+    guard stable else {
+      throw HelperFailure(
+        "source_changed_during_copy",
+        "Source identity, version, or byte count changed during copy.",
+        exitCode: 6,
+        details: [
+          "bytesCopied": String(bytesCopied),
+          "beforeSize": String(sourceBefore.logicalSize),
+          "afterSize": String(sourceAfter.logicalSize),
+          "destinationSize": String(destination.logicalSize),
+          "identityStable": String(identityStable),
+          "versionStable": String(versionStable),
+          "hydrationStateChanged": String(hydrationStateChanged),
+          "exactByteCount": String(exactByteCount),
+        ]
+      )
+    }
+    copyCompleted = true
+    return CopyResult(
+      sourcePath: validated.source,
+      coordinatedPath: validated.source,
+      sourceRoot: validated.sourceRoot,
+      destinationPath: validated.destination.path,
+      bytesCopied: bytesCopied,
+      sourceBefore: sourceBefore,
+      sourceAfter: sourceAfter,
+      destination: destination,
+      identityStable: identityStable,
+      versionStable: versionStable,
+      hydrationStateChanged: hydrationStateChanged,
+      exactByteCount: exactByteCount,
+      stable: stable
     )
   }
 
-  var destinationCreated = false
-  var copyCompleted = false
-  defer {
-    if destinationCreated && !copyCompleted {
-      unlinkDestination(validated.destination)
+  // A background process may be unable to read an online-only placeholder
+  // directly (EDEADLK). Coordinate only this required file's contents; metadata
+  // probes remain non-materializing. Keep the inherited descriptor and all
+  // identity/size checks across the provider's download.
+  guard sourceBefore.dataless else { return try capture() }
+  let coordinator = NSFileCoordinator(filePresenter: nil)
+  var coordinationError: NSError?
+  var outcome: Result<CopyResult, Error>?
+  coordinator.coordinate(
+    readingItemAt: URL(fileURLWithPath: validated.source),
+    options: .withoutChanges,
+    error: &coordinationError
+  ) { coordinatedURL in
+    outcome = Result {
+      guard coordinatedURL.standardizedFileURL.path == validated.source else {
+        throw HelperFailure("source_changed_during_copy", "Source moved during coordination.")
+      }
+      // Do not silently follow a replacement path after waiting for the provider.
+      _ = try validateCopyPaths(
+        source: validated.source,
+        sourceFD: validated.sourceFD,
+        sourceRoot: validated.sourceRoot,
+        destination: rawDestinationPath,
+        destinationDirectoryFD: destinationDirectoryFD,
+        destinationName: destinationName
+      )
+      return try capture()
     }
   }
-  let destinationDescriptor = openDestination(validated.destination)
-  guard destinationDescriptor >= 0 else {
-    throw posixFailure(
-      "destination_open_failed",
-      "Could not create destination.",
-      details: ["destination": validated.destination.path]
-    )
-  }
-  destinationCreated = true
-  defer { _ = close(destinationDescriptor) }
-
-  guard fchmod(destinationDescriptor, mode_t(0o600)) == 0 else {
-    throw posixFailure(
-      "destination_chmod_failed",
-      "Could not enforce mode 0600 on destination.",
-      details: ["destination": validated.destination.path]
-    )
-  }
-  let bytesCopied = try copySequentially(
-    sourceDescriptor: validated.sourceFD,
-    destinationDescriptor: destinationDescriptor,
-    maximumBytes: maximumBytes
-  )
-  guard fsync(destinationDescriptor) == 0 else {
-    throw posixFailure(
-      "destination_fsync_failed",
-      "Could not flush staged bytes.",
-      details: ["destination": validated.destination.path]
-    )
-  }
-
-  let sourceAfter = try fstatSnapshot(validated.sourceFD, label: "source")
-  let destination = try fstatSnapshot(destinationDescriptor, label: "destination")
-  let identityStable = sourceBefore.hasSameIdentity(as: sourceAfter)
-  let versionStable = sourceBefore.hasSameVersion(as: sourceAfter)
-  let hydrationStateChanged =
-    sourceBefore.dataless && !sourceAfter.dataless
-  let exactByteCount =
-    bytesCopied == sourceBefore.logicalSize
-    && bytesCopied == sourceAfter.logicalSize
-    && bytesCopied == destination.logicalSize
-  // File Provider may normalize mtime while an SF_DATALESS placeholder becomes
-  // resident. The inherited descriptor and byte-count checks still pin the copy.
-  let stable =
-    identityStable && exactByteCount
-    && (versionStable || hydrationStateChanged)
-  guard stable else {
+  if let coordinationError {
     throw HelperFailure(
-      "source_changed_during_copy",
-      "Source identity, version, or byte count changed during copy.",
-      exitCode: 6,
-      details: [
-        "bytesCopied": String(bytesCopied),
-        "beforeSize": String(sourceBefore.logicalSize),
-        "afterSize": String(sourceAfter.logicalSize),
-        "destinationSize": String(destination.logicalSize),
-        "identityStable": String(identityStable),
-        "versionStable": String(versionStable),
-        "hydrationStateChanged": String(hydrationStateChanged),
-        "exactByteCount": String(exactByteCount),
-      ]
+      "source_download_pending",
+      "File Provider could not make source contents available.",
+      details: ["domain": coordinationError.domain, "code": String(coordinationError.code)]
     )
   }
-  copyCompleted = true
-  return CopyResult(
-    sourcePath: validated.source,
-    coordinatedPath: validated.source,
-    sourceRoot: validated.sourceRoot,
-    destinationPath: validated.destination.path,
-    bytesCopied: bytesCopied,
-    sourceBefore: sourceBefore,
-    sourceAfter: sourceAfter,
-    destination: destination,
-    identityStable: identityStable,
-    versionStable: versionStable,
-    hydrationStateChanged: hydrationStateChanged,
-    exactByteCount: exactByteCount,
-    stable: stable
-  )
+  guard let outcome else {
+    throw HelperFailure("source_download_pending", "File Provider did not provide source contents.")
+  }
+  return try outcome.get()
 }
 
 private let rawArguments = Array(CommandLine.arguments.dropFirst())
