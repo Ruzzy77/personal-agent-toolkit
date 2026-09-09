@@ -1,8 +1,10 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { JournalRepository, type EventRow } from "../src/repository";
-import type { Env, ItemRecord } from "../src/types";
+import { JournalService } from "../src/service";
+import { getBoardOutputSchema } from "../src/schemas";
+import type { Env, ItemRecord, Principal, PromotionReceiptInput } from "../src/types";
 
 const NOW = "2030-01-07T00:00:00.000Z";
 
@@ -227,5 +229,95 @@ describe("Journal repository week guards", () => {
     await expect(repository.getItem(rollover.id)).resolves.toBeNull();
     await expect(repository.eventExists(closeKey)).resolves.toBe(false);
     await expect(repository.eventExists(rolloverKey)).resolves.toBe(false);
+  });
+});
+
+
+const owner: Principal = {
+  kind: "owner", id: "test-owner", auth: "site-token", scopes: new Set(["journal.close", "journal.write"]),
+};
+
+async function candidateFixture(weekId: string) {
+  const db = (env as unknown as Env).DB;
+  const repository = new JournalRepository(db);
+  const service = new JournalService(db, () => new Date(NOW));
+  const item = { ...itemRecord(weekId, "reflection"), resolution: "held" as const,
+    responsibility: "counterparty" as const, durableOutcome: "Confirmed outcome", corpusTargetSpace: "project" };
+  await repository.ensureWeek(weekId, NOW);
+  const key = `create:${item.id}`;
+  await repository.insertItem(item, itemEvent(item, "item_created", key), receipt(item, key));
+  const preparation = await service.prepareWeekClose(weekId, owner);
+  const input: PromotionReceiptInput = {
+    weekId, itemId: item.id, targetSpace: "project", sourcePath: "docs/result.md",
+    contentHash: preparation.corpusCandidates[0]!.contentHash, status: "failed", details: "target unavailable",
+    idempotencyKey: `promotion:${item.id}`, occurredAt: null,
+  };
+  return { db, repository, service, item, preparation, input };
+}
+
+describe("Corpus reflection independent of week close", () => {
+  it("retains failures and frozen records while retrying or skipping after close", async () => {
+    const { repository, service, item, preparation, input } = await candidateFixture("2031-01-06");
+    const failed = await service.recordPromotion(input, owner);
+    const closed = await service.confirmWeekClose(item.weekId, preparation.preparationVersion, `close:${item.id}`, null, owner);
+    expect(closed.week.status).toBe("closed");
+    const snapshot = await repository.getClosure(item.weekId);
+    const frozenItem = await repository.getItem(item.id);
+    const successor = await repository.getItemBySource("2031-01-13", item.sourceKind, item.sourceKey);
+    expect(successor).toMatchObject({ resolution: "held", responsibility: "counterparty", durableOutcome: null, corpusTargetSpace: null });
+    await expect(service.recordPromotion(input, owner)).resolves.toEqual({ ...failed, duplicate: true });
+    await expect(service.recordPromotion({ ...input, details: "different" }, owner)).rejects.toMatchObject({ code: "idempotency_conflict" });
+    const correction = await service.addCorrection(item.weekId, {
+      itemId: item.id, note: "Do not apply the original claim; see corrected project context", sourceRef: null,
+      idempotencyKey: `correction:${item.id}`, occurredAt: null,
+    }, owner);
+    const failedAgain = { ...input, idempotencyKey: `retry:${item.id}` };
+    await service.recordPromotion(failedAgain, owner);
+    const board = await service.getBoard(item.weekId, true);
+    expect(getBoardOutputSchema.safeParse(board).success).toBe(true);
+    expect(board.closure).toMatchObject({
+      corpusCandidates: [{ itemId: item.id, reflectionStatus: "failed", contentHash: input.contentHash }],
+      corrections: [{ id: correction.eventId }],
+    });
+    for (const mismatch of [{ contentHash: "sha256:wrong" }, { targetSpace: "wrong" }, { itemId: null }]) {
+      await expect(service.recordPromotion({ ...input, ...mismatch, idempotencyKey: crypto.randomUUID() }, owner))
+        .rejects.toMatchObject({ code: "promotion_candidate_mismatch" });
+    }
+    const skipped = { ...input, status: "skipped" as const, details: `Superseded; correction ${correction.eventId}`, idempotencyKey: `skip:${item.id}` };
+    const completed = await service.recordPromotion(skipped, owner);
+    await expect(service.recordPromotion({ ...input, idempotencyKey: `late-failure:${item.id}` }, owner))
+      .resolves.toEqual({ ...completed, duplicate: true });
+    expect((await service.getBoard(item.weekId)).closure?.corpusCandidates[0]?.reflectionStatus).toBe("skipped");
+    expect(await repository.listPromotionReceipts(item.weekId)).toHaveLength(3);
+    expect(await repository.getClosure(item.weekId)).toEqual(snapshot);
+    expect(await repository.getItem(item.id)).toEqual(frozenItem);
+    expect(await repository.getWeek(item.weekId)).toEqual(closed.week);
+    expect(await repository.getItem(successor!.id)).toEqual(successor);
+  });
+
+  it.each([false, true])("guards a receipt when close wins the insert race (candidate changed: %s)", async (changed) => {
+    const { repository, service, item, preparation, input } = await candidateFixture(changed ? "2031-02-10" : "2031-01-27");
+    const insert = JournalRepository.prototype.insertPromotionReceipt;
+    const spy = vi.spyOn(JournalRepository.prototype, "insertPromotionReceipt").mockImplementationOnce(async function (this: JournalRepository, ...args) {
+      if (changed) {
+        const updated = { ...item, durableOutcome: "Different confirmed outcome", version: item.version + 1 };
+        const key = `change:${item.id}`;
+        await repository.updateItemObservation(updated, itemEvent(updated, "observation_updated", key), receipt(updated, key));
+      }
+      const current = changed ? await service.prepareWeekClose(item.weekId, owner) : preparation;
+      await service.confirmWeekClose(item.weekId, current.preparationVersion, `race-close:${item.id}`, null, owner);
+      return insert.apply(this, args);
+    });
+    try {
+      const result = service.recordPromotion({ ...input, status: "applied" }, owner);
+      if (changed) {
+        await expect(result).rejects.toMatchObject({ code: "promotion_candidate_mismatch" });
+        expect(await repository.listPromotionReceipts(item.weekId)).toEqual([]);
+        expect(await repository.eventExists(input.idempotencyKey)).toBe(false);
+      } else {
+        await expect(result).resolves.toMatchObject({ duplicate: false });
+        expect(await repository.eventExists(input.idempotencyKey)).toBe(true);
+      }
+    } finally { spy.mockRestore(); }
   });
 });

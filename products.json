@@ -248,7 +248,7 @@
       "display_name": "Journal",
       "plugin": {
         "path": "plugins/journal",
-        "base_version": "0.2.5"
+        "base_version": "0.2.6"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
@@ -271,7 +271,7 @@
         "url": "https://personal-agent-journal.hiyaq77.workers.dev/mcp",
         "implementation": "services/journal/src/mcp.ts",
         "surface_name": "Personal Agent Journal",
-        "surface_version": "0.2.5",
+        "surface_version": "0.2.6",
         "tools": [
           "journal_get_board",
           "journal_ingest_items",

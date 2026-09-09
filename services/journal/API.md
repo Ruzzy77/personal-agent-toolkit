@@ -26,7 +26,11 @@
 
 항목 응답의 `id`는 해당 주차의 조작 가능한 인스턴스이고, `logicalItemId`는 여러 주에 걸친 같은 일을 연결합니다. `responsibility`는 `user`, `counterparty`, `system` 가운데 하나입니다. 주간 마감에서는 `active`와 `held` 항목을 다음 주 인스턴스로 만들며 `summary.rolloverCount`와 `summary.rolloverTitles`에 결과를 남깁니다.
 
-마감은 준비와 확정을 분리합니다. 준비 응답의 `preparationVersion`은 주간 항목 버전과 다음 주 이월 상태를 포함합니다. 확정 전에 항목이 달라지면 `close_preparation_stale`로 거부합니다. `corpusCandidates`가 있으면 각 후보의 `contentHash`와 일치하는 `applied` 또는 `skipped` 영수증이 모두 기록되어야 확정할 수 있습니다. 이전 `/api/v1/weeks/{id}:close` 경로는 호환 별칭으로만 남고 같은 준비 버전을 요구합니다.
+마감은 준비와 확정을 분리합니다. 준비 응답의 `preparationVersion`은 주간 항목 버전과 다음 주 이월 상태를 포함합니다. 확정 전에 항목이 달라지면 `close_preparation_stale`로 거부합니다. 미처리·실패 Corpus 후보가 있어도 소유자가 명시적으로 요청하면 마감할 수 있으며, 마감이 영수증 상태를 바꾸지는 않습니다. 이전 `/api/v1/weeks/{id}:close` 경로는 호환 별칭으로만 남고 같은 준비 버전을 요구합니다.
+
+마감 주의 보드에는 `closure.summary`, 고정된 `closure.corpusCandidates`와 후속 `closure.corrections`가 포함됩니다. 각 후보의 `reflectionStatus`는 일치하는 영수증에서 계산한 `pending`, `failed`, `applied`, `skipped`이며 저장된 마감 snapshot을 바꾸지 않습니다. 열린 주의 `closure`는 null입니다. 실패 상세와 개별 시도는 항목 이력에서 읽습니다.
+
+반영 영수증은 마감 전후에 추가할 수 있습니다. 마감 뒤에는 `itemId + targetSpace + contentHash`가 해당 `week_closures`의 고정 후보와 일치해야 하며, 새 후보·itemId 없는 영수증은 받지 않습니다. 열린 주의 기존 item-less 계약은 유지합니다. 저장 시 열린 주의 항목 version 또는 마감 주의 고정 후보를 D1에서 다시 대조하므로 마감과 영수증의 경합도 같은 조건을 따릅니다. 실패 시도는 보존하고 완료는 후보별 한 건만 허용합니다. correction은 고정 후보나 완료 영수증을 바꾸지 않으므로 반영 전 함께 읽어 의미를 판단해야 합니다. 영수증은 외부 Corpus 쓰기 잠금이 아닙니다.
 
 ## MCP tools
 

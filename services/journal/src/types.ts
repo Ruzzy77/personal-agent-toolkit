@@ -90,6 +90,13 @@ export interface BoardResult {
   summary: BoardSummary;
   items: ItemRecord[];
   flow: WeekFlowEntry[];
+  closure: {
+    summary: WeekClosureSummary;
+    corpusCandidates: Array<CorpusCandidate & {
+      reflectionStatus: "pending" | "failed" | "applied" | "skipped";
+    }>;
+    corrections: JournalEventRecord[];
+  } | null;
 }
 
 export interface IngestItemInput {

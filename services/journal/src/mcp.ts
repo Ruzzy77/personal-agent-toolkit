@@ -63,7 +63,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 
 function buildServer(env: Env, principal: Principal): McpServer {
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.5" },
+    { name: "Personal Agent Journal", version: "0.2.6" },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -86,7 +86,7 @@ export function registerJournalTools(
     {
       title: "Read Journal Board",
       description:
-        "Read a KST weekly board. The current week includes latest unfinished work from earlier weeks without closing them; reads never modify storage.",
+        "Read a KST weekly board. The current week includes latest unfinished work from earlier weeks without closing them. Closed weeks include the frozen closure candidates, current reflectionStatus, and appended corrections. Reads never modify storage.",
       inputSchema: getBoardToolSchema,
       outputSchema: getBoardOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -188,7 +188,7 @@ export function registerJournalTools(
     {
       title: "Confirm Journal Week Close",
       description:
-        "Close the prepared KST week after every Corpus reflection candidate is applied or explicitly skipped.",
+        "Close the prepared KST week only when the owner explicitly requests it. Pending or failed Corpus candidates do not block close and remain available for later reflection; this never marks them applied or skipped.",
       inputSchema: closeWeekToolSchema,
       outputSchema: weekCloseOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -247,7 +247,7 @@ export function registerJournalTools(
     {
       title: "Record Corpus Reflection",
       description:
-        "Record a verified Corpus reflection outcome for an existing project-relative source. Failed attempts are retained and do not complete a candidate. Re-send the same receipt request with the same idempotency key; use a new key for a new attempt after failure. Completed candidates are not overwritten. Read the Corpus target before retrying: this records receipts, not an external-write lock.",
+        "Record a verified Corpus reflection outcome before or after week close for an existing project-relative source. After close, itemId, targetSpace, and contentHash must match a frozen candidate from journal_get_board; read its corrections before applying. Failed attempts are retained and do not complete a candidate. Re-send the same receipt request with the same idempotency key; use a new key for a new attempt after failure. Completed candidates are not overwritten. Read the Corpus target before retrying: this records receipts, not an external-write lock.",
       inputSchema: promotionRequestSchema,
       outputSchema: promotionOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },

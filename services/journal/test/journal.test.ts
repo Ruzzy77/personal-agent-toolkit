@@ -664,7 +664,7 @@ describe("Journal API and MCP spike", () => {
     });
   });
 
-  it("returns explicit Corpus candidates and de-duplicates promotion receipts", async () => {
+  it("closes with pending Corpus candidates and records receipts after close", async () => {
     const ingestResponse = await SELF.fetch(`${ORIGIN}/api/v1/items:ingest`, {
       method: "POST",
       headers: { ...INGEST_AUTH, "Content-Type": "application/json" },
@@ -728,16 +728,24 @@ describe("Journal API and MCP spike", () => {
     }>;
     const candidateHash = candidates[0]?.contentHash ?? "";
 
-    const prematureClose = await confirmWeek(
+    const pendingClose = await confirmWeek(
       "2026-10-05",
       preparation.preparationVersion as string,
-      "test:corpus-candidate:premature-close",
+      "test:corpus-candidate:pending-close",
       "2026-10-11T11:00:00.000Z",
     );
-    expect(prematureClose.status).toBe(409);
-    expect(await json(prematureClose)).toMatchObject({
-      error: { code: "corpus_reflection_pending" },
+    expect(pendingClose.status).toBe(200);
+    const frozen = await json(pendingClose);
+    expect(frozen.result).toMatchObject({
+      week: { status: "closed" },
+      corpusCandidates: [{ itemId, contentHash: candidateHash }],
     });
+    const pendingBoard = await SELF.fetch(`${ORIGIN}/api/v1/board?week=2026-10-05`, {
+      headers: SITE_AUTH,
+    });
+    expect(await json(pendingBoard)).toMatchObject({ result: {
+      closure: { corpusCandidates: [{ itemId, reflectionStatus: "pending" }] },
+    } });
 
     const receipt = {
       weekId: "2026-10-05",
@@ -796,5 +804,11 @@ describe("Journal API and MCP spike", () => {
     );
     const duplicateBody = await json(duplicateResponse);
     expect(duplicateBody.result).toMatchObject({ duplicate: true });
+    const reflectedBoard = await SELF.fetch(`${ORIGIN}/api/v1/board?week=2026-10-05`, {
+      headers: SITE_AUTH,
+    });
+    expect(await json(reflectedBoard)).toMatchObject({ result: {
+      closure: { corpusCandidates: [{ itemId, reflectionStatus: "applied" }] },
+    } });
   });
 });

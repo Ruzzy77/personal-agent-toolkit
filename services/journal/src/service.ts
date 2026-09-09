@@ -173,7 +173,25 @@ export class JournalService {
       date,
       events: entries,
     }));
-    return { week, summary, items, flow };
+    const frozen = week.status === "closed" ? await this.repository.getClosure(selected) : null;
+    const receipts = frozen ? await this.repository.listPromotionReceipts(selected) : [];
+    const closure: BoardResult["closure"] = frozen ? {
+      summary: frozen.summary,
+      corpusCandidates: frozen.corpusCandidates.map((candidate) => {
+        const attempts = receipts.filter((receipt) =>
+          receipt.item_id === candidate.itemId &&
+          receipt.target_space === candidate.targetSpace &&
+          receipt.content_hash === candidate.contentHash
+        );
+        const completed = attempts.find((receipt) => receipt.status !== "failed");
+        return {
+          ...candidate,
+          reflectionStatus: completed?.status ?? (attempts.length ? "failed" : "pending"),
+        };
+      }),
+      corrections: events.filter((event) => event.event_type === "correction_added").map(eventRecord),
+    } : null;
+    return { week, summary, items, flow, closure };
   }
 
   private continuation(source: ItemRecord, weekId: string, now: string): ItemRecord {
@@ -644,24 +662,6 @@ export class JournalService {
         { preparationVersion: preparation.preparationVersion },
       );
     }
-    const reflected = new Set(preparation.reflectedCandidateIds);
-    const pendingCandidates = preparation.corpusCandidates.filter(
-      (candidate) => !reflected.has(candidate.itemId),
-    );
-    if (pendingCandidates.length > 0) {
-      throw new JournalError(
-        "corpus_reflection_pending",
-        "Corpus reflection candidates must be applied or skipped before closing",
-        409,
-        {
-          candidates: pendingCandidates.map((candidate) => ({
-            itemId: candidate.itemId,
-            targetSpace: candidate.targetSpace,
-            contentHash: candidate.contentHash,
-          })),
-        },
-      );
-    }
     const week = await this.repository.ensureWeek(selected, nowIso);
     if (week.status === "closed") {
       throw new JournalError("week_already_closed", "the week is already closed", 409);
@@ -969,35 +969,7 @@ export class JournalService {
     if (completedId) {
       return { receiptId: completedId, duplicate: true };
     }
-    if (week.status === "closed") {
-      throw new JournalError(
-        "week_closed",
-        "Corpus reflection must be recorded before the week is closed",
-        409,
-      );
-    }
-    let expectedItemVersion: number | null = null;
-    if (input.itemId) {
-      const item = await this.repository.getItem(input.itemId);
-      if (!item || item.weekId !== input.weekId) {
-        throw new JournalError("item_not_found", "item was not found", 404);
-      }
-      const expectedHash = item.durableOutcome
-        ? await contentHash(item.durableOutcome)
-        : null;
-      if (
-        !item.corpusTargetSpace ||
-        item.corpusTargetSpace !== input.targetSpace ||
-        expectedHash !== input.contentHash
-      ) {
-        throw new JournalError(
-          "promotion_candidate_mismatch",
-          "the Corpus reflection receipt does not match the current item",
-          409,
-        );
-      }
-      expectedItemVersion = item.version;
-    }
+    const expectedItemVersion = await this.validatePromotionCandidate(input, week.status);
     const now = this.clock();
     const receiptId = crypto.randomUUID();
     const event = this.event({
@@ -1036,28 +1008,55 @@ export class JournalService {
     if (!currentWeek) {
       throw new JournalError("week_not_found", "week was not found", 404);
     }
-    if (currentWeek.status === "closed") {
+    const currentVersion = await this.validatePromotionCandidate(input, currentWeek.status);
+    if (currentVersion !== null && currentVersion !== expectedItemVersion) {
       throw new JournalError(
-        "week_closed",
-        "Corpus reflection must be recorded before the week is closed",
+        "version_conflict",
+        "the item changed before its Corpus reflection could be recorded",
+        409,
+        { currentVersion },
+      );
+    }
+    throw new JournalError("storage_error", "Corpus reflection could not be recorded", 500);
+  }
+
+  private async validatePromotionCandidate(
+    input: PromotionReceiptInput,
+    status: "open" | "closed",
+  ): Promise<number | null> {
+    if (status === "closed") {
+      const closure = await this.repository.getClosure(input.weekId);
+      if (!closure) {
+        throw new JournalError("storage_error", "the frozen week closure was not found", 500);
+      }
+      if (!closure.corpusCandidates.some((candidate) =>
+        candidate.itemId === input.itemId &&
+        candidate.targetSpace === input.targetSpace &&
+        candidate.contentHash === input.contentHash
+      )) {
+        throw new JournalError(
+          "promotion_candidate_mismatch",
+          "the Corpus reflection receipt does not match a frozen week candidate",
+          409,
+        );
+      }
+      return null;
+    }
+    // Retain item-less receipts for open weeks; closed weeks require a frozen candidate.
+    if (!input.itemId) return null;
+    const item = await this.repository.getItem(input.itemId);
+    if (!item || item.weekId !== input.weekId) {
+      throw new JournalError("item_not_found", "item was not found", 404);
+    }
+    const expectedHash = item.durableOutcome ? await contentHash(item.durableOutcome) : null;
+    if (item.corpusTargetSpace !== input.targetSpace || expectedHash !== input.contentHash) {
+      throw new JournalError(
+        "promotion_candidate_mismatch",
+        "the Corpus reflection receipt does not match the current item",
         409,
       );
     }
-    if (input.itemId) {
-      const currentItem = await this.repository.getItem(input.itemId);
-      if (!currentItem || currentItem.weekId !== input.weekId) {
-        throw new JournalError("item_not_found", "item was not found", 404);
-      }
-      if (currentItem.version !== expectedItemVersion) {
-        throw new JournalError(
-          "version_conflict",
-          "the item changed before its Corpus reflection could be recorded",
-          409,
-          { currentVersion: currentItem.version },
-        );
-      }
-    }
-    throw new JournalError("storage_error", "Corpus reflection could not be recorded", 500);
+    return item.version;
   }
 
   private closureSummary(

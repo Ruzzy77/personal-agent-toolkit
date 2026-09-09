@@ -48,12 +48,14 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 
 ## 주간 마감
 
-먼저 `journal_prepare_week_close`로 요약, 이월 항목과 Corpus 후보를 읽습니다. 후보가 있으면 `reflect-journal-outcomes`의 반영·영수증 처리 절차를 적용합니다. 후보별 반영 또는 명시적 건너뛰기가 확인된 뒤 준비 응답의 `preparationVersion`과 사용자의 명시적 확인으로 `journal_confirm_week_close`를 호출합니다. 준비 뒤 항목이 달라졌다면 새 준비 결과를 다시 보여 줍니다.
+먼저 `journal_prepare_week_close`로 요약, 이월 항목과 Corpus 후보를 읽습니다. 후보가 있으면 `reflect-journal-outcomes`에 따라 Journal의 확정 결과와 해당 Corpus 정본을 대조하고 확인된 불일치를 반영·개정합니다. 처리하지 못한 후보나 실패가 있어도 사용자가 마감을 명시적으로 요청했다면 준비 응답의 `preparationVersion`으로 `journal_confirm_week_close`를 호출할 수 있습니다. 마감을 위해 미처리를 `applied`나 `skipped`로 바꾸지 않습니다. 준비 뒤 항목이 달라졌다면 새 준비 결과를 다시 보여 줍니다.
 
 명시적인 기록 동결을 원할 때만 이 절차를 사용합니다. 일상적인 업무 연속성과 주간 회고에는 마감이 필요하지 않으며, Corpus 반영도 자동 이월의 선행 조건이 아닙니다.
 
 마감 시 아직 후속 인스턴스가 없는 진행 중·보류 항목은 같은 `logicalItemId`로 다음 주에 이어집니다. `held`는 유지하고 이미 존재하는 후속 상태를 덮어쓰지 않습니다. 완료와 취소 항목은 마감 주에 남습니다. 마감된 주는 항목을 다시
 쓰지 않고, 사후 사실 정정만 `journal_add_correction`으로 남깁니다.
+
+마감 뒤 남은 반영은 `journal_get_board`에 마감 주의 `weekId`를 지정해 `closure.corpusCandidates`의 `reflectionStatus`와 `closure.corrections`에서 이어갑니다. 실패 상세와 시도 이력은 해당 항목 이력에서 읽습니다.
 
 마감 결과의 `corpusCandidates`는 Corpus에 자동 복제할 일반 기록이 아닙니다. 대상 프로젝트에 재사용할 확정 결과만 `reflect-journal-outcomes`로 넘깁니다. 결과 반영 요청만으로 주간 마감까지 승인됐다고 보지 않습니다.
 

@@ -904,10 +904,18 @@ export class JournalRepository {
             (id, week_id, item_id, target_space, source_path, content_hash, status, details, created_at)
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
            FROM weeks
-           WHERE id = ? AND status = 'open'
-             AND (? IS NULL OR EXISTS (
+           WHERE id = ? AND (
+             (status = 'open' AND (? IS NULL OR EXISTS (
                SELECT 1 FROM items WHERE id = ? AND week_id = ? AND version = ?
+             )))
+             OR (status = 'closed' AND EXISTS (
+               SELECT 1 FROM week_closures closure, json_each(closure.corpus_candidates_json) candidate
+               WHERE closure.week_id = weeks.id
+                 AND json_extract(candidate.value, '$.itemId') = ?
+                 AND json_extract(candidate.value, '$.targetSpace') = ?
+                 AND json_extract(candidate.value, '$.contentHash') = ?
              ))
+           )
              AND NOT EXISTS (
                SELECT 1 FROM corpus_promotion_receipts
                WHERE week_id = ? AND item_id IS ? AND target_space = ? AND content_hash = ?
@@ -932,6 +940,9 @@ export class JournalRepository {
           input.itemId,
           input.weekId,
           expectedItemVersion,
+          input.itemId,
+          input.targetSpace,
+          input.contentHash,
           input.weekId,
           input.itemId,
           input.targetSpace,

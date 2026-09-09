@@ -232,6 +232,16 @@ export const getBoardOutputSchema = z.looseObject({
   summary: openOutputObject(),
   items: z.array(itemOutputSchema),
   flow: z.array(openOutputObject()),
+  closure: z.looseObject({
+    summary: openOutputObject(),
+    corpusCandidates: z.array(z.looseObject({
+      itemId: z.string(),
+      targetSpace: z.string(),
+      contentHash: z.string(),
+      reflectionStatus: z.enum(["pending", "failed", "applied", "skipped"]),
+    })),
+    corrections: z.array(eventOutputSchema),
+  }).nullable(),
 });
 
 export const ingestOutputSchema = z.looseObject({
