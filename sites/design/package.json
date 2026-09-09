@@ -37,5 +37,10 @@
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "miniflare": {
+      "sharp": "0.35.4"
+    }
+  }
 }

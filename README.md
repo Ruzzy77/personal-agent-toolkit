@@ -434,6 +434,11 @@ Document Files는 자체 형식 설정과 전체 테스트를 사용합니다. `
 지원되는 플랫폼에서 서명과 체크섬을 확인하고, 그 밖의 검사는 Cloudflare에 배포하거나 운영
 데이터를 읽고 쓰지 않습니다.
 
+원격 Worker·Site의 `miniflare` 하위 `sharp`는 0.35.4로 고정합니다.
+상위 도구가 포함한 0.35.2의 [libheif 보안 문제](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c)를
+해결하기 위한 제한된 override이며, 다른 의존성의 버전 범위나 보안 검사 수준은 바꾸지 않습니다.
+상위 도구가 수정 버전을 포함하면 이 override를 제거하고 잠금 파일 재설치와 기존 검사를 확인합니다.
+
 ## License
 
 [Apache License 2.0](./LICENSE). Runtime dependency는 각 라이선스를 따릅니다. [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 함께 보십시오.
