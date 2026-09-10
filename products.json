@@ -51,7 +51,7 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.4.1"
+        "base_version": "0.4.2"
       },
       "delivery": {
         "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
