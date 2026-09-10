@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import errno
 import hashlib
 import os
@@ -30,6 +31,47 @@ COPY_CHUNK = 1024 * 1024
 DARWIN_PATH_BUFFER = 1024
 ABANDONED_CAPTURE_MIN_AGE_SECONDS = 24 * 60 * 60
 ABANDONED_CAPTURE_CLEANUP_LIMIT = 100
+
+
+def volume_uuid(descriptor: int) -> str | None:
+    """Read a mounted filesystem UUID from an already pinned directory, not contents."""
+
+    if sys.platform != "darwin":
+        return None
+
+    class AttrList(ctypes.Structure):
+        _fields_ = [
+            ("bitmapcount", ctypes.c_uint16),
+            ("reserved", ctypes.c_uint16),
+            ("commonattr", ctypes.c_uint32),
+            ("volattr", ctypes.c_uint32),
+            ("dirattr", ctypes.c_uint32),
+            ("fileattr", ctypes.c_uint32),
+            ("forkattr", ctypes.c_uint32),
+        ]
+
+    try:
+        read_attributes = ctypes.CDLL(None, use_errno=True).fgetattrlist
+        read_attributes.argtypes = [
+            ctypes.c_int,
+            ctypes.POINTER(AttrList),
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_ulong,
+        ]
+        read_attributes.restype = ctypes.c_int
+        # Darwin sys/attr.h: ATTR_VOL_INFO | ATTR_VOL_UUID. The result is a
+        # uint32 byte count followed by uuid_t; no file bytes are requested.
+        attributes = AttrList(5, 0, 0, 0x80040000, 0, 0, 0)
+        output = ctypes.create_string_buffer(20)
+        if read_attributes(descriptor, ctypes.byref(attributes), output, 20, 0):
+            return None
+        if int.from_bytes(output.raw[:4], sys.byteorder) != 20:
+            return None
+        value = uuid.UUID(bytes=output.raw[4:20])
+        return str(value) if value.int else None
+    except (AttributeError, OSError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)

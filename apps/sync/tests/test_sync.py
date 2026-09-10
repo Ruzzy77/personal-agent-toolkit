@@ -36,6 +36,7 @@ from personal_agent_sync.paths import (
     capture_snapshot,
     cleanup_abandoned_captures,
     resolve_moved_root,
+    volume_uuid,
 )
 from personal_agent_sync.reconcile import reconcile_all
 from personal_agent_sync.state import SyncState
@@ -1005,7 +1006,8 @@ def test_database_upgrade_removes_remote_analysis_policy_state(tmp_path: Path) -
     assert "analyzer_route" not in columns
     assert "max_transfer_bytes" not in columns
     assert "remote_approvals" not in tables
-    assert version == 4
+    assert "root_volume_uuid" in columns
+    assert version == 5
 
 
 def test_reanalysis_generation_refills_its_queue_in_bounded_batches(
@@ -1790,6 +1792,141 @@ def test_root_rebind_updates_the_isolated_local_corpus_authority(
         ],
         "root": str(replacement),
     }
+
+
+def _simulate_remount(state: SyncState, root: Path, *, enrolled: bool = True) -> int:
+    previous_device = root.stat().st_dev + 1000
+    with state.connect() as connection:
+        connection.execute(
+            "UPDATE connections SET root_device = ?, root_volume_uuid = ?",
+            (previous_device, "volume-a" if enrolled else None),
+        )
+        connection.execute("UPDATE documents SET device = ?", (previous_device,))
+    return previous_device
+
+
+@pytest.mark.parametrize("at_startup", [True, False])
+def test_remount_preserves_ids_projections_and_detects_real_edits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, at_startup: bool
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("original")
+    monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-a")
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    document_id, _ = state.observe_file("notes:main", "note.txt", note.stat())
+    state.complete_change("notes:main", document_id, "a" * 64, "projection-old")
+    _simulate_remount(state, root)
+    monkeypatch.setattr(
+        state_module, "open_relative", lambda *_: pytest.fail("file contents opened")
+    )
+
+    if at_startup:
+        state = SyncState(config)
+    assert reconcile_all(state)[0]["changed"] == 0
+    assert state.connection_row("notes:main")["root_device"] == root.stat().st_dev
+    with state.connect() as connection:
+        document = connection.execute("SELECT * FROM documents").fetchone()
+        assert document["document_id"] == document_id
+        assert document["last_projection_id"] == "projection-old"
+        assert document["last_revision_sha256"] == "a" * 64
+        assert (
+            connection.execute("SELECT COUNT(*) FROM change_queue").fetchone()[0] == 0
+        )
+    note.write_text("genuine later change")
+    assert reconcile_all(state)[0]["changed"] == 1
+    with state.connect() as connection:
+        assert (
+            connection.execute("SELECT document_id FROM documents").fetchone()[0]
+            == document_id
+        )
+
+
+def test_legacy_remount_needs_guarded_confirmation_and_does_not_read_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-a")
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    old = _simulate_remount(state, root, enrolled=False)
+    state = SyncState(config)
+    assert state.connection_row("notes:main")["location_state"] == "unavailable"
+    assert not state.recover_remounted_root("notes:main")
+    monkeypatch.setattr(
+        state_module, "open_relative", lambda *_: pytest.fail("source read")
+    )
+    with pytest.raises(SyncError, match="Registered root identity changed"):
+        state.confirm_remounted_root(
+            "notes:main", expected_device=old + 1, expected_inode=root.stat().st_ino
+        )
+    result = state.confirm_remounted_root(
+        "notes:main", expected_device=old, expected_inode=root.stat().st_ino
+    )
+    assert result["source_contents_read"] is False
+    assert state.connection_row("notes:main")["root_volume_uuid"] == "volume-a"
+    assert (
+        load_config(tmp_path / "config.toml").connections[0].permission == "read_write"
+    )
+
+
+@pytest.mark.parametrize("failure", ["volume", "unknown_volume", "inode", "symlink"])
+def test_remount_rejects_unproven_replacements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-a")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    old_inode = root.stat().st_ino
+    old = _simulate_remount(state, root)
+    if failure == "volume":
+        monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-b")
+    elif failure == "unknown_volume":
+        monkeypatch.setattr(state_module, "volume_uuid", lambda _: None)
+    else:
+        root.rename(tmp_path / "original")
+        if failure == "inode":
+            root.mkdir()
+        else:
+            root.symlink_to(tmp_path / "original", target_is_directory=True)
+    assert not state.recover_remounted_root("notes:main")
+    with pytest.raises(SyncError, match="could not be verified"):
+        state.confirm_remounted_root(
+            "notes:main", expected_device=old, expected_inode=old_inode
+        )
+    assert state.connection_row("notes:main")["root_device"] == old
+
+
+def test_volume_mismatch_blocks_even_if_device_and_inode_are_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-a")
+    state = SyncState(load_config(write_config(tmp_path, root)))
+    monkeypatch.setattr(state_module, "volume_uuid", lambda _: "volume-b")
+    assert reconcile_all(state)[0]["state"] == "unavailable"
+    revoked = replace(state.config.connections[0], permission="read_only", generation=4)
+    state.register_connections((revoked,))
+    assert state.connection_row("notes:main")["permission"] == "read_only"
+    assert state.connection_row("notes:main")["generation"] == 4
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin volume metadata")
+def test_native_volume_uuid_is_stable_for_open_directories(tmp_path: Path) -> None:
+    child = tmp_path / "child"
+    child.mkdir()
+    descriptors = [os.open(p, os.O_RDONLY | os.O_DIRECTORY) for p in (tmp_path, child)]
+    try:
+        assert volume_uuid(descriptors[0]) is not None
+        assert volume_uuid(descriptors[0]) == volume_uuid(descriptors[1])
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
 
 
 def test_completed_job_replay_is_identity_checked_and_bounded(

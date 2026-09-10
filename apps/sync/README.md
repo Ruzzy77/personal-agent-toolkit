@@ -9,6 +9,8 @@ on a local port and does not expose the Mac through a tunnel.
 - retain absolute folder locators and filesystem identities only in the private
   local database;
 - recover same-volume Finder renames and moves by directory identity on macOS;
+- preserve document identities after a remount changes the device number, using
+  the recorded filesystem UUID and unchanged root inode without reading sources;
 - explicitly rebind copied checkouts or restored folders with new filesystem
   identities while preserving logical document IDs by safe relative path and
   verifying the hashes of previously projected files;
@@ -158,7 +160,25 @@ From the current repository root, that command is
 `uv run --project apps/sync --frozen personal-agent-sync verify-migration --products products.json`.
 It uses the checkout's environment, not the installed background service.
 
-Ordinary Finder renames and moves need no configuration change. If a folder was
+Ordinary Finder renames and moves need no configuration change. Sync records the
+filesystem UUID from an open directory on macOS. A later device-number change
+is recovered automatically only when that UUID and the root inode still match.
+Recovery updates device locators, not content hashes, projections, permissions,
+generation, or the change queue. Unavailable UUIDs and different folders/volumes
+remain unavailable rather than being silently trusted.
+
+Legacy registrations whose device number already changed before this UUID was
+recorded require an operator-confirmed initial recovery. With Sync stopped,
+check the unchanged registered directory and its stored identity, then run
+`personal-agent-sync confirm-remount SPACE:CONNECTION --expected-device OLD_DEVICE
+--expected-inode ROOT_INODE`. This command cannot select a different path or
+accept a changed inode/known UUID, does not read or hydrate source files, and does
+not rewrite the private configuration. It enrolls the observed UUID and refreshes
+all Connections sharing that root. Local Corpus already refreshes the same-root
+device locator through its normal Source/Work location checks; do not run its
+copied-folder rebind or a Source refresh merely for this device-number change.
+
+If a folder was
 copied, restored, or recreated as a new checkout, its filesystem identity is no
 longer proof that it is the same Source. Stop Sync and run
 `personal-agent-sync rebind-root SPACE:CONNECTION NEW_ROOT`. The explicit rebind

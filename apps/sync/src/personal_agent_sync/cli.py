@@ -48,6 +48,13 @@ def parser() -> argparse.ArgumentParser:
     )
     rebind.add_argument("connection_key")
     rebind.add_argument("root", type=Path)
+    remount = commands.add_parser(
+        "confirm-remount",
+        help="confirm an unchanged legacy folder after a volume remount without reading files",
+    )
+    remount.add_argument("connection_key")
+    remount.add_argument("--expected-device", type=int, required=True)
+    remount.add_argument("--expected-inode", type=int, required=True)
     commands.add_parser("status", help="show local queue and Connection status")
     workspace = commands.add_parser(
         "workspace-resolve", help="match an explicitly registered host Workspace"
@@ -343,6 +350,12 @@ def main() -> None:
                 Path(str(result["root"])),
             )
             result["config_updated"] = True
+        elif arguments.command == "confirm-remount":
+            result = SyncState(config).confirm_remounted_root(
+                arguments.connection_key,
+                expected_device=arguments.expected_device,
+                expected_inode=arguments.expected_inode,
+            )
         elif arguments.command == "status":
             result = _status(SyncState(config))
         elif arguments.command == "storage-report":

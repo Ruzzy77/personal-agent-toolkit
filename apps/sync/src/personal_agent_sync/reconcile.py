@@ -37,7 +37,12 @@ def current_root(state: SyncState, connection: ConnectionConfig) -> Path | None:
     root = resolve_moved_root(
         Path(row["root_path"]), int(row["root_device"]), int(row["root_inode"])
     )
-    if root is None:
+    if root is None and state.recover_remounted_root(connection.key):
+        row = state.connection_row(connection.key)
+        root = resolve_moved_root(
+            Path(row["root_path"]), int(row["root_device"]), int(row["root_inode"])
+        )
+    if root is None or not state.root_volume_matches(connection.key, root):
         state.set_location_state(connection.key, "unavailable")
         return None
     if str(root) != row["root_path"]:

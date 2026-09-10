@@ -16,7 +16,7 @@ from typing import Any
 
 from .config import ConnectionConfig, SyncConfig
 from .errors import SyncError
-from .paths import COPY_CHUNK, open_relative, open_root, resolve_moved_root
+from .paths import COPY_CHUNK, open_relative, open_root, resolve_moved_root, volume_uuid
 
 MAX_PENDING_CHANGES = 10_000
 MAX_COMPLETED_JOBS = 2_048
@@ -162,7 +162,11 @@ class SyncState:
                     connection.execute(
                         f"ALTER TABLE connections DROP COLUMN {legacy_column}"
                     )
-            connection.execute("PRAGMA user_version = 4")
+            if "root_volume_uuid" not in connection_columns:
+                connection.execute(
+                    "ALTER TABLE connections ADD COLUMN root_volume_uuid TEXT"
+                )
+            connection.execute("PRAGMA user_version = 5")
             columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(documents)")
@@ -184,6 +188,7 @@ class SyncState:
     def register_connections(self, values: tuple[ConnectionConfig, ...]) -> None:
         now = now_iso()
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             for value in values:
                 current = connection.execute(
                     "SELECT * FROM connections WHERE connection_key = ?",
@@ -213,6 +218,19 @@ class SyncState:
                     )
                 if current is not None:
                     identity = (int(current["root_device"]), int(current["root_inode"]))
+                    if (
+                        metadata is not None
+                        and metadata.st_dev != identity[0]
+                        and self._rebase_mounted_volume(connection, current) is not None
+                    ):
+                        current = connection.execute(
+                            "SELECT * FROM connections WHERE connection_key = ?",
+                            (value.key,),
+                        ).fetchone()
+                        identity = (
+                            int(current["root_device"]),
+                            int(current["root_inode"]),
+                        )
                     if (
                         metadata is None
                         or (metadata.st_dev, metadata.st_ino) != identity
@@ -250,14 +268,41 @@ class SyncState:
                 else:
                     root_path = value.root
                 assert metadata is not None
+                descriptor = open_root(root_path, (metadata.st_dev, metadata.st_ino))
+                try:
+                    mounted_uuid = volume_uuid(descriptor)
+                finally:
+                    os.close(descriptor)
+                if current is not None and current["root_volume_uuid"] not in (
+                    None,
+                    mounted_uuid,
+                ):
+                    connection.execute(
+                        "UPDATE connections SET space_id = ?, connection_id = ?, "
+                        "access_scope = ?, permission = ?, roles_json = ?, corpus_id = ?, "
+                        "generation = ?, location_state = 'unavailable', updated_at = ? "
+                        "WHERE connection_key = ?",
+                        (
+                            value.space_id,
+                            value.connection_id,
+                            value.access_scope,
+                            value.permission,
+                            canonical(sorted(value.roles)),
+                            value.corpus_id,
+                            value.generation,
+                            now,
+                            value.key,
+                        ),
+                    )
+                    continue
                 connection.execute(
                     """
                     INSERT INTO connections(
                         connection_key, space_id, connection_id, root_path,
                         root_device, root_inode, access_scope, permission, roles_json,
                         corpus_id, generation,
-                        location_state, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)
+                        location_state, updated_at, root_volume_uuid
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)
                     ON CONFLICT(connection_key) DO UPDATE SET
                         space_id=excluded.space_id,
                         connection_id=excluded.connection_id,
@@ -267,7 +312,8 @@ class SyncState:
                         roles_json=excluded.roles_json,
                         corpus_id=excluded.corpus_id,
                         generation=excluded.generation,
-                        location_state='available', updated_at=excluded.updated_at
+                        location_state='available', updated_at=excluded.updated_at,
+                        root_volume_uuid=excluded.root_volume_uuid
                     """,
                     (
                         value.key,
@@ -282,8 +328,130 @@ class SyncState:
                         value.corpus_id,
                         value.generation,
                         now,
+                        mounted_uuid,
                     ),
                 )
+
+    def _rebase_mounted_volume(
+        self,
+        connection: sqlite3.Connection,
+        current: sqlite3.Row,
+        *,
+        enroll: bool = False,
+    ) -> dict[str, object] | None:
+        """Refresh only device locators on the same pinned directory and volume."""
+
+        root = Path(current["root_path"])
+        old_device, inode = int(current["root_device"]), int(current["root_inode"])
+        try:
+            metadata = root.lstat()
+            if not stat.S_ISDIR(metadata.st_mode) or metadata.st_ino != inode:
+                return None
+            descriptor = open_root(root, (metadata.st_dev, inode))
+        except (OSError, SyncError):
+            return None
+        try:
+            mounted_uuid = volume_uuid(descriptor)
+            if mounted_uuid is None or (
+                current["root_volume_uuid"] != mounted_uuid
+                and not (enroll and current["root_volume_uuid"] is None)
+            ):
+                return None
+            siblings = connection.execute(
+                "SELECT * FROM connections WHERE root_device = ? AND root_inode = ?",
+                (old_device, inode),
+            ).fetchall()
+            if any(
+                row["root_volume_uuid"] not in (None, mounted_uuid) for row in siblings
+            ):
+                return None
+            # Hold the directory descriptor across the guarded SQLite update.
+            # A path swap, copied root, or different known volume is not a remount.
+            observed = root.lstat()
+            if (observed.st_dev, observed.st_ino) != (metadata.st_dev, inode):
+                return None
+            updated = 0
+            keys = [str(row["connection_key"]) for row in siblings]
+            for key in keys:
+                if old_device != metadata.st_dev:
+                    updated += connection.execute(
+                        "UPDATE documents SET device = ? WHERE connection_key = ? AND device = ?",
+                        (metadata.st_dev, key, old_device),
+                    ).rowcount
+                connection.execute(
+                    "UPDATE connections SET root_device = ?, root_volume_uuid = ?, "
+                    "location_state = 'available', updated_at = ? WHERE connection_key = ? "
+                    "AND root_device = ? AND root_inode = ?",
+                    (metadata.st_dev, mounted_uuid, now_iso(), key, old_device, inode),
+                )
+            observed = root.lstat()
+            if (observed.st_dev, observed.st_ino) != (metadata.st_dev, inode):
+                raise SyncError(
+                    "connection_identity_changed",
+                    "Connection root changed during recovery",
+                )
+            return {
+                "connection_keys": keys,
+                "old_device": old_device,
+                "new_device": metadata.st_dev,
+                "document_locators_updated": updated,
+                "source_contents_read": False,
+            }
+        finally:
+            os.close(descriptor)
+
+    def recover_remounted_root(self, key: str) -> bool:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT * FROM connections WHERE connection_key = ?", (key,)
+            ).fetchone()
+            return (
+                current is not None
+                and self._rebase_mounted_volume(connection, current) is not None
+            )
+
+    def root_volume_matches(self, key: str, root: Path) -> bool:
+        current = self.connection_row(key)
+        descriptor = -1
+        try:
+            descriptor = open_root(
+                root, (int(current["root_device"]), int(current["root_inode"]))
+            )
+            return (
+                current["root_volume_uuid"] is None
+                or volume_uuid(descriptor) == current["root_volume_uuid"]
+            )
+        except SyncError:
+            return False
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    def confirm_remounted_root(
+        self, key: str, *, expected_device: int, expected_inode: int
+    ) -> dict[str, object]:
+        """Explicitly enroll a legacy root after operator-confirmed same-folder recovery."""
+
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT * FROM connections WHERE connection_key = ?", (key,)
+            ).fetchone()
+            if current is None or (current["root_device"], current["root_inode"]) != (
+                expected_device,
+                expected_inode,
+            ):
+                raise SyncError(
+                    "connection_identity_changed", "Registered root identity changed"
+                )
+            result = self._rebase_mounted_volume(connection, current, enroll=True)
+            if result is None:
+                raise SyncError(
+                    "remount_not_verified",
+                    "The same folder and volume could not be verified",
+                )
+            return result
 
     def seed_documents(
         self, key: str, documents: list[Mapping[str, object]]
@@ -549,6 +717,7 @@ class SyncState:
 
         new_identity = (int(metadata.st_dev), int(metadata.st_ino))
         root_descriptor = open_root(candidate, new_identity)
+        mounted_uuid = volume_uuid(root_descriptor)
         observations: list[dict[str, object]] = []
         try:
             for document in documents:
@@ -657,11 +826,19 @@ class SyncState:
             connection.executemany(
                 """
                 UPDATE connections SET root_path = ?, root_device = ?,
-                    root_inode = ?, location_state = 'available', updated_at = ?
+                    root_inode = ?, location_state = 'available', updated_at = ?,
+                    root_volume_uuid = ?
                 WHERE connection_key = ?
                 """,
                 [
-                    (str(candidate), new_identity[0], new_identity[1], now, sibling)
+                    (
+                        str(candidate),
+                        new_identity[0],
+                        new_identity[1],
+                        now,
+                        mounted_uuid,
+                        sibling,
+                    )
                     for sibling in connection_keys
                 ],
             )
