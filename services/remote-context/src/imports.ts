@@ -1,3 +1,4 @@
+import { managementSchemaReady, guard, guardedBatch } from "./management-db";
 import { canonicalJson, nowIso } from "./canonical";
 import { ContextError } from "./errors";
 import { corpusMetadataImportSchema } from "./schemas";
@@ -39,13 +40,33 @@ export async function importCorpusMetadata(
     };
   }
 
-  const nativeCanon = await db.prepare(
-    `SELECT 1 AS present FROM corpus_documents WHERE owner_id = ?
+  const managed = await managementSchemaReady(db);
+  if (
+    managed &&
+    (await db
+      .prepare("SELECT 1 FROM corpus_management_owners WHERE owner_id=?")
+      .bind(ownerId)
+      .first())
+  ) {
+    throw new ContextError(
+      "management_canon_present",
+      "Legacy imports cannot replace managed identities or deletion state",
+      409,
+    );
+  }
+  const nativeCanon = await db
+    .prepare(
+      `SELECT 1 AS present FROM corpus_documents WHERE owner_id = ?
      UNION ALL SELECT 1 AS present FROM corpus_workspace_bindings WHERE owner_id = ? LIMIT 1`,
-  ).bind(ownerId, ownerId).first();
+    )
+    .bind(ownerId, ownerId)
+    .first();
   if (nativeCanon) {
-    throw new ContextError("native_canon_present",
-      "Whole-owner metadata import cannot replace native Corpus documents or Workspace bindings", 409);
+    throw new ContextError(
+      "native_canon_present",
+      "Whole-owner metadata import cannot replace native Corpus documents or Workspace bindings",
+      409,
+    );
   }
 
   const spaceIds = new Set(input.spaces.map((space) => space.spaceId));
@@ -338,6 +359,19 @@ export async function importCorpusMetadata(
         ),
     );
   }
+  if (managed)
+    statements.push(
+      db
+        .prepare(
+          `UPDATE corpus_context_sources SET
+    source_space_id=(SELECT space_id FROM corpus_context_items i WHERE i.owner_id=corpus_context_sources.owner_id AND i.item_id=corpus_context_sources.item_id),
+    source_connection_id=(SELECT min(connection_id) FROM corpus_connections c JOIN corpus_context_items i ON i.owner_id=c.owner_id AND i.space_id=c.space_id
+      WHERE i.owner_id=corpus_context_sources.owner_id AND i.item_id=corpus_context_sources.item_id AND c.corpus_id=corpus_context_sources.corpus_id
+        AND c.index_mode='indexed' AND EXISTS (SELECT 1 FROM json_each(c.roles_json) WHERE value='source') HAVING count(*)=1)
+    WHERE owner_id=?`,
+        )
+        .bind(ownerId),
+    );
   const counts = {
     spaces: input.spaces.length,
     contexts: input.contexts.length,
@@ -364,11 +398,37 @@ export async function importCorpusMetadata(
       ),
   );
   try {
-    await db.batch(statements);
+    await guardedBatch(
+      db,
+      [
+        ...(managed
+          ? [
+              guard(
+                db,
+                "NOT EXISTS(SELECT 1 FROM corpus_management_owners WHERE owner_id=?)",
+                [ownerId],
+              ),
+            ]
+          : []),
+        guard(
+          db,
+          "NOT EXISTS(SELECT 1 FROM corpus_documents WHERE owner_id=?) AND NOT EXISTS(SELECT 1 FROM corpus_workspace_bindings WHERE owner_id=?)",
+          [ownerId, ownerId],
+        ),
+      ],
+      statements,
+      "import_conflict",
+    );
   } catch (error) {
-    if (error instanceof Error && error.message.includes("native_canon_present")) {
-      throw new ContextError("native_canon_present",
-        "Native Corpus canon appeared before import; the entire metadata import was rolled back", 409);
+    if (
+      error instanceof Error &&
+      error.message.includes("native_canon_present")
+    ) {
+      throw new ContextError(
+        "native_canon_present",
+        "Native Corpus canon appeared before import; the entire metadata import was rolled back",
+        409,
+      );
     }
     throw error;
   }

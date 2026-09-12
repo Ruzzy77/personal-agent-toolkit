@@ -1,36 +1,13 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import {
+  operationAnnotations,
   mcpTextError,
   mcpTextResult,
   shortLivedMcpAuth,
 } from "@personal-agent/remote-runtime";
 
-import { CorpusService } from "./corpus";
-import { contextOperations, executeContextOperation, NATIVE_CORPUS_TOOLS } from "./context-api";
+import { contextOperations, executeContextOperation } from "./context-api";
 import { asContextError, ContextError } from "./errors";
-import { HypesService } from "./hypes";
-import {
-  contextToolOutputSchema,
-  corpusContextItemsReviseSchema,
-  corpusContextSkillReviseSchema,
-  corpusFileDeleteSchema,
-  corpusFileListSchema,
-  corpusFileReadSchema,
-  corpusFileRestoreSchema,
-  corpusFileSelectSchema,
-  corpusFileWriteSchema,
-  corpusJobStatusSchema,
-  corpusSourceRefreshSchema,
-  corpusSpaceGetSchema,
-  corpusSpaceListSchema,
-  corpusSpaceSearchSchema,
-  hypesReadSchema,
-  hypesRewriteSchema,
-  senseReadSchema,
-  senseReviseSchema,
-  senseSkillReviseSchema,
-} from "./schemas";
-import { SenseService } from "./sense";
 import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 import { registerDesignTools } from "personal-agent-design-service/mcp";
@@ -40,16 +17,6 @@ import { JournalService } from "personal-agent-journal-service/service";
 import type { Principal as JournalPrincipal } from "personal-agent-journal-service/types";
 import { registerLibraryTools } from "personal-agent-library-service/mcp";
 import { LibraryService } from "personal-agent-library-service/service";
-
-function requireScope(principal: Principal, scope: string): void {
-  if (!principal.scopes.has(scope)) {
-    throw new ContextError(
-      "insufficient_scope",
-      "the connection does not grant this operation",
-      403,
-    );
-  }
-}
 
 function success(value: unknown) {
   const wrapped = { ok: true as const, result: value };
@@ -110,25 +77,29 @@ function toolkitServer(env: Env, principal: Principal): McpServer {
   registerSenseTools(server, env, principal);
   registerCorpusTools(server, env, principal);
   registerHypesTools(server, env, principal);
-  registerJournalTools(
-    server,
-    new JournalService(env.JOURNAL_DB),
-    {
-      kind: "owner",
-      id: principal.ownerId,
-      scopes: principal.scopes,
-      auth: "oauth",
-    } satisfies JournalPrincipal,
-  );
+  registerJournalTools(server, new JournalService(env.JOURNAL_DB), {
+    kind: "owner",
+    id: principal.ownerId,
+    scopes: principal.scopes,
+    auth: "oauth",
+  } satisfies JournalPrincipal);
   registerLibraryTools(
     server,
     principal.owner,
-    new LibraryService({ DB: env.LIBRARY_DB, MEDIA: env.LIBRARY_MEDIA }),
+    new LibraryService({
+      DB: env.LIBRARY_DB,
+      MEDIA: env.LIBRARY_MEDIA,
+      MANAGEMENT_WRITE_ENABLED: env.LIBRARY_MANAGEMENT_WRITE_ENABLED,
+    }),
   );
   registerDesignTools(
     server,
     designOwner(principal),
-    new DesignService({ DB: env.DESIGN_DB, ASSETS: env.DESIGN_ASSETS }),
+    new DesignService({
+      DB: env.DESIGN_DB,
+      ASSETS: env.DESIGN_ASSETS,
+      MANAGEMENT_WRITE_ENABLED: env.DESIGN_MANAGEMENT_WRITE_ENABLED,
+    }),
   );
   return server;
 }
@@ -170,70 +141,23 @@ export function registerSenseTools(
   env: Env,
   principal: Principal,
 ): void {
-  const service = new SenseService(env.STATE_DB, principal.ownerId);
-  server.registerTool(
-    "sense_read",
-    {
-      title: "Read Sense",
-      description:
-        'Read selected guidance with view="sections" and section_ids from the index. Default view="index" returns metadata, not section bodies. include_skill=false omits linked Skill instructions; include the complete Skill when its method is needed.',
-      inputSchema: senseReadSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async ({ view, section_ids, include_skill }) =>
-      safeTool(async () => {
-        requireScope(principal, "sense.read");
-        return service.read(view, section_ids, include_skill);
-      }),
-  );
-  server.registerTool(
-    "sense_overview",
-    {
-      title: "Show Sense",
-      description: "Show complete ordinary guidance when the owner asks to review Sense.",
-      inputSchema: {},
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async () =>
-      safeTool(async () => {
-        requireScope(principal, "sense.read");
-        return service.overview(env.CONTEXT_SITE_URL);
-      }),
-  );
-  server.registerTool(
-    "sense_revise",
-    {
-      title: "Revise Sense",
-      description:
-        "Atomically replace complete ordinary Sense sections after an explicit user request and conflict-safe read.",
-      inputSchema: senseReviseSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "sense.write");
-        return service.revise(input);
-      }),
-  );
-  server.registerTool(
-    "sense_skill_revise",
-    {
-      title: "Revise Sense Section Skill",
-      description:
-        "Replace one complete ordinary Section Skill after reading its current version.",
-      inputSchema: senseSkillReviseSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "sense.write");
-        return service.reviseSkill(input);
-      }),
-  );
+  for (const [name, operation] of Object.entries(
+    contextOperations(env, principal),
+  )) {
+    if (!name.startsWith("sense_") || !operation.surfaces.includes("mcp"))
+      continue;
+    server.registerTool(
+      name,
+      {
+        description: operation.description,
+        inputSchema: operation.schema,
+        outputSchema: operation.mcpOutput,
+        annotations: operationAnnotations(operation),
+      },
+      async (input) =>
+        safeTool(() => executeContextOperation(env, principal, name, input)),
+    );
+  }
 }
 
 function hypesServer(env: Env, principal: Principal): McpServer {
@@ -255,39 +179,23 @@ export function registerHypesTools(
   env: Env,
   principal: Principal,
 ): void {
-  const service = new HypesService(env.STATE_DB, principal.ownerId);
-  server.registerTool(
-    "hypes_read",
-    {
-      title: "Read User Relationship Model",
-      description:
-        "Read a focused relationship slice or continue from returned node and predicate refs. The returned version identifies the owner's whole graph and is required as expected_version for a subsequent rewrite.",
-      inputSchema: hypesReadSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "hypes.read");
-        return service.read(input);
-      }),
-  );
-  server.registerTool(
-    "hypes_rewrite",
-    {
-      title: "Rewrite User Relationship Model",
-      description:
-        "Maintain reusable nonsensitive relationships with one atomic put or delete patch. Pass the version from the read used to prepare this patch as expected_version, including for creates. On graph_conflict, reread relevant relationships and rebuild the patch; never retry the old patch by replacing only its version.",
-      inputSchema: hypesRewriteSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "hypes.write");
-        return service.rewrite(input);
-      }),
-  );
+  for (const [name, operation] of Object.entries(
+    contextOperations(env, principal),
+  )) {
+    if (!name.startsWith("hypes_") || !operation.surfaces.includes("mcp"))
+      continue;
+    server.registerTool(
+      name,
+      {
+        description: operation.description,
+        inputSchema: operation.schema,
+        outputSchema: operation.mcpOutput,
+        annotations: operationAnnotations(operation),
+      },
+      async (input) =>
+        safeTool(() => executeContextOperation(env, principal, name, input)),
+    );
+  }
 }
 
 function corpusServer(env: Env, principal: Principal): McpServer {
@@ -311,225 +219,23 @@ export function registerCorpusTools(
   env: Env,
   principal: Principal,
 ): void {
-  const operations = contextOperations(env, principal);
-  for (const name of NATIVE_CORPUS_TOOLS) {
-    const operation = operations[name]!;
-    server.registerTool(name, {
-      description: operation.description,
-      inputSchema: operation.schema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: operation.readOnly, destructiveHint: false, idempotentHint: operation.readOnly },
-    }, async input => safeTool(() => executeContextOperation(env, principal, name, input)));
+  for (const [name, operation] of Object.entries(
+    contextOperations(env, principal),
+  )) {
+    if (!name.startsWith("corpus_") || !operation.surfaces.includes("mcp"))
+      continue;
+    server.registerTool(
+      name,
+      {
+        description: operation.description,
+        inputSchema: operation.schema,
+        outputSchema: operation.mcpOutput,
+        annotations: operationAnnotations(operation),
+      },
+      async (input) =>
+        safeTool(() => executeContextOperation(env, principal, name, input)),
+    );
   }
-
-  const service = new CorpusService(env, principal);
-  server.registerTool(
-    "corpus_space_list",
-    {
-      title: "List Spaces",
-      description:
-        "Use this first to see remote-visible Spaces, Context summaries, Connections, and source readiness.",
-      inputSchema: corpusSpaceListSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.spaceList(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_space_get",
-    {
-      title: "Open Space",
-      description:
-        "Open one Space and read its Context, approved Context Skill, Connections, and Current File state. When evidence matters, set include_sources=true on a focused Context page. Each item has paged sources.links; continue its next_offset as source_offset with context_limit=1 and that item's context_offset, checking the Context version. Open non-null read_ref with corpus_file_read and source_view=text; compare document/revision/projection/unit identities. Null references report unavailable evidence access, not absent evidence.",
-      inputSchema: corpusSpaceGetSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.spaceGet(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_context_items_revise",
-    {
-      title: "Revise Context Items",
-      description:
-        "Atomically replace selected existing Context item content after an explicit user request. Optionally patch attributes.source_of_truth as descriptive text (null removes it); omission preserves it. Other attributes and all historical Source links are preserved. This does not move files or revise evidence links.",
-      inputSchema: corpusContextItemsReviseSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.reviseContextItems(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_context_skill_revise",
-    {
-      title: "Revise Context Skill",
-      description:
-        "Replace the complete approved Context Skill after reading its current version.",
-      inputSchema: corpusContextSkillReviseSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.reviseContextSkill(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_space_search",
-    {
-      title: "Search Space Sources",
-      description:
-        "Locate current committed Source text. Open a returned read_ref with corpus_file_read.",
-      inputSchema: corpusSpaceSearchSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.spaceSearch(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_source_refresh",
-    {
-      title: "Refresh Source Document",
-      description:
-        "Request an exact local Source reread and projection refresh through the owner's Sync app. " +
-        "Current Connection policy and an optional expected revision are checked locally; a long " +
-        "analysis may return a job id before it finishes.",
-      inputSchema: corpusSourceRefreshSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.sourceRefresh(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_job_status",
-    {
-      title: "Inspect Corpus Job",
-      description:
-        "Inspect a queued or completed Corpus Sync job returned by a Source or Work operation.",
-      inputSchema: corpusJobStatusSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.jobStatus(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_list",
-    {
-      title: "List Space Files",
-      description:
-        "List or find files in a visible Work Connection through the owner's Sync app.",
-      inputSchema: corpusFileListSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.fileList(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_read",
-    {
-      title: "Read Space File",
-      description:
-        "Read captured Source text by read_ref, or a live Work file through Sync. For ordinary Source reading use source_view=text: one paged body, source captured_at/state, and per-page spans with read_ref and structure. Use full (the legacy default) for complete unit envelopes/hashes. include_structure_context expands explicit table-row/header and note/owner links. Continue with next_start_char and the same reference/view/options; text offsets are Unicode code points, full offsets are UTF-16 units. Source-only options require read_ref. Check extraction warnings and has_more before treating a table or document as complete. projection_state=active_for_revision is active only within that revision; superseded is an older extraction. captured_at is the stored revision capture time, not judgment time. Preserve historical references rather than substituting current search hits.",
-      inputSchema: corpusFileReadSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.read");
-        return service.fileRead(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_write",
-    {
-      title: "Write Space File",
-      description:
-        "Atomically write a user-requested Work file through Sync using an expected version.",
-      inputSchema: corpusFileWriteSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.fileWrite(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_delete",
-    {
-      title: "Delete Space File",
-      description: "Permanently delete a user-confirmed Work file with its latest version token.",
-      inputSchema: corpusFileDeleteSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.fileDelete(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_select_current",
-    {
-      title: "Select Current Space File",
-      description: "Mark an existing Work file as the Space's Current File.",
-      inputSchema: corpusFileSelectSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.fileSelectCurrent(input);
-      }),
-  );
-  server.registerTool(
-    "corpus_file_restore",
-    {
-      title: "Undo Space File Replacement",
-      description: "Restore a completed Work replacement using its recovery id and current version.",
-      inputSchema: corpusFileRestoreSchema,
-      outputSchema: contextToolOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    },
-    async (input) =>
-      safeTool(async () => {
-        requireScope(principal, "corpus.write");
-        return service.fileRestore(input);
-      }),
-  );
 }
 
 export async function handleMcp(

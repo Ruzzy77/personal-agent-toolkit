@@ -1,12 +1,13 @@
 {
   "name": "personal-agent-library-service",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Owner-authenticated remote MCP for Library",
   "exports": {
     "./mcp": "./src/mcp.ts",
-    "./service": "./src/service.ts"
+    "./service": "./src/service.ts",
+    "./management": "./src/management.ts"
   },
   "files": [
     "src"
@@ -21,7 +22,8 @@
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
     "@personal-agent/remote-runtime": "file:../../packages/remote-runtime",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "@personal-agent/immutable-assets": "file:../../packages/immutable-assets"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.1.3",

@@ -169,6 +169,11 @@ async def _publish_connection(config, connection_key: str, expected: str) -> dic
         raise SyncError(
             "invalid_configuration", "expected remote generation is invalid"
         )
+    if SyncState(config).is_retired("connection", connection_key):
+        raise SyncError(
+            "registration_detached",
+            "Retired Connections cannot be republished from an old configuration",
+        )
     # The payload is projection metadata only. It contains no local root locator.
     payload = LocalCorpusMigration(config).metadata_payload()
     selected = [
@@ -321,9 +326,22 @@ def main() -> None:
                 workspace_id=arguments.workspace_id,
                 path=arguments.path,
             )
+            workspace = result["workspace"]
+            if SyncState(config).is_retired(
+                "workspace", f"{workspace['host_id']}:{workspace['workspace_id']}"
+            ):
+                raise SyncError(
+                    "workspace_detached", "The Workspace binding has been retired"
+                )
         elif arguments.command == "workspace-list":
             result = {
-                "workspaces": [item.public_binding() for item in config.workspaces]
+                "workspaces": [
+                    item.public_binding()
+                    for item in config.workspaces
+                    if not SyncState(config).is_retired(
+                        "workspace", f"{item.host_id}:{item.workspace_id}"
+                    )
+                ]
             }
         elif arguments.command == "set-credential":
             store_token(config.device_id, arguments.token)

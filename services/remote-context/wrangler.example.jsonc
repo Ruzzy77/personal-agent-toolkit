@@ -56,7 +56,13 @@
       "entrypoint": "AuthService"
     }
   ],
+  "triggers": {"crons": ["0 19 * * *"]},
   "vars": {
+    "LIBRARY_MANAGEMENT_WRITE_ENABLED": "false",
+    "DESIGN_MANAGEMENT_WRITE_ENABLED": "false",
+    "SENSE_MANAGEMENT_WRITE_ENABLED": "false",
+    "CORPUS_MANAGEMENT_WRITE_ENABLED": "false",
+    "TRASH_SWEEP_ENABLED": "false",
     "AUTH_ISSUER": "https://personal-agent-auth.example.workers.dev",
     "SENSE_RESOURCE": "https://personal-agent-context.example.workers.dev/sense/mcp",
     "CORPUS_RESOURCE": "https://personal-agent-context.example.workers.dev/corpus/mcp",

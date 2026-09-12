@@ -118,7 +118,7 @@ Context는 Source 원문을 매번 다시 읽지 않아도 쓸 수 있는, 미�
 
 Context Skill은 사용자가 승인한 Context별 작업 지침이며 Source 자료와 구분합니다. 선택한 Space와 함께 private Corpus 저장소에서 읽고 plugin 배포본에 복사하지 않습니다. 사용자가 명시적으로 요청한 기존 Context 항목의 종류·본문·상태는 현재 Context version과 대조해 한 transaction으로 수정하며, 다른 속성과 출처 연결은 보존합니다. 승인 Context Skill은 해당 Skill의 현재 version과 전체 교체값을 대조해 바꿉니다.
 
-원격 Context의 생성·보관, 항목 생성·삭제, 상태 이외의 속성 및 출처 연결 수정은 현재 공개 MCP 범위 밖입니다. 로컬 Context 명령은 개발·이관 저장소만 바꾸며 원격 정본에 반영되지 않습니다. 전체 metadata import는 개별 Context 수정 수단으로 사용하지 않습니다.
+Space 생성·메타데이터 개정·보관, Context 항목 생성과 대상별 휴지통은 전용 관리 작업으로 제공합니다. 기존 항목 개정 도구의 지원 범위와 Source 참조 보존 계약은 별도로 유지합니다. 로컬 Context 명령은 개발·이관 저장소만 바꾸며 원격 정본에 반영되지 않습니다. 전체 metadata import는 개별 Context 수정 수단으로 사용하지 않습니다.
 
 Context가 현재 참조하는 document record는 자동 정리에서 보호합니다. 원자료 변경이나 Source 갱신으로 오래된 출처를 새 원문에 자동 연결하지 않습니다.
 
@@ -422,3 +422,11 @@ manifest를 만들거나 공통 service package version을 Corpus version으로 
 직전 Worker와 plugin 묶음을 복구 대상으로 확인합니다. 되돌릴 때에는 새 입력을 보내도록 바꾼
 Skill·도구 안내부터 복귀하고 Worker를 되돌린 뒤 클라이언트의 schema와 새 세션을 확인합니다.
 구형 저장 reader로 돌아가거나 자료를 다시 이관하지 않습니다.
+
+## 관리 기능과 식별자 보존
+
+Native 문서의 안정적인 UID, 현재 Space 위치와 원래 출처 위치를 분리한다. `corpus_document_move`와 `corpus_context_item_move`는 양쪽 Context 버전을 검사해 실제 위치만 옮긴다. 기존 문서 주소는 읽기 alias이며 오래된 주소의 저장 요청은 거부한다. 이름 충돌은 덮어쓰기나 병합으로 해소하지 않는다. 현재·직전 본문, 정확한 Source 참조, 승인 정보와 migration provenance는 함께 보존한다. 구형 입력으로 출처 범위를 표현할 수 없으면 저장하지 않는다.
+
+Space 개정·보관, 항목 생성, 문서·항목·Context Skill의 휴지통과 복원을 전용 작업으로 제공한다. Space 삭제 묶음은 현재 소유한 자료만 포함하며 기존 삭제 묶음, Workspace·Source·Work 연결과 원본 파일은 제외한다. 연결 해제는 현재 generation을 대조하는 정식 Sync 작업이며 오프라인 상태를 완료로 표시하지 않는다. Space가 휴지통에 있으면 새 Work·갱신 작업을 차단하고 기존 권한의 보존 출처 읽기는 유지한다.
+
+새 휴지통 묶음의 기한은 서버 저장 시각부터 30×24시간이다. 자동 정리가 켜져 있으면 한국시간 오전 4시의 다음 주기에 처리한다. 외부의 구조화된 출처 참조와 미완료 연결 해제는 수동·자동 영구 삭제를 모두 막는다. 직전 본문 복원과 휴지통 복원은 별도 작업이며, 복원은 묶음 전체에 성공하거나 아무것도 바꾸지 않는다. Source의 기존 보존 정책과 과거 archived 기록에는 새 정책을 소급하지 않는다. [공통 관리 계약](../../services/remote-context/MANAGEMENT.md)에 이관·재시도·배포 경계를 둔다.

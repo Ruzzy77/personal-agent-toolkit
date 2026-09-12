@@ -18,9 +18,9 @@ export function chatGPTUserFromHeaders(
     "oai-authenticated-user-full-name",
   );
   const fullName =
-    encodedFullName
-    && requestHeaders.get("oai-authenticated-user-full-name-encoding")
-      === "percent-encoded-utf-8"
+    encodedFullName &&
+    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
+      "percent-encoded-utf-8"
       ? safeDecodeURIComponent(encodedFullName)
       : null;
 
@@ -70,6 +70,23 @@ export class ServiceRequestError extends Error {
   }
 }
 
+/** Shared draft/conflict classification, not a shared autosave policy. */
+export function mutationFailureState(
+  error: unknown,
+): "conflict" | "unavailable" | "unknown" {
+  if (!error || typeof error !== "object") return "unknown";
+  const value = error as { status?: unknown; code?: unknown };
+  if (
+    value.status === 409 ||
+    (typeof value.code === "string" &&
+      /(?:conflict|_trashed|_inactive)$/.test(value.code))
+  )
+    return "conflict";
+  if (value.status === 503 || value.code === "management_not_enabled")
+    return "unavailable";
+  return "unknown";
+}
+
 export async function serviceFetch(options: {
   baseUrl: string;
   token: string;
@@ -81,14 +98,11 @@ export async function serviceFetch(options: {
   if (options.init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  return fetch(
-    `${options.baseUrl.replace(/\/$/, "")}${options.path}`,
-    {
-      ...options.init,
-      cache: "no-store",
-      headers,
-    },
-  );
+  return fetch(`${options.baseUrl.replace(/\/$/, "")}${options.path}`, {
+    ...options.init,
+    cache: "no-store",
+    headers,
+  });
 }
 
 export async function serviceRequest<T>(options: {
@@ -99,7 +113,7 @@ export async function serviceRequest<T>(options: {
   init?: RequestInit;
 }): Promise<T> {
   const response = await serviceFetch(options);
-  const envelope = await response.json() as ServiceEnvelope<T>;
+  const envelope = (await response.json()) as ServiceEnvelope<T>;
   if (!response.ok || !envelope.ok) {
     if (!envelope.ok) {
       throw new ServiceRequestError(

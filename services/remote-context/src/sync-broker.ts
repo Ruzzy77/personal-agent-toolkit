@@ -1,3 +1,4 @@
+import { finishRegistrationDetach } from "./registration-management";
 import { canonicalJson, nowIso } from "./canonical";
 import { ContextError, asContextError } from "./errors";
 import { syncHelloSchema, syncResultSchema } from "./schemas";
@@ -47,7 +48,11 @@ function errorResponse(error: unknown): Response {
 function attachment(socket: WebSocket): SocketAttachment {
   const value = socket.deserializeAttachment() as SocketAttachment | null;
   if (!value?.ownerId || !value.deviceId) {
-    throw new ContextError("invalid_sync_session", "Sync session metadata is invalid", 500);
+    throw new ContextError(
+      "invalid_sync_session",
+      "Sync session metadata is invalid",
+      500,
+    );
   }
   return value;
 }
@@ -98,21 +103,23 @@ export class SyncBroker {
     private readonly env: Env,
   ) {}
 
-  private sockets(ownerId: string, deviceId: string, ready = true): WebSocket[] {
-    return this.state
-      .getWebSockets()
-      .filter((socket) => {
-        try {
-          const value = attachment(socket);
-          return (
-            value.ownerId === ownerId &&
-            value.deviceId === deviceId &&
-            (!ready || value.ready)
-          );
-        } catch {
-          return false;
-        }
-      });
+  private sockets(
+    ownerId: string,
+    deviceId: string,
+    ready = true,
+  ): WebSocket[] {
+    return this.state.getWebSockets().filter((socket) => {
+      try {
+        const value = attachment(socket);
+        return (
+          value.ownerId === ownerId &&
+          value.deviceId === deviceId &&
+          (!ready || value.ready)
+        );
+      } catch {
+        return false;
+      }
+    });
   }
 
   private async upsertDevice(
@@ -220,12 +227,20 @@ export class SyncBroker {
 
   private async connect(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-      throw new ContextError("upgrade_required", "Sync connect requires WebSocket", 426);
+      throw new ContextError(
+        "upgrade_required",
+        "Sync connect requires WebSocket",
+        426,
+      );
     }
     const ownerId = request.headers.get("X-Owner-Id");
     const deviceId = request.headers.get("X-Device-Id");
     if (!ownerId || !deviceId) {
-      throw new ContextError("invalid_sync_session", "Sync identity is missing", 401);
+      throw new ContextError(
+        "invalid_sync_session",
+        "Sync identity is missing",
+        401,
+      );
     }
     for (const existing of this.sockets(ownerId, deviceId, false)) {
       existing.close(4001, "replaced by a newer Sync connection");
@@ -251,7 +266,11 @@ export class SyncBroker {
       .bind(input.ownerId, input.deviceId)
       .first<{ status: string }>();
     if (device?.status === "revoked") {
-      throw new ContextError("device_revoked", "Sync device has been revoked", 403);
+      throw new ContextError(
+        "device_revoked",
+        "Sync device has been revoked",
+        403,
+      );
     }
     const socket = this.sockets(input.ownerId, input.deviceId)[0];
     if (!socket) {
@@ -267,7 +286,9 @@ export class SyncBroker {
         202,
       );
     }
-    socket.send(canonicalJson({ type: "job", protocolVersion: 1, ...input.job }));
+    socket.send(
+      canonicalJson({ type: "job", protocolVersion: 1, ...input.job }),
+    );
     await this.env.STATE_DB.prepare(
       `UPDATE sync_jobs SET state = 'dispatched', updated_at = ?
        WHERE owner_id = ? AND job_id = ? AND state = 'queued'`,
@@ -278,7 +299,11 @@ export class SyncBroker {
       return response(
         {
           ok: true,
-          result: { jobId: input.job.jobId, state: "dispatched", deviceOnline: true },
+          result: {
+            jobId: input.job.jobId,
+            state: "dispatched",
+            deviceOnline: true,
+          },
         },
         202,
       );
@@ -290,7 +315,11 @@ export class SyncBroker {
           response(
             {
               ok: true,
-              result: { jobId: input.job.jobId, state: "dispatched", deviceOnline: true },
+              result: {
+                jobId: input.job.jobId,
+                state: "dispatched",
+                deviceOnline: true,
+              },
             },
             202,
           ),
@@ -303,14 +332,24 @@ export class SyncBroker {
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
-      if (path === "/connect" && request.method === "GET") return await this.connect(request);
+      if (path === "/connect" && request.method === "GET")
+        return await this.connect(request);
       if (path === "/execute" && request.method === "POST") {
         return await this.execute(await request.json());
       }
       if (path === "/status" && request.method === "POST") {
-        const body = (await request.json()) as { ownerId?: unknown; deviceId?: unknown };
-        if (typeof body.ownerId !== "string" || typeof body.deviceId !== "string") {
-          throw new ContextError("invalid_status", "Sync status request is invalid");
+        const body = (await request.json()) as {
+          ownerId?: unknown;
+          deviceId?: unknown;
+        };
+        if (
+          typeof body.ownerId !== "string" ||
+          typeof body.deviceId !== "string"
+        ) {
+          throw new ContextError(
+            "invalid_status",
+            "Sync status request is invalid",
+          );
         }
         return response({
           ok: true,
@@ -320,23 +359,40 @@ export class SyncBroker {
           },
         });
       }
-      throw new ContextError("not_found", "Sync broker route was not found", 404);
+      throw new ContextError(
+        "not_found",
+        "Sync broker route was not found",
+        404,
+      );
     } catch (error) {
       return errorResponse(error);
     }
   }
 
-  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  async webSocketMessage(
+    socket: WebSocket,
+    message: string | ArrayBuffer,
+  ): Promise<void> {
     const metadata = attachment(socket);
     let value: unknown;
     try {
-      const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+      const text =
+        typeof message === "string"
+          ? message
+          : new TextDecoder().decode(message);
       if (new TextEncoder().encode(text).length > 16 * 1024 * 1024) {
-        throw new ContextError("message_too_large", "Sync message exceeds the limit", 413);
+        throw new ContextError(
+          "message_too_large",
+          "Sync message exceeds the limit",
+          413,
+        );
       }
       value = JSON.parse(text);
     } catch (error) {
-      socket.close(4002, error instanceof ContextError ? error.code : "invalid JSON");
+      socket.close(
+        4002,
+        error instanceof ContextError ? error.code : "invalid JSON",
+      );
       return;
     }
 
@@ -348,7 +404,10 @@ export class SyncBroker {
         hello.displayName,
         hello.capabilities,
       );
-      socket.serializeAttachment({ ...metadata, ready: true } satisfies SocketAttachment);
+      socket.serializeAttachment({
+        ...metadata,
+        ready: true,
+      } satisfies SocketAttachment);
       socket.send(
         canonicalJson({
           type: "hello_ack",
@@ -376,7 +435,13 @@ export class SyncBroker {
       .bind(metadata.ownerId, metadata.deviceId, result.jobId)
       .first<{ maximum_response_bytes: number }>();
     if (!row) {
-      socket.send(canonicalJson({ type: "job_ack", jobId: result.jobId, accepted: false }));
+      socket.send(
+        canonicalJson({
+          type: "job_ack",
+          jobId: result.jobId,
+          accepted: false,
+        }),
+      );
       return;
     }
     const payload = canonicalJson(result.ok ? result.result : result.error);
@@ -393,7 +458,9 @@ export class SyncBroker {
         result.ok ? result.result! : result.error!,
       );
     }
-    socket.send(canonicalJson({ type: "job_ack", jobId: result.jobId, accepted: true }));
+    socket.send(
+      canonicalJson({ type: "job_ack", jobId: result.jobId, accepted: true }),
+    );
     await this.dispatchQueued(
       socket,
       metadata.ownerId,
@@ -409,6 +476,29 @@ export class SyncBroker {
     succeeded: boolean,
     payload: Record<string, unknown>,
   ): Promise<void> {
+    const operation = await this.env.STATE_DB.prepare(
+      "SELECT operation FROM sync_jobs WHERE owner_id=? AND device_id=? AND job_id=?",
+    )
+      .bind(metadata.ownerId, metadata.deviceId, jobId)
+      .first<{ operation: string }>();
+    if (operation?.operation === "registration.detach") {
+      const detached = await finishRegistrationDetach(
+        this.env,
+        metadata.ownerId,
+        metadata.deviceId,
+        jobId,
+        succeeded,
+        payload,
+      );
+      if (detached?.state === "blocked") {
+        succeeded = false;
+        payload = {
+          code: "registration_detach_blocked",
+          message: "Sync retirement has not been confirmed",
+          ...detached,
+        };
+      }
+    }
     const now = nowIso();
     await this.env.STATE_DB.prepare(
       `UPDATE sync_jobs

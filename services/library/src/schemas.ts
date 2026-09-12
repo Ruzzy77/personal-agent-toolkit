@@ -14,17 +14,19 @@ export const sourceHtmlSchema = z
   .max(2_000_000)
   .refine(
     (value) =>
-      /<!doctype html>/i.test(value)
-      && /<h1\b/i.test(value)
-      && /<article\b/i.test(value),
+      /<!doctype html>/i.test(value) &&
+      /<h1\b/i.test(value) &&
+      /<article\b/i.test(value),
     "완전한 발간호 HTML이 필요합니다.",
   )
   .describe(
-    "제목 h1, 도입문 .lead 또는 .standfirst, article을 포함한 완전한 HTML입니다. "
-      + "새 발간호는 저장할 때 색인 발간호 템플릿으로 정규화됩니다.",
+    "제목 h1, 도입문 .lead 또는 .standfirst, article을 포함한 완전한 HTML입니다. " +
+      "새 발간호는 저장할 때 색인 발간호 템플릿으로 정규화됩니다.",
   );
 
 export const listIssuesSchema = z.object({
+  lifecycle: z.enum(["active", "trash", "all"]).default("active"),
+  offset: z.number().int().min(0).max(100000).default(0),
   collection: z.enum(["daily", "digest", "research"]).optional(),
   limit: z.number().int().min(1).max(200).default(20),
 });

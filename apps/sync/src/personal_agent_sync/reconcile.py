@@ -33,6 +33,8 @@ def is_system_artifact(name: str, *, directory: bool) -> bool:
 
 
 def current_root(state: SyncState, connection: ConnectionConfig) -> Path | None:
+    if state.is_retired("connection", connection.key):
+        return None
     row = state.connection_row(connection.key)
     root = resolve_moved_root(
         Path(row["root_path"]), int(row["root_device"]), int(row["root_inode"])

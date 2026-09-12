@@ -1,3 +1,4 @@
+import packageInfo from "../package.json";
 import { hostHeaderValidationResponse } from "@modelcontextprotocol/server";
 
 import {
@@ -46,7 +47,7 @@ export default {
     const url = new URL(request.url);
     const metadataUrl = new URL(PATH_METADATA, env.RESOURCE_URI).href;
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "personal-agent-design", version: "0.3.0" });
+      return json({ ok: true, service: "personal-agent-design", version: packageInfo.version });
     }
     if (
       request.method === "GET"

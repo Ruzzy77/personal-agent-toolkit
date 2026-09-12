@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import logging
+import os
 import random
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,6 +58,25 @@ class SyncDaemon:
         await self.remote.close()
 
     async def run(self) -> None:
+        # One owner runtime per state: management acknowledgement is a drain boundary.
+        descriptor = os.open(
+            self.config.data_root / "runtime.lock",
+            os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            raise SyncError(
+                "sync_already_running", "Another Sync runtime is using this state"
+            ) from None
+        try:
+            await self._run_exclusive()
+        finally:
+            os.close(descriptor)
+
+    async def _run_exclusive(self) -> None:
         source_task = asyncio.create_task(self._source_loop(), name="source-reconcile")
         broker_task = asyncio.create_task(self._broker_loop(), name="remote-broker")
         try:
@@ -89,7 +110,10 @@ class SyncDaemon:
             while not self.stopping.is_set():
                 now = asyncio.get_running_loop().time()
                 try:
-                    roots_changed = await asyncio.to_thread(monitor.refresh, self.state)
+                    async with self.source_change_lock:
+                        roots_changed = await asyncio.to_thread(
+                            monitor.refresh, self.state
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -98,21 +122,24 @@ class SyncDaemon:
                 if roots_changed:
                     next_full_reconcile = 0.0
                 if now >= next_full_reconcile:
-                    reconciled = False
-                    try:
-                        await asyncio.to_thread(
-                            cleanup_abandoned_captures,
-                            self.config.data_root / "staging",
-                        )
-                        await asyncio.to_thread(reconcile_all, self.state)
-                        await asyncio.to_thread(monitor.refresh, self.state)
-                        reconciled = True
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        LOGGER.exception("Source reconciliation failed; retrying later")
-                    if reconciled:
-                        await self._maintain_remote_retention()
+                    async with self.source_change_lock:
+                        reconciled = False
+                        try:
+                            await asyncio.to_thread(
+                                cleanup_abandoned_captures,
+                                self.config.data_root / "staging",
+                            )
+                            await asyncio.to_thread(reconcile_all, self.state)
+                            await asyncio.to_thread(monitor.refresh, self.state)
+                            reconciled = True
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            LOGGER.exception(
+                                "Source reconciliation failed; retrying later"
+                            )
+                        if reconciled:
+                            await self._maintain_remote_retention()
                     next_full_reconcile = (
                         asyncio.get_running_loop().time()
                         + self.config.full_reconcile_seconds
@@ -167,6 +194,7 @@ class SyncDaemon:
                 connection.corpus_id
                 for connection in self.config.connections
                 if "source" in connection.roles
+                and not self.state.is_retired("connection", connection.key)
                 and connection.access_scope == "remote_allowed"
                 and connection.corpus_id is not None
             }
@@ -245,6 +273,8 @@ class SyncDaemon:
     async def _process_change(
         self, change: dict[str, Any], *, requested_refresh: bool = False
     ) -> None:
+        if self.state.is_retired("connection", change["connection_key"]):
+            return
         force_refresh = requested_refresh or change["event_kind"] in {
             "refresh",
             "analyzer_refresh",
@@ -599,7 +629,17 @@ class SyncDaemon:
             expires = datetime.fromisoformat(str(job["expiresAt"]))
             if expires <= datetime.now(UTC):
                 raise SyncError("job_expired", "job deadline has passed")
-            if job["operation"] == "source.refresh":
+            if job["operation"] == "registration.detach":
+                if not isinstance(job["scope"], dict) or not isinstance(
+                    job["request"], dict
+                ):
+                    raise SyncError("invalid_job", "registration request is invalid")
+                # Broker jobs are sequential; also drain background captures/uploads.
+                async with self.source_change_lock:
+                    result = await asyncio.to_thread(
+                        self.state.detach_registration, job["scope"], job["request"]
+                    )
+            elif job["operation"] == "source.refresh":
                 scope = job["scope"]
                 request = job["request"]
                 if not isinstance(scope, dict) or not isinstance(request, dict):

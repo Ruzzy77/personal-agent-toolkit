@@ -1,3 +1,5 @@
+import { LibraryManagementService } from "./management";
+import { storeLibraryAsset } from "./assets";
 import { LibraryError } from "./errors";
 import {
   createIssue,
@@ -35,10 +37,10 @@ const ALLOWED_ASSET_TYPES = new Set([
 
 export function assetKey(value: string): string {
   if (
-    !value
-    || value.startsWith("/")
-    || value.includes("..")
-    || !/^[a-zA-Z0-9/_-]+\.[a-zA-Z0-9]+$/.test(value)
+    !value ||
+    value.startsWith("/") ||
+    value.includes("..") ||
+    !/^[a-zA-Z0-9/_-]+\.[a-zA-Z0-9]+$/.test(value)
   ) {
     throw new LibraryError("invalid_asset_path", "asset path is invalid");
   }
@@ -46,11 +48,23 @@ export function assetKey(value: string): string {
 }
 
 export class LibraryService {
-  constructor(private readonly env: Pick<Env, "DB" | "MEDIA">) {}
+  constructor(
+    private readonly env: Pick<Env, "DB" | "MEDIA"> &
+      Partial<Pick<Env, "MANAGEMENT_WRITE_ENABLED">>,
+  ) {}
+  management() {
+    return new LibraryManagementService(
+      this.env.DB,
+      this.env.MEDIA,
+      this.env.MANAGEMENT_WRITE_ENABLED === "true",
+    );
+  }
 
   listIssues(
     collection: string | null,
     limit: number,
+    lifecycle: "active" | "trash" | "all" = "active",
+    offset = 0,
   ): Promise<LibraryIssueSummary[]> {
     if (collection !== null && !isCollection(collection)) {
       throw new LibraryError("invalid_collection", "collection is invalid");
@@ -58,6 +72,8 @@ export class LibraryService {
     return listIssues(this.env.DB, {
       collection: collection as LibraryCollection | null,
       limit,
+      lifecycle,
+      offset,
     });
   }
 
@@ -76,8 +92,12 @@ export class LibraryService {
       ...(input.published_at === undefined
         ? {}
         : { publishedAt: input.published_at }),
-      ...(input.references === undefined ? {} : { references: input.references }),
-      ...(input.cover_path === undefined ? {} : { coverPath: input.cover_path }),
+      ...(input.references === undefined
+        ? {}
+        : { references: input.references }),
+      ...(input.cover_path === undefined
+        ? {}
+        : { coverPath: input.cover_path }),
     });
   }
 
@@ -104,8 +124,12 @@ export class LibraryService {
     return updateIssueSource(this.env.DB, id, {
       sourceHtml: input.source_html,
       expectedVersion: input.expected_version,
-      ...(input.cover_path === undefined ? {} : { coverPath: input.cover_path }),
-      ...(input.references === undefined ? {} : { references: input.references }),
+      ...(input.cover_path === undefined
+        ? {}
+        : { coverPath: input.cover_path }),
+      ...(input.references === undefined
+        ? {}
+        : { references: input.references }),
     });
   }
 
@@ -128,33 +152,21 @@ export class LibraryService {
   ): Promise<LibraryAssetResult> {
     const key = assetKey(path);
     if (!ALLOWED_ASSET_TYPES.has(contentType)) {
-      throw new LibraryError("invalid_asset_type", "asset type is not supported");
+      throw new LibraryError(
+        "invalid_asset_type",
+        "asset type is not supported",
+      );
     }
     if (bytes.byteLength < 1 || bytes.byteLength > MAX_ASSET_BYTES) {
       throw new LibraryError("invalid_asset_size", "asset size is invalid");
     }
-    const stored = await this.env.MEDIA.put(key, bytes, {
-      httpMetadata: { contentType },
-      onlyIf: new Headers({ "If-None-Match": "*" }),
-    });
-    if (!stored) {
-      const existing = await this.env.MEDIA.get(key);
-      if (
-        !existing
-        || existing.size !== bytes.byteLength
-        || existing.httpMetadata?.contentType !== contentType
-        || !new Uint8Array(await existing.arrayBuffer()).every(
-          (value, index) => value === bytes[index],
-        )
-      ) {
-        throw new LibraryError(
-          "asset_conflict",
-          "this asset path already has different content; use a new path",
-          409,
-          { path: `/media/${key}` },
-        );
-      }
-    }
+    await storeLibraryAsset(
+      this.env.DB,
+      this.env.MEDIA,
+      key,
+      bytes,
+      contentType,
+    );
     return { status: "stored", path: `/media/${key}`, bytes: bytes.byteLength };
   }
 

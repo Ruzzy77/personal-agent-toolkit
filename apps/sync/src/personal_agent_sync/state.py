@@ -75,6 +75,11 @@ class SyncState:
             connection.executescript(
                 """
                 PRAGMA journal_mode = WAL;
+                CREATE TABLE IF NOT EXISTS retired_registrations (
+                    kind TEXT NOT NULL, registration_key TEXT NOT NULL,
+                    generation INTEGER NOT NULL, retired_at TEXT NOT NULL,
+                    PRIMARY KEY(kind, registration_key)
+                );
                 CREATE TABLE IF NOT EXISTS connections (
                     connection_key TEXT PRIMARY KEY,
                     space_id TEXT NOT NULL,
@@ -190,6 +195,11 @@ class SyncState:
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             for value in values:
+                if connection.execute(
+                    "SELECT 1 FROM retired_registrations WHERE kind='connection' AND registration_key=?",
+                    (value.key,),
+                ).fetchone():
+                    continue
                 current = connection.execute(
                     "SELECT * FROM connections WHERE connection_key = ?",
                     (value.key,),
@@ -546,6 +556,93 @@ class SyncState:
                     )
                     queued += 1
         return {"seeded": seeded, "queued": queued}
+
+    def is_retired(self, kind: str, key: str) -> bool:
+        with self.connect() as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM retired_registrations WHERE kind=? AND registration_key=?",
+                    (kind, key),
+                ).fetchone()
+                is not None
+            )
+
+    def detach_registration(
+        self, scope: Mapping[str, object], request: Mapping[str, object]
+    ) -> dict[str, object]:
+        kind, key, generation = (
+            request.get("kind"),
+            request.get("registration_key"),
+            request.get("expected_version"),
+        )
+        if (
+            kind not in {"connection", "workspace"}
+            or not isinstance(key, str)
+            or type(generation) is not int
+            or generation != scope.get("generation")
+        ):
+            raise SyncError("invalid_job", "registration identity is invalid")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT generation FROM retired_registrations WHERE kind=? AND registration_key=?",
+                (kind, key),
+            ).fetchone()
+            if previous is not None:
+                if previous["generation"] != generation:
+                    raise SyncError(
+                        "connection_generation_conflict",
+                        "Retirement generation differs",
+                    )
+            elif kind == "connection":
+                if key != f"{scope.get('spaceId')}:{scope.get('connectionId')}":
+                    raise SyncError(
+                        "connection_scope_mismatch",
+                        "Retirement escaped its Connection scope",
+                    )
+                row = connection.execute(
+                    "SELECT generation,access_scope FROM connections WHERE connection_key=?",
+                    (key,),
+                ).fetchone()
+                if (
+                    row is None
+                    or row["generation"] != generation
+                    or row["access_scope"] != "remote_allowed"
+                ):
+                    raise SyncError(
+                        "connection_generation_conflict",
+                        "Connection changed before local retirement",
+                    )
+                connection.execute(
+                    "DELETE FROM change_queue WHERE connection_key=?", (key,)
+                )
+            else:
+                matches = [
+                    item
+                    for item in self.config.workspaces
+                    if item.host_id == scope.get("hostId")
+                    and item.workspace_id == scope.get("workspaceId")
+                    and item.space_id == scope.get("spaceId")
+                ]
+                if (
+                    len(matches) != 1
+                    or key != f"{matches[0].host_id}:{matches[0].workspace_id}"
+                ):
+                    raise SyncError(
+                        "workspace_scope_mismatch",
+                        "The exact host Workspace is not registered on this Sync device",
+                    )
+            connection.execute(
+                "INSERT OR IGNORE INTO retired_registrations VALUES(?,?,?,?)",
+                (kind, key, generation, now_iso()),
+            )
+        return {
+            "state": "detached",
+            "registration_key": key,
+            "generation": generation,
+            "filesystem_changed": False,
+            "local_jobs_drained": True,
+        }
 
     def connection_row(self, key: str) -> sqlite3.Row:
         with self.connect() as connection:

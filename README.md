@@ -178,14 +178,15 @@ MCP endpoint는 서로 다른 배포 경계입니다.
   초기 이관 확인은 확인할 release의 `products.json`을 사용하고, 로컬 코드·의존성·호환 조건이
   달라질 때 로컬 환경을 갱신합니다.
 
-현재 반영 묶음은 Toolkit 1.4.0, Sense 0.4.2, Corpus 0.24.0과 공유 Context 서비스·Site 0.3.0입니다.
-Corpus의 native 문서와 Workspace 연결, 선택적인 연결 Skill 조회, 버전을 대조하는 Site 직접
-저장과 호스트 지침 연결 방법을 포함합니다. 제품 metadata와 Skill 묶음 갱신은 운영 배포나 기존
-사용자 기본 지침의 변경을 대신하지 않습니다.
+이번 관리 기능 릴리스 소스는 Toolkit 1.5.0, Sense 0.5.0, Corpus 0.25.0, Hypes 0.10.1,
+Library·Design 0.4.0, Journal 0.2.7과 Context 서비스·Site 0.4.0입니다. Sync 0.4.0은 원본을
+변경하지 않는 정식 연결 해제와 재등록 방지를 제공합니다. Document Files의 독립 릴리스 전환은
+포함하지 않습니다. 배포 및 활성화 상태는 제품별 capability와 휴지통의 정리 상태에서 확인합니다.
 
-Sense 0.4.2는 환경 관리 Skill의 설치·임시 자료 정리 방법을 배포하는 plugin 패치입니다.
-Claude는 같은 plugin 버전의 새 커밋을 업데이트로 인식하지 않으므로 버전을 구분하며,
-원격 MCP 계약·서비스 version과 운영 데이터는 변경하지 않습니다.
+공통 기반은 기존 `remote-runtime`과 별도의 `immutable-assets` 패키지에 있으며, 새로운 중앙
+서비스나 범용 자료 저장소는 만들지 않습니다. Corpus를 먼저 활성화하고 Sense·Space 관리,
+Library·Design을 이어서 반영합니다. 호환 읽기 배포, 저장층 이관, 쓰기 활성화와 자동 정리 활성화는
+별도 확인 단계입니다. 세부 계약과 배포 순서는 [관리 기능 운영](services/remote-context/MANAGEMENT.md)을 따릅니다.
 
 GitHub marketplace에서 현재 배포본을 갱신하며, 로컬 checkout marketplace는 발행 전 시험에만
 사용합니다. 설치 표시와 새 작업에서의 실제 사용 확인은 구분합니다.

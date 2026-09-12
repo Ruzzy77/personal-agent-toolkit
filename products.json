@@ -14,7 +14,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.4.0"
+        "base_version": "1.5.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -42,7 +42,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.4.0"
+        "surface_version": "1.5.0"
       }
     }
   },
@@ -51,12 +51,19 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.4.2"
+        "base_version": "0.5.0"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "migration_client"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "migration_client"
+        }
       },
       "components": [
         "plugins/sense",
@@ -72,12 +79,22 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.4.1-remote.1",
+        "surface_version": "0.5.0-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",
           "sense_revise",
-          "sense_skill_revise"
+          "sense_skill_revise",
+          "sense_section_create",
+          "sense_sections_reorder",
+          "sense_management_preview",
+          "sense_section_trash",
+          "sense_skill_trash",
+          "sense_trash_list",
+          "sense_trash_restore",
+          "sense_trash_purge",
+          "sense_operation_status",
+          "sense_capabilities"
         ]
       }
     },
@@ -85,12 +102,19 @@
       "display_name": "Corpus",
       "plugin": {
         "path": "plugins/corpus",
-        "base_version": "0.24.0"
+        "base_version": "0.25.0"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "source_work_bridge"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "source_work_bridge"
+        }
       },
       "components": [
         "plugins/corpus",
@@ -107,8 +131,17 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Corpus",
-        "surface_version": "0.24.0-remote.1",
+        "surface_version": "0.25.0-remote.1",
         "tools": [
+          "corpus_registrations_list",
+          "corpus_connection_detach",
+          "corpus_workspace_detach",
+          "corpus_space_list",
+          "corpus_space_get",
+          "corpus_space_search",
+          "corpus_context_items_revise",
+          "corpus_context_skill_revise",
+          "corpus_file_read",
           "corpus_space_create",
           "corpus_workspace_bind",
           "corpus_workspace_resolve",
@@ -117,19 +150,27 @@
           "corpus_document_read",
           "corpus_document_revise",
           "corpus_document_restore",
-          "corpus_space_list",
-          "corpus_space_get",
-          "corpus_context_items_revise",
-          "corpus_context_skill_revise",
-          "corpus_space_search",
+          "corpus_management_preview",
+          "corpus_document_move",
+          "corpus_context_item_move",
+          "corpus_trash_list",
+          "corpus_trash_restore",
+          "corpus_trash_purge",
+          "corpus_operation_status",
+          "corpus_space_revise",
+          "corpus_context_item_create",
+          "corpus_document_trash",
+          "corpus_context_item_trash",
+          "corpus_context_skill_trash",
+          "corpus_space_trash",
+          "corpus_file_list",
           "corpus_source_refresh",
           "corpus_job_status",
-          "corpus_file_list",
-          "corpus_file_read",
           "corpus_file_write",
           "corpus_file_delete",
           "corpus_file_select_current",
-          "corpus_file_restore"
+          "corpus_file_restore",
+          "corpus_capabilities"
         ]
       }
     },
@@ -137,12 +178,19 @@
       "display_name": "Hypes",
       "plugin": {
         "path": "plugins/hypes",
-        "base_version": "0.10.0"
+        "base_version": "0.10.1"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "migration_client"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "migration_client"
+        }
       },
       "components": [
         "plugins/hypes",
@@ -157,10 +205,11 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Hypes",
-        "surface_version": "0.10.0-remote.1",
+        "surface_version": "0.10.1-remote.1",
         "tools": [
           "hypes_read",
-          "hypes_rewrite"
+          "hypes_rewrite",
+          "hypes_capabilities"
         ]
       }
     },
@@ -176,9 +225,16 @@
         "base_version": "1.7.0"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "host"},
-        "claude": {"mode": "local_mcp"},
-        "sync": {"mode": "embedded_engine"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "host"
+        },
+        "claude": {
+          "mode": "local_mcp"
+        },
+        "sync": {
+          "mode": "embedded_engine"
+        }
       },
       "components": [
         "plugins/document-files",
@@ -210,12 +266,19 @@
       "display_name": "Personal Design",
       "plugin": {
         "path": "plugins/design",
-        "base_version": "0.3.1"
+        "base_version": "0.4.0"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "none"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "none"
+        }
       },
       "components": [
         "plugins/design",
@@ -233,8 +296,16 @@
         "url": "https://personal-agent-design.hiyaq77.workers.dev/mcp",
         "implementation": "services/design/src/mcp.ts",
         "surface_name": "personal-design",
-        "surface_version": "0.3.1",
+        "surface_version": "0.4.0",
         "tools": [
+          "design_management_preview",
+          "design_recipe_trash",
+          "design_file_trash",
+          "design_trash_list",
+          "design_trash_restore",
+          "design_trash_purge",
+          "design_operation_status",
+          "design_capabilities",
           "design_list_recipes",
           "design_read_recipe",
           "design_read_asset",
@@ -248,12 +319,19 @@
       "display_name": "Journal",
       "plugin": {
         "path": "plugins/journal",
-        "base_version": "0.2.6"
+        "base_version": "0.2.7"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "none"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "none"
+        }
       },
       "components": [
         "plugins/journal",
@@ -271,7 +349,7 @@
         "url": "https://personal-agent-journal.hiyaq77.workers.dev/mcp",
         "implementation": "services/journal/src/mcp.ts",
         "surface_name": "Personal Agent Journal",
-        "surface_version": "0.2.6",
+        "surface_version": "0.2.7",
         "tools": [
           "journal_get_board",
           "journal_ingest_items",
@@ -291,12 +369,19 @@
       "display_name": "Library",
       "plugin": {
         "path": "plugins/library",
-        "base_version": "0.3.2"
+        "base_version": "0.4.0"
       },
       "delivery": {
-        "openai": {"mode": "bundled_skills", "runtime": "remote_mcp"},
-        "claude": {"mode": "remote_mcp"},
-        "sync": {"mode": "none"}
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "none"
+        }
       },
       "components": [
         "plugins/library",
@@ -314,8 +399,15 @@
         "url": "https://personal-library-mcp.hiyaq77.workers.dev/api/mcp",
         "implementation": "services/library/src/mcp.ts",
         "surface_name": "personal-library",
-        "surface_version": "0.3.2",
+        "surface_version": "0.4.0",
         "tools": [
+          "library_management_preview",
+          "library_issue_trash",
+          "library_trash_list",
+          "library_trash_restore",
+          "library_trash_purge",
+          "library_operation_status",
+          "library_capabilities",
           "library_whoami",
           "library_list_issues",
           "library_read_issue",

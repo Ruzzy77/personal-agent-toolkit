@@ -1,0 +1,1 @@
+{"name":"@personal-agent/immutable-assets","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","description":"Conditional immutable object writes; product databases own references and deletion state"}

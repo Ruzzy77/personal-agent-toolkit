@@ -1,3 +1,5 @@
+export * from "./operations";
+
 export interface AuthenticatedOwner {
   userId: string;
   provider: "google";
@@ -35,7 +37,7 @@ export interface AuthServiceBinding {
 
 export function bearerToken(request: Request): string | null {
   const value = request.headers.get("Authorization");
-  return value ? /^Bearer ([^\s]+)$/i.exec(value)?.[1] ?? null : null;
+  return value ? (/^Bearer ([^\s]+)$/i.exec(value)?.[1] ?? null) : null;
 }
 
 export function constantTimeEqual(left: string, right: string): boolean {

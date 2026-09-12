@@ -40,7 +40,7 @@ export const senseProfileSchema = z
     schema_version: z.literal(2),
     sections: z
       .array(profileSectionSchema)
-      .min(1)
+      .min(0)
       .max(24)
       .refine(
         (sections) =>
@@ -53,12 +53,26 @@ export const senseProfileSchema = z
 
 export const senseReadSchema = z
   .object({
-    view: z.enum(["index", "sections", "full"]).default("index")
-      .describe('Use "sections" with section_ids to read selected bodies. Omission returns the index, not section text.'),
-    section_ids: z.array(sectionId).max(24).nullable().optional()
-      .describe('IDs from the index. For selected bodies, also set view="sections".'),
-    include_skill: z.boolean().default(true)
-      .describe("False omits linked Skill instructions while retaining criteria and Skill metadata; true includes the complete method."),
+    view: z
+      .enum(["index", "sections", "full"])
+      .default("index")
+      .describe(
+        'Use "sections" with section_ids to read selected bodies. Omission returns the index, not section text.',
+      ),
+    section_ids: z
+      .array(sectionId)
+      .max(24)
+      .nullable()
+      .optional()
+      .describe(
+        'IDs from the index. For selected bodies, also set view="sections".',
+      ),
+    include_skill: z
+      .boolean()
+      .default(true)
+      .describe(
+        "False omits linked Skill instructions while retaining criteria and Skill metadata; true includes the complete method.",
+      ),
   })
   .strict();
 
@@ -170,7 +184,9 @@ export const hypesRewriteSchema = z
     expected_version: z
       .string()
       .regex(/^hypes-graph-v1:[0-9a-f]{32}$/)
-      .describe("The version returned by the Hypes read used to prepare this patch."),
+      .describe(
+        "The version returned by the Hypes read used to prepare this patch.",
+      ),
     operations: z.array(rewriteOperationSchema).min(1).max(128),
   })
   .strict();
@@ -421,7 +437,10 @@ export const sourceStateSchema = z
       .min(0)
       .max(Number.MAX_SAFE_INTEGER)
       .optional(),
-    modifiedNs: z.string().regex(/^[0-9]{1,30}$/).optional(),
+    modifiedNs: z
+      .string()
+      .regex(/^[0-9]{1,30}$/)
+      .optional(),
     residencyState: z.string().min(1).max(64).optional(),
     eligibilityState: z.string().min(1).max(64).optional(),
   })
@@ -467,6 +486,7 @@ const versionToken = z.string().min(4).max(1000);
 
 export const corpusSpaceListSchema = z
   .object({
+    lifecycle: z.enum(["active", "archived", "trash", "all"]).default("active"),
     limit: z.number().int().min(1).max(100).default(100),
     offset: z.number().int().min(0).max(10_000).default(0),
   })
@@ -503,16 +523,23 @@ export const corpusContextItemsReviseSchema = z
               "gap",
             ]),
             body_text: z.string().min(1).max(12_000),
-            status: z.string().min(1).max(200).optional().describe(
-              "Omit to preserve the existing status, including its absence. A body edit must not invent a status.",
-            ),
+            status: z
+              .string()
+              .min(1)
+              .max(200)
+              .optional()
+              .describe(
+                "Omit to preserve the existing status, including its absence. A body edit must not invent a status.",
+              ),
             attributes: z
               .object({
                 source_of_truth: z.string().min(1).max(12_000).nullable(),
               })
               .strict()
               .optional()
-              .describe("Optional descriptive attribute patch. Omit to preserve; null removes source_of_truth. Does not change Source provenance or filesystem authority."),
+              .describe(
+                "Optional descriptive attribute patch. Omit to preserve; null removes source_of_truth. Does not change Source provenance or filesystem authority.",
+              ),
           })
           .strict(),
       )
@@ -550,9 +577,12 @@ export const corpusSpaceSearchSchema = z
     context_offset: z.number().int().min(0).default(0),
     query: z.string().min(1).max(2000),
     connection_id: connectionId.nullable().optional(),
-    include_historical: z.boolean().default(false).describe(
-      "Include preserved Source documents explicitly migrated to current native Context documents; results link to their native canon.",
-    ),
+    include_historical: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Include preserved Source documents explicitly migrated to current native Context documents; results link to their native canon.",
+      ),
     limit: z.number().int().min(1).max(200).default(20),
   })
   .strict();

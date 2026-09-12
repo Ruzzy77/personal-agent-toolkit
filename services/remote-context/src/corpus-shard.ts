@@ -488,7 +488,10 @@ export function decodeStoredStructurePath(
     stored.slice(COMPACT_STRUCTURE_PATH_PREFIX.length),
   );
   const tuple = compact._container_v1;
-  if (!Array.isArray(tuple) || tuple.length !== TABLE_CELL_CONTAINER_KEYS.length) {
+  if (
+    !Array.isArray(tuple) ||
+    tuple.length !== TABLE_CELL_CONTAINER_KEYS.length
+  ) {
     throw new ContextError(
       "invalid_stored_structure_path",
       "stored Corpus structure path is invalid",
@@ -574,7 +577,8 @@ function storedSourceAnchor(
   ];
   const canCompact = invariants.every(
     ([key, expected]) =>
-      !(key in anchor) || canonicalJson(anchor[key]) === canonicalJson(expected),
+      !(key in anchor) ||
+      canonicalJson(anchor[key]) === canonicalJson(expected),
   );
   if (!canCompact)
     return `${FULL_SOURCE_ANCHOR_PREFIX}${canonicalJson(anchor)}`;
@@ -617,7 +621,8 @@ export function compactStoredSourceAnchor(
   ];
   const canCompact = invariants.every(
     ([key, expected]) =>
-      !(key in anchor) || canonicalJson(anchor[key]) === canonicalJson(expected),
+      !(key in anchor) ||
+      canonicalJson(anchor[key]) === canonicalJson(expected),
   );
   if (!canCompact) {
     return {
@@ -643,7 +648,7 @@ function unitResult(row: UnitRow): Record<string, unknown> {
       ? row.source_anchor_json.slice(COMPACT_SOURCE_ANCHOR_PREFIX.length)
       : full
         ? row.source_anchor_json.slice(FULL_SOURCE_ANCHOR_PREFIX.length)
-      : row.source_anchor_json,
+        : row.source_anchor_json,
   );
   if (compact) {
     anchor.canonical_locator = row.relative_path;
@@ -730,7 +735,9 @@ export class CorpusShard {
     this.projectionColumns = new Set(
       this.initialized
         ? [
-            ...this.sql.exec<{ name: string }>("PRAGMA table_info(projections)"),
+            ...this.sql.exec<{ name: string }>(
+              "PRAGMA table_info(projections)",
+            ),
           ].map((row) => row.name)
         : [],
     );
@@ -831,11 +838,7 @@ export class CorpusShard {
     this.sql.exec("DROP INDEX IF EXISTS idx_units_projection");
   }
 
-  private documentField(
-    table: string,
-    name: string,
-    fallback: string,
-  ): string {
+  private documentField(table: string, name: string, fallback: string): string {
     return this.documentColumns.has(name)
       ? `${table}.${name}`
       : `${fallback} AS ${name}`;
@@ -881,8 +884,7 @@ export class CorpusShard {
       row.sha256 === header.revision.sha256 &&
       row.source_size === header.revision.sourceSize &&
       (header.revision.predecessorRevisionId === null ||
-        row.predecessor_revision_id ===
-          header.revision.predecessorRevisionId);
+        row.predecessor_revision_id === header.revision.predecessorRevisionId);
     const sameProjection =
       row.adapter_id === header.projection.adapterId &&
       row.adapter_version === header.projection.adapterVersion &&
@@ -1202,7 +1204,8 @@ export class CorpusShard {
         (unitCounts.quality_flags_bytes ?? 0),
       structure_path_logical_bytes: unitCounts.structure_path_bytes ?? 0,
       source_anchor_logical_bytes: anchors.logical_bytes ?? 0,
-      normalized_content_logical_bytes: unitCounts.normalized_content_bytes ?? 0,
+      normalized_content_logical_bytes:
+        unitCounts.normalized_content_bytes ?? 0,
       extraction_issues_logical_bytes: unitCounts.extraction_issues_bytes ?? 0,
       geometry_logical_bytes: unitCounts.geometry_bytes ?? 0,
       quality_flags_logical_bytes: unitCounts.quality_flags_bytes ?? 0,
@@ -1223,62 +1226,143 @@ export class CorpusShard {
     };
   }
 
-  private async withContextProtection<T>(operation: () => Promise<T>): Promise<T> {
+  private async withContextProtection<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const previous = this.contextProtectionGate;
     let release!: () => void;
-    this.contextProtectionGate = new Promise<void>((resolve) => { release = resolve; });
+    this.contextProtectionGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     await previous;
-    try { return await operation(); } finally { release(); }
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
-  private protectContextDocument(ownerId: string, raw: unknown): Record<string, unknown> {
+  private protectContextDocument(
+    ownerId: string,
+    raw: unknown,
+  ): Record<string, unknown> {
     this.ensureSchema();
     const value = raw as Record<string, unknown>;
     const reservationId = value?.reservation_id;
     const corpusId = value?.corpusId;
     const refs = value?.refs;
-    if (typeof reservationId !== "string" || reservationId.length > 192 || !reservationId
-      || typeof corpusId !== "string" || !Array.isArray(refs) || refs.length > 100) {
-      throw new ContextError("invalid_source_reservation", "source reservation is invalid");
+    if (
+      typeof reservationId !== "string" ||
+      reservationId.length > 192 ||
+      !reservationId ||
+      typeof corpusId !== "string" ||
+      !Array.isArray(refs) ||
+      refs.length > 100
+    ) {
+      throw new ContextError(
+        "invalid_source_reservation",
+        "source reservation is invalid",
+      );
     }
-    const stored = this.one<{value: string}>("SELECT value FROM shard_meta WHERE key = 'corpus_id'");
-    const owner = this.one<{value: string}>("SELECT value FROM shard_meta WHERE key = 'owner_id'");
+    const stored = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'corpus_id'",
+    );
+    const owner = this.one<{ value: string }>(
+      "SELECT value FROM shard_meta WHERE key = 'owner_id'",
+    );
     if (stored?.value !== corpusId || (owner && owner.value !== ownerId)) {
-      throw new ContextError("shard_identity_mismatch", "source reservation identity does not match", 409);
+      throw new ContextError(
+        "shard_identity_mismatch",
+        "source reservation identity does not match",
+        409,
+      );
     }
     for (const ref of refs) {
       if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
-        throw new ContextError("invalid_source_reservation", "source reference is invalid");
+        throw new ContextError(
+          "invalid_source_reservation",
+          "source reference is invalid",
+        );
       }
       const r = ref as Record<string, unknown>;
-      if (![r.document_id,r.revision_id,r.projection_id,r.unit_id].every(x => typeof x === "string")) {
-        throw new ContextError("invalid_source_reservation", "exact source reference is required");
+      if (
+        ![r.document_id, r.revision_id, r.projection_id, r.unit_id].every(
+          (x) => typeof x === "string",
+        )
+      ) {
+        throw new ContextError(
+          "invalid_source_reservation",
+          "exact source reference is required",
+        );
       }
-      const unit = this.one<{unit_id: string}>(
+      const unit = this.one<{ unit_id: string }>(
         `SELECT u.unit_id FROM source_units u JOIN revisions r ON r.revision_id=u.revision_id
          WHERE u.unit_id=? AND u.revision_id=? AND u.projection_id=? AND r.document_id=?`,
-        r.unit_id as string, r.revision_id as string, r.projection_id as string, r.document_id as string);
-      if (!unit) throw new ContextError("source_reference_not_found", "exact source reference is unavailable", 409);
+        r.unit_id as string,
+        r.revision_id as string,
+        r.projection_id as string,
+        r.document_id as string,
+      );
+      if (!unit)
+        throw new ContextError(
+          "source_reference_not_found",
+          "exact source reference is unavailable",
+          409,
+        );
     }
     const encoded = canonicalJson(refs);
-    const existing = this.one<{owner_id:string;corpus_id:string;refs_json:string}>(
-      "SELECT owner_id,corpus_id,refs_json FROM context_document_reservations WHERE reservation_id=?",reservationId);
-    if (existing && (existing.owner_id !== ownerId || existing.corpus_id !== corpusId || existing.refs_json !== encoded)) {
-      throw new ContextError("source_reservation_conflict", "source reservation already identifies other content",409);
+    const existing = this.one<{
+      owner_id: string;
+      corpus_id: string;
+      refs_json: string;
+    }>(
+      "SELECT owner_id,corpus_id,refs_json FROM context_document_reservations WHERE reservation_id=?",
+      reservationId,
+    );
+    if (
+      existing &&
+      (existing.owner_id !== ownerId ||
+        existing.corpus_id !== corpusId ||
+        existing.refs_json !== encoded)
+    ) {
+      throw new ContextError(
+        "source_reservation_conflict",
+        "source reservation already identifies other content",
+        409,
+      );
     }
-    this.sql.exec("INSERT OR IGNORE INTO context_document_reservations VALUES (?,?,?,?,?)",
-      reservationId,ownerId,corpusId,encoded,nowIso());
-    return {reservation_id:reservationId,protected:true};
+    this.sql.exec(
+      "INSERT OR IGNORE INTO context_document_reservations VALUES (?,?,?,?,?)",
+      reservationId,
+      ownerId,
+      corpusId,
+      encoded,
+      nowIso(),
+    );
+    return { reservation_id: reservationId, protected: true };
   }
 
-  private releaseContextDocument(ownerId: string, raw: unknown): Record<string, unknown> {
+  private releaseContextDocument(
+    ownerId: string,
+    raw: unknown,
+  ): Record<string, unknown> {
     const value = raw as Record<string, unknown>;
-    if (typeof value?.reservation_id !== "string" || typeof value.corpusId !== "string") {
-      throw new ContextError("invalid_source_reservation", "source reservation identity is required");
+    if (
+      typeof value?.reservation_id !== "string" ||
+      typeof value.corpusId !== "string"
+    ) {
+      throw new ContextError(
+        "invalid_source_reservation",
+        "source reservation identity is required",
+      );
     }
-    this.sql.exec("DELETE FROM context_document_reservations WHERE reservation_id=? AND owner_id=? AND corpus_id=?",
-      value.reservation_id,ownerId,value.corpusId);
-    return {released:true,reservation_id:value.reservation_id};
+    this.sql.exec(
+      "DELETE FROM context_document_reservations WHERE reservation_id=? AND owner_id=? AND corpus_id=?",
+      value.reservation_id,
+      ownerId,
+      value.corpusId,
+    );
+    return { released: true, reservation_id: value.reservation_id };
   }
 
   private async protectedRecordIds(
@@ -1292,7 +1376,7 @@ export class CorpusShard {
        JOIN corpus_context_items AS item
          ON item.owner_id = source.owner_id AND item.item_id = source.item_id
        WHERE source.owner_id = ? AND source.corpus_id = ?
-         AND item.lifecycle_state = 'active'`,
+         AND item.lifecycle_state IN ('active','trash')`,
     )
       .bind(ownerId, corpusId)
       .all<{
@@ -1317,17 +1401,28 @@ export class CorpusShard {
       ),
     );
     const snapshots = await this.env.STATE_DB.prepare(
-      "SELECT source_refs_json FROM corpus_document_snapshots WHERE owner_id=?")
-      .bind(ownerId).all<{source_refs_json:string}>();
-    const reservations = [...this.sql.exec<{refs_json:string}>(
-      "SELECT refs_json FROM context_document_reservations WHERE owner_id=? AND corpus_id=?",ownerId,corpusId)];
-    for (const encoded of [...snapshots.results.map(row => row.source_refs_json), ...reservations.map(row => row.refs_json)]) {
-      const refs = JSON.parse(encoded) as Array<Record<string,unknown>>;
+      "SELECT source_refs_json FROM corpus_document_snapshots WHERE owner_id=?",
+    )
+      .bind(ownerId)
+      .all<{ source_refs_json: string }>();
+    const reservations = [
+      ...this.sql.exec<{ refs_json: string }>(
+        "SELECT refs_json FROM context_document_reservations WHERE owner_id=? AND corpus_id=?",
+        ownerId,
+        corpusId,
+      ),
+    ];
+    for (const encoded of [
+      ...snapshots.results.map((row) => row.source_refs_json),
+      ...reservations.map((row) => row.refs_json),
+    ]) {
+      const refs = JSON.parse(encoded) as Array<Record<string, unknown>>;
       for (const ref of refs) {
         if (ref.corpus_id !== undefined && ref.corpus_id !== corpusId) continue;
         if (typeof ref.document_id === "string") documents.add(ref.document_id);
         if (typeof ref.revision_id === "string") revisions.add(ref.revision_id);
-        if (typeof ref.projection_id === "string") projections.add(ref.projection_id);
+        if (typeof ref.projection_id === "string")
+          projections.add(ref.projection_id);
       }
     }
     for (const sourceUnitId of new Set(
@@ -1421,7 +1516,11 @@ export class CorpusShard {
     }
     const value = raw as Record<string, unknown>;
     const corpusId = value.corpusId;
-    if (typeof corpusId !== "string" || corpusId.length < 1 || corpusId.length > 128) {
+    if (
+      typeof corpusId !== "string" ||
+      corpusId.length < 1 ||
+      corpusId.length > 128
+    ) {
       throw new ContextError(
         "invalid_maintenance_request",
         "Corpus maintenance identity is invalid",
@@ -1437,11 +1536,7 @@ export class CorpusShard {
       "removeDocumentIds",
       50,
     );
-    const uploadIds = CorpusShard.maintenanceIds(
-      value,
-      "removeUploadIds",
-      50,
-    );
+    const uploadIds = CorpusShard.maintenanceIds(value, "removeUploadIds", 50);
     const compactSearchIndexLimit =
       value.compactSearchIndexLimit === undefined
         ? 0
@@ -1538,7 +1633,13 @@ export class CorpusShard {
     )) {
       protectedIds.documents.add(row.document_id);
     }
-    const removed = { documents: 0, revisions: 0, projections: 0, units: 0, uploads: 0 };
+    const removed = {
+      documents: 0,
+      revisions: 0,
+      projections: 0,
+      units: 0,
+      uploads: 0,
+    };
     const protectedCounts = { documents: 0, projections: 0 };
     const candidateRevisionIds = new Set<string>();
     const targetSearchIndexVersion =
@@ -1821,7 +1922,10 @@ export class CorpusShard {
           "DELETE FROM source_units WHERE projection_id = ?",
           projectionId,
         );
-        this.sql.exec("DELETE FROM projections WHERE projection_id = ?", projectionId);
+        this.sql.exec(
+          "DELETE FROM projections WHERE projection_id = ?",
+          projectionId,
+        );
         removed.projections += 1;
         removed.units += projection.unit_count;
       }
@@ -1910,8 +2014,14 @@ export class CorpusShard {
           documentId,
           documentId,
         );
-        this.sql.exec("DELETE FROM revisions WHERE document_id = ?", documentId);
-        this.sql.exec("DELETE FROM documents WHERE document_id = ?", documentId);
+        this.sql.exec(
+          "DELETE FROM revisions WHERE document_id = ?",
+          documentId,
+        );
+        this.sql.exec(
+          "DELETE FROM documents WHERE document_id = ?",
+          documentId,
+        );
         removed.revisions += revisionCount;
         removed.documents += 1;
         if (retentionPurge) {
@@ -1951,7 +2061,10 @@ export class CorpusShard {
           "UPDATE revisions SET predecessor_revision_id = NULL WHERE predecessor_revision_id = ?",
           revisionId,
         );
-        this.sql.exec("DELETE FROM revisions WHERE revision_id = ?", revisionId);
+        this.sql.exec(
+          "DELETE FROM revisions WHERE revision_id = ?",
+          revisionId,
+        );
         removed.revisions += 1;
       }
 
@@ -1961,7 +2074,10 @@ export class CorpusShard {
             "SELECT COUNT(*) AS count FROM staged_uploads WHERE upload_id = ?",
             uploadId,
           )?.count ?? 0;
-        this.sql.exec("DELETE FROM staged_uploads WHERE upload_id = ?", uploadId);
+        this.sql.exec(
+          "DELETE FROM staged_uploads WHERE upload_id = ?",
+          uploadId,
+        );
         removed.uploads += count;
       }
 
@@ -3297,10 +3413,23 @@ export class CorpusShard {
     const query = typeof value.query === "string" ? value.query.trim() : "";
     const limit = Number.isInteger(value.limit) ? Number(value.limit) : 20;
     const exclusions = value.exclude_document_versions ?? [];
-    if (!query || query.length > 2_000 || limit < 1 || limit > 100 ||
-        !Array.isArray(exclusions) || exclusions.length > CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS ||
-        exclusions.some((record) => !record || Array.isArray(record) || typeof record !== "object" ||
-          [record.document_id, record.revision_id, record.projection_id].some((id) => typeof id !== "string" || !id || id.length > 200))) {
+    if (
+      !query ||
+      query.length > 2_000 ||
+      limit < 1 ||
+      limit > 100 ||
+      !Array.isArray(exclusions) ||
+      exclusions.length > CORPUS_SEARCH_MAX_HISTORICAL_DOCUMENTS ||
+      exclusions.some(
+        (record) =>
+          !record ||
+          Array.isArray(record) ||
+          typeof record !== "object" ||
+          [record.document_id, record.revision_id, record.projection_id].some(
+            (id) => typeof id !== "string" || !id || id.length > 200,
+          ),
+      )
+    ) {
       throw new ContextError(
         "invalid_query",
         "Corpus search parameters are invalid",
@@ -3340,7 +3469,7 @@ export class CorpusShard {
     const compactRows = this.compactSearchIndexAvailable
       ? [
           ...this.sql.exec<SearchRow>(
-        `SELECT unit.unit_id, revision.document_id, unit.projection_id,
+            `SELECT unit.unit_id, revision.document_id, unit.projection_id,
                 document.relative_path, unit.normalized_content,
                 bm25(source_units_fts_v2) AS rank, unit.ordinal,
                 unit.revision_id, document.source_state,
@@ -3363,10 +3492,10 @@ export class CorpusShard {
            )
          ORDER BY rank, document.relative_path, unit.ordinal
          LIMIT ?`,
-        SEARCH_INDEX_VERSION,
-        expression,
-        excludedDocuments,
-        limit,
+            SEARCH_INDEX_VERSION,
+            expression,
+            excludedDocuments,
+            limit,
           ),
         ]
       : [];
@@ -4023,12 +4152,24 @@ export class CorpusShard {
         return json({ ok: true, result: this.readUnits(body) });
       if (path === "/inventory")
         return json({ ok: true, result: this.inventory(body) });
-      if (path === "/context-document/protect") return await this.withContextProtection(async () =>
-        json({ok:true,result:this.protectContextDocument(ownerId,body)}));
-      if (path === "/context-document/release") return await this.withContextProtection(async () =>
-        json({ok:true,result:this.releaseContextDocument(ownerId,body)}));
-      if (path === "/maintenance") return await this.withContextProtection(async () =>
-        json({ok:true,result:await this.maintain(ownerId,body)}));
+      if (path === "/context-document/protect")
+        return await this.withContextProtection(async () =>
+          json({
+            ok: true,
+            result: this.protectContextDocument(ownerId, body),
+          }),
+        );
+      if (path === "/context-document/release")
+        return await this.withContextProtection(async () =>
+          json({
+            ok: true,
+            result: this.releaseContextDocument(ownerId, body),
+          }),
+        );
+      if (path === "/maintenance")
+        return await this.withContextProtection(async () =>
+          json({ ok: true, result: await this.maintain(ownerId, body) }),
+        );
       throw new ContextError(
         "not_found",
         "Corpus shard route was not found",

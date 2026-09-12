@@ -1,8 +1,6 @@
 import { z } from "zod/v4";
 
-export const recipeIdSchema = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+export const recipeIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 
 export const designPathSchema = z
   .string()
@@ -10,10 +8,10 @@ export const designPathSchema = z
   .max(500)
   .refine(
     (value) =>
-      !value.startsWith("/")
-      && !value.split("/").includes("..")
-      && !value.includes("\\")
-      && /^[a-zA-Z0-9._/-]+$/.test(value),
+      !value.startsWith("/") &&
+      !value.split("/").includes("..") &&
+      !value.includes("\\") &&
+      /^[a-zA-Z0-9._/-]+$/.test(value),
     "asset path is invalid",
   );
 
@@ -31,6 +29,8 @@ export const recipeMetadataSchema = z.looseObject({
 });
 
 export const listRecipesSchema = z.object({
+  lifecycle: z.enum(["active", "trash", "all"]).default("active"),
+  offset: z.number().int().min(0).max(100000).default(0),
   status: z.enum(["draft", "candidate", "validated", "deprecated"]).optional(),
   format: z.enum(["web", "document", "slides", "image"]).optional(),
   limit: z.number().int().min(1).max(100).default(50),

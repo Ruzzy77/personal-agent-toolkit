@@ -1,5 +1,8 @@
+import { DesignManagementService } from "./management";
+import { admitDesignAsset, finishDesignUpload } from "./assets";
 import { DesignError } from "./errors";
 import {
+  type StoredFileInput,
   createRecipe,
   importRecipe,
   listRecipes,
@@ -19,20 +22,21 @@ import type {
   Env,
   JsonObject,
 } from "./types";
-import type {
-  DesignImportInput,
-  DesignUploadInput,
-} from "./schemas";
+import type { DesignImportInput, DesignUploadInput } from "./schemas";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+const CONTENT_TYPE =
+  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 function bytesFromBase64(value: string): Uint8Array {
   try {
     const binary = atob(value);
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   } catch {
-    throw new DesignError("invalid_base64", "the Design asset is not valid base64");
+    throw new DesignError(
+      "invalid_base64",
+      "the Design asset is not valid base64",
+    );
   }
 }
 
@@ -45,19 +49,31 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 
 function validateFile(contentType: string, bytes: Uint8Array): void {
   if (!CONTENT_TYPE.test(contentType)) {
-    throw new DesignError("invalid_asset_type", "the Design asset type is invalid");
+    throw new DesignError(
+      "invalid_asset_type",
+      "the Design asset type is invalid",
+    );
   }
   if (bytes.byteLength < 1 || bytes.byteLength > MAX_FILE_BYTES) {
-    throw new DesignError("invalid_asset_size", "the Design asset size is invalid");
+    throw new DesignError(
+      "invalid_asset_size",
+      "the Design asset size is invalid",
+    );
   }
-}
-
-function objectKey(recipeId: string, digest: string, path: string): string {
-  return `recipes/${recipeId}/${digest}/${path}`;
 }
 
 export class DesignService {
-  constructor(private readonly env: Pick<Env, "DB" | "ASSETS">) {}
+  constructor(
+    private readonly env: Pick<Env, "DB" | "ASSETS"> &
+      Partial<Pick<Env, "MANAGEMENT_WRITE_ENABLED">>,
+  ) {}
+  management() {
+    return new DesignManagementService(
+      this.env.DB,
+      this.env.ASSETS,
+      this.env.MANAGEMENT_WRITE_ENABLED === "true",
+    );
+  }
 
   catalog(): Promise<DesignCatalog> {
     return readCatalog(this.env.DB);
@@ -66,6 +82,8 @@ export class DesignService {
   listRecipes(options: {
     status?: DesignStatus | undefined;
     format?: string | undefined;
+    lifecycle?: "active" | "trash" | "all" | undefined;
+    offset?: number | undefined;
     limit: number;
   }): Promise<DesignRecipeSummary[]> {
     return listRecipes(this.env.DB, options);
@@ -88,21 +106,32 @@ export class DesignService {
   }
 
   async importRecipe(input: DesignImportInput): Promise<DesignMutationResult> {
-    const stored = [];
+    const stored: StoredFileInput[] = [];
+    const uploads = [];
     for (const file of input.files) {
       const bytes = bytesFromBase64(file.base64);
       validateFile(file.content_type, bytes);
       const digest = await sha256(bytes);
       if (digest !== file.sha256) {
-        throw new DesignError("asset_hash_mismatch", "a Design asset hash differs", 400, {
-          path: file.path,
-        });
+        throw new DesignError(
+          "asset_hash_mismatch",
+          "a Design asset hash differs",
+          400,
+          {
+            path: file.path,
+          },
+        );
       }
-      const key = objectKey(input.recipe.id, digest, file.path);
-      await this.env.ASSETS.put(key, bytes, {
-        httpMetadata: { contentType: file.content_type },
-        customMetadata: { sha256: digest },
-      });
+      const admission = await admitDesignAsset(
+        this.env.DB,
+        this.env.ASSETS,
+        input.recipe.id,
+        file.path,
+        bytes,
+        file.content_type,
+      );
+      uploads.push(admission);
+      const key = admission.key;
       stored.push({
         path: file.path,
         objectKey: key,
@@ -111,51 +140,67 @@ export class DesignService {
         sha256: digest,
       });
     }
-    return importRecipe(
-      this.env.DB,
-      input.library,
-      input.patterns,
-      input.recipe,
-      stored,
-    );
+    return (await finishDesignUpload(this.env.DB, uploads, () =>
+      importRecipe(
+        this.env.DB,
+        input.library,
+        input.patterns,
+        input.recipe,
+        stored,
+      ),
+    )) as DesignMutationResult;
   }
 
   async uploadFile(input: DesignUploadInput): Promise<DesignFileResult> {
     const bytes = bytesFromBase64(input.base64);
     validateFile(input.content_type, bytes);
     const digest = await sha256(bytes);
-    const key = objectKey(input.id, digest, input.path);
-    await this.env.ASSETS.put(key, bytes, {
-      httpMetadata: { contentType: input.content_type },
-      customMetadata: { sha256: digest },
-    });
-    const file = await storeFileRecord(
+    const admission = await admitDesignAsset(
       this.env.DB,
+      this.env.ASSETS,
       input.id,
-      {
-        path: input.path,
-        objectKey: key,
-        contentType: input.content_type,
-        byteSize: bytes.byteLength,
-        sha256: digest,
-      },
-      input.expected_file_revision,
+      input.path,
+      bytes,
+      input.content_type,
     );
+    const key = admission.key;
+    const file = (await finishDesignUpload(this.env.DB, [admission], () =>
+      storeFileRecord(
+        this.env.DB,
+        input.id,
+        {
+          path: input.path,
+          objectKey: key,
+          contentType: input.content_type,
+          byteSize: bytes.byteLength,
+          sha256: digest,
+        },
+        input.expected_file_revision,
+      ),
+    )) as DesignFileResult["file"];
     return { status: "stored", recipeId: input.id, file };
   }
 
   async readFile(
     id: string,
     path: string,
-  ): Promise<{ record: NonNullable<Awaited<ReturnType<typeof readFileRecord>>>; object: R2ObjectBody } | null> {
+  ): Promise<{
+    record: NonNullable<Awaited<ReturnType<typeof readFileRecord>>>;
+    object: R2ObjectBody;
+  } | null> {
     const record = await readFileRecord(this.env.DB, id, path);
     if (!record) return null;
     const object = await this.env.ASSETS.get(record.object_key);
     if (!object) {
-      throw new DesignError("asset_missing", "the Design asset bytes are missing", 500, {
-        id,
-        path,
-      });
+      throw new DesignError(
+        "asset_missing",
+        "the Design asset bytes are missing",
+        500,
+        {
+          id,
+          path,
+        },
+      );
     }
     return { record, object };
   }

@@ -26,6 +26,7 @@
     }
   ],
   "vars": {
+    "MANAGEMENT_WRITE_ENABLED": "false",
     "AUTH_ISSUER": "https://personal-agent-auth.example.workers.dev",
     "RESOURCE_URI": "https://personal-agent-design.example.workers.dev/mcp"
   },

@@ -1,10 +1,9 @@
-import {
-  bearerToken,
-  constantTimeEqual,
-} from "@personal-agent/remote-runtime";
+import { executeLibraryOperation } from "./operations";
+import { bearerToken, constantTimeEqual } from "@personal-agent/remote-runtime";
 
 import { asLibraryError, LibraryError } from "./errors";
 import {
+  listIssuesSchema,
   createIssueSchema,
   importIssueSchema,
   issueIdSchema,
@@ -18,6 +17,14 @@ const API_ISSUES = "/api/v1/issues";
 const API_IMPORT_ISSUES = "/api/v1/import/issues";
 const API_ASSETS = "/api/v1/assets/";
 const MEDIA = "/media/";
+const siteActor = {
+  ownerId: "site-owner",
+  clientId: "site",
+  kind: "owner" as const,
+  scopes: new Set(["library.read", "library.write"]),
+};
+const execute = (service: LibraryService, name: string, input: unknown) =>
+  executeLibraryOperation(service, siteActor, name, input);
 const MAX_JSON_BYTES = 2_100_000;
 
 function json(body: unknown, status = 200): Response {
@@ -60,7 +67,11 @@ function requireSite(request: Request, env: Env): void {
 async function readJson(request: Request): Promise<unknown> {
   const length = Number(request.headers.get("Content-Length") ?? "0");
   if (Number.isFinite(length) && length > MAX_JSON_BYTES) {
-    throw new LibraryError("request_too_large", "request body is too large", 413);
+    throw new LibraryError(
+      "request_too_large",
+      "request body is too large",
+      413,
+    );
   }
   try {
     return await request.json();
@@ -84,36 +95,40 @@ async function handleIssues(
   service: LibraryService,
 ): Promise<Response | null> {
   if (url.pathname === API_ISSUES && request.method === "GET") {
-    const limit = Number(url.searchParams.get("limit") ?? "100");
+    const { limit, lifecycle, offset } = listIssuesSchema.parse({
+      ...Object.fromEntries(url.searchParams),
+      limit: Number(url.searchParams.get("limit") ?? 100),
+      offset: Number(url.searchParams.get("offset") ?? 0),
+    });
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
       throw new LibraryError("invalid_request", "issue limit is invalid");
     }
-    return success(
-      await service.listIssues(url.searchParams.get("collection"), limit),
-    );
+    const result = await execute(service, "library_list_issues", {
+      collection: url.searchParams.get("collection") ?? undefined,
+      limit,
+      lifecycle,
+      offset,
+    });
+    return success(result.issues);
   }
 
   if (url.pathname === API_ISSUES && request.method === "POST") {
     const input = createIssueSchema.parse(await readJson(request));
-    return success(await service.createIssue(input), 201);
+    return success(await execute(service, "library_create_issue", input), 201);
   }
 
   if (url.pathname === API_IMPORT_ISSUES && request.method === "POST") {
     const input = importIssueSchema.parse(await readJson(request));
-    return success(await service.importIssue(input), 201);
+    return success(await execute(service, "library_import_issue", input), 201);
   }
 
-  if (
-    url.pathname === `${API_ISSUES}/by-path`
-    && request.method === "GET"
-  ) {
+  if (url.pathname === `${API_ISSUES}/by-path` && request.method === "GET") {
     const path = url.searchParams.get("path");
-    if (!path) throw new LibraryError("invalid_request", "issue path is required");
-    const issue = await service.readIssueByPath(path);
-    if (!issue) {
-      throw new LibraryError("not_found", "the Library issue was not found", 404);
-    }
-    return success(issue);
+    if (!path)
+      throw new LibraryError("invalid_request", "issue path is required");
+    return success(
+      (await execute(service, "library_issue_by_path", { path })).issue,
+    );
   }
 
   if (!url.pathname.startsWith(`${API_ISSUES}/`)) return null;
@@ -125,21 +140,23 @@ async function handleIssues(
   const id = parsedId.data;
 
   if (request.method === "GET") {
-    const issue = await service.readIssue(id);
-    if (!issue) {
-      throw new LibraryError("not_found", "the Library issue was not found", 404);
-    }
-    return success(issue);
+    return success(
+      (await execute(service, "library_read_issue", { id })).issue,
+    );
   }
 
   if (request.method === "PUT") {
     const input = updateIssueBodySchema.parse(await readJson(request));
-    return success(await service.updateIssue(id, input));
+    return success(
+      await execute(service, "library_update_issue", { id, ...input }),
+    );
   }
 
   if (request.method === "PATCH") {
     const input = updateIssueFragmentsSchema.parse(await readJson(request));
-    return success(await service.updateIssueFragments(id, input));
+    return success(
+      await execute(service, "library_edit_fragments", { id, ...input }),
+    );
   }
 
   throw new LibraryError("method_not_allowed", "method is not allowed", 405);
@@ -163,12 +180,16 @@ async function handleAssetWrite(
     ?.split(";", 1)[0]
     ?.trim()
     .toLowerCase();
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   return success(
-    await service.uploadAsset(
-      rawKey,
-      contentType ?? "",
-      new Uint8Array(await request.arrayBuffer()),
-    ),
+    await execute(service, "library_upload_asset", {
+      path: rawKey,
+      content_type: contentType ?? "",
+      base64: btoa(binary),
+    }),
   );
 }
 
@@ -183,19 +204,45 @@ async function handleMediaRead(
   }
   const rawKey = pathTail(url.pathname, MEDIA);
   if (!rawKey) return new Response("Not found", { status: 404 });
-  const object = await service.readAsset(rawKey);
+  const { object } = (await execute(service, "library_media_read", {
+    path: rawKey,
+  })) as { object: Awaited<ReturnType<LibraryService["readAsset"]>> };
   if (!object) return new Response("Not found", { status: 404 });
   const headers = new Headers({ "Cache-Control": "private, max-age=3600" });
   object.writeHttpMetadata(headers);
   headers.set("ETag", object.httpEtag ?? object.etag);
-  return new Response(request.method === "HEAD" ? null : object.body, { headers });
+  return new Response(request.method === "HEAD" ? null : object.body, {
+    headers,
+  });
 }
 
-export async function handleHttp(request: Request, env: Env): Promise<Response> {
+export async function handleHttp(
+  request: Request,
+  env: Env,
+): Promise<Response> {
   try {
     requireSite(request, env);
     const url = new URL(request.url);
     const service = new LibraryService(env);
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/api/v1/operations/")
+    ) {
+      return json({
+        ok: true,
+        result: await executeLibraryOperation(
+          service,
+          {
+            ownerId: "site-owner",
+            clientId: "site",
+            kind: "owner",
+            scopes: new Set(["library.read", "library.write"]),
+          },
+          url.pathname.slice("/api/v1/operations/".length),
+          await readJson(request),
+        ),
+      });
+    }
     const issues = await handleIssues(request, url, service);
     if (issues) return issues;
     const asset = await handleAssetWrite(request, url, service);

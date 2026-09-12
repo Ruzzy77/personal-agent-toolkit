@@ -7,6 +7,7 @@ import {
   senseSkillReviseSchema,
 } from "./schemas";
 import type { ProfileSection, SectionSkill, SenseProfile } from "./types";
+import { guard, guardedBatch } from "./management-db";
 
 interface ProfileRow {
   profile_json: string;
@@ -27,7 +28,10 @@ const SECTION_PRESENTATION: Record<string, { title: string; group: string }> = {
   "questions-and-choices": { title: "질문과 선택", group: "질문과 답" },
   "scope-and-checking": { title: "업무 범위", group: "질문과 답" },
   "evidence-and-judgment": { title: "자료와 해석", group: "자료와 표현" },
-  "explanation-and-output": { title: "설명과 산출물 구성", group: "자료와 표현" },
+  "explanation-and-output": {
+    title: "설명과 산출물 구성",
+    group: "자료와 표현",
+  },
   "conversation-and-writing": { title: "대화와 글", group: "자료와 표현" },
   "visual-production": { title: "시각 설계와 제작", group: "자료와 표현" },
   "research-exploration": { title: "연구 탐색", group: "연구" },
@@ -38,7 +42,13 @@ const SECTION_PRESENTATION: Record<string, { title: string; group: string }> = {
   },
   "what-to-keep": { title: "기억 체계", group: "장기 맥락" },
 };
-const GROUP_ORDER = ["질문과 답", "자료와 표현", "연구", "장기 맥락", "기타 지침"];
+const GROUP_ORDER = [
+  "질문과 답",
+  "자료와 표현",
+  "연구",
+  "장기 맥락",
+  "기타 지침",
+];
 const ORIGIN_LABELS = {
   user_set: "사용자 지정",
   learned_from_results: "경험 학습",
@@ -58,11 +68,22 @@ function skillProjection(skill: SkillRow, includeInstructions: boolean) {
 }
 
 function safeContextSiteUrl(value?: string): string | undefined {
-  if (!value || value.length > 2048 || !/^https:\/\//i.test(value) ||
-      /[\u0000-\u0020\u007f\\]/.test(value)) return undefined;
+  if (
+    !value ||
+    value.length > 2048 ||
+    !/^https:\/\//i.test(value) ||
+    /[\u0000-\u0020\u007f\\]/.test(value)
+  )
+    return undefined;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return undefined;
+    if (
+      url.protocol !== "https:" ||
+      !url.hostname ||
+      url.username ||
+      url.password
+    )
+      return undefined;
     return url.href;
   } catch {
     return undefined;
@@ -164,6 +185,7 @@ export class SenseService {
     const skills = await this.skills();
     if (view === "index") {
       return {
+        profile_sha256: stored.digest,
         sections: stored.profile.sections.map((section) => {
           if (section.sensitivity === "sensitive") {
             return {
@@ -414,7 +436,7 @@ export class SenseService {
     }
     const updatedAt = nowIso();
     if (current) {
-      const result = await this.db
+      const statement = this.db
         .prepare(
           `UPDATE sense_section_skills
            SET name = ?, description = ?, instructions = ?, version = ?, updated_at = ?
@@ -429,8 +451,21 @@ export class SenseService {
           this.ownerId,
           parsed.section_id,
           current.version,
+        );
+      const result = (
+        await guardedBatch(
+          this.db,
+          [
+            guard(
+              this.db,
+              "EXISTS (SELECT 1 FROM sense_profiles WHERE owner_id=? AND profile_sha256=?)",
+              [this.ownerId, stored.digest],
+            ),
+          ],
+          [statement],
+          "section_skill_conflict",
         )
-        .run();
+      ).at(-1)!;
       if ((result.meta.changes ?? 0) !== 1) {
         throw new ContextError(
           "section_skill_conflict",
@@ -439,7 +474,7 @@ export class SenseService {
         );
       }
     } else {
-      await this.db
+      const statement = this.db
         .prepare(
           `INSERT INTO sense_section_skills(
              owner_id, section_id, name, description, instructions, version, updated_at
@@ -453,8 +488,19 @@ export class SenseService {
           parsed.new_skill.instructions.replace(/\r\n?/g, "\n").trim(),
           version,
           updatedAt,
-        )
-        .run();
+        );
+      await guardedBatch(
+        this.db,
+        [
+          guard(
+            this.db,
+            "EXISTS (SELECT 1 FROM sense_profiles WHERE owner_id=? AND profile_sha256=?)",
+            [this.ownerId, stored.digest],
+          ),
+        ],
+        [statement],
+        "section_skill_conflict",
+      );
     }
     const row: SkillRow = {
       section_id: parsed.section_id,
@@ -473,12 +519,30 @@ export class SenseService {
     };
   }
 
+  private async importGuards(): Promise<D1PreparedStatement[]> {
+    if (
+      !(await this.db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE name='sense_management_owners'",
+        )
+        .first())
+    )
+      return [];
+    return [
+      guard(
+        this.db,
+        "NOT EXISTS (SELECT 1 FROM sense_management_owners WHERE owner_id=?)",
+        [this.ownerId],
+      ),
+    ];
+  }
+
   async importProfile(profileValue: unknown): Promise<Record<string, unknown>> {
     const profile = senseProfileSchema.parse(profileValue);
     const profileJson = canonicalJson(profile);
     const digest = await sha256Hex(profileJson);
     const updatedAt = nowIso();
-    await this.db
+    const statement = this.db
       .prepare(
         `INSERT INTO sense_profiles(owner_id, profile_json, profile_sha256, updated_at)
          VALUES (?, ?, ?, ?)
@@ -487,8 +551,8 @@ export class SenseService {
            profile_sha256 = excluded.profile_sha256,
            updated_at = excluded.updated_at`,
       )
-      .bind(this.ownerId, profileJson, digest, updatedAt)
-      .run();
+      .bind(this.ownerId, profileJson, digest, updatedAt);
+    await guardedBatch(this.db, await this.importGuards(), [statement]);
     return {
       schema_version: 2,
       profile_sha256: digest,
@@ -582,7 +646,7 @@ export class SenseService {
           ),
       );
     }
-    await this.db.batch(statements);
+    await guardedBatch(this.db, await this.importGuards(), statements);
     return { imported_skill_count: rows.length };
   }
 }

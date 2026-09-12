@@ -1,3 +1,4 @@
+import { OperationError } from "@personal-agent/remote-runtime";
 import { ZodError } from "zod/v4";
 
 const CONTENT_ERROR_CODES = new Set([
@@ -20,20 +21,27 @@ const CONTENT_ERROR_CODES = new Set([
   "script_not_allowed",
 ]);
 
-export class LibraryError extends Error {
+export class LibraryError extends OperationError {
   constructor(
     readonly code: string,
     message: string,
     readonly status = 400,
     readonly details: Record<string, unknown> = {},
   ) {
-    super(message);
+    super(code, message, status, details);
     this.name = "LibraryError";
   }
 }
 
 export function asLibraryError(error: unknown): LibraryError {
   if (error instanceof LibraryError) return error;
+  if (error instanceof OperationError)
+    return new LibraryError(
+      error.code,
+      error.message,
+      error.status,
+      error.details,
+    );
   if (error instanceof ZodError) {
     return new LibraryError("invalid_request", "request fields are invalid");
   }

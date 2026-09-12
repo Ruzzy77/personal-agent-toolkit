@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -164,13 +165,29 @@ const needs: Array<{
   label: string;
   formats: FormatId[];
 }> = [
-  { id: "minimal_content", label: "필수 내용만", formats: ["web", "document", "slides", "image"] },
+  {
+    id: "minimal_content",
+    label: "필수 내용만",
+    formats: ["web", "document", "slides", "image"],
+  },
   { id: "interactive_ui", label: "버튼과 입력", formats: ["web"] },
-  { id: "charts", label: "표와 그래프", formats: ["web", "document", "slides", "image"] },
-  { id: "diagrams", label: "그림과 도식", formats: ["web", "document", "slides", "image"] },
+  {
+    id: "charts",
+    label: "표와 그래프",
+    formats: ["web", "document", "slides", "image"],
+  },
+  {
+    id: "diagrams",
+    label: "그림과 도식",
+    formats: ["web", "document", "slides", "image"],
+  },
   { id: "print", label: "인쇄용", formats: ["document", "slides", "image"] },
   { id: "long_form", label: "긴 내용", formats: ["web", "document"] },
-  { id: "dark_mode", label: "어두운 배경", formats: ["web", "slides", "image"] },
+  {
+    id: "dark_mode",
+    label: "어두운 배경",
+    formats: ["web", "slides", "image"],
+  },
 ];
 
 const formatIds = formats.map((item) => item.id);
@@ -232,14 +249,17 @@ type CatalogRuntime = {
 
 function buildRuntime(catalog: Catalog): CatalogRuntime {
   const availableRecipes = catalog.recipes.filter(
-    (recipe) => recipe.status === "validated" && recipe.selection_ready === true,
+    (recipe) =>
+      recipe.status === "validated" && recipe.selection_ready === true,
   );
   return {
     availableRecipes,
     unselectedRecipes: catalog.recipes.filter(
       (recipe) => !availableRecipes.includes(recipe),
     ),
-    patternById: new Map(catalog.patterns.map((pattern) => [pattern.id, pattern])),
+    patternById: new Map(
+      catalog.patterns.map((pattern) => [pattern.id, pattern]),
+    ),
     recipeIds: availableRecipes.map((recipe) => recipe.id),
     templateLabels: mergeLabels(catalog, (gallery) => gallery.template_labels),
     useLabels: mergeLabels(catalog, (gallery) => gallery.use_labels),
@@ -260,10 +280,50 @@ const capabilityLabels: Record<string, string> = {
 };
 
 const capabilityOrder: Record<FormatId, string[]> = {
-  web: ["minimal_content", "interactive_ui", "charts", "diagrams", "long_form", "dark_mode", "motion", "print", "image_layout"],
-  document: ["minimal_content", "print", "charts", "diagrams", "long_form", "image_layout", "dark_mode", "interactive_ui", "motion"],
-  slides: ["minimal_content", "image_layout", "charts", "diagrams", "dark_mode", "print", "motion", "long_form", "interactive_ui"],
-  image: ["minimal_content", "image_layout", "diagrams", "charts", "dark_mode", "print", "motion", "long_form", "interactive_ui"],
+  web: [
+    "minimal_content",
+    "interactive_ui",
+    "charts",
+    "diagrams",
+    "long_form",
+    "dark_mode",
+    "motion",
+    "print",
+    "image_layout",
+  ],
+  document: [
+    "minimal_content",
+    "print",
+    "charts",
+    "diagrams",
+    "long_form",
+    "image_layout",
+    "dark_mode",
+    "interactive_ui",
+    "motion",
+  ],
+  slides: [
+    "minimal_content",
+    "image_layout",
+    "charts",
+    "diagrams",
+    "dark_mode",
+    "print",
+    "motion",
+    "long_form",
+    "interactive_ui",
+  ],
+  image: [
+    "minimal_content",
+    "image_layout",
+    "diagrams",
+    "charts",
+    "dark_mode",
+    "print",
+    "motion",
+    "long_form",
+    "interactive_ui",
+  ],
 };
 
 function formatLabel(format: FormatId) {
@@ -283,7 +343,9 @@ function labelsFor(values: string[], labels: Record<string, string>) {
 }
 
 function patternNames(runtime: CatalogRuntime, recipe: Recipe) {
-  return recipe.pattern_refs.map((id) => runtime.patternById.get(id)?.name || id);
+  return recipe.pattern_refs.map(
+    (id) => runtime.patternById.get(id)?.name || id,
+  );
 }
 
 function selectedContent(content: ContentId) {
@@ -330,14 +392,20 @@ function referenceReasons(
 ) {
   const reasons: string[] = [];
   if (contentMatches(recipe, content)) {
-    reasons.push(`${selectedContent(content).label} 내용에 맞는 용도로 정리되어 있음`);
+    reasons.push(
+      `${selectedContent(content).label} 내용에 맞는 용도로 정리되어 있음`,
+    );
   }
   if (recipe.format_fit[format] === "primary") {
     reasons.push(`${formatLabel(format)} 형식에 특히 잘 맞음`);
   }
-  const supportedNeeds = selectedNeeds.filter((need) => recipe.capabilities[need]);
+  const supportedNeeds = selectedNeeds.filter(
+    (need) => recipe.capabilities[need],
+  );
   if (supportedNeeds.length) {
-    reasons.push(`선택한 기능 중 ${supportedNeeds.map(needLabel).join(", ")} 지원`);
+    reasons.push(
+      `선택한 기능 중 ${supportedNeeds.map(needLabel).join(", ")} 지원`,
+    );
   }
   const names = patternNames(runtime, recipe);
   if (names.length) reasons.push(`${names.join(" · ")} 패턴을 참고할 수 있음`);
@@ -351,19 +419,29 @@ function referenceTensions(
   selectedNeeds: NeedId[],
 ) {
   const tensions: string[] = [];
-  const unsupportedNeeds = selectedNeeds.filter((need) => !recipe.capabilities[need]);
+  const unsupportedNeeds = selectedNeeds.filter(
+    (need) => !recipe.capabilities[need],
+  );
   if (unsupportedNeeds.length) {
-    tensions.push(`${unsupportedNeeds.map(needLabel).join(", ")} 지원은 제한적`);
+    tensions.push(
+      `${unsupportedNeeds.map(needLabel).join(", ")} 지원은 제한적`,
+    );
   }
   if (contentConflicts(recipe, content)) {
-    tensions.push(`${selectedContent(content).label} 내용에는 전체 레시피보다 일부 원리만 적합`);
+    tensions.push(
+      `${selectedContent(content).label} 내용에는 전체 레시피보다 일부 원리만 적합`,
+    );
   } else if (!contentMatches(recipe, content)) {
     tensions.push("선택한 내용 유형과 직접 일치하지 않아 원리를 선별해야 함");
   }
   if (!recipe.format_support[format].includes("assets")) {
-    tensions.push(`${formatLabel(format)} 형식은 원칙만 제공하며 적용 자산은 없음`);
+    tensions.push(
+      `${formatLabel(format)} 형식은 원칙만 제공하며 적용 자산은 없음`,
+    );
   } else if (recipe.format_fit[format] !== "primary") {
-    tensions.push(`${formatLabel(format)} 형식은 적용 가능하지만 주요 형식은 아님`);
+    tensions.push(
+      `${formatLabel(format)} 형식은 적용 가능하지만 주요 형식은 아님`,
+    );
   }
   return tensions.slice(0, 2);
 }
@@ -380,12 +458,23 @@ function rankReferences(
       recipe,
       index,
       score: scoreRecipe(recipe, format, content, selectedNeeds),
-      reasons: referenceReasons(runtime, recipe, format, content, selectedNeeds),
+      reasons: referenceReasons(
+        runtime,
+        recipe,
+        format,
+        content,
+        selectedNeeds,
+      ),
       tensions: referenceTensions(recipe, format, content, selectedNeeds),
     }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .slice(0, limit)
-    .map(({ recipe, score, reasons, tensions }) => ({ recipe, score, reasons, tensions }));
+    .map(({ recipe, score, reasons, tensions }) => ({
+      recipe,
+      score,
+      reasons,
+      tensions,
+    }));
 }
 
 function strengthsFor(recipe: Recipe, format: FormatId, limit = 3) {
@@ -398,11 +487,16 @@ function strengthsFor(recipe: Recipe, format: FormatId, limit = 3) {
 function noteFor(runtime: CatalogRuntime, recipe: Recipe): RecipeNote {
   const gallery = recipe.gallery;
   if (gallery) {
-    return { koreanName: gallery.korean_name, purpose: gallery.purpose, note: gallery.note };
+    return {
+      koreanName: gallery.korean_name,
+      purpose: gallery.purpose,
+      note: gallery.note,
+    };
   }
 
   const match = recipe.name.match(/^(.+?)\s*\((.+)\)$/);
-  const purpose = labelsFor(recipe.use_for, runtime.useLabels)[0] || "등록된 레시피";
+  const purpose =
+    labelsFor(recipe.use_for, runtime.useLabels)[0] || "등록된 레시피";
   return {
     koreanName: match?.[1]?.trim() || recipe.name,
     purpose,
@@ -410,21 +504,24 @@ function noteFor(runtime: CatalogRuntime, recipe: Recipe): RecipeNote {
   };
 }
 
-function buildRequestText(runtime: CatalogRuntime, {
-  recipe,
-  format,
-  content,
-  subject,
-  selectedNeeds,
-  selectedDirections,
-}: {
-  recipe: Recipe;
-  format: FormatId;
-  content: ContentId;
-  subject: string;
-  selectedNeeds: NeedId[];
-  selectedDirections: string[];
-}) {
+function buildRequestText(
+  runtime: CatalogRuntime,
+  {
+    recipe,
+    format,
+    content,
+    subject,
+    selectedNeeds,
+    selectedDirections,
+  }: {
+    recipe: Recipe;
+    format: FormatId;
+    content: ContentId;
+    subject: string;
+    selectedNeeds: NeedId[];
+    selectedDirections: string[];
+  },
+) {
   const contentChoice = selectedContent(content);
   const requirementLine = selectedNeeds.length
     ? `필요한 기능: ${selectedNeeds.map(needLabel).join(", ")}`
@@ -443,7 +540,9 @@ function buildRequestText(runtime: CatalogRuntime, {
     `${noteFor(runtime, recipe).koreanName} 레시피를 참고해 ${requestFormatName(format)} 결과물을 만들어 주세요. 레시피를 그대로 복제하지 말고 목적에 맞는 조형 원리와 재료만 선택해 적용해 주세요. 기존 브랜드나 디자인 시스템이 있으면 유지하고, 충돌하는 색상·서체·구성은 바꾸지 마세요.`,
     requirementLine,
     improvementLine,
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -452,8 +551,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function assertObject(value: unknown, allowedKeys: string[]) {
   if (!isRecord(value)) throw new Error("입력은 객체여야 합니다.");
-  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key));
-  if (unknownKeys.length) throw new Error(`지원하지 않는 입력 항목: ${unknownKeys.join(", ")}`);
+  const unknownKeys = Object.keys(value).filter(
+    (key) => !allowedKeys.includes(key),
+  );
+  if (unknownKeys.length)
+    throw new Error(`지원하지 않는 입력 항목: ${unknownKeys.join(", ")}`);
   return value;
 }
 
@@ -481,7 +583,9 @@ function parseNeeds(value: unknown, format: FormatId): NeedId[] {
     }
     const need = needs.find((candidate) => candidate.id === item);
     if (!need?.formats.includes(format)) {
-      throw new Error(`${need?.label || item} 기능은 ${formatLabel(format)} 형식에서 선택할 수 없습니다.`);
+      throw new Error(
+        `${need?.label || item} 기능은 ${formatLabel(format)} 형식에서 선택할 수 없습니다.`,
+      );
     }
     if (!parsed.includes(item as NeedId)) parsed.push(item as NeedId);
   }
@@ -501,7 +605,12 @@ function asFindInput(input: unknown) {
   const content = parseContent(value.content);
   const selectedNeeds = parseNeeds(value.needs, format);
   const limit = value.limit === undefined ? 3 : value.limit;
-  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 3) {
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 3
+  ) {
     throw new Error("limit은 1에서 3 사이의 정수여야 합니다.");
   }
   return { format, content, selectedNeeds, limit };
@@ -509,23 +618,40 @@ function asFindInput(input: unknown) {
 
 function asCompareInput(runtime: CatalogRuntime, input: unknown) {
   const value = assertObject(input, ["reference_ids", "format"]);
-  if (!Array.isArray(value.reference_ids) || value.reference_ids.length < 2 || value.reference_ids.length > 3) {
+  if (
+    !Array.isArray(value.reference_ids) ||
+    value.reference_ids.length < 2 ||
+    value.reference_ids.length > 3
+  ) {
     throw new Error("reference_ids에는 2개 또는 3개의 참고 후보가 필요합니다.");
   }
-  const referenceIds = value.reference_ids.map((id) => parseReferenceId(runtime, id));
+  const referenceIds = value.reference_ids.map((id) =>
+    parseReferenceId(runtime, id),
+  );
   if (new Set(referenceIds).size !== referenceIds.length) {
     throw new Error("reference_ids에는 같은 후보를 두 번 넣을 수 없습니다.");
   }
-  const format = value.format === undefined ? undefined : parseFormat(value.format);
+  const format =
+    value.format === undefined ? undefined : parseFormat(value.format);
   return { referenceIds, format };
 }
 
 function asBriefInput(runtime: CatalogRuntime, input: unknown) {
-  const value = assertObject(input, ["reference_id", "format", "content", "subject", "needs"]);
+  const value = assertObject(input, [
+    "reference_id",
+    "format",
+    "content",
+    "subject",
+    "needs",
+  ]);
   const referenceId = parseReferenceId(runtime, value.reference_id);
   const format = parseFormat(value.format);
   const content = parseContent(value.content);
-  if (typeof value.subject !== "string" || !value.subject.trim() || value.subject.trim().length > 240) {
+  if (
+    typeof value.subject !== "string" ||
+    !value.subject.trim() ||
+    value.subject.trim().length > 240
+  ) {
     throw new Error("subject는 1자 이상 240자 이하의 문자열이어야 합니다.");
   }
   return {
@@ -537,7 +663,11 @@ function asBriefInput(runtime: CatalogRuntime, input: unknown) {
   };
 }
 
-function referencePayload(runtime: CatalogRuntime, reference: RankedReference, rank: number) {
+function referencePayload(
+  runtime: CatalogRuntime,
+  reference: RankedReference,
+  rank: number,
+) {
   return {
     rank,
     reference_id: reference.recipe.id,
@@ -627,10 +757,18 @@ function Specimen({
 }) {
   if (recipe.id === "hanji") {
     return (
-      <div className="specimen specimen--hanji" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--hanji"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
           <p className="hanji-headline">{sample}</p>
-          <div className="hanji-lines"><i /><i /><i /></div>
+          <div className="hanji-lines">
+            <i />
+            <i />
+            <i />
+          </div>
         </div>
       </div>
     );
@@ -638,11 +776,19 @@ function Specimen({
 
   if (recipe.id === "seochaek") {
     return (
-      <div className="specimen specimen--seochaek" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--seochaek"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
           <div className="book-page">
             <p>{sample}</p>
-            <div className="book-lines"><i /><i /><i /></div>
+            <div className="book-lines">
+              <i />
+              <i />
+              <i />
+            </div>
           </div>
         </div>
       </div>
@@ -651,11 +797,20 @@ function Specimen({
 
   if (recipe.id === "formwork") {
     return (
-      <div className="specimen specimen--formwork" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--formwork"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
           <div className="formwork-stamp">DOC / 04</div>
           <div className="formwork-title">{sample}</div>
-          <div className="formwork-grid"><span>입력</span><strong>A</strong><span>출력</span><strong>B</strong></div>
+          <div className="formwork-grid">
+            <span>입력</span>
+            <strong>A</strong>
+            <span>출력</span>
+            <strong>B</strong>
+          </div>
           <div className="formwork-orange" />
         </div>
       </div>
@@ -664,11 +819,20 @@ function Specimen({
 
   if (recipe.id === "baekja") {
     return (
-      <div className="specimen specimen--baekja" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--baekja"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
-          <div className="baekja-orbit"><span /></div>
+          <div className="baekja-orbit">
+            <span />
+          </div>
           <p>{sample}</p>
-          <div className="baekja-actions"><span>전체 보기</span><i /></div>
+          <div className="baekja-actions">
+            <span>전체 보기</span>
+            <i />
+          </div>
         </div>
       </div>
     );
@@ -676,7 +840,11 @@ function Specimen({
 
   if (recipe.id === "yeobaek") {
     return (
-      <div className="specimen specimen--yeobaek" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--yeobaek"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
           <p>{sample}</p>
           <span className="yeobaek-action">열기</span>
@@ -687,12 +855,23 @@ function Specimen({
 
   if (recipe.id === "saegin") {
     return (
-      <div className="specimen specimen--saegin" data-format={format} aria-hidden="true">
+      <div
+        className="specimen specimen--saegin"
+        data-format={format}
+        aria-hidden="true"
+      >
         <div className="specimen-canvas">
           <span className="saegin-marker" />
           <p>{sample}</p>
-          <div className="saegin-lines"><i /><i /><i /></div>
-          <div className="saegin-foot"><span>INDEX</span><i /></div>
+          <div className="saegin-lines">
+            <i />
+            <i />
+            <i />
+          </div>
+          <div className="saegin-foot">
+            <span>INDEX</span>
+            <i />
+          </div>
         </div>
       </div>
     );
@@ -709,19 +888,34 @@ function Specimen({
       "--sp-accent-dark": colors.accent_dark || colors.accent,
     } as CSSProperties;
     return (
-      <div className="specimen specimen--branded" data-format={format} aria-hidden="true" style={specimenVars}>
+      <div
+        className="specimen specimen--branded"
+        data-format={format}
+        aria-hidden="true"
+        style={specimenVars}
+      >
         <div className="specimen-canvas">
           <span className="branded-marker" />
           <p>{sample}</p>
-          <div className="branded-lines"><i /><i /><i /></div>
+          <div className="branded-lines">
+            <i />
+            <i />
+            <i />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="specimen specimen--generic" data-format={format} aria-hidden="true">
-      <div className="specimen-canvas"><strong>{sample}</strong></div>
+    <div
+      className="specimen specimen--generic"
+      data-format={format}
+      aria-hidden="true"
+    >
+      <div className="specimen-canvas">
+        <strong>{sample}</strong>
+      </div>
     </div>
   );
 }
@@ -751,12 +945,14 @@ function RecipeCard({
 }) {
   const note = noteFor(runtime, recipe);
   const strengths = strengthsFor(recipe, format);
-  const fitLabel = recipe.format_fit[format] === "primary" ? "특히 잘 맞음" : "적용 가능";
+  const fitLabel =
+    recipe.format_fit[format] === "primary" ? "특히 잘 맞음" : "적용 가능";
   const supportLabel = recipe.format_support[format].includes("assets")
     ? "적용 자산 있음"
     : "원칙 제공";
   const showTemplates =
-    (format === "web" || format === "document") && Object.keys(recipe.templates).length > 0;
+    (format === "web" || format === "document") &&
+    Object.keys(recipe.templates).length > 0;
 
   return (
     <article
@@ -767,24 +963,39 @@ function RecipeCard({
       <div className="card-body">
         <div className="card-heading">
           <h3>{note.koreanName}</h3>
-          {referenceRank ? <span className="recommendation-badge">참고 후보 {referenceRank}</span> : null}
+          {referenceRank ? (
+            <span className="recommendation-badge">
+              참고 후보 {referenceRank}
+            </span>
+          ) : null}
         </div>
 
-        <p className="format-fit">{formatLabel(format)} · {fitLabel} · {supportLabel}</p>
+        <p className="format-fit">
+          {formatLabel(format)} · {fitLabel} · {supportLabel}
+        </p>
         <p className="purpose">{note.purpose}</p>
         <p className="best-when">{note.note}</p>
-        <ul className="pattern-tags" aria-label={`${note.koreanName} 설계 패턴`}>
-          {patternNames(runtime, recipe).map((name) => <li key={name}>{name}</li>)}
+        <ul
+          className="pattern-tags"
+          aria-label={`${note.koreanName} 설계 패턴`}
+        >
+          {patternNames(runtime, recipe).map((name) => (
+            <li key={name}>{name}</li>
+          ))}
         </ul>
         <ul className="strengths" aria-label={`${note.koreanName}의 주요 특성`}>
-          {strengths.map((strength) => <li key={strength}>{strength}</li>)}
+          {strengths.map((strength) => (
+            <li key={strength}>{strength}</li>
+          ))}
         </ul>
 
         <div className="card-actions">
           <button className="primary-action" type="button" onClick={onRequest}>
             요청 만들기 <span aria-hidden="true">→</span>
           </button>
-          <button className="preview-action" type="button" onClick={onPreview}>미리보기</button>
+          <button className="preview-action" type="button" onClick={onPreview}>
+            미리보기
+          </button>
           <button
             className={`compare-button ${compared ? "is-selected" : ""}`}
             type="button"
@@ -797,13 +1008,23 @@ function RecipeCard({
         </div>
 
         {showTemplates ? (
-          <div className="template-links" aria-label={`${note.koreanName} HTML 틀`}>
+          <div
+            className="template-links"
+            aria-label={`${note.koreanName} HTML 틀`}
+          >
             <span>HTML 틀</span>
-            {Object.entries(recipe.templates).map(([templateName, templatePath]) => (
-              <a key={templateName} href={`/api/design/files/${recipe.id}/${templatePath}`} target="_blank" rel="noreferrer">
-                {runtime.templateLabels[templateName] || templateName}
-              </a>
-            ))}
+            {Object.entries(recipe.templates).map(
+              ([templateName, templatePath]) => (
+                <a
+                  key={templateName}
+                  href={`/api/design/files/${recipe.id}/${templatePath}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {runtime.templateLabels[templateName] || templateName}
+                </a>
+              ),
+            )}
           </div>
         ) : null}
       </div>
@@ -811,7 +1032,15 @@ function RecipeCard({
   );
 }
 
-function CompareColumn({ runtime, recipe, format }: { runtime: CatalogRuntime; recipe: Recipe; format: FormatId }) {
+function CompareColumn({
+  runtime,
+  recipe,
+  format,
+}: {
+  runtime: CatalogRuntime;
+  recipe: Recipe;
+  format: FormatId;
+}) {
   const note = noteFor(runtime, recipe);
   return (
     <section className={`compare-column compare-column--${recipe.id}`}>
@@ -820,16 +1049,28 @@ function CompareColumn({ runtime, recipe, format }: { runtime: CatalogRuntime; r
 
       <div className="compare-group">
         <h4>연결 패턴</h4>
-        <ul>{patternNames(runtime, recipe).map((label) => <li key={label}>{label}</li>)}</ul>
+        <ul>
+          {patternNames(runtime, recipe).map((label) => (
+            <li key={label}>{label}</li>
+          ))}
+        </ul>
       </div>
 
       <div className="compare-group">
         <h4>형식</h4>
         <ul>
           {formats.map((item) => (
-            <li key={item.id} className={item.id === format ? "is-current" : undefined}>
-              {item.label} · {recipe.format_fit[item.id] === "primary" ? "특히 잘 맞음" : "적용 가능"}
-              {recipe.format_support[item.id].includes("assets") ? " · 적용 자산 있음" : " · 원칙 제공"}
+            <li
+              key={item.id}
+              className={item.id === format ? "is-current" : undefined}
+            >
+              {item.label} ·{" "}
+              {recipe.format_fit[item.id] === "primary"
+                ? "특히 잘 맞음"
+                : "적용 가능"}
+              {recipe.format_support[item.id].includes("assets")
+                ? " · 적용 자산 있음"
+                : " · 원칙 제공"}
             </li>
           ))}
         </ul>
@@ -837,17 +1078,31 @@ function CompareColumn({ runtime, recipe, format }: { runtime: CatalogRuntime; r
 
       <div className="compare-group">
         <h4>잘 맞는 내용</h4>
-        <ul>{labelsFor(recipe.use_for, runtime.useLabels).map((label) => <li key={label}>{label}</li>)}</ul>
+        <ul>
+          {labelsFor(recipe.use_for, runtime.useLabels).map((label) => (
+            <li key={label}>{label}</li>
+          ))}
+        </ul>
       </div>
 
       <div className="compare-group">
         <h4>지원 기능</h4>
-        <ul>{strengthsFor(recipe, format, Number.POSITIVE_INFINITY).map((label) => <li key={label}>{label}</li>)}</ul>
+        <ul>
+          {strengthsFor(recipe, format, Number.POSITIVE_INFINITY).map(
+            (label) => (
+              <li key={label}>{label}</li>
+            ),
+          )}
+        </ul>
       </div>
 
       <div className="compare-group compare-group--avoid">
         <h4>잘 맞지 않는 내용</h4>
-        <ul>{labelsFor(recipe.avoid_for, runtime.avoidLabels).map((label) => <li key={label}>{label}</li>)}</ul>
+        <ul>
+          {labelsFor(recipe.avoid_for, runtime.avoidLabels).map((label) => (
+            <li key={label}>{label}</li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -871,12 +1126,25 @@ function RequestBuilder({
   onClose: () => void;
 }) {
   const note = noteFor(runtime, recipe);
-  const directions = [...formatDirections[format], ...(recipe.gallery?.directions || [])];
+  const directions = [
+    ...formatDirections[format],
+    ...(recipe.gallery?.directions || []),
+  ];
   const [subject, setSubject] = useState(initialSubject);
   const [selectedDirections, setSelectedDirections] = useState(directions);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
   const requestText = useMemo(
-    () => buildRequestText(runtime, { recipe, format, content, subject, selectedNeeds, selectedDirections }),
+    () =>
+      buildRequestText(runtime, {
+        recipe,
+        format,
+        content,
+        subject,
+        selectedNeeds,
+        selectedDirections,
+      }),
     [content, format, recipe, selectedDirections, selectedNeeds, subject],
   );
 
@@ -899,20 +1167,25 @@ function RequestBuilder({
   }
 
   const firstTemplate = Object.entries(recipe.templates)[0];
-  const showTemplate = (format === "web" || format === "document") && firstTemplate;
+  const showTemplate =
+    (format === "web" || format === "document") && firstTemplate;
 
   return (
     <section className="request-panel">
       <header>
         <h2 id="request-title">{note.koreanName} 참고 요청 만들기</h2>
-        <button type="button" aria-label="요청 만들기 닫기" onClick={onClose}>닫기</button>
+        <button type="button" aria-label="요청 만들기 닫기" onClick={onClose}>
+          닫기
+        </button>
       </header>
 
       <div className="request-grid">
         <div className="request-form">
           <div>
             <label htmlFor="request-subject">만들 것</label>
-            <p className="field-help">무엇을 만들고 누가 쓸지 한 줄로 적어 주세요.</p>
+            <p className="field-help">
+              무엇을 만들고 누가 쓸지 한 줄로 적어 주세요.
+            </p>
             <textarea
               id="request-subject"
               autoFocus
@@ -943,19 +1216,42 @@ function RequestBuilder({
         </div>
 
         <div className="request-output">
-          <div className="request-output-heading"><h3>요청문</h3></div>
-          <textarea readOnly value={requestText} rows={15} aria-label="완성된 요청문" />
+          <div className="request-output-heading">
+            <h3>요청문</h3>
+          </div>
+          <textarea
+            readOnly
+            value={requestText}
+            rows={15}
+            aria-label="완성된 요청문"
+          />
           <div className="request-actions">
-            <button type="button" onClick={copyRequest} disabled={!subject.trim()}>요청문 복사</button>
+            <button
+              type="button"
+              onClick={copyRequest}
+              disabled={!subject.trim()}
+            >
+              요청문 복사
+            </button>
             {showTemplate ? (
-              <a href={`/api/design/files/${recipe.id}/${firstTemplate[1]}`} target="_blank" rel="noreferrer">
-                {runtime.templateLabels[firstTemplate[0]] || firstTemplate[0]} HTML 틀
+              <a
+                href={`/api/design/files/${recipe.id}/${firstTemplate[1]}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {runtime.templateLabels[firstTemplate[0]] || firstTemplate[0]}{" "}
+                HTML 틀
               </a>
             ) : null}
           </div>
           {copyState !== "idle" ? (
-            <p className={`copy-status copy-status--${copyState}`} role="status">
-              {copyState === "copied" ? "요청문을 복사했습니다." : "복사하지 못했습니다. 요청문을 직접 선택해 주세요."}
+            <p
+              className={`copy-status copy-status--${copyState}`}
+              role="status"
+            >
+              {copyState === "copied"
+                ? "요청문을 복사했습니다."
+                : "복사하지 못했습니다. 요청문을 직접 선택해 주세요."}
             </p>
           ) : null}
         </div>
@@ -966,8 +1262,11 @@ function RequestBuilder({
 
 function UnselectedRecipe({ recipe }: { recipe: Recipe }) {
   const name = recipe.gallery?.korean_name || recipe.name || recipe.id;
-  const version = typeof recipe.version === "string" ? recipe.version.trim() : "";
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const version =
+    typeof recipe.version === "string" ? recipe.version.trim() : "";
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
   const request = `Design에서 ID가 ${recipe.id}인 레시피의 현재 정보와 파일 목록을 확인해 주세요.${version ? ` 화면에 표시된 버전은 ${version}입니다.` : ""} 레시피나 파일은 수정하지 마세요.`;
 
   async function copyRequest() {
@@ -982,14 +1281,24 @@ function UnselectedRecipe({ recipe }: { recipe: Recipe }) {
   return (
     <details className="unselected-recipe">
       <summary>{name}</summary>
-      <p className="recipe-identity">ID: {recipe.id}{version ? ` · 버전: ${version}` : ""}</p>
-      <p>현재 선택 후보가 아닙니다. 등록된 정보는 연결된 Design 도구로 확인할 수 있습니다.</p>
+      <p className="recipe-identity">
+        ID: {recipe.id}
+        {version ? ` · 버전: ${version}` : ""}
+      </p>
+      <p>
+        현재 선택 후보가 아닙니다. 등록된 정보는 연결된 Design 도구로 확인할 수
+        있습니다.
+      </p>
       <label htmlFor={`lookup-${recipe.id}`}>정보 확인 요청문</label>
       <textarea id={`lookup-${recipe.id}`} readOnly value={request} rows={3} />
-      <button type="button" onClick={copyRequest}>정보 확인 요청문 복사</button>
+      <button type="button" onClick={copyRequest}>
+        정보 확인 요청문 복사
+      </button>
       {copyState !== "idle" ? (
         <p className={`copy-status copy-status--${copyState}`} role="status">
-          {copyState === "copied" ? "요청문을 복사했습니다." : "복사하지 못했습니다. 요청문을 직접 선택해 주세요."}
+          {copyState === "copied"
+            ? "요청문을 복사했습니다."
+            : "복사하지 못했습니다. 요청문을 직접 선택해 주세요."}
         </p>
       ) : null}
     </details>
@@ -999,9 +1308,10 @@ function UnselectedRecipe({ recipe }: { recipe: Recipe }) {
 export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   const runtime = useMemo(() => buildRuntime(catalog), [catalog]);
   const { availableRecipes, unselectedRecipes, recipeIds } = runtime;
-  const emptyMessage = catalog.recipes.length === 0
-    ? "등록된 레시피가 없습니다. 연결된 Design 도구로 레시피를 등록한 뒤 다시 열어 주세요."
-    : "등록된 레시피는 있지만 현재 선택 후보로 표시할 항목은 없습니다. 아래 목록에서 레시피 정보 확인 방법을 볼 수 있습니다.";
+  const emptyMessage =
+    catalog.recipes.length === 0
+      ? "등록된 레시피가 없습니다. 연결된 Design 도구로 레시피를 등록한 뒤 다시 열어 주세요."
+      : "등록된 레시피는 있지만 현재 선택 후보로 표시할 항목은 없습니다. 아래 목록에서 레시피 정보 확인 방법을 볼 수 있습니다.";
   const [format, setFormat] = useState<FormatId>("web");
   const [content, setContent] = useState<ContentId>("interactive");
   const [selectedNeeds, setSelectedNeeds] = useState<NeedId[]>([]);
@@ -1015,15 +1325,23 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   const formatRef = useRef(format);
 
   const visibleNeeds = needs.filter((need) => need.formats.includes(format));
-  const previewRecipe = availableRecipes.find((recipe) => recipe.id === previewId);
-  const requestRecipe = availableRecipes.find((recipe) => recipe.id === requestId);
+  const previewRecipe = availableRecipes.find(
+    (recipe) => recipe.id === previewId,
+  );
+  const requestRecipe = availableRecipes.find(
+    (recipe) => recipe.id === requestId,
+  );
   const contentChoice = selectedContent(content);
   const rankedReferences = useMemo(
-    () => rankReferences(runtime, format, content, selectedNeeds, referenceLimit),
+    () =>
+      rankReferences(runtime, format, content, selectedNeeds, referenceLimit),
     [content, format, referenceLimit, runtime, selectedNeeds],
   );
   const rankById = new Map(
-    rankedReferences.map((reference, index) => [reference.recipe.id, index + 1]),
+    rankedReferences.map((reference, index) => [
+      reference.recipe.id,
+      index + 1,
+    ]),
   );
   const comparedRecipes = comparedIds
     .map((id) => availableRecipes.find((recipe) => recipe.id === id))
@@ -1037,7 +1355,10 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
     const context = document.modelContext;
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
-    const commonAnnotations = { readOnlyHint: true, untrustedContentHint: false };
+    const commonAnnotations = {
+      readOnlyHint: true,
+      untrustedContentHint: false,
+    };
     const tools: WebMcpTool[] = [
       {
         name: "design_library_find",
@@ -1087,10 +1408,14 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
             references: references.map((reference, index) =>
               referencePayload(runtime, reference, index + 1),
             ),
-            ...(references.length === 0 ? {
-              message: emptyMessage,
-              unselected_recipe_ids: unselectedRecipes.map((recipe) => recipe.id),
-            } : {}),
+            ...(references.length === 0
+              ? {
+                  message: emptyMessage,
+                  unselected_recipe_ids: unselectedRecipes.map(
+                    (recipe) => recipe.id,
+                  ),
+                }
+              : {}),
           };
         },
       },
@@ -1119,9 +1444,13 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
           const value = asCompareInput(runtime, input);
           if (value.format) {
             setFormat(value.format);
-            setSelectedNeeds((current) => current.filter((need) =>
-              needs.find((candidate) => candidate.id === need)?.formats.includes(value.format as FormatId),
-            ));
+            setSelectedNeeds((current) =>
+              current.filter((need) =>
+                needs
+                  .find((candidate) => candidate.id === need)
+                  ?.formats.includes(value.format as FormatId),
+              ),
+            );
           }
           setComparedIds(value.referenceIds);
           setPreviewId(null);
@@ -1194,10 +1523,17 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
     ];
 
     for (const tool of tools) {
-      if (tool.name === "design_library_compare" && recipeIds.length < 2) continue;
-      if (tool.name === "design_library_prepare_brief" && recipeIds.length === 0) continue;
+      if (tool.name === "design_library_compare" && recipeIds.length < 2)
+        continue;
+      if (
+        tool.name === "design_library_prepare_brief" &&
+        recipeIds.length === 0
+      )
+        continue;
       try {
-        const registration = context.registerTool(tool, { signal: lifecycle.signal });
+        const registration = context.registerTool(tool, {
+          signal: lifecycle.signal,
+        });
         void Promise.resolve(registration).catch(() => undefined);
       } catch {
         // WebMCP is optional; the visible interface remains fully usable.
@@ -1227,7 +1563,9 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   function toggleNeed(need: NeedId) {
     setReferenceLimit(3);
     setSelectedNeeds((current) =>
-      current.includes(need) ? current.filter((item) => item !== need) : [...current, need],
+      current.includes(need)
+        ? current.filter((item) => item !== need)
+        : [...current, need],
     );
   }
 
@@ -1265,6 +1603,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         >
           Design Reference Library
         </a>
+        <Link href="/manage">자료 관리</Link>
         <button
           className="theme-button"
           type="button"
@@ -1277,7 +1616,10 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
       <section className="finder" aria-labelledby="finder-title">
         <header className="finder-heading">
           <h1 id="finder-title">디자인 기준 찾기</h1>
-          <p>하나의 정답 대신, 목적에 가까운 패턴과 레시피를 비교해 필요한 부분만 고릅니다.</p>
+          <p>
+            하나의 정답 대신, 목적에 가까운 패턴과 레시피를 비교해 필요한 부분만
+            고릅니다.
+          </p>
         </header>
 
         <div className="finder-layout">
@@ -1340,7 +1682,9 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
 
           <aside className="finder-result" aria-live="polite">
             <p className="result-label">참고 방향 · 가까운 순서</p>
-            {rankedReferences.length === 0 ? <p className="result-empty">{emptyMessage}</p> : null}
+            {rankedReferences.length === 0 ? (
+              <p className="result-empty">{emptyMessage}</p>
+            ) : null}
             <div className="candidate-list">
               {rankedReferences.map((reference, index) => {
                 const note = noteFor(runtime, reference.recipe);
@@ -1352,21 +1696,31 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
                     </header>
                     <p className="result-purpose">{note.purpose}</p>
                     <ul className="candidate-reasons">
-                      {reference.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                      {reference.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
                     </ul>
                     {reference.tensions.length ? (
                       <div className="candidate-tensions">
                         <strong>살펴볼 점</strong>
                         <ul>
-                          {reference.tensions.map((tension) => <li key={tension}>{tension}</li>)}
+                          {reference.tensions.map((tension) => (
+                            <li key={tension}>{tension}</li>
+                          ))}
                         </ul>
                       </div>
                     ) : null}
                     <div className="candidate-actions">
-                      <button type="button" onClick={() => openRequest(reference.recipe.id)}>
+                      <button
+                        type="button"
+                        onClick={() => openRequest(reference.recipe.id)}
+                      >
                         요청 만들기
                       </button>
-                      <button type="button" onClick={() => showReferenceCard(reference.recipe.id)}>
+                      <button
+                        type="button"
+                        onClick={() => showReferenceCard(reference.recipe.id)}
+                      >
                         자세히 보기
                       </button>
                     </div>
@@ -1381,31 +1735,46 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
       <section className="design-section" aria-labelledby="design-list-title">
         <header className="section-heading">
           <h2 id="design-list-title">레시피와 예시</h2>
-          <p>이름은 출발점입니다. 연결된 패턴과 현재 프로젝트의 규칙을 함께 보고 선택해 주세요.</p>
+          <p>
+            이름은 출발점입니다. 연결된 패턴과 현재 프로젝트의 규칙을 함께 보고
+            선택해 주세요.
+          </p>
         </header>
-        {availableRecipes.length > 0 ? <div className="design-grid" aria-live="polite">
-          {availableRecipes.map((recipe) => (
-            <RecipeCard
-              runtime={runtime}
-              key={recipe.id}
-              recipe={recipe}
-              format={format}
-              sample={contentChoice.sample}
-              referenceRank={rankById.get(recipe.id)}
-              compared={comparedIds.includes(recipe.id)}
-              compareFull={comparedIds.length >= 3}
-              onRequest={() => openRequest(recipe.id)}
-              onPreview={() => setPreviewId(recipe.id)}
-              onCompare={() => toggleCompared(recipe.id)}
-            />
-          ))}
-        </div> : null}
-        {catalog.recipes.length === 0 ? <p className="catalog-empty">등록된 레시피가 여기에 표시됩니다.</p> : null}
+        {availableRecipes.length > 0 ? (
+          <div className="design-grid" aria-live="polite">
+            {availableRecipes.map((recipe) => (
+              <RecipeCard
+                runtime={runtime}
+                key={recipe.id}
+                recipe={recipe}
+                format={format}
+                sample={contentChoice.sample}
+                referenceRank={rankById.get(recipe.id)}
+                compared={comparedIds.includes(recipe.id)}
+                compareFull={comparedIds.length >= 3}
+                onRequest={() => openRequest(recipe.id)}
+                onPreview={() => setPreviewId(recipe.id)}
+                onCompare={() => toggleCompared(recipe.id)}
+              />
+            ))}
+          </div>
+        ) : null}
+        {catalog.recipes.length === 0 ? (
+          <p className="catalog-empty">등록된 레시피가 여기에 표시됩니다.</p>
+        ) : null}
         {unselectedRecipes.length > 0 ? (
-          <section className="unselected-recipes" aria-labelledby="unselected-title">
+          <section
+            className="unselected-recipes"
+            aria-labelledby="unselected-title"
+          >
             <h3 id="unselected-title">선택 후보 외 레시피</h3>
-            <p>이름을 열어 등록 정보를 확인할 요청문을 복사할 수 있습니다. 추천·비교·미리보기에는 포함되지 않습니다.</p>
-            {unselectedRecipes.map((recipe) => <UnselectedRecipe key={recipe.id} recipe={recipe} />)}
+            <p>
+              이름을 열어 등록 정보를 확인할 요청문을 복사할 수 있습니다.
+              추천·비교·미리보기에는 포함되지 않습니다.
+            </p>
+            {unselectedRecipes.map((recipe) => (
+              <UnselectedRecipe key={recipe.id} recipe={recipe} />
+            ))}
           </section>
         ) : null}
       </section>
@@ -1414,17 +1783,27 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         <aside className="compare-tray" aria-label="비교할 참고 후보">
           <div>
             <span className="tray-count">{comparedIds.length}/3</span>
-            <p>{comparedRecipes.map((recipe) => noteFor(runtime, recipe).koreanName).join(" · ")}</p>
+            <p>
+              {comparedRecipes
+                .map((recipe) => noteFor(runtime, recipe).koreanName)
+                .join(" · ")}
+            </p>
           </div>
           {comparedIds.length >= 2 ? (
-            <button type="button" onClick={() => setCompareOpen(true)}>나란히 비교</button>
+            <button type="button" onClick={() => setCompareOpen(true)}>
+              나란히 비교
+            </button>
           ) : (
             <span className="tray-hint">한 가지 더 선택해 주세요</span>
           )}
         </aside>
       )}
 
-      <Modal open={Boolean(requestRecipe)} labelledBy="request-title" onClose={closeRequest}>
+      <Modal
+        open={Boolean(requestRecipe)}
+        labelledBy="request-title"
+        onClose={closeRequest}
+      >
         {requestRecipe ? (
           <RequestBuilder
             runtime={runtime}
@@ -1447,7 +1826,9 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         {previewRecipe ? (
           <section className="preview-panel">
             <header>
-              <h2 id="preview-title">{noteFor(runtime, previewRecipe).koreanName} 미리보기</h2>
+              <h2 id="preview-title">
+                {noteFor(runtime, previewRecipe).koreanName} 미리보기
+              </h2>
               <div className="panel-actions">
                 <a
                   href={`/api/design/files/${previewRecipe.id}/styleguide.html`}
@@ -1482,7 +1863,9 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         {comparedRecipes.length >= 2 ? (
           <section className="compare-panel">
             <header>
-              <h2 id="compare-title">{comparedRecipes.length}개 참고 후보 비교</h2>
+              <h2 id="compare-title">
+                {comparedRecipes.length}개 참고 후보 비교
+              </h2>
               <button
                 type="button"
                 aria-label="비교 닫기"
@@ -1493,7 +1876,12 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
             </header>
             <div className="compare-grid">
               {comparedRecipes.map((recipe) => (
-                <CompareColumn runtime={runtime} key={recipe.id} recipe={recipe} format={format} />
+                <CompareColumn
+                  runtime={runtime}
+                  key={recipe.id}
+                  recipe={recipe}
+                  format={format}
+                />
               ))}
             </div>
           </section>

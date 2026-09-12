@@ -1,3 +1,4 @@
+import packageInfo from "../package.json";
 import {
   hostHeaderValidationResponse,
 } from "@modelcontextprotocol/server";
@@ -52,7 +53,7 @@ export default {
       return json({
         ok: true,
         service: "personal-agent-library",
-        version: "0.3.2",
+        version: packageInfo.version,
       });
     }
 

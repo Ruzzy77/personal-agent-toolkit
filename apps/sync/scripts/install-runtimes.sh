@@ -163,7 +163,20 @@ install_runtime corpus "$REPOSITORY_ROOT/engines/corpus"
 if [ "$RUNTIME_ROOT" = "$DEFAULT_RUNTIME_ROOT" ] &&
   launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" >/dev/null 2>&1; then
   AGENT_WAS_LOADED=1
+  old_pid=$(launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" | awk '/^[[:space:]]*pid = / { print $3; exit }')
   launchctl bootout "$AGENT_DOMAIN/$AGENT_LABEL"
+  # bootout may return before the old process and service have finished stopping.
+  # Do not swap its import tree or bootstrap a competing registration during that gap.
+  attempts=0
+  while launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" >/dev/null 2>&1 ||
+    { [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; }; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 30 ]; then
+      printf '%s\n' 'The previous Sync process has not stopped; runtimes were not replaced.' >&2
+      exit 1
+    fi
+    sleep 1
+  done
 fi
 
 if [ -e "$RUNTIME_ROOT" ]; then
@@ -188,7 +201,19 @@ if ! mv "$STAGING_ROOT" "$RUNTIME_ROOT"; then
 fi
 
 if [ "$AGENT_WAS_LOADED" -eq 1 ]; then
-  if ! launchctl bootstrap "$AGENT_DOMAIN" "$AGENT_PLIST"; then
+  agent_started=0
+  for attempt in 1 2 3; do
+    if launchctl bootstrap "$AGENT_DOMAIN" "$AGENT_PLIST"; then
+      agent_started=1
+      break
+    fi
+    # A failed bootstrap must not be mistaken for a successful application start.
+    if launchctl print "$AGENT_DOMAIN/$AGENT_LABEL" >/dev/null 2>&1; then
+      launchctl bootout "$AGENT_DOMAIN/$AGENT_LABEL" || true
+    fi
+    sleep 1
+  done
+  if [ "$agent_started" -ne 1 ]; then
     FAILED_ROOT="${RUNTIME_ROOT}.failed.$$"
     mv "$RUNTIME_ROOT" "$FAILED_ROOT"
     if [ -e "$BACKUP_ROOT" ]; then

@@ -1,3 +1,5 @@
+import { d1Batch, d1Guard } from "@personal-agent/remote-runtime/d1";
+import { libraryManaged, inventoryWrites, inventoryGuards } from "./assets";
 import type {
   LibraryCollection,
   LibraryIssue,
@@ -7,6 +9,7 @@ import type {
 import { LibraryError } from "./errors";
 
 interface DocumentRow {
+  trash_group_id?: string | null;
   id: string;
   collection: LibraryCollection;
   date: string;
@@ -67,7 +70,8 @@ export interface ImportIssueInput extends IssueContent {
 type IssueContent = Omit<LibraryIssue, "updatedAt" | "version">;
 
 const COLLECTIONS = new Set<LibraryCollection>(["daily", "digest", "research"]);
-const ISSUE_ID = /^(daily|digest|research):(\d{4}-\d{2}-\d{2})(?::([01]\d|2[0-3]))?$/;
+const ISSUE_ID =
+  /^(daily|digest|research):(\d{4}-\d{2}-\d{2})(?::([01]\d|2[0-3]))?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SOURCE_HTML = 2_000_000;
 const LIBRARY_TEMPLATE = "saegin-reader-v1";
@@ -76,7 +80,12 @@ const PUBLICATION_LABELS: Record<LibraryCollection, string> = {
   digest: "Research Digest",
   research: "Research",
 };
-const META_CLASS_NAMES = new Set(["masthead", "issue-line", "issue-bar", "folio"]);
+const META_CLASS_NAMES = new Set([
+  "masthead",
+  "issue-line",
+  "issue-bar",
+  "folio",
+]);
 const PUBLICATION_CLASS_NAMES = new Set(["kicker", "eyebrow", "series"]);
 const ARTICLE_CLASS_ALIASES = new Map<string, string>([
   ["boundary", "reader-callout"],
@@ -126,7 +135,9 @@ function decodeEntities(value: string): string {
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
     .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)));
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
+      String.fromCodePoint(Number.parseInt(code, 16)),
+    );
 }
 
 function textFromHtml(value: string): string {
@@ -136,7 +147,10 @@ function textFromHtml(value: string): string {
       .replace(/<style\b[\s\S]*?<\/style>/gi, "")
       .replace(/<nav\b[\s\S]*?<\/nav>/gi, "")
       .replace(/<img\b[^>]*\balt="([^"]*)"[^>]*>/gi, "\n[삽화: $1]\n")
-      .replace(/<\/(?:p|h1|h2|h3|figure|header|article|li|blockquote)>/gi, "\n\n")
+      .replace(
+        /<\/(?:p|h1|h2|h3|figure|header|article|li|blockquote)>/gi,
+        "\n\n",
+      )
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, ""),
   )
@@ -179,19 +193,27 @@ function elementWithClass(
     const tail = sourceHtml.slice((match.index ?? 0) + match[0].length);
     const closeMatch = tail.match(close);
     if (!closeMatch) return "";
-    const end = (match.index ?? 0) + match[0].length + (closeMatch.index ?? 0) + closeMatch[0].length;
+    const end =
+      (match.index ?? 0) +
+      match[0].length +
+      (closeMatch.index ?? 0) +
+      closeMatch[0].length;
     return sourceHtml.slice(match.index ?? 0, end);
   }
   return "";
 }
 
 function textInsideFirstTag(sourceHtml: string, tagName: string): string {
-  const match = sourceHtml.match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i"));
+  const match = sourceHtml.match(
+    new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i"),
+  );
   return match?.[1] ? textFromHtml(match[1]) : "";
 }
 
 function leadFromHtml(sourceHtml: string): string {
-  return textFromHtml(elementWithClass(sourceHtml, new Set(["lead", "standfirst"])));
+  return textFromHtml(
+    elementWithClass(sourceHtml, new Set(["lead", "standfirst"])),
+  );
 }
 
 function articleFromHtml(sourceHtml: string): string {
@@ -199,25 +221,27 @@ function articleFromHtml(sourceHtml: string): string {
 }
 
 function normalizeArticleClasses(articleHtml: string): string {
-  return articleHtml.replace(/\sclass=(['"])([^'"]*)\1/gi, (
-    _matched: string,
-    quote: string,
-    value: string,
-  ) => {
-    const classes = value
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((name) => ARTICLE_CLASS_ALIASES.get(name) ?? name)
-      .filter((name) => ARTICLE_CLASSES.has(name));
-    const unique = [...new Set(classes)];
-    return unique.length ? ` class=${quote}${unique.join(" ")}${quote}` : "";
-  });
+  return articleHtml.replace(
+    /\sclass=(['"])([^'"]*)\1/gi,
+    (_matched: string, quote: string, value: string) => {
+      const classes = value
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((name) => ARTICLE_CLASS_ALIASES.get(name) ?? name)
+        .filter((name) => ARTICLE_CLASSES.has(name));
+      const unique = [...new Set(classes)];
+      return unique.length ? ` class=${quote}${unique.join(" ")}${quote}` : "";
+    },
+  );
 }
 
 function normalizeArticleHtml(articleHtml: string): string {
-  const cleaned = cleanArticleHtml(articleHtml)
-    .replace(/\sstyle=(['"])[\s\S]*?\1/gi, "");
-  if (/\sstyle\s*=/i.test(cleaned)) throw new Error("article_style_not_allowed");
+  const cleaned = cleanArticleHtml(articleHtml).replace(
+    /\sstyle=(['"])[\s\S]*?\1/gi,
+    "",
+  );
+  if (/\sstyle\s*=/i.test(cleaned))
+    throw new Error("article_style_not_allowed");
   return normalizeArticleClasses(cleaned).trim();
 }
 
@@ -226,11 +250,13 @@ function issueMetaFromHtml(
   collection: LibraryCollection,
 ): string {
   const meta = elementWithClass(sourceHtml, META_CLASS_NAMES);
-  const publicationCandidate = textInsideFirstTag(meta, "span")
-    || textFromHtml(elementWithClass(sourceHtml, PUBLICATION_CLASS_NAMES));
-  const sequence = collection === "digest"
-    ? publicationCandidate.match(/Research\s+Digest\s*·\s*(\d{1,3})/i)?.[1]
-    : null;
+  const publicationCandidate =
+    textInsideFirstTag(meta, "span") ||
+    textFromHtml(elementWithClass(sourceHtml, PUBLICATION_CLASS_NAMES));
+  const sequence =
+    collection === "digest"
+      ? publicationCandidate.match(/Research\s+Digest\s*·\s*(\d{1,3})/i)?.[1]
+      : null;
   return sequence
     ? `${PUBLICATION_LABELS[collection]} · ${sequence}`
     : PUBLICATION_LABELS[collection];
@@ -252,12 +278,28 @@ function publicationLabel(
 function dateLabel(date: string): string {
   const match = String(date ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return String(date ?? "");
-  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const months = [
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+  ];
   return `${match[3]} ${months[Number(match[2]) - 1] ?? ""} ${match[1]}`;
 }
 
 function usesLibraryTemplate(sourceHtml: string): boolean {
-  return new RegExp(`\\bdata-library-template=["']${LIBRARY_TEMPLATE}["']`, "i").test(sourceHtml);
+  return new RegExp(
+    `\\bdata-library-template=["']${LIBRARY_TEMPLATE}["']`,
+    "i",
+  ).test(sourceHtml);
 }
 
 function canonicalizeIssueSource(
@@ -305,20 +347,38 @@ function canonicalizeIssueSource(
 }
 
 function assertSafeMarkup(value: string): void {
-  if (/\son[a-z]+\s*=/i.test(value)) throw new Error("event_handler_not_allowed");
-  if (/\bjavascript\s*:/i.test(value)) throw new Error("javascript_url_not_allowed");
-  if (/<(?:iframe|object|embed)\b/i.test(value)) throw new Error("embedded_content_not_allowed");
+  if (/\son[a-z]+\s*=/i.test(value))
+    throw new Error("event_handler_not_allowed");
+  if (/\bjavascript\s*:/i.test(value))
+    throw new Error("javascript_url_not_allowed");
+  if (/<(?:iframe|object|embed)\b/i.test(value))
+    throw new Error("embedded_content_not_allowed");
   const scripts = [...value.matchAll(/<script\b[^>]*>[\s\S]*?<\/script>/gi)];
-  if (scripts.some(([script]) => !/^<script\s+src=["']\/reader\.js["']\s+defer><\/script>$/i.test(script.trim()))) {
+  if (
+    scripts.some(
+      ([script]) =>
+        !/^<script\s+src=["']\/reader\.js["']\s+defer><\/script>$/i.test(
+          script.trim(),
+        ),
+    )
+  ) {
     throw new Error("script_not_allowed");
   }
 }
 
 export function validateSourceHtml(value: unknown): string {
-  if (typeof value !== "string" || value.length < 1 || value.length > MAX_SOURCE_HTML) {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > MAX_SOURCE_HTML
+  ) {
     throw new Error("invalid_source_size");
   }
-  if (!/<!doctype html>/i.test(value) || !/<h1\b/i.test(value) || !/<article\b/i.test(value)) {
+  if (
+    !/<!doctype html>/i.test(value) ||
+    !/<h1\b/i.test(value) ||
+    !/<article\b/i.test(value)
+  ) {
     throw new Error("incomplete_source_html");
   }
   assertSafeMarkup(value);
@@ -373,15 +433,18 @@ export function canonicalPathFor(
   date: string,
   timeSlot: string | null = null,
 ): string {
-  const basePath = collection === "research"
-    ? `/editions/research/brief/issues/${date}`
-    : `/editions/${collection}/issues/${date}`;
+  const basePath =
+    collection === "research"
+      ? `/editions/research/brief/issues/${date}`
+      : `/editions/${collection}/issues/${date}`;
   return timeSlot ? `${basePath}/${timeSlot}` : basePath;
 }
 
 export function normalizeCanonicalPath(pathname: string): string {
   if (pathname.endsWith(".html")) return pathname.slice(0, -5);
-  return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
 }
 
 export async function listIssues(
@@ -389,16 +452,36 @@ export async function listIssues(
   {
     collection = null,
     limit = 100,
-  }: { collection?: LibraryCollection | null; limit?: number } = {},
+    lifecycle = "active",
+    offset = 0,
+  }: {
+    collection?: LibraryCollection | null;
+    limit?: number;
+    lifecycle?: "active" | "trash" | "all";
+    offset?: number;
+  } = {},
 ): Promise<LibraryIssueSummary[]> {
+  const managed = await libraryManaged(db);
+  const lifecycleFilter =
+    managed && lifecycle !== "all"
+      ? `trash_group_id IS ${lifecycle === "trash" ? "NOT " : ""}NULL`
+      : "1=1";
   const boundedLimit = Math.max(1, Math.min(200, Number(limit) || 100));
   const statement = collection
-    ? prepared(db, `SELECT id, collection, date, published_at, title,
+    ? prepared(
+        db,
+        `SELECT id, collection, date, published_at, title,
         canonical_path, cover_path, version, updated_at
-        FROM documents WHERE collection = ? ORDER BY published_at DESC LIMIT ?`, [collection, boundedLimit])
-    : prepared(db, `SELECT id, collection, date, published_at, title,
+        FROM documents WHERE collection = ? AND ${lifecycleFilter} ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
+        [collection, boundedLimit, offset],
+      )
+    : prepared(
+        db,
+        `SELECT id, collection, date, published_at, title,
         canonical_path, cover_path, version, updated_at
-        FROM documents ORDER BY published_at DESC LIMIT ?`, [boundedLimit]);
+        FROM documents WHERE ${lifecycleFilter} ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
+        [boundedLimit, offset],
+      );
   const result = await statement.all<SummaryRow>();
   return (result.results ?? []).map(summaryFromRow);
 }
@@ -407,18 +490,22 @@ export async function readIssue(
   db: D1Database,
   id: string,
 ): Promise<LibraryIssue | null> {
-  const row = await prepared(db, "SELECT * FROM documents WHERE id = ?", [id])
-    .first<DocumentRow>();
-  return rowToIssue(row);
+  const row = await prepared(db, "SELECT * FROM documents WHERE id = ?", [
+    id,
+  ]).first<DocumentRow>();
+  return row?.trash_group_id ? null : rowToIssue(row);
 }
 
 export async function readIssueByPath(
   db: D1Database,
   pathname: string,
 ): Promise<LibraryIssue | null> {
-  const row = await prepared(db, "SELECT * FROM documents WHERE canonical_path = ?", [normalizeCanonicalPath(pathname)])
-    .first<DocumentRow>();
-  return rowToIssue(row);
+  const row = await prepared(
+    db,
+    "SELECT * FROM documents WHERE canonical_path = ?",
+    [normalizeCanonicalPath(pathname)],
+  ).first<DocumentRow>();
+  return row?.trash_group_id ? null : rowToIssue(row);
 }
 
 function validateIssueInput(input: CreateIssueInput): IssueContent {
@@ -429,12 +516,22 @@ function validateIssueInput(input: CreateIssueInput): IssueContent {
   const idTimeSlot = match[3] ?? null;
   const collection = input.collection ?? idCollection;
   const date = input.date ?? idDate;
-  if (!COLLECTIONS.has(collection) || collection !== idCollection || !DATE.test(date) || date !== idDate) {
+  if (
+    !COLLECTIONS.has(collection) ||
+    collection !== idCollection ||
+    !DATE.test(date) ||
+    date !== idDate
+  ) {
     throw new Error("invalid_issue_identity");
   }
-  const canonicalPath = input.canonicalPath ?? canonicalPathFor(collection, date, idTimeSlot);
-  if (canonicalPath !== canonicalPathFor(collection, date, idTimeSlot)) throw new Error("invalid_canonical_path");
-  const publishedAt = typeof input.publishedAt === "string" && input.publishedAt ? input.publishedAt : new Date().toISOString();
+  const canonicalPath =
+    input.canonicalPath ?? canonicalPathFor(collection, date, idTimeSlot);
+  if (canonicalPath !== canonicalPathFor(collection, date, idTimeSlot))
+    throw new Error("invalid_canonical_path");
+  const publishedAt =
+    typeof input.publishedAt === "string" && input.publishedAt
+      ? input.publishedAt
+      : new Date().toISOString();
   const sourceHtml = canonicalizeIssueSource(input.sourceHtml, {
     id: input.id,
     collection,
@@ -452,7 +549,10 @@ function validateIssueInput(input: CreateIssueInput): IssueContent {
     canonicalPath,
     text: readableText(sourceHtml),
     sourceHtml,
-    coverPath: typeof input.coverPath === "string" && input.coverPath ? input.coverPath : null,
+    coverPath:
+      typeof input.coverPath === "string" && input.coverPath
+        ? input.coverPath
+        : null,
   };
 }
 
@@ -461,30 +561,48 @@ export async function createIssue(
   input: CreateIssueInput,
 ): Promise<LibraryMutationResult> {
   const issue = validateIssueInput(input);
-  const existing = await prepared(db, "SELECT id FROM documents WHERE id = ?", [issue.id])
-    .first<{ id: string }>();
+  const existing = await prepared(db, "SELECT id FROM documents WHERE id = ?", [
+    issue.id,
+  ]).first<{ id: string }>();
   if (existing) {
-    throw new LibraryError("already_exists", "the Library issue already exists", 409, {
-      id: issue.id,
-    });
+    throw new LibraryError(
+      "already_exists",
+      "the Library issue already exists",
+      409,
+      {
+        id: issue.id,
+      },
+    );
   }
   const updatedAt = new Date().toISOString();
-  await prepared(db, `INSERT INTO documents (
+  const managed = await libraryManaged(db);
+  const insert = prepared(
+    db,
+    `INSERT INTO documents (
       id, collection, date, published_at, title, references_json,
-      canonical_path, text_content, source_html, cover_path, version, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`, [
-    issue.id,
-    issue.collection,
-    issue.date,
-    issue.publishedAt,
-    issue.title,
-    JSON.stringify(issue.references),
-    issue.canonicalPath,
-    issue.text,
-    issue.sourceHtml,
-    issue.coverPath,
-    updatedAt,
-  ]).run();
+      canonical_path, text_content, source_html, cover_path, version, updated_at${managed ? ", write_nonce" : ""}
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?${managed ? ", ?" : ""})`,
+    [
+      issue.id,
+      issue.collection,
+      issue.date,
+      issue.publishedAt,
+      issue.title,
+      JSON.stringify(issue.references),
+      issue.canonicalPath,
+      issue.text,
+      issue.sourceHtml,
+      issue.coverPath,
+      updatedAt,
+      ...(managed ? [crypto.randomUUID()] : []),
+    ],
+  );
+  if (managed)
+    await d1Batch(db, inventoryGuards(db, issue.sourceHtml, issue.coverPath), [
+      insert,
+      ...inventoryWrites(db, issue.id, 1, issue.sourceHtml, issue.coverPath),
+    ]);
+  else await insert.run();
   return { status: "created", issue: { ...issue, version: 1, updatedAt } };
 }
 
@@ -495,11 +613,11 @@ export async function importIssue(
   const match = ISSUE_ID.exec(input.id);
   const timeSlot = match?.[3] ?? null;
   if (
-    !match
-    || input.collection !== match[1]
-    || input.date !== match[2]
-    || input.canonicalPath
-      !== canonicalPathFor(input.collection, input.date, timeSlot)
+    !match ||
+    input.collection !== match[1] ||
+    input.date !== match[2] ||
+    input.canonicalPath !==
+      canonicalPathFor(input.collection, input.date, timeSlot)
   ) {
     throw new LibraryError(
       "invalid_issue_identity",
@@ -514,21 +632,26 @@ export async function importIssue(
     coverPath: input.coverPath || null,
   };
   if (!issue.title || !input.updatedAt) {
-    throw new LibraryError("invalid_import", "imported issue fields are invalid");
+    throw new LibraryError(
+      "invalid_import",
+      "imported issue fields are invalid",
+    );
   }
 
   const existing = await readIssue(db, issue.id);
   if (existing) {
-    const unchanged = existing.collection === issue.collection
-      && existing.date === issue.date
-      && existing.publishedAt === issue.publishedAt
-      && existing.title === issue.title
-      && JSON.stringify(existing.references) === JSON.stringify(issue.references)
-      && existing.canonicalPath === issue.canonicalPath
-      && existing.text === issue.text
-      && existing.sourceHtml === issue.sourceHtml
-      && existing.coverPath === issue.coverPath
-      && existing.updatedAt === input.updatedAt;
+    const unchanged =
+      existing.collection === issue.collection &&
+      existing.date === issue.date &&
+      existing.publishedAt === issue.publishedAt &&
+      existing.title === issue.title &&
+      JSON.stringify(existing.references) ===
+        JSON.stringify(issue.references) &&
+      existing.canonicalPath === issue.canonicalPath &&
+      existing.text === issue.text &&
+      existing.sourceHtml === issue.sourceHtml &&
+      existing.coverPath === issue.coverPath &&
+      existing.updatedAt === input.updatedAt;
     if (unchanged) {
       return { status: "unchanged", issue: existing };
     }
@@ -540,22 +663,34 @@ export async function importIssue(
     );
   }
 
-  await prepared(db, `INSERT INTO documents (
+  const managed = await libraryManaged(db);
+  const insert = prepared(
+    db,
+    `INSERT INTO documents (
       id, collection, date, published_at, title, references_json,
-      canonical_path, text_content, source_html, cover_path, version, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`, [
-    issue.id,
-    issue.collection,
-    issue.date,
-    issue.publishedAt,
-    issue.title,
-    JSON.stringify(issue.references),
-    issue.canonicalPath,
-    issue.text,
-    issue.sourceHtml,
-    issue.coverPath,
-    input.updatedAt,
-  ]).run();
+      canonical_path, text_content, source_html, cover_path, version, updated_at${managed ? ", write_nonce" : ""}
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?${managed ? ", ?" : ""})`,
+    [
+      issue.id,
+      issue.collection,
+      issue.date,
+      issue.publishedAt,
+      issue.title,
+      JSON.stringify(issue.references),
+      issue.canonicalPath,
+      issue.text,
+      issue.sourceHtml,
+      issue.coverPath,
+      input.updatedAt,
+      ...(managed ? [crypto.randomUUID()] : []),
+    ],
+  );
+  if (managed)
+    await d1Batch(db, inventoryGuards(db, issue.sourceHtml, issue.coverPath), [
+      insert,
+      ...inventoryWrites(db, issue.id, 1, issue.sourceHtml, issue.coverPath),
+    ]);
+  else await insert.run();
   return {
     status: "created",
     issue: { ...issue, version: 1, updatedAt: input.updatedAt },
@@ -563,7 +698,8 @@ export async function importIssue(
 }
 
 function validateReferences(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > 100) throw new Error("invalid_references");
+  if (!Array.isArray(value) || value.length > 100)
+    throw new Error("invalid_references");
   if (value.some((item) => typeof item !== "string" || item.length > 1000)) {
     throw new Error("invalid_references");
   }
@@ -577,14 +713,23 @@ export async function updateIssueSource(
 ): Promise<LibraryMutationResult> {
   const current = await readIssue(db, id);
   if (!current) {
-    throw new LibraryError("not_found", "the Library issue was not found", 404, { id });
+    throw new LibraryError(
+      "not_found",
+      "the Library issue was not found",
+      404,
+      { id },
+    );
   }
   if (current.version !== input.expectedVersion) {
     throw new LibraryError(
       "version_conflict",
       "the Library issue changed after it was read",
       409,
-      { id, expectedVersion: input.expectedVersion, currentVersion: current.version },
+      {
+        id,
+        expectedVersion: input.expectedVersion,
+        currentVersion: current.version,
+      },
     );
   }
   const candidateSource = validateSourceHtml(input.sourceHtml);
@@ -593,36 +738,63 @@ export async function updateIssueSource(
     : candidateSource;
   const title = titleFromHtml(nextSource, current.title);
   const text = readableText(nextSource);
-  const nextCover = typeof input.coverPath === "string" && input.coverPath
-    ? input.coverPath
-    : current.coverPath;
-  const nextReferences = input.references === undefined
-    ? current.references
-    : validateReferences(input.references);
+  const nextCover =
+    typeof input.coverPath === "string" && input.coverPath
+      ? input.coverPath
+      : current.coverPath;
+  const nextReferences =
+    input.references === undefined
+      ? current.references
+      : validateReferences(input.references);
   if (
-    nextSource === current.sourceHtml
-    && nextCover === current.coverPath
-    && JSON.stringify(nextReferences) === JSON.stringify(current.references)
+    nextSource === current.sourceHtml &&
+    nextCover === current.coverPath &&
+    JSON.stringify(nextReferences) === JSON.stringify(current.references)
   ) {
     return { status: "unchanged", issue: current };
   }
   const updatedAt = new Date().toISOString();
   const nextVersion = current.version + 1;
-  const result = await prepared(db, `UPDATE documents
+  const managed = await libraryManaged(db);
+  const statement = prepared(
+    db,
+    `UPDATE documents
       SET title = ?, text_content = ?, source_html = ?, cover_path = ?, references_json = ?,
-          version = ?, updated_at = ?
-      WHERE id = ? AND version = ?`, [
-    title,
-    text,
-    nextSource,
-    nextCover,
-    JSON.stringify(nextReferences),
-    nextVersion,
-    updatedAt,
-    id,
-    current.version,
-  ]).run();
-  if (result.meta.changes !== 1) {
+          version = ?, updated_at = ?${managed ? ", write_nonce = ?" : ""}
+      WHERE id = ? AND version = ?`,
+    [
+      title,
+      text,
+      nextSource,
+      nextCover,
+      JSON.stringify(nextReferences),
+      nextVersion,
+      updatedAt,
+      ...(managed ? [crypto.randomUUID()] : []),
+      id,
+      current.version,
+    ],
+  );
+  const result = managed
+    ? (
+        await d1Batch(
+          db,
+          [
+            d1Guard(
+              db,
+              "EXISTS(SELECT 1 FROM documents WHERE id=? AND version=? AND trash_group_id IS NULL)",
+              [id, current.version],
+            ),
+            ...inventoryGuards(db, nextSource, nextCover),
+          ],
+          [
+            statement,
+            ...inventoryWrites(db, id, nextVersion, nextSource, nextCover),
+          ],
+        )
+      )[1]!
+    : await statement.run();
+  if (!managed && result.meta.changes !== 1) {
     const latest = await readIssue(db, id);
     throw new LibraryError(
       "version_conflict",
@@ -647,9 +819,12 @@ export async function updateIssueSource(
 }
 
 function cleanArticleHtml(value: unknown): string {
-  if (typeof value !== "string" || value.length > MAX_SOURCE_HTML) throw new Error("invalid_article_html");
+  if (typeof value !== "string" || value.length > MAX_SOURCE_HTML)
+    throw new Error("invalid_article_html");
   assertSafeMarkup(value);
-  if (/<(?:script|style|iframe|object|embed|link|meta|base|form)\b/i.test(value)) {
+  if (
+    /<(?:script|style|iframe|object|embed|link|meta|base|form)\b/i.test(value)
+  ) {
     throw new Error("article_markup_not_allowed");
   }
   return value;
@@ -659,19 +834,29 @@ function replaceLeadText(sourceHtml: string, leadText: unknown): string {
   const nextLead = String(leadText ?? "").trim();
   if (nextLead.length > 3000) throw new Error("invalid_lead_text");
   let found = false;
-  const pattern = /(<(p|div)\b[^>]*\bclass=(['"])([^'"]*)\3[^>]*>)[\s\S]*?(<\/\2>)/gi;
-  const nextSource = sourceHtml.replace(pattern, (
-    matched: string,
-    opening: string,
-    _tag: string,
-    _quote: string,
-    classes: string,
-    closing: string,
-  ) => {
-    if (found || !classes.split(/\s+/).some((name) => name === "lead" || name === "standfirst")) return matched;
-    found = true;
-    return `${opening}${escapeHtml(nextLead)}${closing}`;
-  });
+  const pattern =
+    /(<(p|div)\b[^>]*\bclass=(['"])([^'"]*)\3[^>]*>)[\s\S]*?(<\/\2>)/gi;
+  const nextSource = sourceHtml.replace(
+    pattern,
+    (
+      matched: string,
+      opening: string,
+      _tag: string,
+      _quote: string,
+      classes: string,
+      closing: string,
+    ) => {
+      if (
+        found ||
+        !classes
+          .split(/\s+/)
+          .some((name) => name === "lead" || name === "standfirst")
+      )
+        return matched;
+      found = true;
+      return `${opening}${escapeHtml(nextLead)}${closing}`;
+    },
+  );
   if (!found) throw new Error("lead_not_found");
   return nextSource;
 }
@@ -683,7 +868,12 @@ export async function updateIssueFragments(
 ): Promise<LibraryMutationResult> {
   const current = await readIssue(db, id);
   if (!current) {
-    throw new LibraryError("not_found", "the Library issue was not found", 404, { id });
+    throw new LibraryError(
+      "not_found",
+      "the Library issue was not found",
+      404,
+      { id },
+    );
   }
   const nextTitle = String(title ?? "").trim();
   if (!nextTitle || nextTitle.length > 300) throw new Error("invalid_title");
@@ -691,12 +881,18 @@ export async function updateIssueFragments(
   let sourceHtml = current.sourceHtml
     .replace(/(<h1\b[^>]*>)[\s\S]*?(<\/h1>)/i, `$1${escapeHtml(nextTitle)}$2`)
     .replace(/(<article\b[^>]*>)[\s\S]*?(<\/article>)/i, `$1${nextArticle}$2`)
-    .replace(/(<title\b[^>]*>)[\s\S]*?(<\/title>)/i, `$1${escapeHtml(`${nextTitle} · ${current.date}`)}$2`);
-  if (typeof leadText === "string") sourceHtml = replaceLeadText(sourceHtml, leadText);
+    .replace(
+      /(<title\b[^>]*>)[\s\S]*?(<\/title>)/i,
+      `$1${escapeHtml(`${nextTitle} · ${current.date}`)}$2`,
+    );
+  if (typeof leadText === "string")
+    sourceHtml = replaceLeadText(sourceHtml, leadText);
   sourceHtml = validateSourceHtml(sourceHtml);
   return updateIssueSource(db, id, { sourceHtml, expectedVersion });
 }
 
 export function isCollection(value: unknown): value is LibraryCollection {
-  return typeof value === "string" && COLLECTIONS.has(value as LibraryCollection);
+  return (
+    typeof value === "string" && COLLECTIONS.has(value as LibraryCollection)
+  );
 }

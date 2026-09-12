@@ -67,3 +67,9 @@ publication.
 Do not create a local issue archive or use a local Site deployment as a fallback when the remote
 Library write connection is unavailable. Temporary generated assets may exist only until upload and
 verification finish.
+
+## Trash and restore editions
+
+Use `library_management_preview` and `library_issue_trash` only for a requested removal. Preserve the reviewed version, impact token and request key. `library_trash_restore` and `library_trash_purge` target the deletion-group ID, not a publication date. Permanent deletion requires the owner's explicit confirmation. `library_trash_list` shows the first server trash time, the 30×24-hour deadline, blockers and maintenance state; ordinary lists default to current editions. The enabled daily cleanup runs at 04:00 Asia/Seoul after the deadline. Publication classification, scheduled date and autosave behavior remain independent of lifecycle state.
+
+A shared object is retained, and unresolved ownership, unsupported local media references or an uncertain upload block object cleanup. An R2 failure leaves a resumable, non-restorable purge rather than claiming success. Use the same request key and `library_operation_status` to resolve uncertain outcomes; do not retry a stale body with a newer version. `library_capabilities` distinguishes support, activation and authorization. Do not bulk-delete old unreferenced assets or substitute a database-only deletion for asset cleanup.

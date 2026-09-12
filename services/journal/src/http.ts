@@ -1,3 +1,4 @@
+import packageInfo from "../package.json";
 import { ZodError, type ZodType } from "zod/v4";
 import { protectedResourceMetadata } from "@personal-agent/remote-runtime";
 
@@ -99,7 +100,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       return jsonResponse(request, env, {
         ok: true,
         service: "personal-agent-journal",
-        version: "0.2.6",
+        version: packageInfo.version,
       });
     }
     if (

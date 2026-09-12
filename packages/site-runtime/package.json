@@ -1,6 +1,6 @@
 {
   "name": "@personal-agent/site-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Shared authenticated-user and service-client primitives for Personal Agent Toolkit Sites",

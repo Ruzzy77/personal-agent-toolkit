@@ -27,6 +27,14 @@ An explicit user request initiates a conversational Sense revision. Read every a
 
 An explicit request can also replace one ordinary Section Skill. Read the linked section and its current Skill, present the complete final Skill wording, then call `sense_skill_revise` with the current Skill `version` and complete name, description and instructions. Use `expected_version="absent"` only when the section has no Skill. A conflict preserves the current Skill.
 
-Sensitive section changes, sensitive Skill storage, Skill removal, and permanent deletion are outside the public remote MCP. A local command changes only the local development or migration store, so never report it as a change to the remote canonical profile. `sense_overview` presents the current ordinary guidance and its linked Skills.
+Sensitive section changes and sensitive Skill storage remain outside the public remote MCP. Ordinary section and Skill management uses the dedicated operations below. A local command changes only the local development or migration store, so never report it as a change to the remote canonical profile. `sense_overview` presents the current ordinary guidance and its linked Skills.
 
 The workbench can browse the same authorized canon and accept a user's direct save under the same version checks. It is optional for ordinary retrieval and conversational edits. A remote save does not update a host's base projection or prove application in the current model; an explicitly requested host connection or update uses `manage-environment`.
+
+## Ordinary section and Skill management
+
+When explicitly requested, use `sense_section_create` or `sense_sections_reorder` with the freshly read profile comparison token and every affected Skill version. Reordering changes only ordinary section positions; do not expose or remotely change sensitive sections.
+
+Use `sense_management_preview` before `sense_section_trash`, `sense_skill_trash`, `sense_trash_restore` or `sense_trash_purge`. Carry its exact impact token, profile token and affected Skill versions into the operation. A section deletion includes its currently owned Skill; an earlier, separately deleted Skill keeps its own deletion group and deadline. Restore only by deletion-group ID, all or none; a collision requires reconciliation, never an overwrite.
+
+Keep the same request key when retrying the same deletion request. `sense_operation_status` distinguishes a confirmed commit from an unknown result. Trashing retains the payload for 30×24 hours from the server's first trash timestamp. The enabled daily cleanup runs at 04:00 Asia/Seoul after that deadline; blockers preserve the group. Manual permanent deletion requires the owner's explicit confirmation. `sense_trash_list` reports groups, deadlines, blockers and maintenance state without sensitive content. `sense_capabilities` distinguishes support, rollout activation and authorization. Do not substitute local deletion or an owner-wide import when a remote operation is unavailable.

@@ -457,7 +457,18 @@ def check_product_versions(errors: list[str]) -> None:
             rf'name:\s*"{re.escape(mcp["surface_name"])}"\s*,\s*'
             rf'version:\s*"{re.escape(mcp["surface_version"])}"'
         )
-        if identity.search(source) is None:
+        package_identity = re.search(
+            rf'name:\s*"{re.escape(mcp["surface_name"])}"\s*,\s*'
+            r'version:\s*packageInfo\.version', source
+        )
+        package_path = implementation.parent.parent / "package.json"
+        linked_version_matches = (
+            package_identity is not None
+            and 'import packageInfo from "../package.json"' in source
+            and package_path.is_file()
+            and read_json(package_path).get("version") == mcp["surface_version"]
+        )
+        if identity.search(source) is None and not linked_version_matches:
             errors.append(
                 f"{name}: MCP implementation identity differs from products.json"
             )
@@ -473,117 +484,25 @@ def check_product_versions(errors: list[str]) -> None:
 def check_public_mcp_contracts(errors: list[str]) -> None:
     surfaces_path = ROOT / "services" / "remote-context" / "src" / "surfaces.ts"
     surfaces = surfaces_path.read_text(encoding="utf-8")
-    remote_surfaces: dict[str, dict[str, Any]] = {}
     context_products = {
-        name: product
-        for name, product in PRODUCTS.items()
-        if product.get("mcp", {}).get("implementation")
-        == "services/remote-context/src/mcp.ts"
+        name: product for name, product in PRODUCTS.items()
+        if product.get("mcp", {}).get("implementation") == "services/remote-context/src/mcp.ts"
     }
-    for name, product in context_products.items():
-        mcp = product["mcp"]
-        block_match = re.search(
-            rf"(?s)\b{name}:\s*\{{(?P<body>.*?)\n\s*\}},",
-            surfaces,
-        )
-        if block_match is None:
-            errors.append(f"{relative(surfaces_path)} is missing {name} surface")
-            continue
-        body = block_match.group("body")
-        display_name = re.search(r'\bname:\s*"([^\"]+)"', body)
-        version = re.search(r'\bversion:\s*"([^\"]+)"', body)
-        tools = re.search(r"(?s)\btools:\s*\[(.*?)\]", body)
-        if display_name is None or tools is None:
-            errors.append(
-                f"{relative(surfaces_path)} {name} surface is missing its name or tools"
-            )
-            continue
-        remote_surfaces[name] = {
-            "name": display_name.group(1),
-            "version": version.group(1) if version is not None else "",
-            "tools": re.findall(r'"([^\"]+)"', tools.group(1)),
-        }
-
-        expected_surface = {
-            "name": mcp["surface_name"],
-            "version": mcp["surface_version"],
-            "tools": mcp["tools"],
-        }
-        if remote_surfaces[name] != expected_surface:
-            errors.append(
-                f"{relative(surfaces_path)} {name} surface differs from products.json"
-            )
-
-    toolkit_match = re.search(
-        r"(?s)\btoolkit:\s*\{(?P<body>.*?)\n\s*\},",
-        surfaces,
-    )
-    if toolkit_match is None:
-        errors.append(f"{relative(surfaces_path)} is missing toolkit surface")
-    else:
-        body = toolkit_match.group("body")
-        name = re.search(r'\bname:\s*"([^\"]+)"', body)
-        version = re.search(r'\bversion:\s*"([^\"]+)"', body)
-        tools = re.search(r"(?s)\btools:\s*\[(.*?)\]", body)
-        expected_tools = [
-            tool
-            for product_name in OPENAI_DISTRIBUTION["products"]
-            if product_name in OPENAI_REMOTE_MCP_PRODUCTS
-            for tool in PRODUCTS[product_name]["mcp"]["tools"]
-        ]
-        mcp = OPENAI_DISTRIBUTION["mcp"]
-        actual = {
-            "name": name.group(1) if name is not None else "",
-            "version": version.group(1) if version is not None else "",
-            "tools": re.findall(r'"([^\"]+)"', tools.group(1))
-            if tools is not None
-            else [],
-        }
-        expected = {
-            "name": mcp["surface_name"],
-            "version": mcp["surface_version"],
-            "tools": expected_tools,
-        }
-        if actual != expected:
-            errors.append(
-                f"{relative(surfaces_path)} toolkit surface differs from products.json"
-            )
-
-    context_implementation = ROOT / "services/remote-context/src/mcp.ts"
-    context_source = context_implementation.read_text(encoding="utf-8")
-    actual_context_tools = REGISTERED_TS_TOOL.findall(context_source)
-    # Native operations use an explicit shared list rather than repeated literal
-    # registerTool calls. Count that list only when the MCP actually registers it.
-    if re.search(
-        r"for\s*\(const name of NATIVE_CORPUS_TOOLS\)\s*\{.*?server\.registerTool\(name",
-        context_source,
-        re.DOTALL,
-    ):
-        api_source = (context_implementation.parent / "context-api.ts").read_text(
-            encoding="utf-8"
-        )
-        native_tools = re.search(
-            r"export const NATIVE_CORPUS_TOOLS\s*=\s*\[(.*?)\]\s*as const",
-            api_source,
-            re.DOTALL,
-        )
-        if native_tools is None:
-            errors.append("Context native MCP registration list could not be read")
-        else:
-            actual_context_tools.extend(
-                re.findall(r'"([a-z][a-z0-9_]*)"', native_tools.group(1))
-            )
-    expected_context_tools = [
-        tool
-        for product in context_products.values()
-        for tool in product["mcp"]["tools"]
-    ]
-    if len(actual_context_tools) != len(set(actual_context_tools)) or set(
-        actual_context_tools
-    ) != set(expected_context_tools):
-        errors.append(
-            f"{relative(context_implementation)} tool registrations differ from products.json"
-        )
+    # Surfaces now read the deployment registry directly. The service contract
+    # test also enumerates actual individual and combined MCP registrations.
+    if 'import registry from "../../../products.json"' not in surfaces or "productSurface" not in surfaces:
+        errors.append(f"{relative(surfaces_path)} must derive surface identities from products.json")
+    implementation = ROOT / "services/remote-context/src/mcp.ts"
+    source = implementation.read_text(encoding="utf-8")
+    api_source = (implementation.parent / "context-api.ts").read_text(encoding="utf-8")
+    actual_tools = re.findall(r"^\s+([a-z][a-z0-9_]*): operation\(", api_source, re.MULTILINE)
+    actual_tools += [f"{name}_capabilities" for name in context_products]
+    expected_tools = [tool for product in context_products.values() for tool in product["mcp"]["tools"]]
+    if len(actual_tools) != len(set(actual_tools)) or set(actual_tools) != set(expected_tools):
+        errors.append("Context operation definitions differ from products.json")
+    for name in context_products:
+        if f'name.startsWith("{name}_")' not in source or re.search(r"server\.registerTool\(\s*name\s*,", source) is None:
+            errors.append(f"Context MCP must register the shared {name} operation definitions")
 
     for name, product in PRODUCTS.items():
         mcp = product.get("mcp")
@@ -597,6 +516,12 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
             else REGISTERED_TS_TOOL
         )
         actual_tools = pattern.findall(source)
+        if name in {"library", "design"}:
+            definitions = (implementation.parent / "management.ts").read_text(encoding="utf-8")
+            operation_source = (implementation.parent / "operations.ts").read_text(encoding="utf-8")
+            if f"{name}Operations(" not in source or re.search(r"server\.registerTool\(\s*name\s*,", source) is None:
+                errors.append(f"{name} MCP must register the shared operation definitions")
+            actual_tools = re.findall(rf"\b({name}_[a-z_]+):\s*op\(", definitions) + [f"{name}_capabilities"] + re.findall(rf"\b({name}_[a-z_]+):\s*op\(", operation_source)
         if actual_tools != mcp["tools"]:
             errors.append(
                 f"{relative(implementation)} tool registrations differ from products.json"

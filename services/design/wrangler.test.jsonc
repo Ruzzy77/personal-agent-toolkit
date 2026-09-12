@@ -19,6 +19,7 @@
     }
   ],
   "vars": {
+    "MANAGEMENT_WRITE_ENABLED": "true",
     "AUTH_ISSUER": "https://auth.example",
     "RESOURCE_URI": "https://design.example/mcp",
     "DESIGN_SITE_TOKEN": "test-site-token"

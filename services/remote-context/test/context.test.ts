@@ -12,7 +12,11 @@ import {
 } from "../src/corpus-shard";
 import { CorpusService } from "../src/corpus";
 import { CorpusDocumentsService } from "../src/corpus-documents";
-import { corpusDocumentCreateSchema, corpusWorkspaceBindSchema } from "../src/corpus-document-schemas";
+import { CorpusManagementService } from "../src/corpus-management";
+import {
+  corpusDocumentCreateSchema,
+  corpusWorkspaceBindSchema,
+} from "../src/corpus-document-schemas";
 import { importCorpusMetadata } from "../src/imports";
 import { handleHttp } from "../src/http";
 import { HypesService } from "../src/hypes";
@@ -34,9 +38,7 @@ const syncHeaders = {
 };
 
 it("keeps remote Work file budgets aligned with the local Corpus contract", () => {
-  expect(
-    corpusFileReadSchema.parse({ space_id: "notes" }),
-  ).toMatchObject({
+  expect(corpusFileReadSchema.parse({ space_id: "notes" })).toMatchObject({
     max_bytes: 2 * 1024 * 1024,
     max_chars: 30_000,
     start_char: 0,
@@ -85,9 +87,7 @@ it("losslessly compacts legacy Source-anchor invariants", () => {
     "a".repeat(64),
   );
   expect(compacted.compacted).toBe(true);
-  expect(compacted.value).toBe(
-    'compact-v1:{"source_span":{"paragraph":2}}',
-  );
+  expect(compacted.value).toBe('compact-v1:{"source_span":{"paragraph":2}}');
 });
 
 it("losslessly compacts repeated table-cell structure", () => {
@@ -231,10 +231,14 @@ const ownerPrincipal: Principal = {
 
 const legacyToolkitPrincipal: Principal = {
   ...ownerPrincipal,
-  scopes: new Set([...ownerPrincipal.scopes].filter((scope) => !scope.startsWith("design."))),
+  scopes: new Set(
+    [...ownerPrincipal.scopes].filter((scope) => !scope.startsWith("design.")),
+  ),
   owner: {
     ...ownerPrincipal.owner!,
-    scopes: ownerPrincipal.owner!.scopes.filter((scope) => !scope.startsWith("design.")),
+    scopes: ownerPrincipal.owner!.scopes.filter(
+      (scope) => !scope.startsWith("design."),
+    ),
   },
 };
 
@@ -242,14 +246,30 @@ it("revises descriptive Context attributes atomically without rewriting provenan
   const db = runtime.STATE_DB;
   const spaceId = "attribute-revision";
   await db.batch([
-    db.prepare(`INSERT INTO corpus_spaces(owner_id, space_id, display_name, state, access_scope, updated_at)
-      VALUES ('owner_test', ?, 'Attributes', 'active', 'remote_allowed', '2026-09-08')`).bind(spaceId),
-    db.prepare(`INSERT INTO corpus_contexts(owner_id, space_id, title, purpose, scope_json, version, updated_at)
-      VALUES ('owner_test', ?, 'Attributes', 'Test', '{}', 1, '2026-09-08')`).bind(spaceId),
-    ...["attribute-a", "attribute-b"].map((id) => db.prepare(
-      `INSERT INTO corpus_context_items(owner_id, space_id, item_id, kind, body_text, attributes_json, created_at)
+    db
+      .prepare(
+        `INSERT INTO corpus_spaces(owner_id, space_id, display_name, state, access_scope, updated_at)
+      VALUES ('owner_test', ?, 'Attributes', 'active', 'remote_allowed', '2026-09-08')`,
+      )
+      .bind(spaceId),
+    db
+      .prepare(
+        `INSERT INTO corpus_contexts(owner_id, space_id, title, purpose, scope_json, version, updated_at)
+      VALUES ('owner_test', ?, 'Attributes', 'Test', '{}', 1, '2026-09-08')`,
+      )
+      .bind(spaceId),
+    ...["attribute-a", "attribute-b"].map((id) =>
+      db
+        .prepare(
+          `INSERT INTO corpus_context_items(owner_id, space_id, item_id, kind, body_text, attributes_json, created_at)
        VALUES ('owner_test', ?, ?, 'finding', 'Existing judgment', ?, '2026-09-08')`,
-    ).bind(spaceId, id, '{"confidence":0.8,"source_of_truth":"old.md","status":"active"}')),
+        )
+        .bind(
+          spaceId,
+          id,
+          '{"confidence":0.8,"source_of_truth":"old.md","status":"active"}',
+        ),
+    ),
     db.prepare(`INSERT INTO corpus_context_sources(owner_id, source_ref_id, item_id, corpus_id,
       document_id, revision_id, projection_id, source_unit_id, link_role, source_span_json)
       VALUES ('owner_test', 'attribute-link', 'attribute-a', 'corpus-old', 'doc-old', 'rev-old',
@@ -257,89 +277,216 @@ it("revises descriptive Context attributes atomically without rewriting provenan
   ]);
   const service = new CorpusService(runtime, ownerPrincipal);
   const revision = (itemId: string, value = "current.md") => ({
-    item_id: itemId, kind: "finding" as const, body_text: "Existing judgment", status: "active",
+    item_id: itemId,
+    kind: "finding" as const,
+    body_text: "Existing judgment",
+    status: "active",
     attributes: { source_of_truth: value },
   });
-  const input = { space_id: spaceId, expected_version: 1, revisions: [revision("attribute-a"), revision("attribute-b")] };
+  const input = {
+    space_id: spaceId,
+    expected_version: 1,
+    revisions: [revision("attribute-a"), revision("attribute-b")],
+  };
   const snapshot = async () => ({
-    context: await db.prepare("SELECT * FROM corpus_contexts WHERE space_id = ?").bind(spaceId).all(),
-    items: await db.prepare("SELECT * FROM corpus_context_items WHERE space_id = ? ORDER BY item_id").bind(spaceId).all(),
-    links: await db.prepare("SELECT * FROM corpus_context_sources WHERE source_ref_id = 'attribute-link'").all(),
+    context: await db
+      .prepare("SELECT * FROM corpus_contexts WHERE space_id = ?")
+      .bind(spaceId)
+      .all(),
+    items: await db
+      .prepare(
+        "SELECT * FROM corpus_context_items WHERE space_id = ? ORDER BY item_id",
+      )
+      .bind(spaceId)
+      .all(),
+    links: await db
+      .prepare(
+        "SELECT * FROM corpus_context_sources WHERE source_ref_id = 'attribute-link'",
+      )
+      .all(),
   });
   const before = await snapshot();
-  for (const revisions of [[revision("attribute-a"), revision("missing")], [revision("attribute-a"), revision("attribute-a")]]) {
-    await expect(service.reviseContextItems({ ...input, revisions })).rejects.toBeDefined();
+  for (const revisions of [
+    [revision("attribute-a"), revision("missing")],
+    [revision("attribute-a"), revision("attribute-a")],
+  ]) {
+    await expect(
+      service.reviseContextItems({ ...input, revisions }),
+    ).rejects.toBeDefined();
     const after = await snapshot();
     expect(after.context.results).toEqual(before.context.results);
     expect(after.items.results).toEqual(before.items.results);
   }
-  await expect(new CorpusService(runtime, { ...ownerPrincipal, ownerId: "other-owner" }).reviseContextItems(input)).rejects.toMatchObject({ code: "space_not_found" });
-  await expect(service.reviseContextItems(input)).resolves.toMatchObject({ changed: true, version: 2 });
+  await expect(
+    new CorpusService(runtime, {
+      ...ownerPrincipal,
+      ownerId: "other-owner",
+    }).reviseContextItems(input),
+  ).rejects.toMatchObject({ code: "space_not_found" });
+  await expect(service.reviseContextItems(input)).resolves.toMatchObject({
+    changed: true,
+    version: 2,
+  });
   const changed = await snapshot();
   expect(changed.links.results).toEqual(before.links.results);
   for (const row of changed.items.results) {
-    expect(JSON.parse(row.attributes_json as string)).toEqual({ confidence: 0.8, status: "active", source_of_truth: "current.md" });
+    expect(JSON.parse(row.attributes_json as string)).toEqual({
+      confidence: 0.8,
+      status: "active",
+      source_of_truth: "current.md",
+    });
     expect(row.body_text).toBe("Existing judgment");
   }
-  await expect(service.reviseContextItems(input)).rejects.toMatchObject({ code: "context_conflict" });
-  await expect(service.reviseContextItems({ ...input, expected_version: 2 })).resolves.toMatchObject({ changed: false, version: 2 });
+  await expect(service.reviseContextItems(input)).rejects.toMatchObject({
+    code: "context_conflict",
+  });
+  await expect(
+    service.reviseContextItems({ ...input, expected_version: 2 }),
+  ).resolves.toMatchObject({ changed: false, version: 2 });
   const { attributes: _attributes, ...legacy } = revision("attribute-a");
-  await expect(service.reviseContextItems({ ...input, expected_version: 2, revisions: [legacy] })).resolves.toMatchObject({ changed: false, version: 2 });
-  await expect(service.reviseContextItems({ ...input, expected_version: 2, revisions: [{ ...legacy, attributes: { source_of_truth: null } }] })).resolves.toMatchObject({ changed: true, version: 3 });
+  await expect(
+    service.reviseContextItems({
+      ...input,
+      expected_version: 2,
+      revisions: [legacy],
+    }),
+  ).resolves.toMatchObject({ changed: false, version: 2 });
+  await expect(
+    service.reviseContextItems({
+      ...input,
+      expected_version: 2,
+      revisions: [{ ...legacy, attributes: { source_of_truth: null } }],
+    }),
+  ).resolves.toMatchObject({ changed: true, version: 3 });
   const removed = await snapshot();
-  expect(JSON.parse(removed.items.results[0]!.attributes_json as string)).toEqual({ confidence: 0.8, status: "active" });
+  expect(
+    JSON.parse(removed.items.results[0]!.attributes_json as string),
+  ).toEqual({ confidence: 0.8, status: "active" });
   expect(removed.links.results).toEqual(before.links.results);
 
-  for (const attributes of [{}, { source_of_truth: "" }, { source_of_truth: "x".repeat(12_001) }, { source_of_truth: "current.md", access_scope: "remote_allowed" }]) {
-    expect(corpusContextItemsReviseSchema.safeParse({ ...input, revisions: [{ ...legacy, attributes }] }).success).toBe(false);
+  for (const attributes of [
+    {},
+    { source_of_truth: "" },
+    { source_of_truth: "x".repeat(12_001) },
+    { source_of_truth: "current.md", access_scope: "remote_allowed" },
+  ]) {
+    expect(
+      corpusContextItemsReviseSchema.safeParse({
+        ...input,
+        revisions: [{ ...legacy, attributes }],
+      }).success,
+    ).toBe(false);
   }
 
   const request = new Request("https://context.test/corpus/mcp", {
     method: "POST",
-    headers: { Accept: "application/json, text/event-stream", "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
-      name: "corpus_context_items_revise", arguments: { ...input, expected_version: 3 },
-    } }),
+    headers: {
+      Accept: "application/json, text/event-stream",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "corpus_context_items_revise",
+        arguments: { ...input, expected_version: 3 },
+      },
+    }),
   });
-  const denied = await mcpPayload(await handleMcp(request, runtime, {
-    ...ownerPrincipal, scopes: new Set(["corpus.read"]),
-  }, "corpus"));
+  const denied = await mcpPayload(
+    await handleMcp(
+      request,
+      runtime,
+      {
+        ...ownerPrincipal,
+        scopes: new Set(["corpus.read"]),
+      },
+      "corpus",
+    ),
+  );
   expect(denied.result).toMatchObject({ isError: true });
   expect((await snapshot()).items.results).toEqual(removed.items.results);
 
-  const concurrent = await Promise.allSettled(["first.md", "second.md"].map((value) =>
-    service.reviseContextItems({ ...input, expected_version: 3,
-      revisions: [revision("attribute-a", value), revision("attribute-b", value)],
-    }),
-  ));
-  expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const concurrent = await Promise.allSettled(
+    ["first.md", "second.md"].map((value) =>
+      service.reviseContextItems({
+        ...input,
+        expected_version: 3,
+        revisions: [
+          revision("attribute-a", value),
+          revision("attribute-b", value),
+        ],
+      }),
+    ),
+  );
+  expect(
+    concurrent.filter((result) => result.status === "fulfilled"),
+  ).toHaveLength(1);
   const rejected = concurrent.find((result) => result.status === "rejected");
   expect(rejected?.reason).toMatchObject({ code: "context_conflict" });
   const final = await snapshot();
   expect(final.context.results[0]!.version).toBe(4);
-  expect(new Set(final.items.results.map((row) => JSON.parse(row.attributes_json as string).source_of_truth)).size).toBe(1);
+  expect(
+    new Set(
+      final.items.results.map(
+        (row) => JSON.parse(row.attributes_json as string).source_of_truth,
+      ),
+    ).size,
+  ).toBe(1);
   expect(final.links.results).toEqual(before.links.results);
-  await db.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
-    VALUES ('owner_test',?,'attribute-no-status','finding','Status not assigned','{}','2026-09-08')`).bind(spaceId).run();
-  await service.reviseContextItems({ space_id: spaceId, expected_version: 4, revisions: [
-    { item_id: "attribute-no-status", kind: "finding", body_text: "Edited without assigning a status" },
-  ] });
-  const statusless = await db.prepare("SELECT body_text,attributes_json FROM corpus_context_items WHERE owner_id='owner_test' AND item_id='attribute-no-status'").first<{ body_text: string; attributes_json: string }>();
+  await db
+    .prepare(
+      `INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+    VALUES ('owner_test',?,'attribute-no-status','finding','Status not assigned','{}','2026-09-08')`,
+    )
+    .bind(spaceId)
+    .run();
+  await service.reviseContextItems({
+    space_id: spaceId,
+    expected_version: 4,
+    revisions: [
+      {
+        item_id: "attribute-no-status",
+        kind: "finding",
+        body_text: "Edited without assigning a status",
+      },
+    ],
+  });
+  const statusless = await db
+    .prepare(
+      "SELECT body_text,attributes_json FROM corpus_context_items WHERE owner_id='owner_test' AND item_id='attribute-no-status'",
+    )
+    .first<{ body_text: string; attributes_json: string }>();
   expect(statusless?.body_text).toBe("Edited without assigning a status");
   expect(JSON.parse(statusless!.attributes_json)).not.toHaveProperty("status");
 });
 
 function expectContextAttributeSchema(schema: Record<string, unknown>) {
-  const properties = schema.properties as Record<string, { items: Record<string, unknown> }>;
+  const properties = schema.properties as Record<
+    string,
+    { items: Record<string, unknown> }
+  >;
   const revision = properties.revisions!.items;
   expect(revision.required).not.toContain("attributes");
   expect(revision.required).not.toContain("status");
-  expect(revision).toMatchObject({ properties: { attributes: {
-    type: "object", additionalProperties: false, required: ["source_of_truth"],
-    properties: { source_of_truth: { anyOf: [
-      { type: "string", minLength: 1, maxLength: 12_000 }, { type: "null" },
-    ] } },
-  } } });
+  expect(revision).toMatchObject({
+    properties: {
+      attributes: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source_of_truth"],
+        properties: {
+          source_of_truth: {
+            anyOf: [
+              { type: "string", minLength: 1, maxLength: 12_000 },
+              { type: "null" },
+            ],
+          },
+        },
+      },
+    },
+  });
 }
 
 async function mcpPayload(
@@ -1000,7 +1147,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.3.0",
+      version: "0.4.0",
       resources: ["toolkit", "sense", "corpus", "hypes"],
     });
 
@@ -1054,7 +1201,8 @@ describe("remote personal context service", () => {
     for (const tool of result.tools) {
       expect(tool.inputSchema).toMatchObject({ type: "object" });
       expect(tool.outputSchema).toMatchObject({ type: "object" });
-      if (tool.name === "corpus_context_items_revise") expectContextAttributeSchema(tool.inputSchema);
+      if (tool.name === "corpus_context_items_revise")
+        expectContextAttributeSchema(tool.inputSchema);
     }
   });
 
@@ -1087,9 +1235,12 @@ describe("remote personal context service", () => {
       );
       for (const tool of result.tools) {
         expect(tool.inputSchema).toMatchObject({ type: "object" });
-        if (tool.name === "corpus_context_items_revise") expectContextAttributeSchema(tool.inputSchema);
+        if (tool.name === "corpus_context_items_revise")
+          expectContextAttributeSchema(tool.inputSchema);
         if (tool.name === "corpus_file_read") {
-          expect(tool.inputSchema).toMatchObject({ properties: { source_view: { enum: ["text", "full"] } } });
+          expect(tool.inputSchema).toMatchObject({
+            properties: { source_view: { enum: ["text", "full"] } },
+          });
           expect(tool.inputSchema.required).not.toContain("source_view");
         }
         expect(tool.outputSchema).toMatchObject({
@@ -1167,25 +1318,69 @@ describe("remote personal context service", () => {
     const service = new SenseService(runtime.STATE_DB, "owner_test");
     const read = await service.read("sections", ["questions-and-choices"]);
     expect(JSON.stringify(read)).toContain("Continue autonomously");
-    const callRead = async (args: Record<string, unknown>) => mcpPayload(await handleMcp(
-      new Request("https://context.test/sense/mcp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
-          params: { name: "sense_read", arguments: args } }),
-      }), runtime, ownerPrincipal, "sense",
-    ));
+    const callRead = async (args: Record<string, unknown>) =>
+      mcpPayload(
+        await handleMcp(
+          new Request("https://context.test/sense/mcp", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/call",
+              params: { name: "sense_read", arguments: args },
+            }),
+          }),
+          runtime,
+          ownerPrincipal,
+          "sense",
+        ),
+      );
     const indexResult = await callRead({});
-    expect(indexResult).toMatchObject({ result: { structuredContent: { ok: true, result: {
-      sections: [{ id: "questions-and-choices" }],
-    } } } });
-    expect(JSON.stringify(indexResult)).not.toContain(profile.sections[0]!.text);
-    expect(await callRead({ view: "sections", section_ids: ["questions-and-choices"] }))
-      .toMatchObject({ result: { structuredContent: { ok: true, result: read } } });
-    const criteriaOnly = await callRead({ view: "sections", section_ids: ["questions-and-choices"], include_skill: false });
-    expect(criteriaOnly).toMatchObject({ result: { structuredContent: { ok: true, result: {
-      sections: [{ text: profile.sections[0]!.text, skill: { name: "questions-and-choices" } }],
-    } } } });
+    expect(indexResult).toMatchObject({
+      result: {
+        structuredContent: {
+          ok: true,
+          result: {
+            sections: [{ id: "questions-and-choices" }],
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(indexResult)).not.toContain(
+      profile.sections[0]!.text,
+    );
+    expect(
+      await callRead({
+        view: "sections",
+        section_ids: ["questions-and-choices"],
+      }),
+    ).toMatchObject({
+      result: { structuredContent: { ok: true, result: read } },
+    });
+    const criteriaOnly = await callRead({
+      view: "sections",
+      section_ids: ["questions-and-choices"],
+      include_skill: false,
+    });
+    expect(criteriaOnly).toMatchObject({
+      result: {
+        structuredContent: {
+          ok: true,
+          result: {
+            sections: [
+              {
+                text: profile.sections[0]!.text,
+                skill: { name: "questions-and-choices" },
+              },
+            ],
+          },
+        },
+      },
+    });
     expect(JSON.stringify(criteriaOnly)).not.toContain("Continue autonomously");
     // Direct MCP rejects misspelled inputs; an upstream connector may discard
     // unknown keys before this boundary, so the call contract must be explicit.
@@ -1200,21 +1395,50 @@ describe("remote personal context service", () => {
     const overview = await service.overview();
     expect(overview).not.toHaveProperty("context_site_url");
     const siteUrl = "https://context-site.example/sense";
-    expect(await service.overview(siteUrl)).toEqual({ ...overview, context_site_url: siteUrl });
-    for (const invalidUrl of ["", "http://context-site.example", "javascript:alert(1)",
-      "/sense", "https://owner:secret@context-site.example", "https://context-site.example\n",
-      "https://context-site.example\\other", "https://"]) {
+    expect(await service.overview(siteUrl)).toEqual({
+      ...overview,
+      context_site_url: siteUrl,
+    });
+    for (const invalidUrl of [
+      "",
+      "http://context-site.example",
+      "javascript:alert(1)",
+      "/sense",
+      "https://owner:secret@context-site.example",
+      "https://context-site.example\n",
+      "https://context-site.example\\other",
+      "https://",
+    ]) {
       expect(await service.overview(invalidUrl)).toEqual(overview);
     }
-    const overviewResponse = await handleMcp(new Request("https://context.test/sense/mcp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
-        params: { name: "sense_overview", arguments: {} } }),
-    }), { ...runtime, CONTEXT_SITE_URL: siteUrl }, ownerPrincipal, "sense");
-    expect(overviewResponse.status, await overviewResponse.clone().text()).toBe(200);
+    const overviewResponse = await handleMcp(
+      new Request("https://context.test/sense/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "sense_overview", arguments: {} },
+        }),
+      }),
+      { ...runtime, CONTEXT_SITE_URL: siteUrl },
+      ownerPrincipal,
+      "sense",
+    );
+    expect(overviewResponse.status, await overviewResponse.clone().text()).toBe(
+      200,
+    );
     expect(await mcpPayload(overviewResponse)).toMatchObject({
-      result: { structuredContent: { ok: true, result: { ...overview, context_site_url: siteUrl } } },
+      result: {
+        structuredContent: {
+          ok: true,
+          result: { ...overview, context_site_url: siteUrl },
+        },
+      },
     });
     const section = profile.sections[0]!;
     const updated = await service.revise({
@@ -1713,19 +1937,15 @@ describe("remote personal context service", () => {
       },
     ];
     expect(
-      (
-        await syncPost(
-          `/sync/v1/corpora/${corpusId}/projections:begin`,
-          header,
-        )
-      ).status,
+      (await syncPost(`/sync/v1/corpora/${corpusId}/projections:begin`, header))
+        .status,
     ).toBe(200);
     expect(
       (
-        await syncPost(
-          `/sync/v1/corpora/${corpusId}/projection-units:append`,
-          { uploadId: header.uploadId, units },
-        )
+        await syncPost(`/sync/v1/corpora/${corpusId}/projection-units:append`, {
+          uploadId: header.uploadId,
+          units,
+        })
       ).status,
     ).toBe(200);
     expect(
@@ -1738,16 +1958,13 @@ describe("remote personal context service", () => {
       ).status,
     ).toBe(200);
 
-    const inventory = await syncPost(
-      `/sync/v1/corpora/${corpusId}/inventory`,
-      {
-        documentOffset: 0,
-        projectionOffset: 0,
-        limit: 10,
-        includeStorageDetails: true,
-        hotspotLimit: 1,
-      },
-    );
+    const inventory = await syncPost(`/sync/v1/corpora/${corpusId}/inventory`, {
+      documentOffset: 0,
+      projectionOffset: 0,
+      limit: 10,
+      includeStorageDetails: true,
+      hotspotLimit: 1,
+    });
     expect(inventory.status, await inventory.clone().text()).toBe(200);
     expect(await body(inventory)).toMatchObject({
       result: {
@@ -2219,17 +2436,18 @@ describe("remote personal context service", () => {
       trashed_at: string | null;
     } | null = null;
     await runInDurableObject(shard, (_instance, state) => {
-      restoredLifecycle = [
-        ...state.storage.sql.exec<{
-          lifecycle_state: string;
-          archived_at: string | null;
-          trashed_at: string | null;
-        }>(
-          `SELECT lifecycle_state, archived_at, trashed_at
+      restoredLifecycle =
+        [
+          ...state.storage.sql.exec<{
+            lifecycle_state: string;
+            archived_at: string | null;
+            trashed_at: string | null;
+          }>(
+            `SELECT lifecycle_state, archived_at, trashed_at
            FROM documents WHERE document_id = ?`,
-          documentId,
-        ),
-      ][0] ?? null;
+            documentId,
+          ),
+        ][0] ?? null;
     });
     expect(restoredLifecycle).toEqual({
       lifecycle_state: "active",
@@ -2475,7 +2693,7 @@ describe("remote personal context service", () => {
           },
           hypes: {
             version: `${hypesPlugin.version}-remote.1`,
-            tools: ["hypes_read", "hypes_rewrite"],
+            tools: ["hypes_read", "hypes_rewrite", "hypes_capabilities"],
           },
         },
         corpus_metadata: { source_digest: "a".repeat(64) },
@@ -2585,7 +2803,10 @@ describe("remote personal context service", () => {
         expires_at: string;
         created_at: string;
       }>();
-    expect(refresh).toMatchObject({ operation: "source.refresh", state: "queued" });
+    expect(refresh).toMatchObject({
+      operation: "source.refresh",
+      state: "queued",
+    });
     expect(JSON.parse(refresh!.request_json)).toMatchObject({
       document_id: documentId,
       expected_revision_sha256: "c".repeat(64),
@@ -2812,15 +3033,42 @@ describe("remote personal context service", () => {
 it("keeps native Corpus documents paged, CAS-protected, and limited to one previous snapshot", async () => {
   const service = new CorpusDocumentsService(runtime, ownerPrincipal);
   const space_id = "native-document-history";
-  await service.spaceCreate({ space_id, display_name: "Native documents", purpose: "Test" });
-  const input = { space_id, document_id: "design", title: "설계", body_markdown: "가😀\0끝\n".repeat(240), kind: "context" };
-  expect(await service.documentCreate(input)).toMatchObject({ version: 1, created: true });
-  await expect(service.documentCreate({ ...input, document_id: "too-large", body_markdown: "가".repeat(174_763) })).rejects.toMatchObject({ code: "document_too_large" });
-  await expect(service.documentCreate(input)).rejects.toMatchObject({ code: "document_conflict" });
+  await service.spaceCreate({
+    space_id,
+    display_name: "Native documents",
+    purpose: "Test",
+  });
+  const input = {
+    space_id,
+    document_id: "design",
+    title: "설계",
+    body_markdown: "가😀\0끝\n".repeat(240),
+    kind: "context",
+  };
+  expect(await service.documentCreate(input)).toMatchObject({
+    version: 1,
+    created: true,
+  });
+  await expect(
+    service.documentCreate({
+      ...input,
+      document_id: "too-large",
+      body_markdown: "가".repeat(174_763),
+    }),
+  ).rejects.toMatchObject({ code: "document_too_large" });
+  await expect(service.documentCreate(input)).rejects.toMatchObject({
+    code: "document_conflict",
+  });
   let start = 0;
   let joined = "";
   while (true) {
-    const result = await service.documentRead({ space_id, document_id: "design", max_chars: 37, start_char: start, expected_version: 1 });
+    const result = await service.documentRead({
+      space_id,
+      document_id: "design",
+      max_chars: 37,
+      start_char: start,
+      expected_version: 1,
+    });
     const document = result.document as Record<string, unknown>;
     joined += document.body_markdown;
     expect(result.offset_unit).toBe("unicode_code_point");
@@ -2828,333 +3076,1272 @@ it("keeps native Corpus documents paged, CAS-protected, and limited to one previ
     start = Number(result.next_start_char);
   }
   expect(joined).toBe(input.body_markdown);
-  await expect(service.documentRestore({ space_id, document_id: "design", expected_version: 1 })).rejects.toMatchObject({ code: "previous_snapshot_not_found" });
+  await expect(
+    service.documentRestore({
+      space_id,
+      document_id: "design",
+      expected_version: 1,
+    }),
+  ).rejects.toMatchObject({ code: "previous_snapshot_not_found" });
   const race = await Promise.allSettled([
-    service.documentRevise({ ...input, body_markdown: "second-a", expected_version: 1 }),
-    service.documentRevise({ ...input, body_markdown: "second-b", expected_version: 1 }),
+    service.documentRevise({
+      ...input,
+      body_markdown: "second-a",
+      expected_version: 1,
+    }),
+    service.documentRevise({
+      ...input,
+      body_markdown: "second-b",
+      expected_version: 1,
+    }),
   ]);
-  expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(
+    1,
+  );
   expect(race.filter((result) => result.status === "rejected")).toHaveLength(1);
-  await expect(service.documentRead({ space_id, document_id: "design", expected_version: 1 })).rejects.toMatchObject({ code: "document_conflict" });
-  expect(await service.documentRead({ space_id, document_id: "design", snapshot: "previous", max_chars: 5000 })).toMatchObject({ document: { version: 1, body_markdown: input.body_markdown } });
-  expect(await service.documentRestore({ space_id, document_id: "design", expected_version: 2 })).toMatchObject({ version: 3, restored_from_version: 1 });
-  expect(await service.documentRead({ space_id, document_id: "design", max_chars: 5000 })).toMatchObject({ document: { version: 3, body_markdown: input.body_markdown } });
-  const retained = await runtime.STATE_DB.prepare("SELECT snapshot,version FROM corpus_document_snapshots WHERE owner_id=? AND space_id=? ORDER BY snapshot")
-    .bind(ownerPrincipal.ownerId, space_id).all();
-  expect(retained.results).toEqual([{ snapshot: "current", version: 3 }, { snapshot: "previous", version: 2 }]);
+  await expect(
+    service.documentRead({
+      space_id,
+      document_id: "design",
+      expected_version: 1,
+    }),
+  ).rejects.toMatchObject({ code: "document_conflict" });
+  expect(
+    await service.documentRead({
+      space_id,
+      document_id: "design",
+      snapshot: "previous",
+      max_chars: 5000,
+    }),
+  ).toMatchObject({
+    document: { version: 1, body_markdown: input.body_markdown },
+  });
+  expect(
+    await service.documentRestore({
+      space_id,
+      document_id: "design",
+      expected_version: 2,
+    }),
+  ).toMatchObject({ version: 3, restored_from_version: 1 });
+  expect(
+    await service.documentRead({
+      space_id,
+      document_id: "design",
+      max_chars: 5000,
+    }),
+  ).toMatchObject({
+    document: { version: 3, body_markdown: input.body_markdown },
+  });
+  const retained = await runtime.STATE_DB.prepare(
+    "SELECT snapshot,version FROM corpus_document_snapshots WHERE owner_id=? AND space_id=? ORDER BY snapshot",
+  )
+    .bind(ownerPrincipal.ownerId, space_id)
+    .all();
+  expect(retained.results).toEqual([
+    { snapshot: "current", version: 3 },
+    { snapshot: "previous", version: 2 },
+  ]);
   const listed = await service.documentList({ space_id, limit: 1 });
   expect(listed).toMatchObject({ returned_count: 1, has_more: false });
-  expect((listed.items as Record<string, unknown>[])[0]).not.toHaveProperty("body_markdown");
+  expect((listed.items as Record<string, unknown>[])[0]).not.toHaveProperty(
+    "body_markdown",
+  );
 });
 
 it("requires explicit guidance approval and owner-safe, path-free Workspace bindings", async () => {
   const service = new CorpusDocumentsService(runtime, ownerPrincipal);
   const space_id = "native-guidance-binding";
   await service.spaceCreate({ space_id, display_name: "Guidance" });
-  await expect(service.spaceCreate({ space_id, display_name: "Replacement" })).rejects.toMatchObject({ code: "space_conflict" });
-  const input = { space_id, document_id: "instructions", title: "Instructions", body_markdown: "Approved text", kind: "guidance" };
+  await expect(
+    service.spaceCreate({ space_id, display_name: "Replacement" }),
+  ).rejects.toMatchObject({ code: "space_conflict" });
+  const input = {
+    space_id,
+    document_id: "instructions",
+    title: "Instructions",
+    body_markdown: "Approved text",
+    kind: "guidance",
+  };
   expect(corpusDocumentCreateSchema.safeParse(input).success).toBe(false);
-  expect(corpusDocumentCreateSchema.safeParse({ ...input, kind: "context", guidance_approval: { explicit_user_approval: true, basis: "No automatic promotion" } }).success).toBe(false);
-  await service.documentCreate({ ...input, kind: "context", migration_provenance: { source_id: "local-notes", relative_path: "AGENTS.md" } });
-  expect(await service.documentRead({ space_id, document_id: input.document_id })).toMatchObject({ document: { kind: "context", guidance_approval: null, provenance: "native_context" } });
-  await service.documentRevise({ ...input, expected_version: 1, guidance_approval: { explicit_user_approval: true, basis: "User approved these project instructions" } });
-  expect(await service.documentRead({ space_id, document_id: input.document_id })).toMatchObject({ document: { kind: "guidance", provenance: "user_approved_guidance", guidance_approval: { explicit_user_approval: true } } });
-  const binding = { workspace_id: "checkout-1", host_id: "host-1", project_id: "project-1", space_id, environment_kind: "remote", expected_version: "absent" };
+  expect(
+    corpusDocumentCreateSchema.safeParse({
+      ...input,
+      kind: "context",
+      guidance_approval: {
+        explicit_user_approval: true,
+        basis: "No automatic promotion",
+      },
+    }).success,
+  ).toBe(false);
+  await service.documentCreate({
+    ...input,
+    kind: "context",
+    migration_provenance: {
+      source_id: "local-notes",
+      relative_path: "AGENTS.md",
+    },
+  });
+  expect(
+    await service.documentRead({ space_id, document_id: input.document_id }),
+  ).toMatchObject({
+    document: {
+      kind: "context",
+      guidance_approval: null,
+      provenance: "native_context",
+    },
+  });
+  await service.documentRevise({
+    ...input,
+    expected_version: 1,
+    guidance_approval: {
+      explicit_user_approval: true,
+      basis: "User approved these project instructions",
+    },
+  });
+  expect(
+    await service.documentRead({ space_id, document_id: input.document_id }),
+  ).toMatchObject({
+    document: {
+      kind: "guidance",
+      provenance: "user_approved_guidance",
+      guidance_approval: { explicit_user_approval: true },
+    },
+  });
+  const binding = {
+    workspace_id: "checkout-1",
+    host_id: "host-1",
+    project_id: "project-1",
+    space_id,
+    environment_kind: "remote",
+    expected_version: "absent",
+  };
   expect(await service.workspaceBind(binding)).toMatchObject({ version: 1 });
-  await expect(service.workspaceBind(binding)).rejects.toMatchObject({ code: "workspace_conflict" });
-  expect(corpusWorkspaceBindSchema.safeParse({ ...binding, root: "/private/work" }).success).toBe(false);
-  expect(corpusWorkspaceBindSchema.safeParse({ ...binding, host_id: "/private/work" }).success).toBe(false);
-  expect(await service.workspaceResolve({ workspace_id: binding.workspace_id, host_id: binding.host_id })).toMatchObject({ workspace: { space_id, environment_kind: "remote", version: 1 }, filesystem_authority: false });
-  const otherOwner = new CorpusDocumentsService(runtime, { ...ownerPrincipal, ownerId: "other-owner" });
-  await expect(otherOwner.documentRead({ space_id, document_id: input.document_id })).rejects.toMatchObject({ code: "space_not_found" });
-  await expect(otherOwner.workspaceResolve({ workspace_id: binding.workspace_id, host_id: binding.host_id })).rejects.toMatchObject({ code: "workspace_not_found" });
-  await expect(otherOwner.workspaceBind(binding)).rejects.toMatchObject({ code: "space_not_found" });
-  await expect(new CorpusDocumentsService(runtime, { ...ownerPrincipal, scopes: new Set(["corpus.read"]) }).documentCreate({ ...input, kind: "context" })).rejects.toMatchObject({ code: "insufficient_scope" });
+  await expect(service.workspaceBind(binding)).rejects.toMatchObject({
+    code: "workspace_conflict",
+  });
+  expect(
+    corpusWorkspaceBindSchema.safeParse({ ...binding, root: "/private/work" })
+      .success,
+  ).toBe(false);
+  expect(
+    corpusWorkspaceBindSchema.safeParse({
+      ...binding,
+      host_id: "/private/work",
+    }).success,
+  ).toBe(false);
+  expect(
+    await service.workspaceResolve({
+      workspace_id: binding.workspace_id,
+      host_id: binding.host_id,
+    }),
+  ).toMatchObject({
+    workspace: { space_id, environment_kind: "remote", version: 1 },
+    filesystem_authority: false,
+  });
+  const otherOwner = new CorpusDocumentsService(runtime, {
+    ...ownerPrincipal,
+    ownerId: "other-owner",
+  });
+  await expect(
+    otherOwner.documentRead({ space_id, document_id: input.document_id }),
+  ).rejects.toMatchObject({ code: "space_not_found" });
+  await expect(
+    otherOwner.workspaceResolve({
+      workspace_id: binding.workspace_id,
+      host_id: binding.host_id,
+    }),
+  ).rejects.toMatchObject({ code: "workspace_not_found" });
+  await expect(otherOwner.workspaceBind(binding)).rejects.toMatchObject({
+    code: "space_not_found",
+  });
+  await expect(
+    new CorpusDocumentsService(runtime, {
+      ...ownerPrincipal,
+      scopes: new Set(["corpus.read"]),
+    }).documentCreate({ ...input, kind: "context" }),
+  ).rejects.toMatchObject({ code: "insufficient_scope" });
 });
 
 it("searches native documents and Context items without returning full bodies", async () => {
   const service = new CorpusDocumentsService(runtime, ownerPrincipal);
   const space_id = "native-context-search";
   await service.spaceCreate({ space_id, display_name: "Search" });
-  await service.documentCreate({ space_id, document_id: "design", title: "지식전이 설계", body_markdown: "본문".repeat(1000) });
-  await runtime.STATE_DB.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
-    VALUES (?,?,?,'finding',?,'{}',?)`).bind(ownerPrincipal.ownerId, space_id, "native-search-item", "확정한 지식전이 판단", new Date().toISOString()).run();
-  const first = await service.contextSearch({ space_id, query: "지식전이", limit: 1 });
-  expect(first).toMatchObject({ returned_count: 1, has_more: true, next_offset: 1, match_mode: "literal_substring" });
+  await service.documentCreate({
+    space_id,
+    document_id: "design",
+    title: "지식전이 설계",
+    body_markdown: "본문".repeat(1000),
+  });
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+    VALUES (?,?,?,'finding',?,'{}',?)`,
+  )
+    .bind(
+      ownerPrincipal.ownerId,
+      space_id,
+      "native-search-item",
+      "확정한 지식전이 판단",
+      new Date().toISOString(),
+    )
+    .run();
+  const first = await service.contextSearch({
+    space_id,
+    query: "지식전이",
+    limit: 1,
+  });
+  expect(first).toMatchObject({
+    returned_count: 1,
+    has_more: true,
+    next_offset: 1,
+    match_mode: "literal_substring",
+  });
   const result = (first.items as Record<string, unknown>[])[0]!;
-  expect(result).toMatchObject({ result_type: "document", canonical: true, provenance: "native_context", version: 1,
-    document_ref: { space_id, document_id: "design", expected_version: 1 }, snippet_is_excerpt: true,
-    source_refs: [], source_refs_count: 0, source_refs_has_more: false });
+  expect(result).toMatchObject({
+    result_type: "document",
+    canonical: true,
+    provenance: "native_context",
+    version: 1,
+    document_ref: { space_id, document_id: "design", expected_version: 1 },
+    snippet_is_excerpt: true,
+    source_refs: [],
+    source_refs_count: 0,
+    source_refs_has_more: false,
+  });
   expect(Array.from(String(result.snippet)).length).toBeLessThanOrEqual(400);
   expect(result).not.toHaveProperty("body_markdown");
-  const second = await service.contextSearch({ space_id, query: "지식전이", limit: 1, offset: 1 });
-  expect(second).toMatchObject({ returned_count: 1, has_more: false, items: [{ result_type: "context_item", canonical: true,
-    provenance: "stored_context_item", version: 1, context_version: 1,
-    context_item_ref: { item_id: "native-search-item", expected_version: 1 } }] });
+  const second = await service.contextSearch({
+    space_id,
+    query: "지식전이",
+    limit: 1,
+    offset: 1,
+  });
+  expect(second).toMatchObject({
+    returned_count: 1,
+    has_more: false,
+    items: [
+      {
+        result_type: "context_item",
+        canonical: true,
+        provenance: "stored_context_item",
+        version: 1,
+        context_version: 1,
+        context_item_ref: {
+          item_id: "native-search-item",
+          expected_version: 1,
+        },
+      },
+    ],
+  });
 });
 
 it("protects exact Source references in current and previous native document snapshots", async () => {
   const space_id = "native-source-protection";
-  const fixture = await sourceReadFixture(space_id, [{ content: "Source evidence" }]);
-  await runtime.STATE_DB.prepare(`INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
-    VALUES (?,?,'Native references','Test','{}',1,?)`).bind(ownerPrincipal.ownerId, space_id, new Date().toISOString()).run();
+  const fixture = await sourceReadFixture(space_id, [
+    { content: "Source evidence" },
+  ]);
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
+    VALUES (?,?,'Native references','Test','{}',1,?)`,
+  )
+    .bind(ownerPrincipal.ownerId, space_id, new Date().toISOString())
+    .run();
   const service = new CorpusDocumentsService(runtime, ownerPrincipal);
-  const source = { connection_id: "main", document_id: fixture.header.document.documentId,
-    revision_id: fixture.header.revision.revisionId, projection_id: fixture.header.projection.projectionId, unit_id: fixture.units[0]!.unitId };
-  const input = { space_id, document_id: "decision", title: "Decision", body_markdown: "Adopted result", source_refs: [source] };
-  await expect(service.documentCreate({ ...input, source_refs: [{ ...source, unit_id: "unit_missing" }] })).rejects.toMatchObject({ code: "source_reference_not_found" });
+  const source = {
+    connection_id: "main",
+    document_id: fixture.header.document.documentId,
+    revision_id: fixture.header.revision.revisionId,
+    projection_id: fixture.header.projection.projectionId,
+    unit_id: fixture.units[0]!.unitId,
+  };
+  const input = {
+    space_id,
+    document_id: "decision",
+    title: "Decision",
+    body_markdown: "Adopted result",
+    source_refs: [source],
+  };
+  await expect(
+    service.documentCreate({
+      ...input,
+      source_refs: [{ ...source, unit_id: "unit_missing" }],
+    }),
+  ).rejects.toMatchObject({ code: "source_reference_not_found" });
   const indeterminateDb = {
     prepare: (query: string) => runtime.STATE_DB.prepare(query),
-    batch: async () => { throw new Error("simulated indeterminate D1 reply"); },
+    batch: async () => {
+      throw new Error("simulated indeterminate D1 reply");
+    },
   } as unknown as D1Database;
-  const indeterminateService = new CorpusDocumentsService({ ...runtime, STATE_DB: indeterminateDb }, ownerPrincipal);
-  await expect(indeterminateService.documentCreate(input)).rejects.toMatchObject({ code: "document_write_outcome_unknown",
-    details: { warnings: [{ code: "source_protection_outcome_pending" }] } });
-  const pendingPins = await runInDurableObject(fixture.shard, (_instance, state) => [...state.storage.sql.exec<{reservation_id: string}>("SELECT reservation_id FROM context_document_reservations")]);
+  const indeterminateService = new CorpusDocumentsService(
+    { ...runtime, STATE_DB: indeterminateDb },
+    ownerPrincipal,
+  );
+  await expect(
+    indeterminateService.documentCreate(input),
+  ).rejects.toMatchObject({
+    code: "document_write_outcome_unknown",
+    details: { warnings: [{ code: "source_protection_outcome_pending" }] },
+  });
+  const pendingPins = await runInDurableObject(
+    fixture.shard,
+    (_instance, state) => [
+      ...state.storage.sql.exec<{ reservation_id: string }>(
+        "SELECT reservation_id FROM context_document_reservations",
+      ),
+    ],
+  );
   expect(pendingPins).toHaveLength(1);
-  expect(await body(await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
-    corpusId: space_id, removeDocumentIds: [source.document_id], removeProjectionIds: [], removeUploadIds: [],
-  }))).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
+  expect(
+    await body(
+      await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
+        corpusId: space_id,
+        removeDocumentIds: [source.document_id],
+        removeProjectionIds: [],
+        removeUploadIds: [],
+      }),
+    ),
+  ).toMatchObject({
+    result: { protected: { documents: 1 }, removed: { documents: 0 } },
+  });
   // This injected failure never dispatched a D1 batch. Only after establishing
   // that outcome is it safe for the synthetic operator to release its pin.
-  const released = await fixture.shard.fetch("https://corpus.internal/context-document/release", {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Id": ownerPrincipal.ownerId },
-    body: JSON.stringify({ corpusId: space_id, reservation_id: pendingPins[0]!.reservation_id }),
-  });
+  const released = await fixture.shard.fetch(
+    "https://corpus.internal/context-document/release",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": ownerPrincipal.ownerId,
+      },
+      body: JSON.stringify({
+        corpusId: space_id,
+        reservation_id: pendingPins[0]!.reservation_id,
+      }),
+    },
+  );
   expect(released.ok).toBe(true);
   await service.documentCreate(input);
-  const read = await service.documentRead({ space_id, document_id: input.document_id });
-  const refs = (read.document as Record<string, unknown>).source_refs as Array<Record<string, unknown>>;
+  const read = await service.documentRead({
+    space_id,
+    document_id: input.document_id,
+  });
+  const refs = (read.document as Record<string, unknown>).source_refs as Array<
+    Record<string, unknown>
+  >;
   expect(refs[0]).toMatchObject(source);
   expect(refs[0]!.read_ref).toMatch(/^read1\./);
   await runtime.STATE_DB.batch([
-    runtime.STATE_DB.prepare(`INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
-      VALUES (?,?,?,'finding','Adopted source conclusion','{}',?)`).bind(ownerPrincipal.ownerId, space_id, "native-linked-item", new Date().toISOString()),
-    runtime.STATE_DB.prepare(`INSERT INTO corpus_context_sources(owner_id,source_ref_id,item_id,corpus_id,document_id,revision_id,projection_id,source_unit_id,link_role,source_span_json)
-      VALUES (?,?,?,?,?,?,?,?,'evidence','{}')`).bind(ownerPrincipal.ownerId, "native-linked-source", "native-linked-item", space_id,
-        source.document_id, source.revision_id, source.projection_id, source.unit_id),
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+      VALUES (?,?,?,'finding','Adopted source conclusion','{}',?)`,
+    ).bind(
+      ownerPrincipal.ownerId,
+      space_id,
+      "native-linked-item",
+      new Date().toISOString(),
+    ),
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_context_sources(owner_id,source_ref_id,item_id,corpus_id,document_id,revision_id,projection_id,source_unit_id,link_role,source_span_json)
+      VALUES (?,?,?,?,?,?,?,?,'evidence','{}')`,
+    ).bind(
+      ownerPrincipal.ownerId,
+      "native-linked-source",
+      "native-linked-item",
+      space_id,
+      source.document_id,
+      source.revision_id,
+      source.projection_id,
+      source.unit_id,
+    ),
   ]);
   const search = await service.contextSearch({ space_id, query: "Adopted" });
-  expect(search.items).toEqual(expect.arrayContaining([
-    expect.objectContaining({ result_type: "document", source_refs_count: 1, source_refs: [expect.objectContaining({ ...source,
-      read_ref: refs[0]!.read_ref, existence_checked: false, availability: "not_checked" })] }),
-    expect.objectContaining({ result_type: "context_item", context_version: 1, source_refs_count: 1, source_refs: [expect.objectContaining({ ...source,
-      source_ref_id: "native-linked-source", read_ref: refs[0]!.read_ref, existence_checked: false })] }),
-  ]));
+  expect(search.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        result_type: "document",
+        source_refs_count: 1,
+        source_refs: [
+          expect.objectContaining({
+            ...source,
+            read_ref: refs[0]!.read_ref,
+            existence_checked: false,
+            availability: "not_checked",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        result_type: "context_item",
+        context_version: 1,
+        source_refs_count: 1,
+        source_refs: [
+          expect.objectContaining({
+            ...source,
+            source_ref_id: "native-linked-source",
+            read_ref: refs[0]!.read_ref,
+            existence_checked: false,
+          }),
+        ],
+      }),
+    ]),
+  );
   for (const result of search.items as Record<string, unknown>[]) {
-    expect(result).toMatchObject({ related_candidates_count: 1, related_candidates_has_more: false,
-      related_candidates_scope: "returned_page_visible_source_refs", related_candidates: [expect.objectContaining({
-        relation: "shared_source_projection", shared_source_ref: { connection_id: source.connection_id,
-          document_id: source.document_id, revision_id: source.revision_id, projection_id: source.projection_id },
-      })] });
+    expect(result).toMatchObject({
+      related_candidates_count: 1,
+      related_candidates_has_more: false,
+      related_candidates_scope: "returned_page_visible_source_refs",
+      related_candidates: [
+        expect.objectContaining({
+          relation: "shared_source_projection",
+          shared_source_ref: {
+            connection_id: source.connection_id,
+            document_id: source.document_id,
+            revision_id: source.revision_id,
+            projection_id: source.projection_id,
+          },
+        }),
+      ],
+    });
   }
-  await runtime.STATE_DB.prepare("UPDATE corpus_connections SET access_scope='local_only' WHERE owner_id=? AND space_id=?")
-    .bind(ownerPrincipal.ownerId, space_id).run();
-  const unavailable = await service.contextSearch({ space_id, query: "Adopted" });
+  await runtime.STATE_DB.prepare(
+    "UPDATE corpus_connections SET access_scope='local_only' WHERE owner_id=? AND space_id=?",
+  )
+    .bind(ownerPrincipal.ownerId, space_id)
+    .run();
+  const unavailable = await service.contextSearch({
+    space_id,
+    query: "Adopted",
+  });
   for (const result of unavailable.items as Array<Record<string, unknown>>) {
-    expect(result.source_refs).toEqual([expect.objectContaining({ read_ref: null, availability: "unavailable", unavailable_reason: "source_connection_unavailable" })]);
-    expect((result.source_refs as Record<string, unknown>[])[0]).not.toHaveProperty("document_id");
-    expect(result).toMatchObject({ related_candidates: [], related_candidates_count: 0 });
+    expect(result.source_refs).toEqual([
+      expect.objectContaining({
+        read_ref: null,
+        availability: "unavailable",
+        unavailable_reason: "source_connection_unavailable",
+      }),
+    ]);
+    expect(
+      (result.source_refs as Record<string, unknown>[])[0],
+    ).not.toHaveProperty("document_id");
+    expect(result).toMatchObject({
+      related_candidates: [],
+      related_candidates_count: 0,
+    });
   }
-  await runtime.STATE_DB.prepare("UPDATE corpus_connections SET access_scope='remote_allowed' WHERE owner_id=? AND space_id=?")
-    .bind(ownerPrincipal.ownerId, space_id).run();
-  await runtime.STATE_DB.prepare("DELETE FROM corpus_context_items WHERE owner_id=? AND item_id='native-linked-item'").bind(ownerPrincipal.ownerId).run();
-  const pins = await runInDurableObject(fixture.shard, (_instance, state) => [...state.storage.sql.exec("SELECT * FROM context_document_reservations")]);
+  await runtime.STATE_DB.prepare(
+    "UPDATE corpus_connections SET access_scope='remote_allowed' WHERE owner_id=? AND space_id=?",
+  )
+    .bind(ownerPrincipal.ownerId, space_id)
+    .run();
+  await runtime.STATE_DB.prepare(
+    "DELETE FROM corpus_context_items WHERE owner_id=? AND item_id='native-linked-item'",
+  )
+    .bind(ownerPrincipal.ownerId)
+    .run();
+  const pins = await runInDurableObject(fixture.shard, (_instance, state) => [
+    ...state.storage.sql.exec("SELECT * FROM context_document_reservations"),
+  ]);
   expect(pins).toHaveLength(0);
-  const maintain = async () => body(await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
-    corpusId: space_id, removeDocumentIds: [source.document_id], removeProjectionIds: [], removeUploadIds: [],
-  }));
-  expect(await maintain()).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
-  await service.documentRevise({ ...input, source_refs: [], expected_version: 1 });
-  expect(await maintain()).toMatchObject({ result: { protected: { documents: 1 }, removed: { documents: 0 } } });
-  await service.documentRevise({ ...input, source_refs: [], expected_version: 2 });
-  expect(await maintain()).toMatchObject({ result: { removed: { documents: 1 } } });
+  const maintain = async () =>
+    body(
+      await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
+        corpusId: space_id,
+        removeDocumentIds: [source.document_id],
+        removeProjectionIds: [],
+        removeUploadIds: [],
+      }),
+    );
+  expect(await maintain()).toMatchObject({
+    result: { protected: { documents: 1 }, removed: { documents: 0 } },
+  });
+  await service.documentRevise({
+    ...input,
+    source_refs: [],
+    expected_version: 1,
+  });
+  expect(await maintain()).toMatchObject({
+    result: { protected: { documents: 1 }, removed: { documents: 0 } },
+  });
+  await service.documentRevise({
+    ...input,
+    source_refs: [],
+    expected_version: 2,
+  });
+  expect(await maintain()).toMatchObject({
+    result: { removed: { documents: 1 } },
+  });
 });
 
 it("refuses destructive metadata import when native Corpus canon or bindings exist", async () => {
   const service = new CorpusDocumentsService(runtime, ownerPrincipal);
   const space_id = "native-import-guard";
-  await service.spaceCreate({ space_id, display_name: "Do not replace", purpose: "Canonical project" });
-  await service.documentCreate({ space_id, document_id: "design", title: "Design", body_markdown: "Current canonical text" });
-  await service.workspaceBind({ space_id, host_id: "host-1", workspace_id: "workspace-1", environment_kind: "local", expected_version: "absent" });
-  const snapshot = async () => Promise.all([
-    runtime.STATE_DB.prepare("SELECT * FROM corpus_contexts WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
-    runtime.STATE_DB.prepare("SELECT * FROM corpus_document_snapshots WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
-    runtime.STATE_DB.prepare("SELECT * FROM corpus_workspace_bindings WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id).all(),
-  ]).then((results) => results.map((result) => result.results));
+  await service.spaceCreate({
+    space_id,
+    display_name: "Do not replace",
+    purpose: "Canonical project",
+  });
+  await service.documentCreate({
+    space_id,
+    document_id: "design",
+    title: "Design",
+    body_markdown: "Current canonical text",
+  });
+  await service.workspaceBind({
+    space_id,
+    host_id: "host-1",
+    workspace_id: "workspace-1",
+    environment_kind: "local",
+    expected_version: "absent",
+  });
+  const snapshot = async () =>
+    Promise.all([
+      runtime.STATE_DB.prepare(
+        "SELECT * FROM corpus_contexts WHERE owner_id=? AND space_id=?",
+      )
+        .bind(ownerPrincipal.ownerId, space_id)
+        .all(),
+      runtime.STATE_DB.prepare(
+        "SELECT * FROM corpus_document_snapshots WHERE owner_id=? AND space_id=?",
+      )
+        .bind(ownerPrincipal.ownerId, space_id)
+        .all(),
+      runtime.STATE_DB.prepare(
+        "SELECT * FROM corpus_workspace_bindings WHERE owner_id=? AND space_id=?",
+      )
+        .bind(ownerPrincipal.ownerId, space_id)
+        .all(),
+    ]).then((results) => results.map((result) => result.results));
   const before = await snapshot();
-  await expect(importCorpusMetadata(runtime.STATE_DB, ownerPrincipal.ownerId, {
-    schemaVersion: 1, sourceDigest: "f".repeat(64), sourceSchemaVersion: 1,
-    spaces: [], contexts: [], connections: [], currentFiles: [], devices: [],
-  })).rejects.toMatchObject({ code: "native_canon_present" });
+  await expect(
+    importCorpusMetadata(runtime.STATE_DB, ownerPrincipal.ownerId, {
+      schemaVersion: 1,
+      sourceDigest: "f".repeat(64),
+      sourceSchemaVersion: 1,
+      spaces: [],
+      contexts: [],
+      connections: [],
+      currentFiles: [],
+      devices: [],
+    }),
+  ).rejects.toMatchObject({ code: "native_canon_present" });
   expect(await snapshot()).toEqual(before);
   // The trigger protects the atomic batch even if native canon appears after
   // the import's read-only preflight. Earlier statements must also roll back.
-  await expect(runtime.STATE_DB.batch([
-    runtime.STATE_DB.prepare("UPDATE corpus_contexts SET title='Wrong title' WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id),
-    runtime.STATE_DB.prepare("DELETE FROM corpus_contexts WHERE owner_id=? AND space_id=?").bind(ownerPrincipal.ownerId, space_id),
-  ])).rejects.toThrow(/native_canon_present/);
+  await expect(
+    runtime.STATE_DB.batch([
+      runtime.STATE_DB.prepare(
+        "UPDATE corpus_contexts SET title='Wrong title' WHERE owner_id=? AND space_id=?",
+      ).bind(ownerPrincipal.ownerId, space_id),
+      runtime.STATE_DB.prepare(
+        "DELETE FROM corpus_contexts WHERE owner_id=? AND space_id=?",
+      ).bind(ownerPrincipal.ownerId, space_id),
+    ]),
+  ).rejects.toThrow(/native_canon_present/);
   expect(await snapshot()).toEqual(before);
 });
 
 it("upserts only authenticated Sync Connections with atomic generation guards", async () => {
-  const connectionPrincipal = { ...ownerPrincipal, ownerId: "native-connection-owner" };
-  const connectionRuntime = { ...runtime, SYNC_OWNER_ID: connectionPrincipal.ownerId };
-  const service = new CorpusDocumentsService(connectionRuntime, connectionPrincipal);
+  const connectionPrincipal = {
+    ...ownerPrincipal,
+    ownerId: "native-connection-owner",
+  };
+  const connectionRuntime = {
+    ...runtime,
+    SYNC_OWNER_ID: connectionPrincipal.ownerId,
+  };
+  const service = new CorpusDocumentsService(
+    connectionRuntime,
+    connectionPrincipal,
+  );
   const spaceId = "native-connection-upsert";
   const now = new Date().toISOString();
-  await service.spaceCreate({ space_id: spaceId, display_name: "Preserved Space", purpose: "Preserved purpose" });
-  await service.documentCreate({ space_id: spaceId, document_id: "design", title: "Preserved document", body_markdown: "Native canon survives Connection publication" });
-  await service.workspaceBind({ space_id: spaceId, workspace_id: "connection-workspace-1", host_id: "host-1", environment_kind: "local", expected_version: "absent" });
+  await service.spaceCreate({
+    space_id: spaceId,
+    display_name: "Preserved Space",
+    purpose: "Preserved purpose",
+  });
+  await service.documentCreate({
+    space_id: spaceId,
+    document_id: "design",
+    title: "Preserved document",
+    body_markdown: "Native canon survives Connection publication",
+  });
+  await service.workspaceBind({
+    space_id: spaceId,
+    workspace_id: "connection-workspace-1",
+    host_id: "host-1",
+    environment_kind: "local",
+    expected_version: "absent",
+  });
   const connection = {
-    spaceId, connectionId: "output", displayName: "Output", roles: ["work"], accessScope: "remote_allowed", permission: "read_only",
-    indexMode: "not_indexed", corpusId: null, deviceId: "test-mac", localConnectionKey: `${spaceId}:output`, generation: 3,
-    configurationState: "ready", sourceState: null, recordState: null, capturedAt: null, updatedAt: now,
+    spaceId,
+    connectionId: "output",
+    displayName: "Output",
+    roles: ["work"],
+    accessScope: "remote_allowed",
+    permission: "read_only",
+    indexMode: "not_indexed",
+    corpusId: null,
+    deviceId: "test-mac",
+    localConnectionKey: `${spaceId}:output`,
+    generation: 3,
+    configurationState: "ready",
+    sourceState: null,
+    recordState: null,
+    capturedAt: null,
+    updatedAt: now,
   };
-  const publish = (connections: unknown[], expected_generations: Record<string, number | string>) =>
-    handleHttp(new Request("https://context.test/sync/v1/connections:upsert", {
-      method: "POST", headers: syncHeaders, body: JSON.stringify({ connections, expected_generations }),
-    }), connectionRuntime);
+  const publish = (
+    connections: unknown[],
+    expected_generations: Record<string, number | string>,
+  ) =>
+    handleHttp(
+      new Request("https://context.test/sync/v1/connections:upsert", {
+        method: "POST",
+        headers: syncHeaders,
+        body: JSON.stringify({ connections, expected_generations }),
+      }),
+      connectionRuntime,
+    );
   const key = `${spaceId}:output`;
-  expect(await body(await publish([connection], { [key]: "absent" }))).toMatchObject({ error: { code: "device_not_registered" } });
-  await runtime.STATE_DB.prepare(`INSERT INTO sync_devices(owner_id,device_id,display_name,credential_id,status,capabilities_json,created_at,updated_at)
-    VALUES (?,'test-mac','Test device','native-connection:test-mac','active','[]',?,?)`).bind(connectionPrincipal.ownerId, now, now).run();
-  expect(await body(await publish([connection], { [key]: "absent" }))).toMatchObject({ result: { updated_count: 1, updated_connections: [{ generation: 3 }] } });
-  expect(await body(await publish([{ ...connection, deviceId: "socket-mac" }], { [key]: 3 }))).toMatchObject({ error: { code: "connection_device_mismatch" } });
-  expect(await body(await publish([{ ...connection, localConnectionKey: "/private/business" }], { [key]: 3 }))).toMatchObject({ error: { code: "private_path_rejected" } });
-  expect(await body(await publish([{ ...connection, permission: "create_only" }], { [key]: 3 }))).toMatchObject({ error: { code: "connection_generation_required" } });
+  expect(
+    await body(await publish([connection], { [key]: "absent" })),
+  ).toMatchObject({ error: { code: "device_not_registered" } });
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO sync_devices(owner_id,device_id,display_name,credential_id,status,capabilities_json,created_at,updated_at)
+    VALUES (?,'test-mac','Test device','native-connection:test-mac','active','[]',?,?)`,
+  )
+    .bind(connectionPrincipal.ownerId, now, now)
+    .run();
+  expect(
+    await body(await publish([connection], { [key]: "absent" })),
+  ).toMatchObject({
+    result: { updated_count: 1, updated_connections: [{ generation: 3 }] },
+  });
+  expect(
+    await body(
+      await publish([{ ...connection, deviceId: "socket-mac" }], { [key]: 3 }),
+    ),
+  ).toMatchObject({ error: { code: "connection_device_mismatch" } });
+  expect(
+    await body(
+      await publish(
+        [{ ...connection, localConnectionKey: "/private/business" }],
+        { [key]: 3 },
+      ),
+    ),
+  ).toMatchObject({ error: { code: "private_path_rejected" } });
+  expect(
+    await body(
+      await publish([{ ...connection, permission: "create_only" }], {
+        [key]: 3,
+      }),
+    ),
+  ).toMatchObject({ error: { code: "connection_generation_required" } });
   const next = { ...connection, permission: "create_only", generation: 4 };
-  expect(await body(await publish([next], { [key]: 3 }))).toMatchObject({ result: { updated_connections: [{ generation: 4 }] } });
+  expect(await body(await publish([next], { [key]: 3 }))).toMatchObject({
+    result: { updated_connections: [{ generation: 4 }] },
+  });
   const raced = await Promise.all([
-    publish([{ ...next, permission: "read_only", generation: 5 }], { [key]: 4 }),
-    publish([{ ...next, permission: "read_write", generation: 5 }], { [key]: 4 }),
+    publish([{ ...next, permission: "read_only", generation: 5 }], {
+      [key]: 4,
+    }),
+    publish([{ ...next, permission: "read_write", generation: 5 }], {
+      [key]: 4,
+    }),
   ]);
   expect(raced.map((response) => response.status).sort()).toEqual([200, 409]);
-  const second = { ...connection, connectionId: "second", localConnectionKey: `${spaceId}:second`, generation: 1 };
+  const second = {
+    ...connection,
+    connectionId: "second",
+    localConnectionKey: `${spaceId}:second`,
+    generation: 1,
+  };
   const secondKey = `${spaceId}:second`;
   expect((await publish([second], { [secondKey]: "absent" })).status).toBe(200);
   const guardedDb = {
     prepare: (query: string) => runtime.STATE_DB.prepare(query),
     batch: async (statements: D1PreparedStatement[]) => {
       // Simulate a policy publication between the preflight and atomic batch.
-      await runtime.STATE_DB.prepare("UPDATE corpus_connections SET generation=2 WHERE owner_id=? AND space_id=? AND connection_id='second'")
-        .bind(connectionPrincipal.ownerId, spaceId).run();
+      await runtime.STATE_DB.prepare(
+        "UPDATE corpus_connections SET generation=2 WHERE owner_id=? AND space_id=? AND connection_id='second'",
+      )
+        .bind(connectionPrincipal.ownerId, spaceId)
+        .run();
       return runtime.STATE_DB.batch(statements);
     },
   } as unknown as D1Database;
-  const conflict = await handleHttp(new Request("https://context.test/sync/v1/connections:upsert", {
-    method: "POST", headers: syncHeaders, body: JSON.stringify({
-      connections: [{ ...next, displayName: "Must not commit", generation: 6 }, { ...second, generation: 2 }],
-      expected_generations: { [key]: 5, [secondKey]: 1 },
+  const conflict = await handleHttp(
+    new Request("https://context.test/sync/v1/connections:upsert", {
+      method: "POST",
+      headers: syncHeaders,
+      body: JSON.stringify({
+        connections: [
+          { ...next, displayName: "Must not commit", generation: 6 },
+          { ...second, generation: 2 },
+        ],
+        expected_generations: { [key]: 5, [secondKey]: 1 },
+      }),
     }),
-  }), { ...connectionRuntime, STATE_DB: guardedDb });
+    { ...connectionRuntime, STATE_DB: guardedDb },
+  );
   expect(conflict.status).toBe(409);
-  expect(await body(conflict)).toMatchObject({ error: { code: "connection_generation_conflict" } });
-  expect(await runtime.STATE_DB.prepare("SELECT display_name,generation FROM corpus_connections WHERE owner_id=? AND space_id=? AND connection_id='output'")
-    .bind(connectionPrincipal.ownerId, spaceId).first()).toEqual({ display_name: "Output", generation: 5 });
-  expect(await service.documentRead({ space_id: spaceId, document_id: "design" })).toMatchObject({ document: { version: 1, body_markdown: "Native canon survives Connection publication" } });
-  expect(await service.workspaceResolve({ host_id: "host-1", workspace_id: "connection-workspace-1" })).toMatchObject({ workspace: { version: 1, space_id: spaceId } });
-  expect(await runtime.STATE_DB.prepare("SELECT title,purpose FROM corpus_contexts WHERE owner_id=? AND space_id=?")
-    .bind(connectionPrincipal.ownerId, spaceId).first()).toEqual({ title: "Preserved Space", purpose: "Preserved purpose" });
+  expect(await body(conflict)).toMatchObject({
+    error: { code: "connection_generation_conflict" },
+  });
+  expect(
+    await runtime.STATE_DB.prepare(
+      "SELECT display_name,generation FROM corpus_connections WHERE owner_id=? AND space_id=? AND connection_id='output'",
+    )
+      .bind(connectionPrincipal.ownerId, spaceId)
+      .first(),
+  ).toEqual({ display_name: "Output", generation: 5 });
+  expect(
+    await service.documentRead({ space_id: spaceId, document_id: "design" }),
+  ).toMatchObject({
+    document: {
+      version: 1,
+      body_markdown: "Native canon survives Connection publication",
+    },
+  });
+  expect(
+    await service.workspaceResolve({
+      host_id: "host-1",
+      workspace_id: "connection-workspace-1",
+    }),
+  ).toMatchObject({ workspace: { version: 1, space_id: spaceId } });
+  expect(
+    await runtime.STATE_DB.prepare(
+      "SELECT title,purpose FROM corpus_contexts WHERE owner_id=? AND space_id=?",
+    )
+      .bind(connectionPrincipal.ownerId, spaceId)
+      .first(),
+  ).toEqual({ title: "Preserved Space", purpose: "Preserved purpose" });
 });
 
 it("routes the Context Site through fixed server-owned credentials and strict operations", async () => {
-  const siteEnv = { ...runtime, CONTEXT_SITE_TOKEN: "synthetic-context-site-token",
-    CONTEXT_SITE_USER_ID: "synthetic-site-user", CONTEXT_SITE_OWNER_ID: "synthetic-site-owner" };
-  const headers = { Authorization: "Bearer synthetic-context-site-token", "X-Personal-Agent-Site-User-Id": "synthetic-site-user", "Content-Type": "application/json" };
-  const call = (operation: string, value: unknown, selectedHeaders: HeadersInit = headers) => handleHttp(new Request(`https://context.test/site/v1/${operation}`, {
-    method: "POST", headers: selectedHeaders, body: JSON.stringify(value),
-  }), siteEnv);
+  const siteEnv = {
+    ...runtime,
+    CONTEXT_SITE_TOKEN: "synthetic-context-site-token",
+    CONTEXT_SITE_USER_ID: "synthetic-site-user",
+    CONTEXT_SITE_OWNER_ID: "synthetic-site-owner",
+  };
+  const headers = {
+    Authorization: "Bearer synthetic-context-site-token",
+    "X-Personal-Agent-Site-User-Id": "synthetic-site-user",
+    "Content-Type": "application/json",
+  };
+  const call = (
+    operation: string,
+    value: unknown,
+    selectedHeaders: HeadersInit = headers,
+  ) =>
+    handleHttp(
+      new Request(`https://context.test/site/v1/${operation}`, {
+        method: "POST",
+        headers: selectedHeaders,
+        body: JSON.stringify(value),
+      }),
+      siteEnv,
+    );
   const space_id = "site-native-project";
-  const createSpace = { space_id, display_name: "Site project", purpose: "Owned by the configured user" };
-  expect((await call("corpus_space_create", createSpace, { "Content-Type": "application/json" })).status).toBe(401);
-  expect((await call("corpus_space_create", createSpace, { ...headers, "X-Personal-Agent-Site-User-Id": "other-user" })).status).toBe(401);
-  expect((await call("corpus_space_create", { ...createSpace, owner_id: "attacker" })).status).toBe(400);
+  const createSpace = {
+    space_id,
+    display_name: "Site project",
+    purpose: "Owned by the configured user",
+  };
+  expect(
+    (
+      await call("corpus_space_create", createSpace, {
+        "Content-Type": "application/json",
+      })
+    ).status,
+  ).toBe(401);
+  expect(
+    (
+      await call("corpus_space_create", createSpace, {
+        ...headers,
+        "X-Personal-Agent-Site-User-Id": "other-user",
+      })
+    ).status,
+  ).toBe(401);
+  expect(
+    (
+      await call("corpus_space_create", {
+        ...createSpace,
+        owner_id: "attacker",
+      })
+    ).status,
+  ).toBe(400);
   expect((await call("constructor", {})).status).toBe(404);
-  expect(await body(await call("corpus_space_create", createSpace))).toMatchObject({ result: { space_id, created: true } });
-  const document = { space_id, document_id: "design", title: "Site document", body_markdown: "Canonical Site text" };
-  expect((await call("corpus_document_create", { ...document, kind: "guidance" })).status).toBe(400);
-  expect((await call("corpus_document_create", { ...document, body_markdown: "가".repeat(174_763) })).status).toBe(400);
+  expect(
+    await body(await call("corpus_space_create", createSpace)),
+  ).toMatchObject({ result: { space_id, created: true } });
+  const document = {
+    space_id,
+    document_id: "design",
+    title: "Site document",
+    body_markdown: "Canonical Site text",
+  };
+  expect(
+    (await call("corpus_document_create", { ...document, kind: "guidance" }))
+      .status,
+  ).toBe(400);
+  expect(
+    (
+      await call("corpus_document_create", {
+        ...document,
+        body_markdown: "가".repeat(174_763),
+      })
+    ).status,
+  ).toBe(400);
   expect((await call("corpus_document_create", document)).status).toBe(200);
-  expect(await body(await call("corpus_document_read", { space_id, document_id: "design" }))).toMatchObject({ result: {
-    document: { body_markdown: document.body_markdown, provenance: "native_context", kind: "context", guidance_approval: null }, has_more: false,
-  } });
-  expect(await runtime.STATE_DB.prepare("SELECT owner_id FROM corpus_documents WHERE space_id=? AND document_id='design'")
-    .bind(space_id).first()).toEqual({ owner_id: "synthetic-site-owner" });
+  expect(
+    await body(
+      await call("corpus_document_read", { space_id, document_id: "design" }),
+    ),
+  ).toMatchObject({
+    result: {
+      document: {
+        body_markdown: document.body_markdown,
+        provenance: "native_context",
+        kind: "context",
+        guidance_approval: null,
+      },
+      has_more: false,
+    },
+  });
+  expect(
+    await runtime.STATE_DB.prepare(
+      "SELECT owner_id FROM corpus_documents WHERE space_id=? AND document_id='design'",
+    )
+      .bind(space_id)
+      .first(),
+  ).toEqual({ owner_id: "synthetic-site-owner" });
 });
 
 it("hides only explicitly migrated Source versions before ranking and resurfaces changed sources", async () => {
   const space_id = "native-migrated-source";
-  const fixture = await sourceReadFixture(space_id, Array.from({ length: 25 }, () => ({ content: "migrationneedle" })));
-  await runtime.STATE_DB.prepare(`INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
-    VALUES (?,?,'Migration canon','Test','{}',1,?)`).bind(ownerPrincipal.ownerId, space_id, fixture.capturedAt).run();
+  const fixture = await sourceReadFixture(
+    space_id,
+    Array.from({ length: 25 }, () => ({ content: "migrationneedle" })),
+  );
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
+    VALUES (?,?,'Migration canon','Test','{}',1,?)`,
+  )
+    .bind(ownerPrincipal.ownerId, space_id, fixture.capturedAt)
+    .run();
   const documents = new CorpusDocumentsService(runtime, ownerPrincipal);
-  const source = { connection_id: "main", document_id: fixture.header.document.documentId,
-    revision_id: fixture.header.revision.revisionId, projection_id: fixture.header.projection.projectionId, unit_id: fixture.units[0]!.unitId };
-  const canon = { space_id, document_id: "canon", title: "Migration canon", body_markdown: "migrationneedle adopted project canon", source_refs: [source] };
-  const upload = async (suffix: string, documentId: string, relativePath: string, content: string) => {
+  const source = {
+    connection_id: "main",
+    document_id: fixture.header.document.documentId,
+    revision_id: fixture.header.revision.revisionId,
+    projection_id: fixture.header.projection.projectionId,
+    unit_id: fixture.units[0]!.unitId,
+  };
+  const canon = {
+    space_id,
+    document_id: "canon",
+    title: "Migration canon",
+    body_markdown: "migrationneedle adopted project canon",
+    source_refs: [source],
+  };
+  const upload = async (
+    suffix: string,
+    documentId: string,
+    relativePath: string,
+    content: string,
+  ) => {
     const uploadId = `upload_${crypto.randomUUID().replaceAll("-", "")}`;
-    const header = { ...fixture.header, uploadId,
+    const header = {
+      ...fixture.header,
+      uploadId,
       document: { ...fixture.header.document, documentId, relativePath },
-      revision: { ...fixture.header.revision, revisionId: `rev_${space_id}_${suffix}`, sha256: await sha256Hex(content) },
-      projection: { ...fixture.header.projection, projectionId: `projection_${space_id}_${suffix}`, declaredUnitCount: 1 },
+      revision: {
+        ...fixture.header.revision,
+        revisionId: `rev_${space_id}_${suffix}`,
+        sha256: await sha256Hex(content),
+      },
+      projection: {
+        ...fixture.header.projection,
+        projectionId: `projection_${space_id}_${suffix}`,
+        declaredUnitCount: 1,
+      },
     };
-    const unit = { ...fixture.units[0]!, unitId: `unit_${space_id}_${suffix}`, content, contentSha256: await sha256Hex(content) };
+    const unit = {
+      ...fixture.units[0]!,
+      unitId: `unit_${space_id}_${suffix}`,
+      content,
+      contentSha256: await sha256Hex(content),
+    };
     for (const [path, value] of [
-      ["projections:begin", header], ["projection-units:append", { uploadId, units: [unit] }],
-      ["projections:commit", { uploadId, expectedUnitCount: 1, expectedManifestHash: header.projection.resultManifestHash }],
+      ["projections:begin", header],
+      ["projection-units:append", { uploadId, units: [unit] }],
+      [
+        "projections:commit",
+        {
+          uploadId,
+          expectedUnitCount: 1,
+          expectedManifestHash: header.projection.resultManifestHash,
+        },
+      ],
     ] as const) {
-      const response = await syncPost(`/sync/v1/corpora/${space_id}/${path}`, value);
+      const response = await syncPost(
+        `/sync/v1/corpora/${space_id}/${path}`,
+        value,
+      );
       expect(response.status, await response.clone().text()).toBe(200);
     }
     return { header, unit };
   };
-  const other = await upload("ordinary", `doc_${space_id}_ordinary`, "fixtures/z-other.txt", "migrationneedle " + "ordinary independent evidence ".repeat(20));
+  const other = await upload(
+    "ordinary",
+    `doc_${space_id}_ordinary`,
+    "fixtures/z-other.txt",
+    "migrationneedle " + "ordinary independent evidence ".repeat(20),
+  );
   await documents.documentCreate(canon);
-  const search = (extra: Record<string, unknown> = {}) => fixture.service.spaceSearch({ space_id, query: "migrationneedle", limit: 1, ...extra });
+  const search = (extra: Record<string, unknown> = {}) =>
+    fixture.service.spaceSearch({
+      space_id,
+      query: "migrationneedle",
+      limit: 1,
+      ...extra,
+    });
   // An ordinary citation, or a migration pair without its exact protected
   // reference, cannot suppress evidence or assert that its Source changed.
-  expect(await search()).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
-  await documents.documentRevise({ ...canon, expected_version: 1, source_refs: [], migration_provenance: { source_id: "main", document_id: source.document_id } });
-  expect(await search()).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
-  await documents.documentRevise({ ...canon, expected_version: 2, migration_provenance: { source_id: "main", document_id: source.document_id, relative_path: "fixtures/read.txt" } });
-  const nativeRef = { space_id, document_id: "canon", snapshot: "current", expected_version: 3 };
+  expect(await search()).toMatchObject({
+    candidates: [{ document_id: source.document_id, historical: false }],
+  });
+  await documents.documentRevise({
+    ...canon,
+    expected_version: 1,
+    source_refs: [],
+    migration_provenance: {
+      source_id: "main",
+      document_id: source.document_id,
+    },
+  });
+  expect(await search()).toMatchObject({
+    candidates: [{ document_id: source.document_id, historical: false }],
+  });
+  await documents.documentRevise({
+    ...canon,
+    expected_version: 2,
+    migration_provenance: {
+      source_id: "main",
+      document_id: source.document_id,
+      relative_path: "fixtures/read.txt",
+    },
+  });
+  const nativeRef = {
+    space_id,
+    document_id: "canon",
+    snapshot: "current",
+    expected_version: 3,
+  };
   // Twenty-five top-ranked migrated units exceed the shard's candidate limit;
   // filtering after LIMIT would incorrectly lose the independent document.
-  expect(await search()).toMatchObject({ include_historical: false, count: 1,
-    candidates: [{ document_id: other.header.document.documentId, historical: false }] });
-  const historical = await search({ include_historical: true, search_scope: "all" });
-  expect(historical).toMatchObject({ include_historical: true, candidates: [{ document_id: source.document_id,
-    historical: true, native_document_ref: nativeRef }], context: { items: [expect.objectContaining({ canonical: true, document_ref: nativeRef })] } });
+  expect(await search()).toMatchObject({
+    include_historical: false,
+    count: 1,
+    candidates: [
+      { document_id: other.header.document.documentId, historical: false },
+    ],
+  });
+  const historical = await search({
+    include_historical: true,
+    search_scope: "all",
+  });
+  expect(historical).toMatchObject({
+    include_historical: true,
+    candidates: [
+      {
+        document_id: source.document_id,
+        historical: true,
+        native_document_ref: nativeRef,
+      },
+    ],
+    context: {
+      items: [
+        expect.objectContaining({ canonical: true, document_ref: nativeRef }),
+      ],
+    },
+  });
   const candidate = (historical.candidates as Record<string, unknown>[])[0]!;
-  expect(await fixture.service.fileRead({ space_id, read_ref: candidate.read_ref, source_view: "text", max_chars: 1000 })).toMatchObject({
+  expect(
+    await fixture.service.fileRead({
+      space_id,
+      read_ref: candidate.read_ref,
+      source_view: "text",
+      max_chars: 1000,
+    }),
+  ).toMatchObject({
     untrusted_content: expect.stringContaining("migrationneedle"),
   });
   // Both FTS storage versions apply the exclusion before their own LIMIT.
   await runInDurableObject(fixture.shard, (_instance, state) => {
     state.storage.sql.exec("DELETE FROM source_units_fts");
-    state.storage.sql.exec(`INSERT INTO source_units_fts(unit_id,projection_id,document_id,relative_path,structure_path,normalized_content)
+    state.storage.sql
+      .exec(`INSERT INTO source_units_fts(unit_id,projection_id,document_id,relative_path,structure_path,normalized_content)
       SELECT unit.unit_id,unit.projection_id,revision.document_id,document.relative_path,unit.structure_path_json,unit.normalized_content
       FROM source_units unit JOIN revisions revision ON revision.revision_id=unit.revision_id
       JOIN documents document ON document.document_id=revision.document_id`);
     state.storage.sql.exec("UPDATE projections SET search_index_version=1");
   });
-  expect(await search()).toMatchObject({ candidates: [{ document_id: other.header.document.documentId }] });
-  expect(await search({ include_historical: true })).toMatchObject({ candidates: [{ historical: true, native_document_ref: nativeRef }] });
-  await runtime.STATE_DB.prepare(`INSERT INTO corpus_connections(
+  expect(await search()).toMatchObject({
+    candidates: [{ document_id: other.header.document.documentId }],
+  });
+  expect(await search({ include_historical: true })).toMatchObject({
+    candidates: [{ historical: true, native_document_ref: nativeRef }],
+  });
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO corpus_connections(
     owner_id,space_id,connection_id,display_name,roles_json,access_scope,permission,index_mode,corpus_id,generation,configuration_state,updated_at)
-    VALUES (?,?,'alias','Same source, separate connection','["source"]','remote_allowed','read_only','indexed',?,1,'ready',?)`)
-    .bind(ownerPrincipal.ownerId, space_id, space_id, fixture.capturedAt).run();
-  expect(await search({ connection_id: "alias" })).toMatchObject({ candidates: [{ document_id: source.document_id, historical: false }] });
+    VALUES (?,?,'alias','Same source, separate connection','["source"]','remote_allowed','read_only','indexed',?,1,'ready',?)`,
+  )
+    .bind(ownerPrincipal.ownerId, space_id, space_id, fixture.capturedAt)
+    .run();
+  expect(await search({ connection_id: "alias" })).toMatchObject({
+    candidates: [{ document_id: source.document_id, historical: false }],
+  });
   // A later Source revision is a review signal, not a reason to overwrite the
   // native canon or permanently exclude that Source document ID.
-  const changed = await upload("changed", source.document_id, "fixtures/read.txt", "migrationneedle revised source");
-  expect(await search({ connection_id: "main" })).toMatchObject({ candidates: [{ document_id: source.document_id,
-    revision_id: changed.header.revision.revisionId, historical: false, source_changed: true, related_native_document_ref: nativeRef }] });
-  expect(await documents.documentRead({ space_id, document_id: "canon" })).toMatchObject({ document: { version: 3, body_markdown: canon.body_markdown } });
-  await documents.documentRevise({ ...canon, expected_version: 3, migration_provenance: null });
-  const unmigrated = (await search({ connection_id: "main" })).candidates as Record<string, unknown>[];
-  expect(unmigrated[0]).toMatchObject({ document_id: source.document_id, historical: false });
+  const changed = await upload(
+    "changed",
+    source.document_id,
+    "fixtures/read.txt",
+    "migrationneedle revised source",
+  );
+  expect(await search({ connection_id: "main" })).toMatchObject({
+    candidates: [
+      {
+        document_id: source.document_id,
+        revision_id: changed.header.revision.revisionId,
+        historical: false,
+        source_changed: true,
+        related_native_document_ref: nativeRef,
+      },
+    ],
+  });
+  expect(
+    await documents.documentRead({ space_id, document_id: "canon" }),
+  ).toMatchObject({
+    document: { version: 3, body_markdown: canon.body_markdown },
+  });
+  await documents.documentRevise({
+    ...canon,
+    expected_version: 3,
+    migration_provenance: null,
+  });
+  const unmigrated = (await search({ connection_id: "main" }))
+    .candidates as Record<string, unknown>[];
+  expect(unmigrated[0]).toMatchObject({
+    document_id: source.document_id,
+    historical: false,
+  });
   expect(unmigrated[0]).not.toHaveProperty("source_changed");
   expect(unmigrated[0]).not.toHaveProperty("related_native_document_ref");
+});
+
+it("keeps exact Source origins and historical search after moving native and legacy Context", async () => {
+  const space_id = "managed-source-origin";
+  const fixture = await sourceReadFixture(space_id, [
+    { content: "Evidence that must survive a move" },
+  ]);
+  const runtimeWithWrites = {
+    ...runtime,
+    CORPUS_MANAGEMENT_WRITE_ENABLED: "true",
+  };
+  await runtime.STATE_DB.prepare(
+    `INSERT INTO corpus_contexts(owner_id,space_id,title,purpose,scope_json,version,updated_at)
+    VALUES (?,?,'Source origin','Test','{}',1,?)`,
+  )
+    .bind(ownerPrincipal.ownerId, space_id, new Date().toISOString())
+    .run();
+  const docs = new CorpusDocumentsService(runtimeWithWrites, ownerPrincipal);
+  const manage = new CorpusManagementService(runtimeWithWrites, ownerPrincipal);
+  await docs.spaceCreate({
+    space_id: "managed-destination",
+    display_name: "Destination",
+  });
+  const source = {
+    connection_id: "main",
+    document_id: fixture.header.document.documentId,
+    revision_id: fixture.header.revision.revisionId,
+    projection_id: fixture.header.projection.projectionId,
+    unit_id: fixture.units[0]!.unitId,
+  };
+  const document = {
+    space_id,
+    document_id: "decision",
+    title: "Decision",
+    body_markdown: "Adopted evidence",
+    source_refs: [source],
+    migration_provenance: {
+      source_id: "main",
+      document_id: source.document_id,
+    },
+  };
+  await docs.documentCreate(document);
+  await docs.documentRevise({
+    ...document,
+    expected_version: 1,
+    body_markdown: "Revised evidence",
+  });
+  const before = (
+    await docs.documentRead({ space_id, document_id: "decision" })
+  ).document as Record<string, unknown>;
+  await manage.documentMove({
+    space_id,
+    document_id: "decision",
+    destination_space_id: "managed-destination",
+    expected_version: 2,
+    expected_source_version: 1,
+    expected_destination_version: 1,
+    idempotency_key: "source-native-move",
+  });
+  const moved = (await docs.documentRead({ space_id, document_id: "decision" }))
+    .document as Record<string, unknown>;
+  expect(moved).toMatchObject({
+    uid: before.uid,
+    space_id: "managed-destination",
+    source_refs: [
+      expect.objectContaining({ ...source, source_space_id: space_id }),
+    ],
+    migration_provenance: {
+      source_id: "main",
+      source_space_id: space_id,
+      document_id: source.document_id,
+    },
+  });
+  const corpus = new CorpusService(runtimeWithWrites, ownerPrincipal);
+  expect(
+    await corpus.fileRead({
+      space_id,
+      read_ref: (moved.source_refs as Record<string, unknown>[])[0]!.read_ref,
+      source_view: "text",
+    }),
+  ).toMatchObject({ untrusted_content: fixture.units[0]!.content });
+  await expect(
+    docs.documentRevise({
+      ...document,
+      space_id: "managed-destination",
+      expected_version: 3,
+      source_refs: [],
+    }),
+  ).rejects.toMatchObject({ code: "source_scope_required" });
+  expect(
+    await corpus.spaceSearch({
+      space_id,
+      query: "Evidence",
+      search_scope: "sources",
+      include_historical: true,
+    }),
+  ).toMatchObject({
+    candidates: [
+      expect.objectContaining({
+        historical: true,
+        native_document_ref: expect.objectContaining({
+          space_id: "managed-destination",
+          document_id: "decision",
+        }),
+      }),
+    ],
+  });
+  await runtime.STATE_DB.batch([
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_context_items(owner_id,space_id,item_id,kind,body_text,attributes_json,created_at)
+      VALUES (?,?,?,'finding','Legacy evidence','{}',?)`,
+    ).bind(
+      ownerPrincipal.ownerId,
+      space_id,
+      "managed-legacy",
+      new Date().toISOString(),
+    ),
+    runtime.STATE_DB.prepare(
+      `INSERT INTO corpus_context_sources(owner_id,source_ref_id,item_id,corpus_id,document_id,revision_id,projection_id,source_unit_id,link_role,source_span_json,source_space_id,source_connection_id)
+      VALUES (?,?,?,?,?,?,?,?,'evidence','{}',?,'main')`,
+    ).bind(
+      ownerPrincipal.ownerId,
+      "managed-legacy-ref",
+      "managed-legacy",
+      space_id,
+      source.document_id,
+      source.revision_id,
+      source.projection_id,
+      source.unit_id,
+      space_id,
+    ),
+  ]);
+  await manage.itemMove({
+    space_id,
+    item_id: "managed-legacy",
+    destination_space_id: "managed-destination",
+    expected_version: 2,
+    expected_destination_version: 2,
+    idempotency_key: "source-item-move",
+  });
+  const result = await corpus.spaceGet({
+    space_id: "managed-destination",
+    include_sources: true,
+  });
+  expect(result).toMatchObject({
+    space: {
+      context: {
+        items: [
+          {
+            item_id: "managed-legacy",
+            sources: {
+              links: [
+                expect.objectContaining({
+                  source_space_id: space_id,
+                  read_ref: (moved.source_refs as Record<string, unknown>[])[0]!
+                    .read_ref,
+                }),
+              ],
+            },
+          },
+        ],
+      },
+    },
+  });
+  expect(
+    await docs.contextSearch({
+      space_id: "managed-destination",
+      query: "Legacy",
+    }),
+  ).toMatchObject({
+    items: [
+      expect.objectContaining({
+        source_refs: [expect.objectContaining({ source_space_id: space_id })],
+      }),
+    ],
+  });
+  const preview = await manage.preview({
+    action: "trash",
+    target: {
+      kind: "space",
+      id: "managed-destination",
+      space_id: "managed-destination",
+    },
+  });
+  await manage.trash("space", {
+    space_id: "managed-destination",
+    expected_version: 3,
+    impact_token: preview.impact_token,
+    idempotency_key: "source-group-trash",
+  });
+  expect(
+    await body(
+      await syncPost(`/sync/v1/corpora/${space_id}/maintenance`, {
+        corpusId: space_id,
+        removeDocumentIds: [source.document_id],
+        removeProjectionIds: [],
+        removeUploadIds: [],
+      }),
+    ),
+  ).toMatchObject({
+    result: { protected: { documents: 1 }, removed: { documents: 0 } },
+  });
 });

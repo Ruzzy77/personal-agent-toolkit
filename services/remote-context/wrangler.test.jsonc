@@ -49,7 +49,13 @@
       "new_sqlite_classes": ["CorpusShard", "SyncBroker"]
     }
   ],
+  "triggers": {"crons": ["0 19 * * *"]},
   "vars": {
+    "LIBRARY_MANAGEMENT_WRITE_ENABLED": "false",
+    "DESIGN_MANAGEMENT_WRITE_ENABLED": "false",
+    "SENSE_MANAGEMENT_WRITE_ENABLED": "true",
+    "CORPUS_MANAGEMENT_WRITE_ENABLED": "true",
+    "TRASH_SWEEP_ENABLED": "false",
     "AUTH_ISSUER": "https://auth.test",
     "SENSE_RESOURCE": "https://context.test/sense/mcp",
     "CORPUS_RESOURCE": "https://context.test/corpus/mcp",

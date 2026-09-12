@@ -55,6 +55,7 @@ export interface DesignFileResult {
 }
 
 export interface Env {
+  MANAGEMENT_WRITE_ENABLED?: string | undefined;
   DB: D1Database;
   ASSETS: R2Bucket;
   AUTH_SERVICE: AuthServiceBinding;

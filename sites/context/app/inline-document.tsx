@@ -11,6 +11,8 @@ type Props = {
   onChange: (body: string, expectedBody: string) => boolean;
 };
 
+const emptyMarkup = { __html: '' };
+
 export function InlineDocument({ body, title, editable, onChange }: Props) {
   // Keep the focused DOM and source positions stable through typing and Korean IME.
   const [snapshot, setSnapshot] = useState<string | null>(null);
@@ -19,7 +21,20 @@ export function InlineDocument({ body, title, editable, onChange }: Props) {
   const source = snapshot ?? body;
   const tree = useMemo(() => parseMarkdown(source), [source]);
   const sections = useMemo(() => sectionsOf(source), [source]);
-  const definitions = new Map(tree.children.filter(n => n.type === 'definition').map(n => [n.identifier, n]));
+  const { definitions, markup } = useMemo(() => {
+    const definitions = new Map(tree.children.filter(n => n.type === 'definition').map(n => [n.identifier, n]));
+    const markup = new Map<MarkdownNode, { __html: string }>();
+    function visit(node: MarkdownNode) {
+      if (['paragraph', 'heading', 'code', 'tableCell'].includes(node.type)) {
+        markup.set(node, { __html: inlineHtml(node, definitions) });
+      } else if ('children' in node) node.children.forEach(visit);
+    }
+    visit(tree);
+    // React compares dangerouslySetInnerHTML by object identity, not its string.
+    // Reuse each field's prop while the source is frozen so state updates never
+    // overwrite native typing, selection or IME. A new tree reconciles on blur.
+    return { definitions, markup };
+  }, [tree]);
 
   function update(element: HTMLElement, node: MarkdownNode, table: boolean) {
     const current = transaction.current;
@@ -30,7 +45,7 @@ export function InlineDocument({ body, title, editable, onChange }: Props) {
   function field(node: MarkdownNode, table = false): HTMLAttributes<HTMLElement> {
     // React owns the field boundary, not its mutable descendants. Replacing the
     // HTML on blur safely reconciles markup removed by native contenteditable.
-    const html = { dangerouslySetInnerHTML: { __html: inlineHtml(node, definitions) } };
+    const html = { dangerouslySetInnerHTML: markup.get(node) ?? emptyMarkup };
     if (!editable || (node.type !== 'code' && !editableInline(node))) return html;
     return {
       ...html,

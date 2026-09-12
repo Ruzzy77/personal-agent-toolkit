@@ -25,7 +25,7 @@ WORK_OPERATIONS = (
     "work.file.restore",
 )
 SOURCE_OPERATIONS = ("source.refresh",)
-SYNC_OPERATIONS = WORK_OPERATIONS + SOURCE_OPERATIONS
+SYNC_OPERATIONS = WORK_OPERATIONS + SOURCE_OPERATIONS + ("registration.detach",)
 _WORK_HELPER = r"""
 import json
 import sys
@@ -439,6 +439,10 @@ class WorkExecutor:
             or not isinstance(connection_id, str)
         ):
             raise SyncError("invalid_job", "job Connection identity is invalid")
+        if self.state.is_retired("connection", f"{space_id}:{connection_id}"):
+            raise SyncError(
+                "registration_detached", "The local Connection has been retired"
+            )
         row = self.state.connection_for_scope(space_id, connection_id)
         if row["access_scope"] != "remote_allowed":
             raise PolicyDenied("the selected local Connection is not remote-visible")

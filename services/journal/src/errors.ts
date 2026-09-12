@@ -1,4 +1,5 @@
-export class JournalError extends Error {
+import { OperationError } from "@personal-agent/remote-runtime";
+export class JournalError extends OperationError {
   readonly code: string;
   readonly status: number;
   readonly details: Record<string, unknown>;
@@ -9,7 +10,7 @@ export class JournalError extends Error {
     status = 400,
     details: Record<string, unknown> = {},
   ) {
-    super(message);
+    super(code, message, status, details);
     this.name = "JournalError";
     this.code = code;
     this.status = status;
@@ -19,6 +20,13 @@ export class JournalError extends Error {
 
 export function asJournalError(error: unknown): JournalError {
   if (error instanceof JournalError) return error;
+  if (error instanceof OperationError)
+    return new JournalError(
+      error.code,
+      error.message,
+      error.status,
+      error.details,
+    );
   return new JournalError(
     "unexpected_error",
     "unexpected Journal operation failure",

@@ -2314,7 +2314,11 @@ def test_broker_advertises_only_executable_local_operations() -> None:
         "work.file.restore",
     )
     assert all(operation.startswith("work.file.") for operation in WORK_OPERATIONS)
-    assert SYNC_OPERATIONS == (*WORK_OPERATIONS, "source.refresh")
+    assert SYNC_OPERATIONS == (
+        *WORK_OPERATIONS,
+        "source.refresh",
+        "registration.detach",
+    )
 
 
 def test_work_helper_pins_sync_managed_document_files_runtime(
@@ -2714,3 +2718,58 @@ def test_packaged_native_helper_preserves_pinned_capture_contract(
     finally:
         os.close(fd)
         os.close(directory)
+
+
+def test_retirement_is_durable_and_never_deletes_originals(tmp_path: Path):
+    root = tmp_path / "files"
+    root.mkdir()
+    original = root / "keep.txt"
+    original.write_text("original", encoding="utf-8")
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    scope = {"spaceId": "notes", "connectionId": "main", "generation": 3}
+    request = {
+        "kind": "connection",
+        "registration_key": "notes:main",
+        "expected_version": 3,
+    }
+    with pytest.raises(SyncError, match="Connection changed"):
+        state.detach_registration(
+            {**scope, "generation": 2}, {**request, "expected_version": 2}
+        )
+    result = state.detach_registration(scope, request)
+    assert result["filesystem_changed"] is False
+    assert original.read_text(encoding="utf-8") == "original"
+    restarted = SyncState(config)
+    assert restarted.is_retired("connection", "notes:main")
+    assert restarted.detach_registration(scope, request) == result
+    with pytest.raises(SyncError) as error:
+        WorkExecutor(config, restarted).execute(
+            "work.file.delete",
+            scope,
+            {"space_id": "notes", "connection_id": "main", "relative_path": "keep.txt"},
+        )
+    assert error.value.code == "registration_detached"
+    assert original.exists()
+
+
+def test_workspace_retirement_requires_exact_local_binding(tmp_path: Path):
+    root = tmp_path / "files"
+    root.mkdir()
+    config = load_config(write_config(tmp_path, root))
+    state = SyncState(config)
+    with pytest.raises(SyncError) as error:
+        state.detach_registration(
+            {
+                "hostId": "different-host",
+                "workspaceId": "other",
+                "spaceId": "notes",
+                "generation": 1,
+            },
+            {
+                "kind": "workspace",
+                "registration_key": "different-host:other",
+                "expected_version": 1,
+            },
+        )
+    assert error.value.code == "workspace_scope_mismatch"

@@ -48,6 +48,7 @@ export interface LibraryAssetResult {
 }
 
 export interface Env {
+  MANAGEMENT_WRITE_ENABLED?: string | undefined;
   DB: D1Database;
   MEDIA: R2Bucket;
   AUTH_SERVICE: AuthServiceBinding;

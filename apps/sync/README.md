@@ -261,3 +261,16 @@ and 15 minutes respectively.
 artifacts. Connection-specific directory names and relative path prefixes can
 be removed from the scan with `exclude_directory_names` and
 `exclude_path_prefixes`.
+
+## Registration retirement
+
+Sync 0.4.0 advertises `registration.detach`. The remote generation-checked request
+is serialized behind local jobs and the Source-change/retention lock. Sync records
+a durable local tombstone, drains its pending source work, and reports the exact
+registration and generation; it does not delete, move or read original file bytes
+as part of retirement. Work, watching and configuration publication skip retired
+registrations even after restart. An older generation or unknown Workspace is a
+failure, not an acknowledgement. Offline devices leave the remote operation pending.
+Only the normal runtime installer updates the durable installation; plugin caches
+and development checkouts are not the running Sync service. The existing Document
+Files 1.7.0 dependency is retained by this release.

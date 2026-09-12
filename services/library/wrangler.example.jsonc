@@ -27,6 +27,7 @@
     }
   ],
   "vars": {
+    "MANAGEMENT_WRITE_ENABLED": "false",
     "AUTH_ISSUER": "https://personal-agent-auth.YOUR_SUBDOMAIN.workers.dev",
     "RESOURCE_URI": "https://personal-library-mcp.YOUR_SUBDOMAIN.workers.dev/api/mcp"
   },

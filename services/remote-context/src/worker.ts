@@ -6,6 +6,7 @@ import { asContextError, ContextError } from "./errors";
 import { handleHttp } from "./http";
 import { handleMcp } from "./mcp";
 import { SyncBroker } from "./sync-broker";
+import { runTrashMaintenance } from "./trash-maintenance";
 import type { Env, ResourceKind } from "./types";
 
 export { CorpusShard, SyncBroker };
@@ -24,10 +25,10 @@ function mcpError(error: unknown, env: Env, kind: ResourceKind): Response {
     kind === "toolkit"
       ? env.TOOLKIT_RESOURCE
       : kind === "sense"
-      ? env.SENSE_RESOURCE
-      : kind === "corpus"
-        ? env.CORPUS_RESOURCE
-        : env.HYPES_RESOURCE,
+        ? env.SENSE_RESOURCE
+        : kind === "corpus"
+          ? env.CORPUS_RESOURCE
+          : env.HYPES_RESOURCE,
   );
   return Response.json(
     {
@@ -49,6 +50,9 @@ function mcpError(error: unknown, env: Env, kind: ResourceKind): Response {
 }
 
 export default {
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    await runTrashMaintenance(env, controller.scheduledTime);
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const kind = mcpKind(url.pathname);
@@ -58,10 +62,10 @@ export default {
         kind === "toolkit"
           ? env.TOOLKIT_RESOURCE
           : kind === "sense"
-          ? env.SENSE_RESOURCE
-          : kind === "corpus"
-            ? env.CORPUS_RESOURCE
-            : env.HYPES_RESOURCE,
+            ? env.SENSE_RESOURCE
+            : kind === "corpus"
+              ? env.CORPUS_RESOURCE
+              : env.HYPES_RESOURCE,
       ).hostname;
       const rejected = hostHeaderValidationResponse(request, [
         resourceHost,

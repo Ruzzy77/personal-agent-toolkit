@@ -1,5 +1,11 @@
+import packageInfo from "../package.json";
+import { requireAnyOperationScope } from "@personal-agent/remote-runtime";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { mcpTextError, mcpTextResult, shortLivedMcpAuth } from "@personal-agent/remote-runtime";
+import {
+  mcpTextError,
+  mcpTextResult,
+  shortLivedMcpAuth,
+} from "@personal-agent/remote-runtime";
 
 import { JournalError, asJournalError } from "./errors";
 import {
@@ -31,13 +37,15 @@ import { currentWeekId, kstDate } from "./time";
 import type { Env, Principal } from "./types";
 
 function requireAnyScope(principal: Principal, scopes: string[]): void {
-  if (!scopes.some((scope) => principal.scopes.has(scope))) {
-    throw new JournalError(
-      "insufficient_scope",
-      "the connection does not grant this Journal operation",
-      403,
-    );
-  }
+  requireAnyOperationScope(
+    {
+      ownerId: principal.id,
+      clientId: principal.auth,
+      kind: principal.kind,
+      scopes: principal.scopes,
+    },
+    scopes,
+  );
 }
 
 function result(value: unknown) {
@@ -63,7 +71,7 @@ async function safeTool(operation: () => Promise<unknown>) {
 
 function buildServer(env: Env, principal: Principal): McpServer {
   const server = new McpServer(
-    { name: "Personal Agent Journal", version: "0.2.6" },
+    { name: "Personal Agent Journal", version: packageInfo.version },
     {
       instructions:
         "Journal tracks the owner's current weekly work state and append-only history. " +
@@ -89,7 +97,11 @@ export function registerJournalTools(
         "Read a KST weekly board. The current week includes latest unfinished work from earlier weeks without closing them. Closed weeks include the frozen closure candidates, current reflectionStatus, and appended corrections. Reads never modify storage.",
       inputSchema: getBoardToolSchema,
       outputSchema: getBoardOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ weekId, includeResolved }) =>
       safeTool(async () => {
@@ -106,7 +118,11 @@ export function registerJournalTools(
         "Idempotently create or refresh concise work observations. This never changes resolution.",
       inputSchema: ingestRequestSchema,
       outputSchema: ingestOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ items }) =>
       safeTool(async () => {
@@ -123,7 +139,11 @@ export function registerJournalTools(
         "Find Journal items by week or date range, text, project, lane, and resolution.",
       inputSchema: findItemsSchema,
       outputSchema: findItemsOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async (input) =>
       safeTool(async () => {
@@ -140,7 +160,11 @@ export function registerJournalTools(
         "Read one item, its weekly instances, source references, state history, and corrections.",
       inputSchema: getItemHistorySchema,
       outputSchema: itemHistoryOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ itemId }) =>
       safeTool(async () => {
@@ -157,7 +181,11 @@ export function registerJournalTools(
         "Confirm an item as active, held, completed, or canceled after the owner has decided.",
       inputSchema: setResolutionToolSchema,
       outputSchema: resolutionOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ itemId, ...input }) =>
       safeTool(async () => {
@@ -174,7 +202,11 @@ export function registerJournalTools(
         "Preview the frozen summary, rollover items, and explicit Corpus reflection candidates without closing the week.",
       inputSchema: prepareWeekCloseSchema,
       outputSchema: weekClosePreparationOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ weekId }) =>
       safeTool(async () => {
@@ -191,7 +223,11 @@ export function registerJournalTools(
         "Close the prepared KST week only when the owner explicitly requests it. Pending or failed Corpus candidates do not block close and remain available for later reflection; this never marks them applied or skipped.",
       inputSchema: closeWeekToolSchema,
       outputSchema: weekCloseOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ weekId, preparationVersion, idempotencyKey, occurredAt }) =>
       safeTool(async () => {
@@ -216,12 +252,20 @@ export function registerJournalTools(
         weekId: closeWeekToolSchema.shape.weekId.unwrap(),
       }),
       outputSchema: correctionOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ weekId, ...input }) =>
       safeTool(async () => {
         requireAnyScope(principal, ["journal.write"]);
-        return service.addCorrection(weekId ?? currentWeekId(), input, principal);
+        return service.addCorrection(
+          weekId ?? currentWeekId(),
+          input,
+          principal,
+        );
       }),
   );
 
@@ -233,7 +277,11 @@ export function registerJournalTools(
         "Read daily, weekly, monthly, quarterly, or yearly Journal totals and project rollups.",
       inputSchema: periodToolSchema,
       outputSchema: periodOutputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async ({ kind, anchor }) =>
       safeTool(async () => {
@@ -250,7 +298,11 @@ export function registerJournalTools(
         "Record a verified Corpus reflection outcome before or after week close for an existing project-relative source. After close, itemId, targetSpace, and contentHash must match a frozen candidate from journal_get_board; read its corrections before applying. Failed attempts are retained and do not complete a candidate. Re-send the same receipt request with the same idempotency key; use a new key for a new attempt after failure. Completed candidates are not overwritten. Read the Corpus target before retrying: this records receipts, not an external-write lock.",
       inputSchema: promotionRequestSchema,
       outputSchema: promotionOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async (input) =>
       safeTool(async () => {
@@ -267,7 +319,11 @@ export function registerJournalTools(
         "Append an owner-edited summary version for a day, week, month, quarter, or year while preserving links to source events.",
       inputSchema: savePeriodSummarySchema,
       outputSchema: periodSummarySaveOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
     },
     async (input) =>
       safeTool(async () => {

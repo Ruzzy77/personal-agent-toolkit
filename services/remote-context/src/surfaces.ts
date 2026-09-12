@@ -1,3 +1,4 @@
+import registry from "../../../products.json";
 import type { ResourceKind } from "./types";
 
 export type McpSurface = {
@@ -5,104 +6,22 @@ export type McpSurface = {
   version: string;
   tools: readonly string[];
 };
-
+const productSurface = (product: "sense" | "corpus" | "hypes"): McpSurface => ({
+  name: registry.products[product].mcp.surface_name,
+  version: registry.products[product].mcp.surface_version,
+  tools: registry.products[product].mcp.tools,
+});
+// The existing registry is the deployment manifest; tests compare it to the
+// executable definitions, so neither transport maintains another tool list.
 export const MCP_SURFACES = {
+  sense: productSurface("sense"),
+  corpus: productSurface("corpus"),
+  hypes: productSurface("hypes"),
   toolkit: {
-    name: "Personal Agent Toolkit",
-    version: "1.4.0",
-    tools: [
-      "sense_read",
-      "sense_overview",
-      "sense_revise",
-      "sense_skill_revise",
-      "corpus_space_create",
-      "corpus_workspace_bind",
-      "corpus_workspace_resolve",
-      "corpus_document_create",
-      "corpus_document_list",
-      "corpus_document_read",
-      "corpus_document_revise",
-      "corpus_document_restore",
-      "corpus_space_list",
-      "corpus_space_get",
-      "corpus_context_items_revise",
-      "corpus_context_skill_revise",
-      "corpus_space_search",
-      "corpus_source_refresh",
-      "corpus_job_status",
-      "corpus_file_list",
-      "corpus_file_read",
-      "corpus_file_write",
-      "corpus_file_delete",
-      "corpus_file_select_current",
-      "corpus_file_restore",
-      "hypes_read",
-      "hypes_rewrite",
-      "journal_get_board",
-      "journal_ingest_items",
-      "journal_find_items",
-      "journal_get_item_history",
-      "journal_set_resolution",
-      "journal_prepare_week_close",
-      "journal_confirm_week_close",
-      "journal_add_correction",
-      "journal_get_period",
-      "journal_record_corpus_promotion",
-      "journal_save_period_summary",
-      "library_whoami",
-      "library_list_issues",
-      "library_read_issue",
-      "library_update_issue",
-      "library_create_issue",
-      "library_upload_asset",
-      "design_list_recipes",
-      "design_read_recipe",
-      "design_read_asset",
-      "design_create_recipe",
-      "design_update_recipe",
-      "design_upload_asset",
-    ],
+    name: registry.distributions.openai.mcp.surface_name,
+    version: registry.distributions.openai.mcp.surface_version,
+    tools: ["sense", "corpus", "hypes", "journal", "library", "design"].flatMap(
+      (name) => registry.products[name as "sense"].mcp.tools,
+    ),
   },
-  sense: {
-    name: "Sense",
-    version: "0.4.1-remote.1",
-    tools: [
-      "sense_read",
-      "sense_overview",
-      "sense_revise",
-      "sense_skill_revise",
-    ],
-  },
-  corpus: {
-    name: "Corpus",
-    version: "0.24.0-remote.1",
-    tools: [
-      "corpus_space_create",
-      "corpus_workspace_bind",
-      "corpus_workspace_resolve",
-      "corpus_document_create",
-      "corpus_document_list",
-      "corpus_document_read",
-      "corpus_document_revise",
-      "corpus_document_restore",
-      "corpus_space_list",
-      "corpus_space_get",
-      "corpus_context_items_revise",
-      "corpus_context_skill_revise",
-      "corpus_space_search",
-      "corpus_source_refresh",
-      "corpus_job_status",
-      "corpus_file_list",
-      "corpus_file_read",
-      "corpus_file_write",
-      "corpus_file_delete",
-      "corpus_file_select_current",
-      "corpus_file_restore",
-    ],
-  },
-  hypes: {
-    name: "Hypes",
-    version: "0.10.0-remote.1",
-    tools: ["hypes_read", "hypes_rewrite"],
-  },
-} as const satisfies Record<ResourceKind, McpSurface>;
+} satisfies Record<ResourceKind, McpSurface>;

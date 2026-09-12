@@ -5,7 +5,9 @@ import { handleMcp } from "../src/mcp";
 import worker from "../src/worker";
 import type { Env } from "../src/types";
 
-async function mcpPayload(response: Response): Promise<Record<string, unknown>> {
+async function mcpPayload(
+  response: Response,
+): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (response.headers.get("content-type")?.includes("application/json")) {
     return JSON.parse(text) as Record<string, unknown>;
@@ -39,13 +41,22 @@ describe("Library MCP connection scopes", () => {
     );
     expect(response.status, await response.clone().text()).toBe(200);
     const payload = await mcpPayload(response);
-    const tools = (payload.result as {
-      tools: Array<{
-        name: string;
-        outputSchema: Record<string, unknown>;
-      }>;
-    }).tools;
+    const tools = (
+      payload.result as {
+        tools: Array<{
+          name: string;
+          outputSchema: Record<string, unknown>;
+        }>;
+      }
+    ).tools;
     expect(tools.map((tool) => tool.name)).toEqual([
+      "library_management_preview",
+      "library_issue_trash",
+      "library_trash_list",
+      "library_trash_restore",
+      "library_trash_purge",
+      "library_operation_status",
+      "library_capabilities",
       "library_whoami",
       "library_list_issues",
       "library_read_issue",
@@ -55,7 +66,9 @@ describe("Library MCP connection scopes", () => {
     ]);
     for (const tool of tools) {
       expect(tool.outputSchema).toMatchObject({ type: "object" });
-      expect(Object.keys(tool.outputSchema.properties as object).length).toBeGreaterThan(0);
+      expect(
+        Object.keys(tool.outputSchema.properties as object).length,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -80,10 +93,7 @@ describe("Library MCP connection scopes", () => {
       },
     }) as unknown as Parameters<typeof worker.fetch>[0];
 
-    const response = await worker.fetch(
-      request,
-      env,
-    );
+    const response = await worker.fetch(request, env);
 
     expect(response.status).toBe(403);
     expect(validateAccessToken).toHaveBeenCalledWith(
