@@ -188,9 +188,9 @@ export default function Manager() {
       )}
       {maintenance && (
         <p>
-          최근 자동 정리: {date(maintenance.started_at)} ·{" "}
+          최근 정리 점검: {date(maintenance.started_at)} ·{" "}
           {maintenance.state === "dry_run"
-            ? "검토 모드 — 자동 삭제 꺼짐"
+            ? "삭제 없는 사전 점검"
             : maintenance.state === "retry_pending"
               ? "일부 처리 재시도 필요"
               : "실행 완료"}
