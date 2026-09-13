@@ -47,6 +47,14 @@ Site runtime 설정: `CONTEXT_SERVICE_URL`, 비밀 `CONTEXT_SITE_TOKEN`.
 
 MCP와 Site는 같은 서비스·소유자·범위·버전 검사 경로를 사용합니다. 서비스가 없으면 정본 조회·저장이 실패하며 탭의 초안은 유지됩니다. 일반 파일 도구의 OS 권한을 격리하는 기능은 아닙니다.
 
+## 통합 관리
+
+Workspace의 **더 보기 → 관리**에서 Corpus, Sense, Library와 Design을 전환합니다.
+`/manage`는 Corpus, `/manage/sense`, `/manage/library`, `/manage/design`은 각 제품의 관리 화면입니다.
+개별 Library·Design Site에는 관리 메뉴나 관리 페이지를 두지 않습니다. 읽기·편집 화면과 저장 방식은 유지합니다.
+
+관리 요청은 `/api/management/<operation>`에서 기존 Workspace의 검증된 사용자 ID와 서버 전용 Context 토큰으로 통합 Worker의 `/admin/v1/<operation>`을 호출합니다. 소유자 연결과 제품별 작업 정의를 재사용하며, 별도 Site·저장소·인증 토큰을 만들지 않습니다. 이 경로는 관리 화면에 필요한 작업만 허용하고 본문 개정·원본 파일 쓰기·Hypes·Journal 작업은 노출하지 않습니다.
+
 ## 소스와 배포
 
 - `app/page.tsx`: 읽기·목차·편집·비교 화면

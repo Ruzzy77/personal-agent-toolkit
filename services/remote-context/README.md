@@ -127,3 +127,7 @@ Unconfigured or invalid URLs are omitted; credentials, whitespace/control charac
 and non-HTTPS URLs are rejected. This is a navigation link only, not a fetch or an
 authentication credential. Keep the owner's actual Site address out of committed
 configuration; no database migration or new Site service is needed.
+
+### Workspace management HTTP surface
+
+`POST /admin/v1/<operation>` serves the Workspace's unified management page. It uses the existing `CONTEXT_SITE_TOKEN` and exact `CONTEXT_SITE_USER_ID` → `CONTEXT_SITE_OWNER_ID` binding; it does not accept browser-supplied owner IDs or other Sites' identities. A fixed management-only allowlist delegates to the same Corpus, Sense, Library and Design operation definitions used by MCP. Library and Design run against their existing bound D1/R2 resources, without forwarding through another Site or introducing a new service. Existing Context editor, product HTTP and OAuth boundaries remain unchanged.

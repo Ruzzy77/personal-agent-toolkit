@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -1603,7 +1602,6 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         >
           Design Reference Library
         </a>
-        <Link href="/manage">자료 관리</Link>
         <button
           className="theme-button"
           type="button"

@@ -7,14 +7,14 @@ import type { Env, Principal } from "./types";
 const JSON_BODY_LIMIT = 16 * 1024 * 1024;
 const SITE_USER_HEADER = "X-Personal-Agent-Site-User-Id";
 
-function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
+export function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return Response.json(body, {
     status,
     headers: { ...headers, "Cache-Control": "private, no-store" },
   });
 }
 
-function authenticateSite(request: Request, env: Env): Principal {
+export function authenticateSite(request: Request, env: Env): Principal {
   const { CONTEXT_SITE_TOKEN: token, CONTEXT_SITE_USER_ID: userId,
     CONTEXT_SITE_OWNER_ID: ownerId } = env;
   if (![token, userId, ownerId].every(value =>
@@ -41,7 +41,7 @@ function authenticateSite(request: Request, env: Env): Principal {
   };
 }
 
-async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Request): Promise<unknown> {
   const contentType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") {
     throw new ContextError("unsupported_media_type", "A JSON request body is required", 415);

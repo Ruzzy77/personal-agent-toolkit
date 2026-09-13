@@ -51,3 +51,5 @@ npm run build
 npm test
 npm --prefix ../../services/library run check
 ```
+
+자료의 휴지통·복원·영구 삭제는 [Workspace 통합 관리](https://resolver-control-plane.ruzzy.chatgpt.site/manage/library)에서 수행합니다. 이 Site에는 별도 관리 메뉴·페이지를 두지 않습니다.

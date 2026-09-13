@@ -1,50 +1,23 @@
-import {
-  chatGPTUserFromHeaders,
-  serviceFetch,
-} from "@personal-agent/site-runtime";
+import { chatGPTUserFromHeaders, serviceFetch } from "@personal-agent/site-runtime";
 
 export const dynamic = "force-dynamic";
-const operations = new Set([
-  "sense_read",
-  "sense_revise",
-  "sense_skill_revise",
-  "corpus_space_list",
-  "corpus_space_get",
-  "corpus_space_search",
-  "corpus_context_items_revise",
-  "corpus_context_skill_revise",
-  "corpus_file_read",
-  "corpus_space_create",
-  "corpus_workspace_resolve",
-  "corpus_document_create",
-  "corpus_document_list",
-  "corpus_document_read",
-  "corpus_document_revise",
-  "corpus_document_restore",
-]);
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ operation: string }> },
-) {
+export async function POST(request: Request, context: { params: Promise<{ operation: string }> }) {
   const user = chatGPTUserFromHeaders(request.headers);
-  if (!user)
-    return Response.json({ error: "authentication_required" }, { status: 401 });
+  if (!user) return Response.json({ error: "authentication_required" }, { status: 401 });
   if (request.headers.get("origin") !== new URL(request.url).origin) {
     return Response.json({ error: "origin_mismatch" }, { status: 403 });
   }
   const { operation } = await context.params;
-  if (!operations.has(operation))
+  if (!/^(corpus|sense|library|design)_[a-z_]{1,80}$/.test(operation))
     return Response.json({ error: "operation_not_found" }, { status: 404 });
   const baseUrl = process.env.CONTEXT_SERVICE_URL;
   const token = process.env.CONTEXT_SITE_TOKEN;
-  if (!baseUrl || !token)
-    return Response.json({ error: "context_not_configured" }, { status: 503 });
+  if (!baseUrl || !token) return Response.json({ error: "admin_not_configured" }, { status: 503 });
   try {
     const chunks: Uint8Array[] = [];
     let size = 0;
     const reader = request.body?.getReader();
-    if (!reader)
-      return Response.json({ error: "invalid_json" }, { status: 400 });
+    if (!reader) return Response.json({ error: "invalid_json" }, { status: 400 });
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -64,7 +37,7 @@ export async function POST(
     const response = await serviceFetch({
       baseUrl,
       token,
-      path: "/site/v1/" + operation,
+      path: "/admin/v1/" + operation,
       init: {
         method: "POST",
         headers: {
@@ -82,6 +55,6 @@ export async function POST(
       },
     });
   } catch {
-    return Response.json({ error: "context_unavailable" }, { status: 502 });
+    return Response.json({ error: "admin_unavailable" }, { status: 502 });
   }
 }

@@ -34,3 +34,5 @@ npm run check
 화면의 탐색·비교·요청 준비 흐름은 선택적으로 WebMCP 도구 세 가지로도 제공됩니다. 자산의 실제
 읽기·쓰기는 소유자 인증 Design MCP 도구가 맡습니다. 배포된 Site는
 <https://personal-material-index.ruzzy.chatgpt.site>입니다.
+
+자료의 휴지통·복원·영구 삭제는 [Workspace 통합 관리](https://resolver-control-plane.ruzzy.chatgpt.site/manage/design)에서 수행합니다. 이 Site에는 별도 관리 메뉴·페이지를 두지 않습니다.

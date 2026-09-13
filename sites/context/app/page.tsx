@@ -448,7 +448,7 @@ export default function Home() {
     {moreOpen && <Modal titleId="more-title" className="options-dialog" close={() => setMoreOpen(false)}>
       <div className="dialog-head"><h2 id="more-title">더 보기</h2><IconButton label="더 보기 닫기" onClick={() => setMoreOpen(false)}><X aria-hidden="true" /></IconButton></div>
       <div className="option-list">
-        <a href="/manage">자료 이동·휴지통 관리</a>
+        <a href="/manage">관리</a>
         {entry && <>
           <button disabled={!canEdit} onClick={() => { setMoreOpen(false); switchView('edit'); }}><Pencil aria-hidden="true" />마크다운 편집</button>
           <button disabled={busy || !entry.source.canonical} onClick={() => { setMoreOpen(false); void refresh(); }}><RefreshCw aria-hidden="true" />다시 불러오기</button>

@@ -10,6 +10,7 @@ import {
 } from "./auth";
 import { CorpusService } from "./corpus";
 import { canonicalJson, nowIso } from "./canonical";
+import { handleAdminSite } from "./admin-site";
 import { handleContextSite } from "./context-site";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
@@ -619,6 +620,8 @@ export async function handleHttp(
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
+    const adminSite = await handleAdminSite(request, env);
+    if (adminSite) return adminSite;
     const contextSite = await handleContextSite(request, env);
     if (contextSite) return contextSite;
     if (request.method === "GET" && url.pathname === "/health") {

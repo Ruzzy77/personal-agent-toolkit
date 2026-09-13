@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registerCatalogWebMcpTools } from "./webmcp.js";
 
@@ -108,7 +107,6 @@ function LibraryHeader({ count }) {
     <header aria-label={`Library, ${count} indexed`} className="archive-ticket">
       <span aria-hidden="true" className="library-wordmark">LIBRARY</span>
       <span>{count} INDEXED</span>
-      <Link href="/manage">자료 관리</Link>
     </header>
   );
 }

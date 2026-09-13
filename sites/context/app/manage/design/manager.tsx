@@ -1,8 +1,7 @@
 "use client";
-import Link from "next/link";
+import { contextCall as call } from "../../../lib/management";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mutationFailureState } from "@personal-agent/site-runtime";
-import "./management.css";
 type Row = Record<string, unknown>;
 type Target = {
   issue_id?: string;
@@ -22,20 +21,6 @@ const product = "design";
 const array = (value: unknown): Row[] => (Array.isArray(value) ? value : []);
 const date = (value: unknown) =>
   new Date(String(value)).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-async function call(name: string, body: unknown): Promise<Row> {
-  const response = await fetch(`/api/${product}/operations/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const result = (await response.json()) as Row;
-  if (!response.ok)
-    throw Object.assign(new Error(String(result.error ?? "request_failed")), {
-      status: response.status,
-      code: result.error,
-    });
-  return result;
-}
 export default function Manager() {
   const [itemMore, setItemMore] = useState(false);
   const [items, setItems] = useState<Row[]>([]),
@@ -53,9 +38,7 @@ export default function Manager() {
   const dialog = useRef<HTMLDialogElement>(null),
     key = useRef("");
   const load = useCallback(async () => {
-    const response = await fetch("/api/design/recipes");
-    if (!response.ok) throw new Error("list_failed");
-    const data = (await response.json()) as Row;
+    const data = await call("design_list_recipes", { limit: 100 });
     setItems(array(data.recipes));
     setItemMore(array(data.recipes).length === 100);
     const bin = await call(`${product}_trash_list`, {});
@@ -68,9 +51,7 @@ export default function Manager() {
     let active = true;
     queueMicrotask(() => {
       if (active)
-        void load().catch(() =>
-          setMessage("목록을 불러오지 못했습니다. 새로고침해 주세요."),
-        );
+        void load().catch(() => setMessage("목록을 불러오지 못했습니다. 새로고침해 주세요."));
     });
     return () => {
       active = false;
@@ -101,11 +82,7 @@ export default function Manager() {
       setBusy(false);
     }
   }
-  async function review(
-    action: Impact["action"],
-    value: Target = {},
-    id?: string,
-  ) {
+  async function review(action: Impact["action"], value: Target = {}, id?: string) {
     await work(async () => {
       const preview = await call(`${product}_management_preview`, {
         action,
@@ -124,22 +101,17 @@ export default function Manager() {
         impact.action === "trash"
           ? `${product}_${target.kind}_trash`
           : `${product}_trash_${impact.action}`;
-      const { kind: _kind, ...locator } = target;
+      const locator = { ...target };
+      delete locator.kind;
       const result = await call(operation, {
-        ...(impact.action === "trash"
-          ? locator
-          : { deletion_group_id: impact.deletion_group_id }),
+        ...(impact.action === "trash" ? locator : { deletion_group_id: impact.deletion_group_id }),
         expected_version: impact.expected_version,
         impact_token: impact.impact_token,
         idempotency_key: key.current,
-        ...(impact.action === "purge"
-          ? { confirm_permanent_delete: true }
-          : {}),
+        ...(impact.action === "purge" ? { confirm_permanent_delete: true } : {}),
       });
       if (result.state === "blocked") {
-        setMessage(
-          "다른 자료의 참조나 미완료 작업 때문에 삭제를 보류했습니다.",
-        );
+        setMessage("다른 자료의 참조나 미완료 작업 때문에 삭제를 보류했습니다.");
         return;
       }
       setImpact(null);
@@ -154,11 +126,7 @@ export default function Manager() {
   }
   async function moreItems() {
     await work(async () => {
-      const response = await fetch(
-        `/api/design/recipes?limit=100&offset=${items.length}`,
-      );
-      if (!response.ok) throw new Error("list_failed");
-      const data = (await response.json()) as Row;
+      const data = await call("design_list_recipes", { limit: 100, offset: items.length });
       setItems((previous) => [...previous, ...array(data.recipes)]);
       setItemMore(array(data.recipes).length === 100);
     });
@@ -172,28 +140,19 @@ export default function Manager() {
   }
   async function showFiles(id: string) {
     await work(async () => {
-      const response = await fetch(
-        `/api/design/recipes/${encodeURIComponent(id)}`,
-      );
-      if (!response.ok) throw new Error("read_failed");
-      const data = (await response.json()) as Row;
+      const data = await call("design_read_recipe", { id });
       setRecipe(id);
-      setFiles(array((data.recipe as Row).files));
+      setFiles(array(data.files));
     });
   }
   return (
     <main className="management-page">
-      <Link href="/">← Design로 돌아가기</Link>
-      <h1>Design 자료 관리</h1>
+      <h1>Design</h1>
       <p>
-        휴지통에 넣은 자료는 30일 동안 보존합니다. 원본 파일과 다른 자료가 함께
-        쓰는 자산은 삭제하지 않습니다.
+        휴지통에 넣은 자료는 30일 동안 보존합니다. 원본 파일과 다른 자료가 함께 쓰는 자산은 삭제하지
+        않습니다.
       </p>
-      {!enabled && (
-        <output>
-          관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.
-        </output>
-      )}
+      {!enabled && <output>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</output>}
       {maintenance && (
         <p>
           최근 정리 점검: {date(maintenance.started_at)} ·{" "}
@@ -218,10 +177,7 @@ export default function Manager() {
                 <span>{String(item.id)}</span>
               </div>
               <div className="management-actions">
-                <button
-                  disabled={busy}
-                  onClick={() => void showFiles(String(item.id))}
-                >
+                <button disabled={busy} onClick={() => void showFiles(String(item.id))}>
                   파일 관리
                 </button>
                 <button
@@ -283,32 +239,23 @@ export default function Manager() {
                   {group.path ? ` / ${String(group.path)}` : ""}
                 </strong>
                 <span>
-                  보관 시작 {date(group.trashed_at)} · 삭제 예정{" "}
-                  {date(group.purge_after)}
+                  보관 시작 {date(group.trashed_at)} · 삭제 예정 {date(group.purge_after)}
                 </span>
                 {array(group.blockers).map((reason) => (
-                  <p key={String(reason.code)}>
-                    보류: {String(reason.message)}
-                  </p>
+                  <p key={String(reason.code)}>보류: {String(reason.message)}</p>
                 ))}
-                {group.state === "purging" && (
-                  <p>영구 삭제 진행 중 · 복원 불가</p>
-                )}
+                {group.state === "purging" && <p>영구 삭제 진행 중 · 복원 불가</p>}
               </div>
               <div className="management-actions">
                 <button
                   disabled={busy || !enabled || !group.restorable}
-                  onClick={() =>
-                    void review("restore", {}, String(group.deletion_group_id))
-                  }
+                  onClick={() => void review("restore", {}, String(group.deletion_group_id))}
                 >
                   복원
                 </button>
                 <button
                   disabled={busy || !enabled}
-                  onClick={() =>
-                    void review("purge", {}, String(group.deletion_group_id))
-                  }
+                  onClick={() => void review("purge", {}, String(group.deletion_group_id))}
                 >
                   {group.state === "purging" ? "삭제 재개" : "영구 삭제"}
                 </button>
@@ -338,10 +285,7 @@ export default function Manager() {
                 ? "삭제 묶음 복원"
                 : "영구 삭제 확인"}
           </h2>
-          <p>
-            다음 자료의 현재 버전을 확인했습니다. 다른 곳에서 바뀌면 실행하지
-            않습니다.
-          </p>
+          <p>다음 자료의 현재 버전을 확인했습니다. 다른 곳에서 바뀌면 실행하지 않습니다.</p>
           <ul>
             {impact.members.map((member, index) => (
               <li key={index}>
@@ -369,9 +313,7 @@ export default function Manager() {
             </button>
             <button
               disabled={
-                busy ||
-                (impact.action === "purge" &&
-                  (!confirmed || impact.blockers.length > 0))
+                busy || (impact.action === "purge" && (!confirmed || impact.blockers.length > 0))
               }
               onClick={() => void apply()}
             >
