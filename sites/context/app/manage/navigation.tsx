@@ -12,10 +12,12 @@ export default function Navigation() {
   return (
     <header className="site-header">
       <div className="site-header-inner">
-        <Link className="workspace-return" href="/">
-          Workspace로 돌아가기
-        </Link>
-        <span className="site-title">관리</span>
+        <div className="management-heading">
+          <span className="site-title">관리</span>
+          <Link className="workspace-return" href="/">
+            Workspace로 돌아가기
+          </Link>
+        </div>
         <nav aria-label="관리할 제품">
           {products.map(([href, label]) => (
             <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}>

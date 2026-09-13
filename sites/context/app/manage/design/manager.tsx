@@ -26,6 +26,8 @@ export default function Manager() {
   const [items, setItems] = useState<Row[]>([]),
     [groups, setGroups] = useState<Row[]>([]),
     [next, setNext] = useState<number | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const reviewTrigger = useRef<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [enabled, setEnabled] = useState(false),
@@ -46,6 +48,7 @@ export default function Manager() {
     setNext(bin.next_offset as number | null);
     setEnabled(bin.management_enabled === true);
     setMaintenance(bin.maintenance as Row | null);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     let active = true;
@@ -59,7 +62,7 @@ export default function Manager() {
   }, [load]);
   useEffect(() => {
     if (!impact) return;
-    const previous = document.activeElement as HTMLElement | null,
+    const previous = reviewTrigger.current,
       element = dialog.current;
     element?.showModal();
     return () => {
@@ -83,6 +86,7 @@ export default function Manager() {
     }
   }
   async function review(action: Impact["action"], value: Target = {}, id?: string) {
+    reviewTrigger.current = document.activeElement as HTMLElement | null;
     await work(async () => {
       const preview = await call(`${product}_management_preview`, {
         action,
@@ -147,14 +151,23 @@ export default function Manager() {
   }
   return (
     <main className="management-page">
-      <h1>Design</h1>
-      <p>
-        휴지통에 넣은 자료는 30일 동안 보존합니다. 원본 파일과 다른 자료가 함께 쓰는 자산은 삭제하지
-        않습니다.
-      </p>
-      {!enabled && <output>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</output>}
+      <header className="management-page-header management-page-header-with-action">
+        <div>
+          <h1>Design</h1>
+          <p>
+            휴지통에 넣은 자료는 30일 동안 보존합니다. 원본 파일과 다른 자료가 함께 쓰는 자산은
+            삭제하지 않습니다.
+          </p>
+        </div>
+        <button disabled={busy} onClick={() => void work(load)}>
+          새로고침
+        </button>
+      </header>
+      {loaded && !enabled && (
+        <output>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</output>
+      )}
       {maintenance && (
-        <p>
+        <p className="management-meta">
           최근 정리 점검: {date(maintenance.started_at)} ·{" "}
           {maintenance.state === "dry_run"
             ? "삭제 없는 사전 점검"
@@ -163,10 +176,10 @@ export default function Manager() {
               : "실행 완료"}
         </p>
       )}
-      {message && <output>{message}</output>}
-      <button disabled={busy} onClick={() => void work(load)}>
-        새로고침
-      </button>
+      <output className="management-message" role="status">
+        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
+      </output>
+
       <section>
         <h2>현재 레시피</h2>
         <ul className="management-list">
@@ -229,7 +242,9 @@ export default function Manager() {
       )}
       <section>
         <h2>휴지통</h2>
-        {groups.length === 0 && <p>휴지통이 비어 있습니다.</p>}
+        {loaded && groups.length === 0 && (
+          <p className="management-empty">휴지통이 비어 있습니다.</p>
+        )}
         <ul className="management-list">
           {groups.map((group) => (
             <li key={String(group.deletion_group_id)}>
@@ -273,12 +288,13 @@ export default function Manager() {
         <dialog
           ref={dialog}
           className="management-dialog"
+          aria-labelledby="asset-impact-title"
           onCancel={(event) => {
             if (busy) event.preventDefault();
             else setImpact(null);
           }}
         >
-          <h2>
+          <h2 id="asset-impact-title">
             {impact.action === "trash"
               ? "휴지통으로 이동"
               : impact.action === "restore"

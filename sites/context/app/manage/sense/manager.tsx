@@ -36,6 +36,8 @@ export default function SenseManagementPage() {
   const [enabled, setEnabled] = useState(false),
     [next, setNext] = useState<number | null>(null),
     [sweepEnabled, setSweepEnabled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const reviewTrigger = useRef<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   const [id, setId] = useState(""),
@@ -56,6 +58,7 @@ export default function SenseManagementPage() {
     setEnabled(bin.management_enabled === true);
     setNext((bin.next_offset as number | null) ?? null);
     setSweepEnabled((bin.maintenance as { enabled?: boolean } | undefined)?.enabled === true);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     let active = true;
@@ -68,7 +71,7 @@ export default function SenseManagementPage() {
   }, [load]);
   useEffect(() => {
     if (!impact) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = reviewTrigger.current;
     const element = dialog.current;
     element?.showModal();
     return () => {
@@ -97,6 +100,7 @@ export default function SenseManagementPage() {
     kind?: Impact["kind"],
     deletion_group_id?: string,
   ) {
+    reviewTrigger.current = document.activeElement as HTMLElement | null;
     await work(async () => {
       const data = await contextCall("sense_management_preview", {
         action,
@@ -154,22 +158,26 @@ export default function SenseManagementPage() {
   }
   return (
     <main className="management-page">
-      <header>
-        <h1>Sense</h1>
-        <p>일반 섹션과 연결된 Skill을 관리합니다. 민감 섹션은 이 화면에서 변경하지 않습니다.</p>
+      <header className="management-page-header management-page-header-with-action">
+        <div>
+          <h1>Sense</h1>
+          <p>일반 섹션과 연결된 Skill을 관리합니다. 민감 섹션은 이 화면에서 변경하지 않습니다.</p>
+        </div>
+        <button disabled={busy} onClick={() => void work(load)}>
+          새로고침
+        </button>
       </header>
-      {!enabled && <p>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</p>}
-      <p>
-        {sweepEnabled
-          ? "자동 정리가 켜져 있습니다."
-          : "자동 정리 검토 모드 — 아직 자동으로 삭제하지 않습니다."}
+      {loaded && !enabled && <p>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</p>}
+      <p className="management-meta">
+        {loaded &&
+          (sweepEnabled
+            ? "자동 정리가 켜져 있습니다."
+            : "자동 정리 검토 모드 — 아직 자동으로 삭제하지 않습니다.")}
       </p>
-      <p role="status" aria-live="polite">
-        {message}
+      <p className="management-message" role="status" aria-live="polite">
+        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
       </p>
-      <button disabled={busy} onClick={() => void work(load)}>
-        새로고침
-      </button>
+
       <section>
         <h2>섹션 순서와 삭제</h2>
         <ol className="management-list">
@@ -177,37 +185,41 @@ export default function SenseManagementPage() {
             <li key={section.id}>
               <div>
                 <strong>{section.purpose}</strong>
-                {section.skill && <p>Skill: {section.skill.name}</p>}
+                {section.skill && <p className="management-meta">Skill: {section.skill.name}</p>}
               </div>
               <div className="management-actions">
-                <button
-                  aria-label={`${section.purpose} 위로`}
-                  disabled={busy || !enabled || index === 0}
-                  onClick={() => void reorder(index, -1)}
-                >
-                  위로
-                </button>
-                <button
-                  aria-label={`${section.purpose} 아래로`}
-                  disabled={busy || !enabled || index === sections.length - 1}
-                  onClick={() => void reorder(index, 1)}
-                >
-                  아래로
-                </button>
-                {section.skill && (
+                <div className="management-reorder">
+                  <button
+                    aria-label={`${section.purpose} 위로`}
+                    disabled={busy || !enabled || index === 0}
+                    onClick={() => void reorder(index, -1)}
+                  >
+                    위로
+                  </button>
+                  <button
+                    aria-label={`${section.purpose} 아래로`}
+                    disabled={busy || !enabled || index === sections.length - 1}
+                    onClick={() => void reorder(index, 1)}
+                  >
+                    아래로
+                  </button>
+                </div>
+                <div className="management-remove">
+                  {section.skill && (
+                    <button
+                      disabled={busy || !enabled}
+                      onClick={() => void review("trash", section.id, "skill")}
+                    >
+                      Skill 제거
+                    </button>
+                  )}
                   <button
                     disabled={busy || !enabled}
-                    onClick={() => void review("trash", section.id, "skill")}
+                    onClick={() => void review("trash", section.id, "section")}
                   >
-                    Skill 제거
+                    섹션을 휴지통으로
                   </button>
-                )}
-                <button
-                  disabled={busy || !enabled}
-                  onClick={() => void review("trash", section.id, "section")}
-                >
-                  섹션을 휴지통으로
-                </button>
+                </div>
               </div>
             </li>
           ))}
@@ -267,13 +279,15 @@ export default function SenseManagementPage() {
               onChange={(e) => setText(e.target.value)}
             />
           </label>
-          <button disabled={busy || !enabled || !digest}>새 섹션 저장</button>
+          <button className="management-primary" disabled={busy || !enabled || !digest}>
+            새 섹션 저장
+          </button>
         </form>
       </section>
       <section>
         <h2>휴지통</h2>
         <p>삭제한 시각부터 30일이 지나면 다음 정리 때 영구 삭제합니다.</p>
-        {!trash.length && <p>휴지통이 비어 있습니다.</p>}
+        {loaded && !trash.length && <p className="management-empty">휴지통이 비어 있습니다.</p>}
         <ul className="management-list">
           {trash.map((group) => (
             <li key={group.deletion_group_id}>

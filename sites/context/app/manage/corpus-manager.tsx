@@ -50,6 +50,8 @@ export default function ManagementPage() {
   const [detail, setDetail] = useState<Row>({}),
     [trash, setTrash] = useState<Row[]>([]);
   const [maintenance, setMaintenance] = useState<Row>({});
+  const [loaded, setLoaded] = useState(false);
+  const reviewTrigger = useRef<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   const [impact, setImpact] = useState<Impact | null>(null),
@@ -82,6 +84,7 @@ export default function ManagementPage() {
     const chosen =
       found.find((s) => s.space_id === spaceId) ?? found.find((s) => !s.deletion_group_id);
     if (!chosen) {
+      setLoaded(true);
       setSelected("");
       setDetail({});
       return;
@@ -105,6 +108,7 @@ export default function ManagementPage() {
     setPurpose(String(record(data.context).purpose ?? ""));
     setScopeText(String(record(record(data.context).scope).description ?? ""));
     setRegistrations(await contextCall("corpus_registrations_list", { space_id: id }));
+    setLoaded(true);
   }, []);
   useEffect(() => {
     let active = true;
@@ -120,7 +124,7 @@ export default function ManagementPage() {
   }, [load]);
   useEffect(() => {
     if (!impact) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = reviewTrigger.current;
     const element = dialog.current;
     element?.showModal();
     return () => {
@@ -141,6 +145,7 @@ export default function ManagementPage() {
     }
   }
   async function review(action: Impact["action"], target?: Target, deletion_group_id?: string) {
+    reviewTrigger.current = document.activeElement as HTMLElement | null;
     await work(async () => {
       const data = await contextCall("corpus_management_preview", {
         action,
@@ -227,16 +232,18 @@ export default function ManagementPage() {
 
   return (
     <main className="management-page">
-      <header>
-        <h1>Corpus</h1>
-        <p>자료를 이동하거나 휴지통에서 복원합니다. 원본 파일은 바뀌지 않습니다.</p>
+      <header className="management-page-header">
+        <div>
+          <h1>Corpus</h1>
+          <p>자료를 이동하거나 휴지통에서 복원합니다. 원본 파일은 바뀌지 않습니다.</p>
+        </div>
       </header>
-      <div role="status" aria-live="polite">
-        {message}
+      <div className="management-message" role="status" aria-live="polite">
+        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
       </div>
       <section aria-labelledby="space-heading">
         <h2 id="space-heading">Space</h2>
-        <div className="management-actions">
+        <div className="management-toolbar">
           <label>
             관리할 Space{" "}
             <select
@@ -292,43 +299,47 @@ export default function ManagementPage() {
                   onChange={(event) => setScopeText(event.target.value)}
                 />
               </label>
-              <button disabled={busy}>설정 저장</button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void work(async () => {
-                    await contextCall("corpus_space_revise", {
+              <div className="management-form-actions">
+                <button className="management-primary" disabled={busy}>
+                  설정 저장
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void work(async () => {
+                      await contextCall("corpus_space_revise", {
+                        space_id: selected,
+                        expected_version: context.version,
+                        display_name: name,
+                        purpose,
+                        scope: {
+                          ...record(context.scope),
+                          description: scopeText,
+                        },
+                        state: detail.state === "archived" ? "active" : "archived",
+                      });
+                      await load(selected);
+                      setMessage("Space 상태를 저장했습니다.");
+                    })
+                  }
+                >
+                  {detail.state === "archived" ? "보관 해제" : "Space 보관"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void review("trash", {
+                      kind: "space",
                       space_id: selected,
-                      expected_version: context.version,
-                      display_name: name,
-                      purpose,
-                      scope: {
-                        ...record(context.scope),
-                        description: scopeText,
-                      },
-                      state: detail.state === "archived" ? "active" : "archived",
-                    });
-                    await load(selected);
-                    setMessage("Space 상태를 저장했습니다.");
-                  })
-                }
-              >
-                {detail.state === "archived" ? "보관 해제" : "Space 보관"}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void review("trash", {
-                    kind: "space",
-                    space_id: selected,
-                    id: selected,
-                  })
-                }
-              >
-                Space를 휴지통으로
-              </button>
+                      id: selected,
+                    })
+                  }
+                >
+                  Space를 휴지통으로
+                </button>
+              </div>
             </form>
           </details>
         )}
@@ -417,7 +428,7 @@ export default function ManagementPage() {
         )}
         {moveTarget && (
           <form
-            className="management-form"
+            className="management-form management-inline-form"
             onSubmit={(event) => {
               event.preventDefault();
               void work(async () => {
@@ -466,10 +477,14 @@ export default function ManagementPage() {
                   ))}
               </select>
             </label>
-            <button disabled={busy || !destination}>이동</button>
-            <button type="button" onClick={() => setMoveTarget(null)}>
-              취소
-            </button>
+            <div className="management-form-actions">
+              <button className="management-primary" disabled={busy || !destination}>
+                이동
+              </button>
+              <button type="button" onClick={() => setMoveTarget(null)}>
+                취소
+              </button>
+            </div>
           </form>
         )}
         <details>
@@ -543,7 +558,12 @@ export default function ManagementPage() {
                 onChange={(e) => setNewBody(e.target.value)}
               />
             </label>
-            <button disabled={busy || (!selected && createKind !== "space")}>새로 저장</button>
+            <button
+              className="management-primary"
+              disabled={busy || (!selected && createKind !== "space")}
+            >
+              새로 저장
+            </button>
           </form>
         </details>
       </section>
@@ -603,6 +623,7 @@ export default function ManagementPage() {
           ))}
           {detachTarget && (
             <form
+              className="management-inline-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 void work(async () => {
@@ -655,10 +676,14 @@ export default function ManagementPage() {
                   </select>
                 </label>
               )}
-              <button disabled={busy}>연결 해제 요청</button>
-              <button type="button" disabled={busy} onClick={() => setDetachTarget(null)}>
-                취소
-              </button>
+              <div className="management-form-actions">
+                <button className="management-primary" disabled={busy}>
+                  연결 해제 요청
+                </button>
+                <button type="button" disabled={busy} onClick={() => setDetachTarget(null)}>
+                  취소
+                </button>
+              </div>
             </form>
           )}
         </section>
@@ -669,13 +694,13 @@ export default function ManagementPage() {
           삭제한 시각부터 30일이 지나면 다음 정리 때 영구 삭제합니다. 참조나 연결이 남은 자료는
           보존합니다.
         </p>
-        <p>
-          {maintenance.enabled ? "매일 오전 4시 자동 정리" : "자동 정리 비활성"}
+        <p className="management-meta">
+          {loaded && (maintenance.enabled ? "매일 오전 4시 자동 정리" : "자동 정리 비활성")}
           {record(maintenance.last_run).finished_at
             ? ` · 최근 확인 ${date(record(maintenance.last_run).finished_at)}`
             : ""}
         </p>
-        {!trash.length && <p>휴지통이 비어 있습니다.</p>}
+        {loaded && !trash.length && <p className="management-empty">휴지통이 비어 있습니다.</p>}
         <ul className="management-list">
           {trash.map((group) => (
             <li key={String(group.deletion_group_id)}>

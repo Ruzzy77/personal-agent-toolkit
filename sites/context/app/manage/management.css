@@ -1,196 +1,494 @@
 .toolkit-admin {
-  --paper: #fff;
-  --ink: #20252b;
-  --line: #dfe3e8;
-  --accent: #2554a0;
-  min-height: 100vh;
-  color: var(--ink);
+  min-height: 100dvh;
   background: var(--paper);
+  color: var(--ink);
   font-size: 1rem;
-}
-.toolkit-admin *,
-.toolkit-admin *::before,
-.toolkit-admin *::after {
-  box-sizing: border-box;
-}
-.toolkit-admin a {
-  color: var(--accent);
-  text-underline-offset: 4px;
+  line-height: 1.6;
 }
 .toolkit-admin .site-header {
   border-bottom: 1px solid var(--line);
 }
-.toolkit-admin .site-header-inner {
-  max-width: 980px;
-  margin: auto;
-  padding: 24px 24px 0;
+.toolkit-admin .site-header-inner,
+.toolkit-admin .management-page {
+  max-width: 68rem;
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+.management-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-block: 1.5rem 1.25rem;
+}
+.toolkit-admin .site-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .toolkit-admin .workspace-return {
   font-size: 0.875rem;
+  color: var(--muted);
+  text-decoration: none;
 }
-.toolkit-admin .site-title {
-  display: block;
-  font-size: 1.25rem;
-  font-weight: 650;
-  margin: 16px 0 20px;
+.toolkit-admin .workspace-return:hover {
+  color: var(--ink);
+  text-decoration: underline;
 }
 .toolkit-admin .site-header nav {
   display: flex;
-  gap: 28px;
-  flex-wrap: wrap;
+  gap: 2rem;
 }
 .toolkit-admin .site-header nav a {
-  padding: 0 0 14px;
-  color: inherit;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-block: 0.25rem 0.85rem;
   border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  text-decoration: none;
+}
+.toolkit-admin .site-header nav a:hover {
+  color: var(--ink);
 }
 .toolkit-admin .site-header nav a[aria-current="page"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--ink);
+  color: var(--ink);
   font-weight: 600;
 }
-.toolkit-admin a:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
+.toolkit-admin .management-page {
+  padding-block: 2.5rem 6rem;
 }
-@media (prefers-color-scheme: dark) {
-  .toolkit-admin {
-    --paper: #181c21;
-    --ink: #e7eaee;
-    --line: #363d47;
-    --accent: #9fbcf3;
-  }
+.management-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
 }
-@media (max-width: 620px) {
-  .toolkit-admin .site-header-inner {
-    padding: 20px 16px 0;
-  }
-  .toolkit-admin .site-header nav {
-    gap: 24px;
-  }
+.management-page-header > div {
+  min-width: 0;
+  max-width: 44rem;
 }
-.management-page {
-  max-width: 980px;
-  margin: auto;
-  padding: 28px 24px 96px;
-  line-height: 1.6;
+.management-page-header-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 1.5rem;
+  row-gap: 0.75rem;
+}
+.management-page-header-with-action > div {
+  display: contents;
+}
+.management-page .management-page-header-with-action h1 {
+  align-self: center;
+  margin: 0;
+}
+.management-page-header-with-action p {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  max-width: 44rem;
+}
+.management-page-header-with-action > button {
+  grid-column: 2;
+  grid-row: 1;
 }
 .management-page h1 {
-  font-size: 2rem;
-  margin: 24px 0 8px;
+  margin: 0 0 0.75rem;
+  font-size: 1.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.035em;
 }
 .management-page h2 {
-  margin: 0 0 16px;
-  font-size: 1.25rem;
+  margin: 0 0 1.25rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
 }
-.management-page section {
-  border-top: 1px solid var(--line, #ddd);
-  margin-top: 32px;
-  padding-top: 24px;
+.management-page h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.management-page p {
+  margin: 0 0 0.75rem;
+}
+.management-page-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+.management-page > section {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+.management-page > section > p {
+  max-width: 48rem;
+  font-size: 0.9375rem;
+}
+.management-page .management-meta {
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.management-page .management-empty {
+  padding-block: 1rem 0.5rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.management-message {
+  display: block;
+  margin: 1rem 0;
+  padding: 0.875rem 1rem;
+  border-left: 2px solid var(--line);
+  background: var(--soft);
+  font-size: 0.9375rem;
+}
+.management-message:empty {
+  display: none;
 }
 .management-page label {
   display: grid;
-  gap: 6px;
-  margin: 12px 0;
+  min-width: 0;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 .management-page input:not([type="checkbox"]),
 .management-page textarea,
 .management-page select {
-  border: 1px solid #999;
-  border-radius: 6px;
-  padding: 8px 12px;
-  background: var(--paper, #fff);
-  color: inherit;
-  font: inherit;
+  display: block;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.4;
+  font-weight: 400;
+}
+.management-page select {
+  padding-right: 2rem;
 }
 .management-page textarea {
-  min-height: 112px;
+  min-height: 7rem;
+  resize: vertical;
+  line-height: 1.65;
 }
 .management-page button {
-  padding: 8px 12px;
-  border: 1px solid #999;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 44px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.6rem 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
   background: transparent;
-  color: inherit;
+  color: var(--ink);
   font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
   cursor: pointer;
 }
+.management-page button:hover:not(:disabled) {
+  background: var(--soft);
+  border-color: var(--muted);
+}
 .management-page button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
-.management-page :focus-visible {
-  outline: 2px solid #3164bb;
+.management-page button.management-primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.management-page button.management-primary:hover:not(:disabled) {
+  background: var(--ink);
+  opacity: 0.85;
+}
+.management-page :focus-visible,
+.toolkit-admin a:focus-visible {
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 .management-actions {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 0.5rem;
   flex-wrap: wrap;
+}
+.management-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  max-width: 44rem;
+  margin-bottom: 1rem;
+}
+.management-toolbar > label {
+  flex: 1;
 }
 .management-list {
   list-style: none;
+  margin: 0.75rem 0 0;
   padding: 0;
 }
+.management-list:empty {
+  display: none;
+}
 .management-list > li {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line, #ddd);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 1.75rem;
+  row-gap: 0.875rem;
+  padding-block: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.management-list > li:first-child {
+  padding-top: 0.75rem;
+}
+.management-list > li:last-child {
+  border-bottom: 0;
 }
 .management-list > li > div:first-child {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.management-list strong,
-.management-list span {
+.management-list strong {
   display: block;
+  font-weight: 550;
+  font-size: 1rem;
+  line-height: 1.6;
 }
 .management-list span {
+  display: block;
   font-size: 0.875rem;
-  opacity: 0.75;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.management-list strong + span,
+.management-list span + strong {
+  margin-top: 0.25rem;
+}
+.management-list p {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.management-list .management-actions {
+  justify-content: flex-end;
+}
+.management-list > li > button {
+  justify-self: end;
+}
+.management-reorder,
+.management-remove {
+  display: flex;
+  gap: 0.5rem;
+}
+.management-remove {
+  min-width: 15.5rem;
+  justify-content: flex-end;
+}
+.management-page details {
+  margin-block: 0.5rem;
 }
 .management-page summary {
-  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0.625rem 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+  list-style: none;
   cursor: pointer;
 }
+.management-page summary:hover {
+  color: var(--ink);
+}
+.management-page summary::-webkit-details-marker {
+  display: none;
+}
+.management-page summary::before {
+  content: "";
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  margin-inline: 0.125rem;
+}
+.management-page details[open] > summary::before {
+  transform: rotate(135deg);
+}
+.management-page details[open] > summary {
+  color: var(--ink);
+}
+.management-page form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  max-width: 44rem;
+}
+.management-page details > form {
+  margin: 0.75rem 0 1.5rem;
+  padding: 1.5rem;
+  background: var(--soft);
+  border-radius: 6px;
+}
+.management-page form > button {
+  justify-self: start;
+}
+.management-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+.management-inline-form {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.management-inline-form p {
+  margin: 0;
+}
 .management-dialog {
-  max-width: 680px;
-  width: calc(100% - 40px);
-  max-height: 85vh;
+  position: fixed;
+  inset: 0;
+  width: min(36rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 1.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
   overflow: auto;
-  border: 1px solid #888;
-  border-radius: 12px;
-  padding: 24px;
-  color: inherit;
+  overscroll-behavior: contain;
 }
 .management-dialog::backdrop {
-  background: #0006;
+  background: rgb(0 0 0 / 0.3);
 }
-.management-form {
-  max-width: 720px;
+.management-dialog h2 {
+  margin-bottom: 1rem;
 }
-@media (max-width: 620px) {
-  .management-page {
-    padding: 24px 16px 64px;
-  }
-  .management-list > li {
-    flex-direction: column;
-  }
+.management-dialog p {
+  font-size: 0.9375rem;
+  line-height: 1.7;
 }
-
-.management-dialog input[type="checkbox"] {
-  width: auto;
-  display: inline-block;
+.management-dialog ul {
+  margin: 1rem 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.management-dialog li {
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9375rem;
 }
 .management-dialog label {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  margin-block: 1.5rem;
+  line-height: 1.65;
 }
-
-.management-dialog {
-  background: var(--paper);
+.management-dialog input[type="checkbox"] {
+  appearance: auto;
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  min-height: 0;
+  margin-top: 0.15rem;
+  padding: 0;
+  accent-color: var(--ink);
+}
+.management-dialog .management-actions {
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 800px) {
+  .management-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .management-list .management-actions {
+    justify-content: flex-start;
+  }
+  .management-list > li > button {
+    justify-self: start;
+  }
+  .management-remove {
+    min-width: 0;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 540px) {
+  .toolkit-admin .site-header-inner,
+  .toolkit-admin .management-page {
+    padding-inline: 1.25rem;
+  }
+  .management-heading {
+    gap: 1rem;
+    padding-block: 1.25rem 1rem;
+  }
+  .toolkit-admin .site-header nav {
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .toolkit-admin .management-page {
+    padding-block: 1.75rem 4rem;
+  }
+  .management-page-header {
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .management-reorder {
+    width: 100%;
+  }
+  .management-page h1 {
+    font-size: 1.625rem;
+  }
+  .management-page > section {
+    margin-top: 1.75rem;
+    padding-top: 1.75rem;
+  }
+  .management-toolbar {
+    gap: 0.5rem;
+  }
+  .management-page details > form,
+  .management-inline-form {
+    padding: 1rem;
+  }
+  .management-dialog {
+    padding: 1.25rem;
+  }
 }
