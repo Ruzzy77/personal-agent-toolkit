@@ -51,8 +51,7 @@ export default function Manager() {
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active)
-        void load().catch(() => setMessage("목록을 불러오지 못했습니다. 새로고침해 주세요."));
+      if (active) void load().catch(() => setMessage("목록 로딩 실패. 새로고침하세요."));
     });
     return () => {
       active = false;
@@ -76,8 +75,8 @@ export default function Manager() {
     } catch (error) {
       setMessage(
         mutationFailureState(error) === "conflict"
-          ? "자료가 변경되었습니다. 다시 확인해 주세요. 아직 완료로 처리하지 않았습니다."
-          : "처리 결과를 확인하지 못했습니다. 같은 요청을 다시 확인하거나 새로고침해 주세요.",
+          ? "자료가 변경되었습니다. 결과를 다시 확인하세요."
+          : "결과 미확인. 새로고침 후 상태를 확인하세요.",
       );
     } finally {
       setBusy(false);
@@ -111,15 +110,15 @@ export default function Manager() {
         ...(impact.action === "purge" ? { confirm_permanent_delete: true } : {}),
       });
       if (result.state === "blocked") {
-        setMessage("다른 자료의 참조나 미완료 작업 때문에 삭제를 보류했습니다.");
+        setMessage("삭제 보류: 외부 참조 또는 미완료 작업");
         return;
       }
       setImpact(null);
       await load();
       setMessage(
         result.state === "purging"
-          ? "영구 삭제가 진행 중입니다. 남은 처리는 다시 이어갈 수 있으며, 복원은 불가능합니다."
-          : "처리가 완료되었습니다.",
+          ? "영구 삭제 진행 중 · 복원 불가 · 남은 삭제 재시도 가능"
+          : "처리 완료",
       );
     });
   }
@@ -143,34 +142,18 @@ export default function Manager() {
       <header className="management-page-header management-page-header-with-action">
         <div>
           <h1>Library</h1>
-          <p>
-            휴지통에 넣은 자료는 30일 동안 보존합니다. 원본 파일과 다른 자료가 함께 쓰는 자산은
-            삭제하지 않습니다.
-          </p>
         </div>
         <button disabled={busy} onClick={() => void work(load)}>
           새로고침
         </button>
       </header>
-      {loaded && !enabled && (
-        <output>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</output>
-      )}
-      {maintenance && (
-        <p className="management-meta">
-          최근 정리 점검: {date(maintenance.started_at)} ·{" "}
-          {maintenance.state === "dry_run"
-            ? "삭제 없는 사전 점검"
-            : maintenance.state === "retry_pending"
-              ? "일부 처리 재시도 필요"
-              : "실행 완료"}
-        </p>
-      )}
+      {loaded && !enabled && <output>관리 기능 비활성</output>}
       <output className="management-message" role="status">
-        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
+        {message || (!loaded ? "불러오는 중…" : "")}
       </output>
 
       <section>
-        <h2>현재 발간호</h2>
+        <h2>발간호</h2>
         <ul className="management-list">
           {items.map((item) => (
             <li key={String(item.id)}>
@@ -198,9 +181,18 @@ export default function Manager() {
 
       <section>
         <h2>휴지통</h2>
-        {loaded && groups.length === 0 && (
-          <p className="management-empty">휴지통이 비어 있습니다.</p>
+        <p className="management-meta">30일 보관</p>
+        {maintenance && (
+          <p className="management-meta">
+            마지막 점검 {date(maintenance.started_at)} ·{" "}
+            {maintenance.state === "dry_run"
+              ? "사전 점검 · 삭제 없음"
+              : maintenance.state === "retry_pending"
+                ? "재시도 필요"
+                : "완료"}
+          </p>
         )}
+        {loaded && groups.length === 0 && <p className="management-empty">비어 있음</p>}
         <ul className="management-list">
           {groups.map((group) => (
             <li key={String(group.deletion_group_id)}>
@@ -257,7 +249,9 @@ export default function Manager() {
                 ? "삭제 묶음 복원"
                 : "영구 삭제 확인"}
           </h2>
-          <p>다음 자료의 현재 버전을 확인했습니다. 다른 곳에서 바뀌면 실행하지 않습니다.</p>
+          {impact.action === "trash" && (
+            <p>30일 후 영구 삭제 대상입니다. 원본·공유 자산은 보존됩니다.</p>
+          )}
           <ul>
             {impact.members.map((member, index) => (
               <li key={index}>

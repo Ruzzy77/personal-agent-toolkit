@@ -33,10 +33,10 @@ const date = (value: unknown) =>
   new Date(String(value)).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
 const errorText = (error: unknown) =>
   mutationFailureState(error) === "conflict"
-    ? "자료가 변경되었거나 현재 상태에서 처리할 수 없습니다. 입력은 그대로 두었습니다. 새로고침 후 다시 확인해 주세요."
+    ? "자료 변경 또는 상태 충돌. 입력은 유지됩니다. 새로고침 후 확인하세요."
     : error instanceof ContextFailure && error.code === "management_not_enabled"
-      ? "관리 기능을 준비 중입니다. 아직 변경은 저장되지 않았습니다."
-      : "처리 결과를 확인하지 못했습니다. 새로고침하거나 같은 요청을 다시 확인해 주세요.";
+      ? "관리 기능 비활성 · 저장되지 않음"
+      : "결과 미확인. 새로고침 후 상태를 확인하세요.";
 
 export default function ManagementPage() {
   const [spaceNext, setSpaceNext] = useState<number | null>(null),
@@ -191,8 +191,8 @@ export default function ManagementPage() {
         result.state === "blocked"
           ? "참조나 연결이 남아 삭제를 보류했습니다."
           : result.state === "purging"
-            ? "영구 삭제를 시작했습니다. 남은 자료는 다음 정리에서 이어서 처리합니다."
-            : "변경을 저장했습니다.",
+            ? "영구 삭제 진행 중 · 남은 자료는 다음 정리에서 처리"
+            : "저장 완료",
       );
     });
   }
@@ -235,11 +235,10 @@ export default function ManagementPage() {
       <header className="management-page-header">
         <div>
           <h1>Corpus</h1>
-          <p>자료를 이동하거나 휴지통에서 복원합니다. 원본 파일은 바뀌지 않습니다.</p>
         </div>
       </header>
       <div className="management-message" role="status" aria-live="polite">
-        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
+        {message || (!loaded ? "불러오는 중…" : "")}
       </div>
       <section aria-labelledby="space-heading">
         <h2 id="space-heading">Space</h2>
@@ -570,10 +569,6 @@ export default function ManagementPage() {
       {selected && (
         <section>
           <h2>등록 연결</h2>
-          <p>
-            Sync가 실행 중인 작업의 종료와 로컬 연결 해제를 확인해야 완료됩니다. 원본 파일과 보존된
-            Source는 삭제하지 않습니다.
-          </p>
           <ul className="management-list">
             {rows(registrations.connections).map((connection) => (
               <li key={String(connection.connection_id)}>
@@ -653,12 +648,12 @@ export default function ManagementPage() {
                   setMessage(
                     result.state === "detached"
                       ? "연결 해제를 완료했습니다."
-                      : "Sync의 확인을 기다리고 있습니다. 아직 해제 완료가 아닙니다.",
+                      : "연결 해제 대기 · Sync 확인 필요",
                   );
                 });
               }}
             >
-              <p>이 등록 연결을 해제하시겠습니까? 파일은 그대로 둡니다.</p>
+              <p>연결을 해제합니다. 원본 파일은 보존됩니다.</p>
               {detachTarget.kind === "workspace" && (
                 <label>
                   해당 Workspace가 등록된 Sync
@@ -690,17 +685,13 @@ export default function ManagementPage() {
       )}
       <section aria-labelledby="trash-heading">
         <h2 id="trash-heading">휴지통</h2>
-        <p>
-          삭제한 시각부터 30일이 지나면 다음 정리 때 영구 삭제합니다. 참조나 연결이 남은 자료는
-          보존합니다.
-        </p>
         <p className="management-meta">
-          {loaded && (maintenance.enabled ? "매일 오전 4시 자동 정리" : "자동 정리 비활성")}
+          30일 보관{loaded && (maintenance.enabled ? " · 오전 4시 자동 정리" : " · 자동 정리 꺼짐")}
           {record(maintenance.last_run).finished_at
             ? ` · 최근 확인 ${date(record(maintenance.last_run).finished_at)}`
             : ""}
         </p>
-        {loaded && !trash.length && <p className="management-empty">휴지통이 비어 있습니다.</p>}
+        {loaded && !trash.length && <p className="management-empty">비어 있음</p>}
         <ul className="management-list">
           {trash.map((group) => (
             <li key={String(group.deletion_group_id)}>
@@ -796,7 +787,7 @@ export default function ManagementPage() {
             ))}
           </ul>
           {impact.action === "trash" && (
-            <p>30일 뒤 영구 삭제 대상이 됩니다. 원본 파일이나 연결 설정은 삭제하지 않습니다.</p>
+            <p>30일 후 영구 삭제 대상입니다. 원본 파일·연결 설정은 보존됩니다.</p>
           )}
           {impact.blockers.map((b) => (
             <p key={b.code}>삭제 보류: {b.message}</p>

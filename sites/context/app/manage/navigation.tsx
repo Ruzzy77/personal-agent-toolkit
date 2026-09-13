@@ -14,8 +14,8 @@ export default function Navigation() {
       <div className="site-header-inner">
         <div className="management-heading">
           <span className="site-title">관리</span>
-          <Link className="workspace-return" href="/">
-            Workspace로 돌아가기
+          <Link className="workspace-return" href="/" aria-label="Workspace로 돌아가기">
+            Workspace
           </Link>
         </div>
         <nav aria-label="관리할 제품">

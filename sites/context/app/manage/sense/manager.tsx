@@ -87,8 +87,8 @@ export default function SenseManagementPage() {
     } catch (error) {
       setMessage(
         mutationFailureState(error) === "conflict"
-          ? "지침이나 Skill이 변경되었습니다. 입력을 유지했으니 새로고침 후 다시 검토해 주세요."
-          : "변경 결과를 확인하지 못했습니다. 저장 완료로 처리하지 않았습니다.",
+          ? "지침 또는 Skill 변경. 입력은 유지됩니다. 새로고침 후 확인하세요."
+          : "저장 결과 미확인. 새로고침 후 상태를 확인하세요.",
       );
     } finally {
       setBusy(false);
@@ -153,7 +153,7 @@ export default function SenseManagementPage() {
       }
       setImpact(null);
       await load();
-      setMessage("변경을 저장했습니다.");
+      setMessage("저장 완료");
     });
   }
   return (
@@ -161,25 +161,18 @@ export default function SenseManagementPage() {
       <header className="management-page-header management-page-header-with-action">
         <div>
           <h1>Sense</h1>
-          <p>일반 섹션과 연결된 Skill을 관리합니다. 민감 섹션은 이 화면에서 변경하지 않습니다.</p>
         </div>
         <button disabled={busy} onClick={() => void work(load)}>
           새로고침
         </button>
       </header>
-      {loaded && !enabled && <p>관리 기능을 준비 중입니다. 아직 변경 작업은 실행할 수 없습니다.</p>}
-      <p className="management-meta">
-        {loaded &&
-          (sweepEnabled
-            ? "자동 정리가 켜져 있습니다."
-            : "자동 정리 검토 모드 — 아직 자동으로 삭제하지 않습니다.")}
-      </p>
+      {loaded && !enabled && <p>관리 기능 비활성</p>}
       <p className="management-message" role="status" aria-live="polite">
-        {message || (!loaded ? "목록을 불러오는 중입니다." : "")}
+        {message || (!loaded ? "불러오는 중…" : "")}
       </p>
 
       <section>
-        <h2>섹션 순서와 삭제</h2>
+        <h2>일반 섹션</h2>
         <ol className="management-list">
           {sections.map((section, index) => (
             <li key={section.id}>
@@ -286,8 +279,10 @@ export default function SenseManagementPage() {
       </section>
       <section>
         <h2>휴지통</h2>
-        <p>삭제한 시각부터 30일이 지나면 다음 정리 때 영구 삭제합니다.</p>
-        {loaded && !trash.length && <p className="management-empty">휴지통이 비어 있습니다.</p>}
+        <p className="management-meta">
+          30일 보관{loaded && (sweepEnabled ? " · 자동 정리 켜짐" : " · 자동 정리 꺼짐")}
+        </p>
+        {loaded && !trash.length && <p className="management-empty">비어 있음</p>}
         <ul className="management-list">
           {trash.map((group) => (
             <li key={group.deletion_group_id}>
