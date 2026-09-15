@@ -1,3 +1,5 @@
+@import "@personal-agent/ui-kit/react.css";
+
 :root {
   color-scheme: dark;
   font-family: "Noto Sans KR", "Helvetica Neue", Arial, sans-serif;
@@ -59,28 +61,34 @@ input:focus-visible {
 }
 
 .library-app {
+  --su-paper: var(--cobalt);
+  --su-surface: var(--cobalt);
+  --su-ink: var(--paper);
+  --su-muted: var(--muted);
+  --su-line: var(--line);
+  --su-soft: var(--cobalt-hover);
+  --su-hover: var(--cobalt-hover);
+  --su-accent: var(--signal);
+  --su-on-accent: var(--ink);
   position: relative;
   min-height: 100svh;
   background: var(--cobalt);
 }
 
 .archive-ticket {
-  position: fixed;
-  top: 8px;
-  right: clamp(10px, 2.85vw, 44px);
+  position: sticky;
+  top: 0;
   z-index: 8;
-  display: flex;
-  min-width: 206px;
-  height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 0 13px;
-  color: var(--ink);
-  background: var(--signal);
+  width: 100%;
+  color: var(--paper);
+  background: var(--cobalt);
 }
 
-.archive-ticket > span:not(.library-wordmark) {
+.archive-ticket-inner {
+  width: 100%;
+}
+
+.archive-ticket-inner > span:not(.library-wordmark) {
   font-family: var(--font-label);
   font-size: 0.78rem;
   font-weight: 400;
@@ -91,7 +99,7 @@ input:focus-visible {
 
 .library-wordmark {
   display: block;
-  color: var(--cobalt);
+  color: var(--signal);
   font-family: var(--font-brand);
   font-size: 25px;
   font-style: normal;
@@ -108,7 +116,7 @@ input:focus-visible {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   column-gap: clamp(12px, 1.15vw, 18px);
   row-gap: clamp(16px, 1.4vw, 22px);
-  padding: 52px clamp(18px, 2vw, 30px) 64px;
+  padding: var(--su-space-6) clamp(18px, 2vw, 30px) var(--su-space-16);
 }
 
 .cover-card {
@@ -337,12 +345,13 @@ input:focus-visible {
   overflow-y: auto;
   border: 1px solid var(--signal);
   background: var(--cobalt);
+  padding: 0;
 }
 
 .tag-dialog-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
+  gap: var(--su-stack-gap);
   align-items: start;
   padding: 18px 20px 17px;
   color: var(--ink);
@@ -365,20 +374,14 @@ input:focus-visible {
 }
 
 .tag-dialog-close {
-  padding: 5px 0;
   color: var(--ink);
-  background: none;
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
 }
 
 .tag-list {
   display: flex;
   min-height: 84px;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--su-control-gap);
   align-content: flex-start;
   padding: 20px;
   border-bottom: 1px solid var(--line);
@@ -414,7 +417,7 @@ input:focus-visible {
 
 .tag-form {
   display: grid;
-  gap: 9px;
+  gap: var(--su-control-gap);
   padding: 20px 20px 22px;
 }
 
@@ -434,8 +437,8 @@ input:focus-visible {
   position: relative;
   z-index: 1;
   min-width: 0;
-  height: 42px;
-  padding: 0 12px;
+  height: var(--su-control-md);
+  padding: 0 var(--control-gutter-md);
   border: 1px solid var(--signal);
   border-radius: 0;
   color: var(--paper);
@@ -455,9 +458,9 @@ input:focus-visible {
   position: relative;
   z-index: 1;
   display: grid;
-  width: 52px;
-  min-width: 52px;
-  height: 42px;
+  width: var(--su-control-md);
+  min-width: var(--su-control-md);
+  height: var(--su-control-md);
   padding: 0;
   border: 1px solid var(--signal);
   border-left: 0;
@@ -504,15 +507,6 @@ input:focus-visible {
 }
 
 @media (max-width: 560px) {
-  .archive-ticket {
-    right: 10px;
-    min-width: 186px;
-    height: 34px;
-    gap: 18px;
-    padding: 0 10px;
-  }
-
-  .archive-ticket strong,
   .archive-ticket span {
     font-size: 0.68rem;
   }
@@ -521,7 +515,7 @@ input:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 12px;
     row-gap: 24px;
-    padding: 52px 8px 52px;
+    padding: var(--su-space-4) 8px var(--su-space-12);
   }
 
   .cover-card {

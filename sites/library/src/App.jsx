@@ -104,9 +104,11 @@ function writeMarks(marks) {
 
 function LibraryHeader({ count }) {
   return (
-    <header aria-label={`Library, ${count} indexed`} className="archive-ticket">
-      <span aria-hidden="true" className="library-wordmark">LIBRARY</span>
-      <span>{count} INDEXED</span>
+    <header aria-label={`Library, ${count} indexed`} className="archive-ticket su-appbar">
+      <div className="archive-ticket-inner su-appbar__inner">
+        <span aria-hidden="true" className="library-wordmark">LIBRARY</span>
+        <span>{count} INDEXED</span>
+      </div>
     </header>
   );
 }
@@ -262,18 +264,18 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
       className="tag-dialog-backdrop"
       open
     >
-      <section className="tag-dialog">
-        <header className="tag-dialog-header">
+      <section className="tag-dialog su-panel">
+        <header className="tag-dialog-header su-toolbar">
           <div>
             <p>개인 분류표</p>
             <h2 id="tag-dialog-title">{item.title}</h2>
           </div>
-          <button aria-label="Tag 편집 닫기" className="tag-dialog-close" onClick={onClose} type="button">
+          <button aria-label="Tag 편집 닫기" className="tag-dialog-close su-btn" data-variant="ghost" onClick={onClose} type="button">
             닫기
           </button>
         </header>
 
-        <div aria-live="polite" className="tag-list">
+        <div aria-live="polite" className="tag-list su-row">
           {mark.tags.length === 0 ? (
             <p className="tag-empty">아직 붙인 태그가 없습니다.</p>
           ) : (
@@ -288,11 +290,12 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
           )}
         </div>
 
-        <form className="tag-form" onSubmit={submit}>
+        <form className="tag-form su-stack" onSubmit={submit}>
           <label htmlFor="new-tag">새 태그</label>
           <div>
             <input
               autoComplete="off"
+              className="su-input"
               id="new-tag"
               maxLength={24}
               onChange={(event) => setValue(event.target.value)}
@@ -300,7 +303,7 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
               ref={inputRef}
               value={value}
             />
-            <button aria-label="태그 추가" disabled={!value.trim()} title="추가" type="submit">
+            <button aria-label="태그 추가" className="su-btn su-icon-btn" data-variant="solid" disabled={!value.trim()} title="추가" type="submit">
               <img alt="" aria-hidden="true" src="/icons/library/action-add.png" />
             </button>
           </div>

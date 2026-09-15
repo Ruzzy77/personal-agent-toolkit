@@ -1,3 +1,5 @@
+@import "@personal-agent/ui-kit/react.css";
+
 * {
   box-sizing: border-box;
 }
@@ -8,7 +10,7 @@ html {
 
 body {
   margin: 0;
-  background: #f3f3f0;
+  background: var(--su-paper);
 }
 
 button,
@@ -26,15 +28,15 @@ button {
 }
 
 .gallery {
-  --bg: #f3f3f0;
-  --surface: #ffffff;
-  --surface-muted: #e9e9e5;
-  --ink: #171816;
-  --soft: #62645f;
-  --line: #c8c9c3;
-  --line-strong: #171816;
-  --accent: #2459d3;
-  --accent-ink: #ffffff;
+  --bg: var(--su-paper);
+  --surface: var(--su-surface);
+  --surface-muted: var(--su-soft);
+  --ink: var(--su-ink);
+  --soft: var(--su-muted);
+  --line: var(--su-line);
+  --line-strong: var(--su-ink);
+  --accent: var(--su-info);
+  --accent-ink: var(--su-on-accent);
   --hanji-paper: #f2eee4;
   --hanji-ink: #28261f;
   --hanji-rule: #b8b0a2;
@@ -43,23 +45,13 @@ button {
   min-height: 100vh;
   color: var(--ink);
   background: var(--bg);
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
-    "Noto Sans KR", "Segoe UI", sans-serif;
+  font-family: var(--su-font);
   line-height: 1.5;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
 .gallery--dark {
-  --bg: #10110f;
-  --surface: #181917;
-  --surface-muted: #22231f;
-  --ink: #f1f1ec;
-  --soft: #a7a9a1;
-  --line: #3b3d37;
-  --line-strong: #f1f1ec;
-  --accent: #78a0ff;
-  --accent-ink: #0d1426;
   --hanji-paper: #211f19;
   --hanji-ink: #eee8dc;
   --hanji-rule: #4b473d;
@@ -75,19 +67,20 @@ button {
 }
 
 .gallery :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: 2px solid var(--su-focus);
+  outline-offset: 2px;
 }
 
 .topbar {
-  width: min(calc(100% - 40px), 1180px);
-  min-height: 64px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  width: 100%;
+}
+
+.topbar-inner {
+  width: min(100%, 72rem);
+  margin-inline: auto;
 }
 
 .brand {
@@ -97,24 +90,17 @@ button {
 }
 
 .theme-button {
-  min-height: 40px;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
   color: var(--soft);
-  font-size: 0.88rem;
-  font-weight: 650;
-  cursor: pointer;
 }
 
 .finder,
 .design-section {
-  width: min(calc(100% - 40px), 1180px);
-  margin-inline: auto;
+  width: 100%;
 }
 
 .finder {
-  padding: clamp(38px, 6vw, 72px) 0 clamp(52px, 7vw, 84px);
+  padding-top: var(--su-space-8);
+  padding-bottom: var(--su-space-12);
 }
 
 .finder-heading {
@@ -1471,18 +1457,9 @@ button {
 }
 
 @media (max-width: 620px) {
-  .topbar,
-  .finder,
-  .design-section {
-    width: min(calc(100% - 28px), 1180px);
-  }
-
-  .topbar {
-    min-height: 58px;
-  }
-
   .finder {
-    padding: 34px 0 48px;
+    padding-top: var(--su-space-6);
+    padding-bottom: var(--su-space-12);
   }
 
   .finder-heading {

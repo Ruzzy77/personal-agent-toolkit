@@ -13,9 +13,10 @@
     "format": "oxfmt"
   },
   "dependencies": {
-    "@personal-agent/site-runtime": "file:../../packages/site-runtime",
     "@fontsource/noto-sans-kr": "^5.3.0",
     "@fontsource/noto-serif-kr": "^5.3.0",
+    "@personal-agent/site-runtime": "file:../../packages/site-runtime",
+    "@personal-agent/ui-kit": "file:vendor/personal-agent-ui-kit-1.2.0.tgz",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -127,16 +127,16 @@ async function AuthenticatedHome({
     : 0;
 
   return (
-    <main className="journal-shell">
+    <main className="journal-shell su-workspace">
       <section className="journal-sheet" aria-labelledby="journal-title">
-        <header className="journal-header">
+        <header className="journal-header su-toolbar">
           <div>
             <p className="journal-kicker">
               Journal · {weekNumber(board.week.id)}주
             </p>
             <h1 id="journal-title">{boardTitle}</h1>
           </div>
-          <div className="week-navigation">
+          <div className="week-navigation su-row">
             <Link
               href={`/?week=${previousWeek}&period=${selectedPeriod}`}
               aria-label="이전 주"
@@ -188,8 +188,8 @@ async function AuthenticatedHome({
             </div>
           </summary>
 
-          <div className="period-details-body">
-            <nav className="period-tabs" aria-label="기록 기간">
+          <div className="period-details-body su-stack">
+            <nav className="period-tabs su-row" aria-label="기록 기간">
               {PERIODS.map(({ kind, label }) => (
                 <Link
                   className={selectedPeriod === kind ? 'is-current' : ''}

@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import '@personal-agent/ui-kit/react.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -18,18 +19,18 @@
 
 :root {
   color-scheme: light dark;
-  --paper: light-dark(#f5f2eb, #11120f);
-  --sheet: light-dark(#fbfaf7, #181916);
-  --surface: light-dark(#efede6, #20211e);
-  --ink: light-dark(#22231f, #f2f0e9);
-  --muted: light-dark(#70726b, #a9ada2);
-  --line: light-dark(#d8d6ce, #383a35);
-  --today: light-dark(#ad472f, #ed8d70);
-  --waiting: light-dark(#77631c, #d5bd62);
-  --complete: light-dark(#27654f, #70c6a2);
-  --attention: light-dark(#8e3d48, #e68c98);
-  --held: light-dark(#6b5c2d, #d3bd75);
-  --canceled: light-dark(#7b6562, #bda6a1);
+  --paper: var(--su-paper);
+  --sheet: var(--su-surface);
+  --surface: var(--su-soft);
+  --ink: var(--su-ink);
+  --muted: var(--su-muted);
+  --line: var(--su-line);
+  --today: var(--su-info);
+  --waiting: var(--su-warning);
+  --complete: var(--su-success);
+  --attention: var(--su-danger);
+  --held: var(--su-warning);
+  --canceled: var(--su-muted);
 }
 
 * {
@@ -53,9 +54,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--ink);
-  background:
-    linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 40px,
-    var(--paper);
+  background: var(--paper);
 }
 
 button,
@@ -65,7 +64,6 @@ a {
 
 .journal-shell {
   min-height: 100vh;
-  padding: clamp(18px, 4vw, 54px);
 }
 
 .journal-sheet {
@@ -74,16 +72,15 @@ a {
   overflow: hidden;
   background: color-mix(in srgb, var(--sheet) 96%, transparent);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 22px 70px rgb(0 0 0 / 7%);
+  border-radius: var(--su-radius);
 }
 
 .journal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 28px 32px 22px;
+  gap: var(--su-stack-gap);
+  padding: var(--su-space-6);
 }
 
 .journal-kicker,
@@ -133,7 +130,7 @@ a {
 .week-navigation {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--su-control-gap);
 }
 
 .week-navigation > a {
@@ -1408,12 +1405,8 @@ a {
 }
 
 @media (max-width: 720px) {
-  .journal-shell {
-    padding: 14px;
-  }
-
   .journal-header {
-    padding: 24px 20px 18px;
+    padding: var(--su-space-4);
   }
 
   .service-alert {

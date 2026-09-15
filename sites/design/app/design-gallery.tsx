@@ -1588,31 +1588,34 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
 
   return (
     <main className={`gallery gallery--${theme}`} id="library">
-      <header className="topbar">
-        <a
-          className="brand"
-          href="#library"
-          aria-label="디자인 참고 라이브러리 맨 위로"
-          onClick={(event) => {
-            event.preventDefault();
-            document
-              .getElementById("library")
-              ?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-        >
-          Design Reference Library
-        </a>
-        <button
-          className="theme-button"
-          type="button"
-          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-        >
-          {theme === "light" ? "어둡게" : "밝게"}
-        </button>
+      <header className="topbar su-appbar">
+        <div className="topbar-inner su-appbar__inner">
+          <a
+            className="brand"
+            href="#library"
+            aria-label="디자인 참고 라이브러리 맨 위로"
+            onClick={(event) => {
+              event.preventDefault();
+              document
+                .getElementById("library")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            Design Reference Library
+          </a>
+          <button
+            className="theme-button su-btn"
+            data-variant="ghost"
+            type="button"
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          >
+            {theme === "light" ? "어둡게" : "밝게"}
+          </button>
+        </div>
       </header>
 
-      <section className="finder" aria-labelledby="finder-title">
-        <header className="finder-heading">
+      <section className="finder su-workspace" aria-labelledby="finder-title">
+        <header className="finder-heading su-section">
           <h1 id="finder-title">디자인 기준 찾기</h1>
           <p>
             하나의 정답 대신, 목적에 가까운 패턴과 레시피를 비교해 필요한 부분만
@@ -1730,8 +1733,8 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
         </div>
       </section>
 
-      <section className="design-section" aria-labelledby="design-list-title">
-        <header className="section-heading">
+      <section className="design-section su-workspace su-section" aria-labelledby="design-list-title">
+        <header className="section-heading su-toolbar">
           <h2 id="design-list-title">레시피와 예시</h2>
           <p>
             이름은 출발점입니다. 연결된 패턴과 현재 프로젝트의 규칙을 함께 보고
