@@ -1,5 +1,7 @@
 "use client";
+import { UiButton, UiInput, UiTextarea, FieldSelect, Checkbox, IconButton } from "../ui";
 
+import { MoveRight, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mutationFailureState } from "@personal-agent/site-runtime";
 import { contextCall, ContextFailure } from "../../lib/management";
@@ -231,8 +233,8 @@ export default function ManagementPage() {
   ];
 
   return (
-    <main className="management-page">
-      <header className="management-page-header">
+    <main className="management-page su-workspace su-stack" data-gap="section">
+      <header className="management-page-header su-toolbar">
         <div>
           <h1>Corpus</h1>
         </div>
@@ -240,15 +242,15 @@ export default function ManagementPage() {
       <div className="management-message" role="status" aria-live="polite">
         {message || (!loaded ? "불러오는 중…" : "")}
       </div>
-      <section aria-labelledby="space-heading">
+      <section className="su-section" aria-labelledby="space-heading">
         <h2 id="space-heading">Space</h2>
-        <div className="management-toolbar">
-          <label>
+        <div className="management-toolbar su-row" data-align="end">
+          <label className="su-field">
             관리할 Space{" "}
-            <select
+            <FieldSelect aria-label="관리할 Space"
               value={selected}
               disabled={busy}
-              onChange={(e) => void work(() => load(e.target.value))}
+              onChange={(e) => void work(() => load(e.value))}
             >
               <option value="">선택</option>
               {spaces.map((s) => (
@@ -257,16 +259,16 @@ export default function ManagementPage() {
                   {s.deletion_group_id ? " · 휴지통" : s.state === "archived" ? " · 보관됨" : ""}
                 </option>
               ))}
-            </select>
+            </FieldSelect>
           </label>
-          <button disabled={busy} onClick={() => void work(() => load(selected))}>
+          <UiButton disabled={busy} onClick={() => void work(() => load(selected))}>
             새로고침
-          </button>
+          </UiButton>
         </div>
         {selected && (
           <details>
             <summary>Space 설정</summary>
-            <form
+            <form className="su-stack"
               onSubmit={(event) => {
                 event.preventDefault();
                 void work(async () => {
@@ -283,26 +285,26 @@ export default function ManagementPage() {
                 });
               }}
             >
-              <label>
+              <label className="su-field">
                 이름
-                <input required value={name} onChange={(e) => setName(e.target.value)} />
+                <UiInput required value={name} onChange={(e) => setName(e.target.value)} />
               </label>
-              <label>
+              <label className="su-field">
                 목적
-                <textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+                <UiTextarea value={purpose} onChange={(e) => setPurpose(e.target.value)} />
               </label>
-              <label>
+              <label className="su-field">
                 범위 설명
-                <textarea
+                <UiTextarea
                   value={scopeText}
                   onChange={(event) => setScopeText(event.target.value)}
                 />
               </label>
-              <div className="management-form-actions">
-                <button className="management-primary" disabled={busy}>
+              <div className="management-form-actions su-row">
+                <UiButton className="management-primary" disabled={busy}>
                   설정 저장
-                </button>
-                <button
+                </UiButton>
+                <UiButton
                   type="button"
                   disabled={busy}
                   onClick={() =>
@@ -324,8 +326,8 @@ export default function ManagementPage() {
                   }
                 >
                   {detail.state === "archived" ? "보관 해제" : "Space 보관"}
-                </button>
-                <button
+                </UiButton>
+                <UiButton
                   type="button"
                   disabled={busy}
                   onClick={() =>
@@ -337,7 +339,7 @@ export default function ManagementPage() {
                   }
                 >
                   Space를 휴지통으로
-                </button>
+                </UiButton>
               </div>
             </form>
           </details>
@@ -349,28 +351,24 @@ export default function ManagementPage() {
                 <span>{label(target.kind)}</span>
                 <strong>{title}</strong>
               </div>
-              <div className="management-actions">
+              <div className="management-actions su-row">
                 {(target.kind === "document" || target.kind === "context_item") && (
-                  <button
+                  <IconButton type="button" label="이동"
                     disabled={busy}
                     onClick={() => {
                       setMoveTarget(target);
                       setDestination("");
                       requestKey.current = crypto.randomUUID();
                     }}
-                  >
-                    이동
-                  </button>
+                  ><MoveRight size="1em" aria-hidden="true"/></IconButton>
                 )}
-                <button disabled={busy} onClick={() => void review("trash", target)}>
-                  휴지통으로
-                </button>
+                <IconButton type="button" label="휴지통으로" disabled={busy} onClick={() => void review("trash", target)}><Trash2 size="1em" aria-hidden="true"/></IconButton>
               </div>
             </li>
           ))}
         </ul>
         {Boolean(record(detail.documents).has_more) && (
-          <button
+          <UiButton
             disabled={busy}
             onClick={() =>
               void work(async () => {
@@ -390,10 +388,10 @@ export default function ManagementPage() {
             }
           >
             문서 더 보기
-          </button>
+          </UiButton>
         )}
         {Boolean(context.has_more) && (
-          <button
+          <UiButton
             disabled={busy}
             onClick={() =>
               void work(async () => {
@@ -423,11 +421,11 @@ export default function ManagementPage() {
             }
           >
             항목 더 보기
-          </button>
+          </UiButton>
         )}
         {moveTarget && (
           <form
-            className="management-form management-inline-form"
+            className="management-form management-inline-form su-stack su-panel"
             onSubmit={(event) => {
               event.preventDefault();
               void work(async () => {
@@ -461,9 +459,9 @@ export default function ManagementPage() {
           >
             <h3>이동할 Space</h3>
             <p>{moveTarget.id}</p>
-            <label>
+            <label className="su-field">
               목적지
-              <select required value={destination} onChange={(e) => setDestination(e.target.value)}>
+              <FieldSelect aria-label="목적지" required value={destination} onChange={(e) => setDestination(e.value)}>
                 <option value="">선택</option>
                 {spaces
                   .filter(
@@ -474,22 +472,22 @@ export default function ManagementPage() {
                       {String(s.display_name)}
                     </option>
                   ))}
-              </select>
+              </FieldSelect>
             </label>
-            <div className="management-form-actions">
-              <button className="management-primary" disabled={busy || !destination}>
+            <div className="management-form-actions su-row">
+              <UiButton className="management-primary" disabled={busy || !destination}>
                 이동
-              </button>
-              <button type="button" onClick={() => setMoveTarget(null)}>
+              </UiButton>
+              <UiButton type="button" onClick={() => setMoveTarget(null)}>
                 취소
-              </button>
+              </UiButton>
             </div>
           </form>
         )}
         <details>
           <summary>새 자료 만들기</summary>
           <form
-            className="management-form"
+            className="management-form su-stack"
             onSubmit={(event) => {
               event.preventDefault();
               void work(async () => {
@@ -524,17 +522,17 @@ export default function ManagementPage() {
               });
             }}
           >
-            <label>
+            <label className="su-field">
               종류
-              <select value={createKind} onChange={(e) => setCreateKind(e.target.value)}>
+              <FieldSelect aria-label="종류" value={createKind} onChange={(e) => setCreateKind(e.value)}>
                 <option value="document">Context 문서</option>
                 <option value="context_item">Context 항목</option>
                 <option value="space">Space</option>
-              </select>
+              </FieldSelect>
             </label>
-            <label>
+            <label className="su-field">
               식별자
-              <input
+              <UiInput
                 required
                 value={newId}
                 pattern={
@@ -544,30 +542,30 @@ export default function ManagementPage() {
               />
             </label>
             {createKind !== "context_item" && (
-              <label>
+              <label className="su-field">
                 이름
-                <input required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+                <UiInput required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
               </label>
             )}
-            <label>
+            <label className="su-field">
               {createKind === "space" ? "목적" : "본문"}
-              <textarea
+              <UiTextarea
                 required={createKind !== "space"}
                 value={newBody}
                 onChange={(e) => setNewBody(e.target.value)}
               />
             </label>
-            <button
+            <UiButton
               className="management-primary"
               disabled={busy || (!selected && createKind !== "space")}
             >
               새로 저장
-            </button>
+            </UiButton>
           </form>
         </details>
       </section>
       {selected && (
-        <section>
+        <section className="su-section">
           <h2>등록 연결</h2>
           <ul className="management-list">
             {rows(registrations.connections).map((connection) => (
@@ -576,7 +574,7 @@ export default function ManagementPage() {
                   {String(connection.connection_id)} · {String(connection.configuration_state)} ·
                   버전 {String(connection.generation)}
                 </div>
-                <button
+                <UiButton
                   disabled={busy || connection.configuration_state !== "ready"}
                   onClick={() => {
                     setDetachTarget({ ...connection, kind: "connection" });
@@ -584,7 +582,7 @@ export default function ManagementPage() {
                   }}
                 >
                   연결 해제 검토
-                </button>
+                </UiButton>
               </li>
             ))}
             {rows(registrations.workspaces).map((workspace) => (
@@ -592,7 +590,7 @@ export default function ManagementPage() {
                 <div>
                   {String(workspace.host_id)} / {String(workspace.workspace_id)}
                 </div>
-                <button
+                <UiButton
                   disabled={busy}
                   onClick={() => {
                     setDetachTarget({ ...workspace, kind: "workspace" });
@@ -601,7 +599,7 @@ export default function ManagementPage() {
                   }}
                 >
                   Workspace 연결 해제
-                </button>
+                </UiButton>
               </li>
             ))}
           </ul>
@@ -618,7 +616,7 @@ export default function ManagementPage() {
           ))}
           {detachTarget && (
             <form
-              className="management-inline-form"
+              className="management-inline-form su-stack su-panel"
               onSubmit={(event) => {
                 event.preventDefault();
                 void work(async () => {
@@ -655,12 +653,12 @@ export default function ManagementPage() {
             >
               <p>연결을 해제합니다. 원본 파일은 보존됩니다.</p>
               {detachTarget.kind === "workspace" && (
-                <label>
+                <label className="su-field">
                   해당 Workspace가 등록된 Sync
-                  <select
+                  <FieldSelect aria-label="등록된 Sync"
                     required
                     value={device}
-                    onChange={(event) => setDevice(event.target.value)}
+                    onChange={(event) => setDevice(event.value)}
                   >
                     <option value="">Sync 선택</option>
                     {rows(registrations.devices).map((item) => (
@@ -668,22 +666,22 @@ export default function ManagementPage() {
                         {String(item.display_name)}
                       </option>
                     ))}
-                  </select>
+                  </FieldSelect>
                 </label>
               )}
-              <div className="management-form-actions">
-                <button className="management-primary" disabled={busy}>
+              <div className="management-form-actions su-row">
+                <UiButton className="management-primary" disabled={busy}>
                   연결 해제 요청
-                </button>
-                <button type="button" disabled={busy} onClick={() => setDetachTarget(null)}>
+                </UiButton>
+                <UiButton type="button" disabled={busy} onClick={() => setDetachTarget(null)}>
                   취소
-                </button>
+                </UiButton>
               </div>
             </form>
           )}
         </section>
       )}
-      <section aria-labelledby="trash-heading">
+      <section className="su-section" aria-labelledby="trash-heading">
         <h2 id="trash-heading">휴지통</h2>
         <p className="management-meta">
           30일 보관{loaded && (maintenance.enabled ? " · 오전 4시 자동 정리" : " · 자동 정리 꺼짐")}
@@ -714,26 +712,22 @@ export default function ManagementPage() {
                   <p key={String(b.code)}>삭제 보류: {String(b.message)}</p>
                 ))}
               </div>
-              <div className="management-actions">
-                <button
+              <div className="management-actions su-row">
+                <IconButton type="button" label="묶음 복원"
                   disabled={busy || !group.restorable}
                   onClick={() => void review("restore", undefined, String(group.deletion_group_id))}
-                >
-                  묶음 복원
-                </button>
-                <button
+                ><RotateCcw size="1em" aria-hidden="true"/></IconButton>
+                <UiButton type="button"
                   disabled={busy}
                   onClick={() => void review("purge", undefined, String(group.deletion_group_id))}
-                >
-                  영구 삭제 검토
-                </button>
+                >영구 삭제 검토</UiButton>
               </div>
             </li>
           ))}
         </ul>
       </section>
       {trashNext !== null && (
-        <button
+        <UiButton
           disabled={busy}
           onClick={() =>
             void work(async () => {
@@ -746,10 +740,10 @@ export default function ManagementPage() {
           }
         >
           휴지통 더 보기
-        </button>
+        </UiButton>
       )}
       {spaceNext !== null && (
-        <button
+        <UiButton
           disabled={busy}
           onClick={() =>
             void work(async () => {
@@ -763,62 +757,63 @@ export default function ManagementPage() {
           }
         >
           Space 더 보기
-        </button>
+        </UiButton>
       )}
       {impact && (
         <dialog
           ref={dialog}
-          className="management-dialog"
+          className="su-dialog management-dialog"
           onCancel={() => setImpact(null)}
           aria-labelledby="impact-title"
         >
-          <h2 id="impact-title">
-            {impact.action === "trash"
-              ? "휴지통으로 옮길 자료"
-              : impact.action === "restore"
-                ? "복원할 자료"
-                : "영구 삭제할 자료"}
-          </h2>
-          <ul>
-            {impact.members.map((m) => (
-              <li key={m.kind + m.id}>
-                {label(m.kind)} · {m.locator}
-              </li>
-            ))}
-          </ul>
-          {impact.action === "trash" && (
-            <p>30일 후 영구 삭제 대상입니다. 원본 파일·연결 설정은 보존됩니다.</p>
-          )}
-          {impact.blockers.map((b) => (
-            <p key={b.code}>삭제 보류: {b.message}</p>
-          ))}
-          {impact.action === "purge" && (
-            <label>
-              <input
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
-              />{" "}
-              위 자료를 영구 삭제하며 복원할 수 없음을 확인했습니다.
-            </label>
-          )}
-          <div className="management-actions">
-            <button
-              disabled={
-                busy ||
-                (impact.action === "purge" && (!confirmed || Boolean(impact.blockers.length)))
-              }
-              onClick={() => void applyImpact()}
-            >
+          <div className="su-section">
+            <h2 id="impact-title">
               {impact.action === "trash"
-                ? "휴지통으로"
+                ? "휴지통으로 옮길 자료"
                 : impact.action === "restore"
-                  ? "묶음 복원"
-                  : "영구 삭제"}
-            </button>
-            <button disabled={busy} onClick={() => setImpact(null)}>
-              취소
-            </button>
+                  ? "복원할 자료"
+                  : "영구 삭제할 자료"}
+            </h2>
+            <ul>
+              {impact.members.map((m) => (
+                <li key={m.kind + m.id}>
+                  {label(m.kind)} · {m.locator}
+                </li>
+              ))}
+            </ul>
+            {impact.action === "trash" && (
+              <p>30일 후 영구 삭제 대상입니다. 원본 파일·연결 설정은 보존됩니다.</p>
+            )}
+            {impact.blockers.map((b) => (
+              <p key={b.code}>삭제 보류: {b.message}</p>
+            ))}
+            {impact.action === "purge" && (
+              <label className="su-row" data-align="start">
+                <Checkbox
+                  checked={confirmed}
+                  onCheckedChange={setConfirmed}
+                />{" "}
+                위 자료를 영구 삭제하며 복원할 수 없음을 확인했습니다.
+              </label>
+            )}
+            <div className="management-actions su-row">
+              <UiButton
+                disabled={
+                  busy ||
+                  (impact.action === "purge" && (!confirmed || Boolean(impact.blockers.length)))
+                }
+                onClick={() => void applyImpact()}
+              >
+                {impact.action === "trash"
+                  ? "휴지통으로"
+                  : impact.action === "restore"
+                    ? "묶음 복원"
+                    : "영구 삭제"}
+              </UiButton>
+              <UiButton disabled={busy} onClick={() => setImpact(null)}>
+                취소
+              </UiButton>
+            </div>
           </div>
         </dialog>
       )}

@@ -1,5 +1,7 @@
 "use client";
+import { UiButton, Checkbox, IconButton } from "../../ui";
 import { contextCall as call } from "../../../lib/management";
+import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mutationFailureState } from "@personal-agent/site-runtime";
 type Row = Record<string, unknown>;
@@ -138,21 +140,21 @@ export default function Manager() {
   }
 
   return (
-    <main className="management-page">
-      <header className="management-page-header management-page-header-with-action">
+    <main className="management-page su-workspace su-stack" data-gap="section">
+      <header className="management-page-header management-page-header-with-action su-toolbar">
         <div>
           <h1>Library</h1>
         </div>
-        <button disabled={busy} onClick={() => void work(load)}>
+        <UiButton disabled={busy} onClick={() => void work(load)}>
           새로고침
-        </button>
+        </UiButton>
       </header>
       {loaded && !enabled && <output>관리 기능 비활성</output>}
       <output className="management-message" role="status">
         {message || (!loaded ? "불러오는 중…" : "")}
       </output>
 
-      <section>
+      <section className="su-section">
         <h2>발간호</h2>
         <ul className="management-list">
           {items.map((item) => (
@@ -161,25 +163,23 @@ export default function Manager() {
                 <strong>{String(item.title ?? item.name ?? item.id)}</strong>
                 <span>{String(item.id)}</span>
               </div>
-              <div className="management-actions">
-                <button
+              <div className="management-actions su-row">
+                <IconButton type="button" label="휴지통으로"
                   disabled={busy || !enabled}
                   onClick={() => void review("trash", { issue_id: String(item.id) })}
-                >
-                  휴지통으로
-                </button>
+                ><Trash2 size="1em" aria-hidden="true"/></IconButton>
               </div>
             </li>
           ))}
         </ul>
         {itemMore && (
-          <button disabled={busy} onClick={() => void moreItems()}>
+          <UiButton disabled={busy} onClick={() => void moreItems()}>
             자료 더 보기
-          </button>
+          </UiButton>
         )}
       </section>
 
-      <section>
+      <section className="su-section">
         <h2>휴지통</h2>
         <p className="management-meta">30일 보관</p>
         {maintenance && (
@@ -209,82 +209,79 @@ export default function Manager() {
                 ))}
                 {group.state === "purging" && <p>영구 삭제 진행 중 · 복원 불가</p>}
               </div>
-              <div className="management-actions">
-                <button
+              <div className="management-actions su-row">
+                <IconButton type="button" label="복원"
                   disabled={busy || !enabled || !group.restorable}
                   onClick={() => void review("restore", {}, String(group.deletion_group_id))}
-                >
-                  복원
-                </button>
-                <button
+                ><RotateCcw size="1em" aria-hidden="true"/></IconButton>
+                <UiButton type="button"
                   disabled={busy || !enabled}
                   onClick={() => void review("purge", {}, String(group.deletion_group_id))}
-                >
-                  {group.state === "purging" ? "삭제 재개" : "영구 삭제"}
-                </button>
+                >{group.state === "purging" ? "삭제 재개" : "영구 삭제"}</UiButton>
               </div>
             </li>
           ))}
         </ul>
         {next !== null && (
-          <button disabled={busy} onClick={() => void more()}>
+          <UiButton disabled={busy} onClick={() => void more()}>
             휴지통 더 보기
-          </button>
+          </UiButton>
         )}
       </section>
       {impact && (
         <dialog
           ref={dialog}
-          className="management-dialog"
+          className="su-dialog management-dialog"
           aria-labelledby="asset-impact-title"
           onCancel={(event) => {
             if (busy) event.preventDefault();
             else setImpact(null);
           }}
         >
-          <h2 id="asset-impact-title">
-            {impact.action === "trash"
-              ? "휴지통으로 이동"
-              : impact.action === "restore"
-                ? "삭제 묶음 복원"
-                : "영구 삭제 확인"}
-          </h2>
-          {impact.action === "trash" && (
-            <p>30일 후 영구 삭제 대상입니다. 원본·공유 자산은 보존됩니다.</p>
-          )}
-          <ul>
-            {impact.members.map((member, index) => (
-              <li key={index}>
-                {String(member.id ?? member.path ?? member.kind)} · 버전{" "}
-                {String(member.version ?? member.revision)}
-              </li>
+          <div className="su-section">
+            <h2 id="asset-impact-title">
+              {impact.action === "trash"
+                ? "휴지통으로 이동"
+                : impact.action === "restore"
+                  ? "삭제 묶음 복원"
+                  : "영구 삭제 확인"}
+            </h2>
+            {impact.action === "trash" && (
+              <p>30일 후 영구 삭제 대상입니다. 원본·공유 자산은 보존됩니다.</p>
+            )}
+            <ul>
+              {impact.members.map((member, index) => (
+                <li key={index}>
+                  {String(member.id ?? member.path ?? member.kind)} · 버전{" "}
+                  {String(member.version ?? member.revision)}
+                </li>
+              ))}
+            </ul>
+            {impact.blockers.map((reason) => (
+              <p key={reason.code}>보류: {reason.message}</p>
             ))}
-          </ul>
-          {impact.blockers.map((reason) => (
-            <p key={reason.code}>보류: {reason.message}</p>
-          ))}
-          {impact.action === "purge" && (
-            <label>
-              <input
-                type="checkbox"
-                checked={confirmed}
-                onChange={(event) => setConfirmed(event.target.checked)}
-              />{" "}
-              복원할 수 없는 영구 삭제를 요청합니다.
-            </label>
-          )}
-          <div className="management-actions">
-            <button disabled={busy} onClick={() => setImpact(null)}>
-              취소
-            </button>
-            <button
-              disabled={
-                busy || (impact.action === "purge" && (!confirmed || impact.blockers.length > 0))
-              }
-              onClick={() => void apply()}
-            >
-              확인 후 실행
-            </button>
+            {impact.action === "purge" && (
+              <label className="su-row" data-align="start">
+                <Checkbox
+                  checked={confirmed}
+                  onCheckedChange={setConfirmed}
+                />{" "}
+                복원할 수 없는 영구 삭제를 요청합니다.
+              </label>
+            )}
+            <div className="management-actions su-row">
+              <UiButton disabled={busy} onClick={() => setImpact(null)}>
+                취소
+              </UiButton>
+              <UiButton
+                disabled={
+                  busy || (impact.action === "purge" && (!confirmed || impact.blockers.length > 0))
+                }
+                onClick={() => void apply()}
+              >
+                확인 후 실행
+              </UiButton>
+            </div>
           </div>
         </dialog>
       )}

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { UIProvider } from './ui';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://resolver-control-plane.ruzzy.chatgpt.site'),
@@ -25,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body className="ui-document"><UIProvider>{children}</UIProvider></body>
     </html>
   );
 }

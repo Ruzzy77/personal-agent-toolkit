@@ -114,7 +114,7 @@ export function InlineDocument({ body, title, editable, onChange }: Props) {
     const nodes = tree.children.filter(node => node !== hiddenTitle && startOf(node) >= section.start && startOf(node) < section.end);
     if (!nodes.length && source.trim()) return null;
     return <section className="reading-section" id={section.key} key={section.key} data-guidance-section tabIndex={-1}>
-      <div className="prose inline-document">{nodes.length ? nodes.map((node, index) => <Fragment key={index}>{render(node)}</Fragment>)
+      <div className="workspace-prose inline-document">{nodes.length ? nodes.map((node, index) => <Fragment key={index}>{render(node)}</Fragment>)
         : <p {...field({ type: 'paragraph', children: [], position: { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 1, offset: 0 } } })} data-placeholder="본문" />}</div>
     </section>;
   })}</>;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 test('Workspace has one management entry and four product views', () => {
-  assert.match(read('../app/page.tsx'), /href="\/manage">관리<\/a>/);
+  assert.match(read('../app/page.tsx'), /<Menu\.Link href="\/manage">관리<\/Menu\.Link>/);
   const navigation = read('../app/manage/navigation.tsx');
   for (const path of ['/manage', '/manage/sense', '/manage/library', '/manage/design']) assert.ok(navigation.includes(`"${path}"`));
   assert.match(navigation, /aria-current/);

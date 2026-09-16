@@ -62,6 +62,9 @@ def export_site(site: Path, destination: Path) -> None:
             if not isinstance(value, str) or not value.startswith("file:"):
                 continue
             source = (site / value.removeprefix("file:")).resolve()
+            # An immutable, in-site package archive is already included above.
+            if within(source, site) and source.is_file() and source.suffix == ".tgz":
+                continue
             if not within(source, PACKAGES_ROOT) or source.parent != PACKAGES_ROOT:
                 raise ValueError(f"unsupported local dependency for {name}: {value}")
             target = destination / "vendor" / source.name
@@ -69,9 +72,8 @@ def export_site(site: Path, destination: Path) -> None:
             dependencies[name] = f"file:./vendor/{source.name}"
 
     package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n")
-    lock_path = destination / "package-lock.json"
-    if lock_path.exists():
-        lock_path.unlink()
+    # Retain pinned registry versions; npm only reconciles the relocated local
+    # dependencies. Exporting a Site must not silently upgrade its libraries.
     subprocess.run(
         [
             "npm",

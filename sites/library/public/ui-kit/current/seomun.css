@@ -178,12 +178,15 @@ svg.su-icon { width: var(--su-icon-size); height: var(--su-icon-size); display: 
 .su-alert .su-icon { margin:0; }
 .su-alert p { margin:0; color:var(--su-ink); }
 .su-table-wrap { overflow-x:auto; border:1px solid var(--su-line); border-radius:var(--su-radius); }
-.su-table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
+.su-table { width:100%; border-collapse:collapse; table-layout:auto; text-align:left; font-size:14px; }
+/* Native content sizing is the default. Comparison tables can opt into equal
+   columns or retain author-defined widths through colgroup. No DOM measurement. */
+.su-table[data-layout="fixed"],.ui-document .document table[data-layout="fixed"] { table-layout:fixed; }
 .su-table:has(tr > :nth-child(4)) { min-width:480px; }
 .su-table:has(tr > :nth-child(5)) { min-width:560px; }
 .su-table caption { text-align:left; font-size:14px; padding:8px 12px; color:var(--su-muted); }
 .su-table th { font-size:13px; color:var(--su-muted); font-weight:500; background:var(--su-paper); }
-.su-table th,.su-table td { padding:8px 12px; line-height:20px; border-bottom:1px solid var(--su-line); vertical-align:middle; }
+.su-table th,.su-table td { padding:8px 12px; line-height:20px; border-bottom:1px solid var(--su-line); vertical-align:middle; overflow-wrap:anywhere; word-break:keep-all; }
 .su-table th:has(> .su-table-sort) { padding:0; }
 .su-table .su-table-sort { display:flex; width:100%; justify-content:flex-start; padding:var(--su-space-2) var(--su-space-3); border:0; border-radius:0; font:inherit; line-height:inherit; color:inherit; }
 .su-table-sort:focus-visible { outline-offset:-2px; }

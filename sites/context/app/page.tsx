@@ -1,7 +1,8 @@
 'use client';
+import { UiButton, UiInput, UiTextarea, IconButton, Menu } from './ui';
 
-import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, FileUp, History, Info, Menu, Moon, Pencil, RefreshCw, Save, Search, Sun, X } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, type ReactNode, type ButtonHTMLAttributes } from 'react';
+import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, FileUp, History, Info, Menu as MenuIcon, Moon, Pencil, RefreshCw, Save, Search, Sun, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, type ReactNode } from 'react';
 import { candidates, groups, readCanonical, saveCanonical, saveGroups, locatorOf, contextCall, type Candidate, type Group } from '../lib/context';
 import { registerGuidanceTools } from '../lib/webmcp';
 import { InlineDocument } from './inline-document';
@@ -74,10 +75,6 @@ function focusReadingTarget(id: string) {
   });
 }
 
-function IconButton({ label, children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <span className="icon-control"><button {...props} className={'icon-button ' + className} aria-label={label}>{children}</button><span className="tooltip" aria-hidden="true">{label}</span></span>;
-}
-
 function Modal({ titleId, close, children, className = '' }: { titleId: string; close: () => void; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -86,13 +83,13 @@ function Modal({ titleId, close, children, className = '' }: { titleId: string; 
     dialog?.showModal();
     return () => { dialog?.close(); if (previous?.isConnected) previous.focus(); };
   }, []);
-  return <dialog ref={ref} className={'import-dialog ' + className} aria-labelledby={titleId} onClick={event => {
+  return <dialog ref={ref} className={'su-dialog import-dialog ' + className} aria-labelledby={titleId} onClick={event => {
     if (event.target !== event.currentTarget) return;
     const rect = event.currentTarget.getBoundingClientRect();
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
   }} onKeyDown={event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
-  }} onCancel={event => { event.preventDefault(); close(); }}>{children}</dialog>;
+  }} onCancel={event => { event.preventDefault(); close(); }}>{className === 'navigation-dialog' ? children : <div className="su-section">{children}</div>}</dialog>;
 }
 
 export default function Home() {
@@ -363,46 +360,59 @@ export default function Home() {
 
   return <>
     <a className="skip" href="#main">본문으로 건너뛰기</a>
-    <header className="workspace-bar">
-      <div className="workspace-home"><IconButton label="자료와 목차 열기" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><Menu aria-hidden="true" /></IconButton><span className="wordmark">Workspace</span></div>
-      <div className="document-actions">
-        {entry && <>
-          {editing && <IconButton label="본문으로 돌아가기" onClick={() => switchView('read')}><Eye aria-hidden="true" /></IconButton>}
-          <IconButton label={compare ? '비교 닫기' : '변경 비교'} aria-pressed={compare} onClick={() => switchView(compare ? 'read' : 'compare')}><Columns2 aria-hidden="true" /></IconButton>
-        </>}
-        {changes.length > 0 && <IconButton label="모든 수정안 저장" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}><Save aria-hidden="true" /></IconButton>}
-        <IconButton label="더 보기" aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)}><Ellipsis aria-hidden="true" /></IconButton>
-      </div>
+    <header className="su-appbar workspace-bar"><div className="su-appbar__inner">
+      <div className="workspace-home su-row"><IconButton label="목차" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><MenuIcon size="1em" aria-hidden="true" /></IconButton></div>
+      <div className="document-actions su-row">
+        {changes.length > 0 && <IconButton label="수정안 저장" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}><Save size="1em" aria-hidden="true" /></IconButton>}
+        <Menu forceOpen={moreOpen} onOpen={()=>setMoreOpen(true)} onClose={()=>setMoreOpen(false)}>
+          <Menu.Trigger><IconButton label="도구"><Ellipsis size="1em" aria-hidden="true" /></IconButton></Menu.Trigger>
+          <Menu.Content align="end" minWidth={180}>
+            <Menu.Link href="/manage">관리</Menu.Link>
+            {entry && <>
+              {(editing || compare) && <Menu.Item onSelect={()=>switchView('read')}><Eye size="1em" aria-hidden="true"/>본문</Menu.Item>}
+              <Menu.Item onSelect={()=>switchView(compare?'read':'compare')}><Columns2 size="1em" aria-hidden="true"/>변경 비교</Menu.Item>
+              <Menu.Item disabled={!canEdit} onSelect={()=>switchView('edit')}><Pencil size="1em" aria-hidden="true"/>마크다운 편집</Menu.Item>
+              <Menu.Item disabled={busy || !entry.source.canonical} onSelect={()=>void refresh()}><RefreshCw size="1em" aria-hidden="true"/>새로고침</Menu.Item>
+              {entry.source.canonical?.product==='corpus' && <Menu.Item disabled={busy||historyLoading} onSelect={()=>void previousVersion()}><History size="1em" aria-hidden="true"/>직전 저장본</Menu.Item>}
+              <Menu.Item onSelect={()=>setInfoOpen(true)}><Info size="1em" aria-hidden="true"/>원본 정보</Menu.Item>
+            </>}
+            {changes.length>0 && <Menu.Item onSelect={()=>void copy(JSON.stringify({changes},null,2))}><Copy size="1em" aria-hidden="true"/>수정안 복사</Menu.Item>}
+            <Menu.Separator/>
+            <Menu.Item onSelect={()=>setDark(!dark)}>{dark?<Sun size="1em" aria-hidden="true"/>:<Moon size="1em" aria-hidden="true"/>}{dark?'라이트 모드':'다크 모드'}</Menu.Item>
+          </Menu.Content>
+        </Menu>
+      </div></div>
     </header>
-    <div className="layout">
+    <div className="workspace-layout su-workspace">
       <main id="main" tabIndex={-1}>
         <div className="status-area" role="status" aria-live="polite">{message}</div>
-        {storageError && <div className="notice"><p>{storageError}</p><button onClick={downloadRecovery}>보관본 내려받기</button></div>}
-        {!entry ? <div className="welcome"><h1>Sense · Corpus</h1><button onClick={() => openNavigation()}>자료 열기</button></div> : <>
-          <header className={'document-header' + (editing || compare ? ' compact' : '')} id={titleOnlySection?.key} data-guidance-section={titleOnlySection ? true : undefined} tabIndex={titleOnlySection ? -1 : undefined} aria-labelledby="document-title">
-            <h1 id="document-title" tabIndex={-1} className={selectedLocator?.product === 'context-item' ? 'visually-hidden' : undefined}>{selectedLocator?.product === 'context-item' ? 'Context 항목' : documentTitle}</h1>
+        {storageError && <div className="notice su-stack"><p>{storageError}</p><UiButton onClick={downloadRecovery}>보관본 내려받기</UiButton></div>}
+        {!entry ? <div className="welcome"><h1>Sense · Corpus</h1><UiButton onClick={() => openNavigation()}>자료 열기</UiButton></div> : <>
+          <header className={'document-header report-head' + (editing || compare ? ' compact' : '')} id={titleOnlySection?.key} data-guidance-section={titleOnlySection ? true : undefined} tabIndex={titleOnlySection ? -1 : undefined} aria-labelledby="document-title">
+            <h1 id="document-title" tabIndex={-1} className={selectedLocator?.product === 'context-item' ? 'visually-hidden' : 'report-title'}>{selectedLocator?.product === 'context-item' ? 'Context 항목' : documentTitle}</h1>
             {!editing && !compare && entry.draft.description && <p className="lead">{entry.draft.description}</p>}
             <p className="document-state" role="status">{entry.incoming ? '원본 변경 · 비교 필요' : isDirty(entry) ? '미저장 수정안' : entry.source.permission === 'read_only' ? '읽기 전용' : null}</p>
           </header>
-          {entry.incoming && <div className="notice">
+          {entry.incoming && <div className="notice su-stack">
             <h2>원본 변경</h2>
-            <details><summary><ChevronDown className="summary-chevron" aria-hidden="true" />최신 원본 읽기</summary>{entry.incoming.content.name && <h3>{entry.incoming.content.name}</h3>}{entry.incoming.content.description && <p>{entry.incoming.content.description}</p>}<div className="prose"><Markdown text={entry.incoming.content.body} /></div></details>
-            <div className="actions"><button onClick={() => act(() => { commit(resolveIncoming(stateRef.current, entry.source.id, true)); setEditing(false); setCompare(true); })}>수정안 유지</button><button onClick={() => act(() => { commit(resolveIncoming(stateRef.current, entry.source.id, false)); setEditing(false); setCompare(false); })}>최신 원본 사용</button></div>
+            <details><summary><ChevronDown className="summary-chevron" aria-hidden="true" />최신 원본 읽기</summary>{entry.incoming.content.name && <h3>{entry.incoming.content.name}</h3>}{entry.incoming.content.description && <p>{entry.incoming.content.description}</p>}<div className="workspace-prose"><Markdown text={entry.incoming.content.body} /></div></details>
+            <div className="actions su-row"><UiButton onClick={() => act(() => { commit(resolveIncoming(stateRef.current, entry.source.id, true)); setEditing(false); setCompare(true); })}>수정안 유지</UiButton><UiButton onClick={() => act(() => { commit(resolveIncoming(stateRef.current, entry.source.id, false)); setEditing(false); setCompare(false); })}>최신 원본 사용</UiButton></div>
           </div>}
-          <article className={'article' + (compare ? ' comparison' : '')}>
+          <article className={'article document' + (compare ? ' comparison su-stack' : '')}>
             {compare ? <>
-              <div className="compare-summary">{previous && <span>직전 저장본 · {previous.version}</span>}{previous && <button disabled={busy || historyLoading || isDirty(entry) || Boolean(entry.incoming)} onClick={() => void restorePrevious()}>이 버전 복원</button>}{isDirty(entry) && <button onClick={() => act(() => { commit(resetDraft(stateRef.current, entry.source.id)); setEditing(false); setMessage('이 자료의 수정안을 원본으로 되돌렸습니다.'); })}>수정안 되돌리기</button>}</div>
-              <div className="compare-grid">{[{ title: previous ? '직전 저장본' : '원본', content: previous?.content ?? entry.source.content }, { title: previous ? '현재' : '수정안', content: entry.draft }].map(column => <section key={column.title}><h2 className="compare-label">{column.title}</h2>{column.content.name && <h3>{column.content.name}</h3>}{column.content.description && <p>{column.content.description}</p>}{column.content.applicability && Object.values(column.content.applicability).some(values => values.length) && <dl>{Object.entries(column.content.applicability).map(([key, values]) => <Fragment key={key}><dt>{{activities:'활동',targets:'대상',topics:'분야',paths:'경로'}[key as 'activities'|'targets'|'topics'|'paths']}</dt><dd>{values.join(', ') || '—'}</dd></Fragment>)}</dl>}<div className="prose"><Markdown text={column.content.body} title={column.content.name} /></div></section>)}</div>
+              <div className="compare-summary su-row">{previous && <span>직전 저장본 · {previous.version}</span>}{previous && <UiButton disabled={busy || historyLoading || isDirty(entry) || Boolean(entry.incoming)} onClick={() => void restorePrevious()}>이 버전 복원</UiButton>}{isDirty(entry) && <UiButton onClick={() => act(() => { commit(resetDraft(stateRef.current, entry.source.id)); setEditing(false); setMessage('이 자료의 수정안을 원본으로 되돌렸습니다.'); })}>수정안 되돌리기</UiButton>}</div>
+              <div className="compare-grid su-grid">{[{ title: previous ? '직전 저장본' : '원본', content: previous?.content ?? entry.source.content }, { title: previous ? '현재' : '수정안', content: entry.draft }].map(column => <section className="su-stack" key={column.title}><h2 className="compare-label">{column.title}</h2>{column.content.name && <h3>{column.content.name}</h3>}{column.content.description && <p>{column.content.description}</p>}{column.content.applicability && Object.values(column.content.applicability).some(values => values.length) && <dl>{Object.entries(column.content.applicability).map(([key, values]) => <Fragment key={key}><dt>{{activities:'활동',targets:'대상',topics:'분야',paths:'경로'}[key as 'activities'|'targets'|'topics'|'paths']}</dt><dd>{values.join(', ') || '—'}</dd></Fragment>)}</dl>}<div className="workspace-prose"><Markdown text={column.content.body} title={column.content.name} /></div></section>)}</div>
             </> : <>
               {editing ? <section className="document-editor" aria-label="문서 편집">
-                <fieldset disabled={!canEdit}>
-                  {entry.draft.name !== undefined && <label>이름<input aria-invalid={Boolean(contentIssue(entry.draft))} aria-describedby={contentIssue(entry.draft) ? 'name-issue' : undefined} value={entry.draft.name} onChange={e => act(() => editContent({ ...entry.draft, name: e.target.value }))} /></label>}
+                <fieldset className="su-stack" disabled={!canEdit}>
+                  {entry.draft.name !== undefined && <label className="su-field">이름<UiInput aria-invalid={Boolean(contentIssue(entry.draft))} aria-describedby={contentIssue(entry.draft) ? 'name-issue' : undefined} value={entry.draft.name} onChange={e => act(() => editContent({ ...entry.draft, name: e.target.value }))} /></label>}
                   {contentIssue(entry.draft) && <p id="name-issue" role="status">{contentIssue(entry.draft)}</p>}
-                  {entry.draft.description !== undefined && <label>적용 설명<textarea rows={3} value={entry.draft.description} onChange={e => act(() => editContent({ ...entry.draft, description: e.target.value }))} /></label>}
-                  <label htmlFor="document-text">본문</label>
-                  <textarea id="document-text" spellCheck={false} value={entry.draft.body} onChange={e => act(() => editContent({ ...entry.draft, body: e.target.value }))} />
+                  {entry.draft.description !== undefined && <label className="su-field">적용 설명<UiTextarea rows={3} value={entry.draft.description} onChange={e => act(() => editContent({ ...entry.draft, description: e.target.value }))} /></label>}
+                  <label className="su-field" htmlFor="document-text">본문
+                    <UiTextarea id="document-text" spellCheck={false} value={entry.draft.body} onChange={e => act(() => editContent({ ...entry.draft, body: e.target.value }))} />
+                  </label>
                   {entry.draft.applicability && <details className="metadata-editor"><summary><ChevronDown className="summary-chevron" aria-hidden="true" />적용 범위</summary>
-                    {(['activities','targets','topics','paths'] as const).map((key, index) => <label key={key}>{['활동','대상','분야','프로젝트 내 경로'][index]}<input value={entry.draft.applicability![key].join(', ')} onChange={e => act(() => editContent({ ...entry.draft, applicability: { ...entry.draft.applicability!, [key]: e.target.value.split(',').map(v => v.trim()).filter(Boolean) } }))} /></label>)}
+                    <div className="su-stack">{(['activities','targets','topics','paths'] as const).map((key, index) => <label className="su-field" key={key}>{['활동','대상','분야','프로젝트 내 경로'][index]}<UiInput value={entry.draft.applicability![key].join(', ')} onChange={e => act(() => editContent({ ...entry.draft, applicability: { ...entry.draft.applicability!, [key]: e.target.value.split(',').map(v => v.trim()).filter(Boolean) } }))} /></label>)}</div>
                   </details>}
                 </fieldset>
               </section> : <InlineDocument key={entry.source.id} body={entry.draft.body} title={documentTitle} editable={Boolean(canEdit)} onChange={(body, expected) => {
@@ -420,63 +430,49 @@ export default function Home() {
       </main>
     </div>
     {navigationOpen && <Modal titleId="navigation-title" className="navigation-dialog" close={() => setNavigationOpen(false)}>
-      <div className="navigation-header">
-        <div className="dialog-head"><h2 id="navigation-title">Workspace</h2><IconButton label="탐색 닫기" onClick={() => setNavigationOpen(false)}><X aria-hidden="true" /></IconButton></div>
-        <div className="navigation-tabs"><button aria-pressed={navigationTab !== 'toc'} onClick={() => setNavigationTab('sources')}>자료</button><button aria-pressed={navigationTab === 'toc'} disabled={!entry} onClick={() => setNavigationTab('toc')}>목차</button></div>
-        {navigationTab === 'projects' ? <div className="navigation-search">
-          <button className="project-back" aria-label="현재 자료로 돌아가기" onClick={() => setNavigationTab('sources')}><ArrowLeft aria-hidden="true" />자료 범위</button>
-          <label className="search-field"><Search aria-hidden="true" /><input type="search" aria-label="Sense·프로젝트 찾기" placeholder="Sense·프로젝트 찾기" autoFocus value={projectQuery} onChange={e => setProjectQuery(e.target.value)} /></label>
-        </div> : navigationTab === 'sources' ? <div className="navigation-search">
-          <button className="project-picker" aria-label={`자료 범위 변경: ${browseGroup?.title ?? 'Sense'}`} onClick={() => { setNavigationTab('projects'); setProjectQuery(''); }}><span>{browseGroup?.title ?? 'Sense'}</span><ChevronDown aria-hidden="true" /></button>
-          <label className="search-field"><Search aria-hidden="true" /><input type="search" aria-label={`${browseGroup?.title ?? 'Sense'} 자료 검색`} placeholder="자료 검색" value={query} onChange={e => setQuery(e.target.value)} autoFocus /></label>
+      <div className="navigation-header su-stack">
+        <div className="dialog-head su-toolbar"><h2 id="navigation-title">Workspace</h2><IconButton label="탐색 닫기" onClick={() => setNavigationOpen(false)}><X size="1em" aria-hidden="true" /></IconButton></div>
+        <div className="navigation-tabs su-row"><UiButton aria-pressed={navigationTab !== 'toc'} onClick={() => setNavigationTab('sources')}>자료</UiButton><UiButton aria-pressed={navigationTab === 'toc'} disabled={!entry} onClick={() => setNavigationTab('toc')}>목차</UiButton></div>
+        {navigationTab === 'projects' ? <div className="navigation-search su-stack">
+          <UiButton className="project-back" aria-label="현재 자료로 돌아가기" onClick={() => setNavigationTab('sources')}><ArrowLeft size="1em" aria-hidden="true" />자료 범위</UiButton>
+          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label="Sense·프로젝트 찾기" placeholder="Sense·프로젝트 찾기" autoFocus value={projectQuery} onChange={e => setProjectQuery(e.target.value)} /></label>
+        </div> : navigationTab === 'sources' ? <div className="navigation-search su-stack">
+          <UiButton className="project-picker" aria-label={`자료 범위 변경: ${browseGroup?.title ?? 'Sense'}`} onClick={() => { setNavigationTab('projects'); setProjectQuery(''); }}><span>{browseGroup?.title ?? 'Sense'}</span><ChevronDown size="1em" aria-hidden="true" /></UiButton>
+          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label={`${browseGroup?.title ?? 'Sense'} 자료 검색`} placeholder="자료 검색" value={query} onChange={e => setQuery(e.target.value)} autoFocus /></label>
         </div> : null}
       </div>
       <div className="navigation-content">
       {navigationTab === 'projects' ? <>
-        <nav className="candidate-list" aria-label="프로젝트">{projects.map(g => <button key={g.id} aria-current={g.id === groupId ? 'true' : undefined} onClick={() => { setGroupId(g.id); setQuery(''); setAvailable([]); setNavigationTab('sources'); }}><span className="candidate-title">{g.title}</span>{g.id === groupId && <Check aria-hidden="true" />}</button>)}</nav>
+        <nav className="candidate-list" aria-label="프로젝트">{projects.map(g => <button key={g.id} aria-current={g.id === groupId ? 'true' : undefined} onClick={() => { setGroupId(g.id); setQuery(''); setAvailable([]); setNavigationTab('sources'); }}><span className="candidate-title">{g.title}</span>{g.id === groupId && <Check size="1em" aria-hidden="true" />}</button>)}</nav>
         {!projects.length && <p className="empty-result">결과 없음</p>}
       </> : navigationTab === 'toc' ? <nav className="toc-list" aria-label="현재 문서 목차">{sections.map(section => <button key={section.key} aria-current={activeSection === section.key ? 'location' : undefined} onClick={() => navigateSection(section.key)}>{section.title === '본문' ? documentTitle : section.title}</button>)}</nav> : <>
         <nav className="candidate-list" aria-label="자료" aria-busy={loadingCandidates}>
           {available.map(c => <button key={c.id} aria-current={c.id === workspace.selectedId ? 'page' : undefined} onClick={() => void openCandidate(c)}><span className={'candidate-title' + (c.excerpt ? ' excerpt' : '')}>{c.title}</span><span className="candidate-kind">{c.excerpt ? '발췌' : c.locator.product === 'source' ? '원자료' : c.locator.product === 'context-skill' || (c.locator.product === 'sense' && c.locator.skill) ? '스킬' : c.subtitle === '지침' || c.subtitle === 'Context' ? c.subtitle : ''}</span></button>)}
         </nav>
         {!available.length && <p className="empty-result" role="status">{loadingCandidates ? '불러오는 중' : candidateError ? '자료 조회 실패' : '결과 없음'}</p>}
-        {filtered.length > 0 && <section className="open-documents"><h3>열린 자료</h3><nav className="candidate-list" aria-label="열린 자료">{filtered.map(e => <button key={e.source.id} aria-current={e.source.id === workspace.selectedId ? 'page' : undefined} onClick={() => selectSource(e.source.id)}><span className="candidate-title">{readingTitle(e.source, e.draft)}</span>{isDirty(e) && <span className="draft-dot"><Circle aria-hidden="true" /><span className="visually-hidden">미저장 수정안</span></span>}</button>)}</nav></section>}
+        {filtered.length > 0 && <section className="open-documents"><h3>열린 자료</h3><nav className="candidate-list" aria-label="열린 자료">{filtered.map(e => <button key={e.source.id} aria-current={e.source.id === workspace.selectedId ? 'page' : undefined} onClick={() => selectSource(e.source.id)}><span className="candidate-title">{readingTitle(e.source, e.draft)}</span>{isDirty(e) && <span className="draft-dot"><Circle size="1em" aria-hidden="true" /><span className="visually-hidden">미저장 수정안</span></span>}</button>)}</nav></section>}
       </>}
-      {navigationTab === 'sources' && <div className="navigation-tools"><button onClick={() => { setNavigationOpen(false); setImportOpen(true); }}><FileUp aria-hidden="true" />자료 가져오기</button></div>}
-      </div>
-    </Modal>}
-    {moreOpen && <Modal titleId="more-title" className="options-dialog" close={() => setMoreOpen(false)}>
-      <div className="dialog-head"><h2 id="more-title">더 보기</h2><IconButton label="더 보기 닫기" onClick={() => setMoreOpen(false)}><X aria-hidden="true" /></IconButton></div>
-      <div className="option-list">
-        <a href="/manage">관리</a>
-        {entry && <>
-          <button disabled={!canEdit} onClick={() => { setMoreOpen(false); switchView('edit'); }}><Pencil aria-hidden="true" />마크다운 편집</button>
-          <button disabled={busy || !entry.source.canonical} onClick={() => { setMoreOpen(false); void refresh(); }}><RefreshCw aria-hidden="true" />다시 불러오기</button>
-          {entry.source.canonical?.product === 'corpus' && <button disabled={busy || historyLoading} onClick={() => { setMoreOpen(false); void previousVersion(); }}><History aria-hidden="true" />직전 저장본 비교</button>}
-          <button onClick={() => { setMoreOpen(false); setInfoOpen(true); }}><Info aria-hidden="true" />원본 정보</button>
-        </>}
-        {changes.length > 0 && <button onClick={() => { setMoreOpen(false); void copy(JSON.stringify({ changes }, null, 2)); }}><Copy aria-hidden="true" />모든 수정안 복사</button>}
-        <button onClick={() => { setDark(!dark); setMoreOpen(false); }}>{dark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}{dark ? '밝은 화면' : '어두운 화면'}</button>
+      {navigationTab === 'sources' && <div className="navigation-tools"><UiButton onClick={() => { setNavigationOpen(false); setImportOpen(true); }}><FileUp size="1em" aria-hidden="true" />자료 가져오기</UiButton></div>}
       </div>
     </Modal>}
     {infoOpen && entry && <Modal titleId="info-title" close={() => setInfoOpen(false)}>
-      <div className="dialog-head"><h2 id="info-title">원본 정보</h2><IconButton label="원본 정보 닫기" onClick={() => setInfoOpen(false)}><X aria-hidden="true" /></IconButton></div>
+      <div className="dialog-head su-toolbar"><h2 id="info-title">원본 정보</h2><IconButton label="원본 정보 닫기" onClick={() => setInfoOpen(false)}><X size="1em" aria-hidden="true" /></IconButton></div>
       <dl><dt>위치</dt><dd>{entry.source.reference}</dd><dt>버전</dt><dd>{entry.source.version}</dd>
         {entry.savedAt && <><dt>저장</dt><dd>{new Date(entry.savedAt).toLocaleString('ko-KR')}</dd></>}
         {entry.source.activation === 'new_session' && <><dt>실행 적용</dt><dd>새 실행에서 확인 필요</dd></>}
-        {entry.source.links?.map((link, index) => <Fragment key={index}><dt>출처</dt><dd>{link.locator ? <button onClick={() => { setInfoOpen(false); void openCandidate({ id: link.label, title: link.label, locator: link.locator! }); }}>{link.label}</button> : link.label}</dd></Fragment>)}
+        {entry.source.links?.map((link, index) => <Fragment key={index}><dt>출처</dt><dd>{link.locator ? <UiButton onClick={() => { setInfoOpen(false); void openCandidate({ id: link.label, title: link.label, locator: link.locator! }); }}>{link.label}</UiButton> : link.label}</dd></Fragment>)}
       </dl>
     </Modal>}
     {importOpen && <Modal titleId="import-title" close={() => setImportOpen(false)}>
-      <div className="dialog-head"><h2 id="import-title">자료 가져오기</h2><button onClick={() => setImportOpen(false)} aria-label="가져오기 닫기" className="icon-button"><X aria-hidden="true" /></button></div>
+      <div className="dialog-head su-toolbar"><h2 id="import-title">자료 가져오기</h2><UiButton onClick={() => setImportOpen(false)} aria-label="가져오기 닫기" className="icon-button"><X size="1em" aria-hidden="true" /></UiButton></div>
 
-      <label htmlFor="import-text">지침 자료</label><textarea id="import-text" autoFocus rows={9} value={importText} onChange={e => setImportText(e.target.value)}  />
-      <div className="actions"><button className="primary" disabled={!importText.trim()} onClick={() => act(() => importSources(JSON.parse(importText)))}>가져오기</button><label className="file-button">파일 선택<input type="file" accept=".json,application/json" onChange={async e => {
+      <label className="su-field" htmlFor="import-text">지침 자료<UiTextarea id="import-text" autoFocus rows={9} value={importText} onChange={e => setImportText(e.target.value)} /></label>
+      <div className="actions su-row"><UiButton className="primary" disabled={!importText.trim()} onClick={() => act(() => importSources(JSON.parse(importText)))}>가져오기</UiButton><label className="file-button">파일 선택<input type="file" accept=".json,application/json" onChange={async e => {
         const file = e.target.files?.[0]; if (!file) return;
         try { importSources(JSON.parse(await file.text())); } catch (error) { setMessage(error instanceof Error ? error.message : '파일을 읽지 못했습니다.'); }
       }} /></label></div>
       {message && <p role="alert">{message}</p>}
     </Modal>}
-    {copyFallback && <Modal titleId="copy-title" close={() => setCopyFallback('')}><div className="dialog-head"><h2 id="copy-title">수정안 복사</h2><button className="icon-button" aria-label="복사 창 닫기" onClick={() => setCopyFallback('')}><X aria-hidden="true" /></button></div><textarea aria-label="복사할 수정안" readOnly rows={12} value={copyFallback} onFocus={e => e.target.select()} autoFocus /></Modal>}
+    {copyFallback && <Modal titleId="copy-title" close={() => setCopyFallback('')}><div className="dialog-head su-toolbar"><h2 id="copy-title">수정안 복사</h2><UiButton className="icon-button" aria-label="복사 창 닫기" onClick={() => setCopyFallback('')}><X size="1em" aria-hidden="true" /></UiButton></div><UiTextarea aria-label="복사할 수정안" readOnly rows={12} value={copyFallback} onFocus={e => e.target.select()} autoFocus /></Modal>}
   </>;
 }
