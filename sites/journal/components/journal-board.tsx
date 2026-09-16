@@ -926,9 +926,10 @@ export function JournalBoard({
           </div>
         </summary>
         <form className="record-search" onSubmit={handleSearch}>
-          <label>
+          <label htmlFor="journal-search-query">
             <span className="sr-only">검색어</span>
             <Input
+              id="journal-search-query"
               type="search"
               size="md"
               value={searchQuery}
@@ -936,9 +937,10 @@ export function JournalBoard({
               onChange={(event) => setSearchQuery(event.target.value)}
             />
           </label>
-          <label>
+          <label htmlFor="journal-search-project">
             <span className="sr-only">프로젝트</span>
             <Input
+              id="journal-search-project"
               size="md"
               value={searchProject}
               placeholder="프로젝트"
@@ -1004,13 +1006,13 @@ export function JournalBoard({
           </Button>
         </div>
         <form className="item-form" onSubmit={handleAdd}>
-          <label>
+          <label htmlFor="add-item-title-input">
             제목
-            <Input name="title" required maxLength={240} />
+            <Input id="add-item-title-input" name="title" required maxLength={240} />
           </label>
-          <label>
+          <label htmlFor="add-item-summary-input">
             현재 상태
-            <Textarea name="summary" required maxLength={1000} rows={3} />
+            <Textarea id="add-item-summary-input" name="summary" required maxLength={1000} rows={3} />
           </label>
           <div className="form-grid">
             <label>
@@ -1031,9 +1033,9 @@ export function JournalBoard({
               </select>
             </label>
           </div>
-          <label>
+          <label htmlFor="add-item-project-input">
             프로젝트
-            <Input name="projectKey" maxLength={120} />
+            <Input id="add-item-project-input" name="projectKey" maxLength={120} />
           </label>
           <div className="dialog-actions">
             <Button color="secondary" variant="ghost" type="button" onClick={() => setAddOpen(false)}>
@@ -1128,9 +1130,9 @@ export function JournalBoard({
             </section>
             {detail.item.weekId === board.week.id && isClosed && (
               <form className="correction-form" onSubmit={handleCorrection}>
-                <label>
+                <label htmlFor="item-correction-note-input">
                   정정
-                  <Textarea name="note" required maxLength={2000} rows={2} />
+                  <Textarea id="item-correction-note-input" name="note" required maxLength={2000} rows={2} />
                 </label>
                 <Button color="primary" variant="solid" type="submit">기록</Button>
               </form>
