@@ -46,6 +46,9 @@
   "overrides": {
     "miniflare": {
       "sharp": "0.35.4"
+    },
+    "@openai/apps-sdk-ui@0.2.2": {
+      "lodash": "4.18.1"
     }
   }
 }

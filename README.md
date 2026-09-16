@@ -444,6 +444,11 @@ Document Files는 자체 형식 설정과 전체 테스트를 사용합니다. `
 해결하기 위한 제한된 override이며, 다른 의존성의 버전 범위나 보안 검사 수준은 바꾸지 않습니다.
 상위 도구가 수정 버전을 포함하면 이 override를 제거하고 잠금 파일 재설치와 기존 검사를 확인합니다.
 
+각 Site에서 Apps SDK UI 0.2.2의 `lodash`만 4.18.1로 교체하는 override를 적용합니다.
+SDK가 고정한 4.17.21의 [코드 주입 취약점](https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc)과
+프로토타입 오염 취약점을 해결하는 범위이며, 다른 의존성이나 보안 검사 수준은 바꾸지 않습니다.
+SDK가 수정 버전을 포함하면 이 override를 제거하고 잠금 파일 재설치와 기존 검사를 확인합니다.
+
 ## License
 
 [Apache License 2.0](./LICENSE). Runtime dependency는 각 라이선스를 따릅니다. [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 함께 보십시오.
