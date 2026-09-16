@@ -115,6 +115,14 @@ text. `corpus_space_search.search_scope` selects sources (legacy default), conte
 or all; Context candidates carry identity, version, provenance and bounded source
 metadata. Read selected full documents separately.
 
+`sense_read`, `corpus_space_get`, and `corpus_document_read` also support an
+opt-in `if_none_match` representation tag. Omission preserves the legacy result;
+`null` returns the full result with a `read_etag`, and a matching tag returns only
+that tag with `not_modified=true`. The service still performs the authorized read
+and all lifecycle and version checks before comparing the tag. Tags bind the owner,
+operation, normalized selection, and complete fresh result; they add no server
+cache and do not apply to Source or Work file reads.
+
 The Context Site uses server-only CONTEXT_SITE_TOKEN plus the verified Site-specific
 user ID mapped by CONTEXT_SITE_USER_ID/CONTEXT_SITE_OWNER_ID. Browser-supplied owner
 IDs are never accepted. Site and MCP share the same Zod/service/CAS logic. A saved

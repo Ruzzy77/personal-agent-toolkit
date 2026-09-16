@@ -14,7 +14,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.5.0"
+        "base_version": "1.6.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -42,7 +42,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.5.0"
+        "surface_version": "1.6.0"
       }
     }
   },
@@ -51,7 +51,7 @@
       "display_name": "Sense",
       "plugin": {
         "path": "plugins/sense",
-        "base_version": "0.5.0"
+        "base_version": "0.6.0"
       },
       "delivery": {
         "openai": {
@@ -79,7 +79,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Sense",
-        "surface_version": "0.5.0-remote.1",
+        "surface_version": "0.6.0-remote.1",
         "tools": [
           "sense_read",
           "sense_overview",
@@ -102,7 +102,7 @@
       "display_name": "Corpus",
       "plugin": {
         "path": "plugins/corpus",
-        "base_version": "0.25.0"
+        "base_version": "0.26.0"
       },
       "delivery": {
         "openai": {
@@ -131,7 +131,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Corpus",
-        "surface_version": "0.25.0-remote.1",
+        "surface_version": "0.26.0-remote.1",
         "tools": [
           "corpus_registrations_list",
           "corpus_connection_detach",

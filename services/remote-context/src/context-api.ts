@@ -23,6 +23,7 @@ import * as native from "./corpus-document-schemas";
 import * as schemas from "./schemas";
 import { SenseService } from "./sense";
 import { ContextError } from "./errors";
+import { conditionalRead } from "./conditional-read";
 import type { Env, Principal } from "./types";
 
 type Operation = OperationDefinition<z.ZodObject> & { mcpOutput: z.ZodObject };
@@ -69,7 +70,14 @@ export function contextOperations(
       "Read the index or selected criteria; include_skill chooses connected method text.",
       async (raw) => {
         const input = schemas.senseReadSchema.parse(raw);
-        return sense.read(input.view, input.section_ids, input.include_skill);
+        const { if_none_match, ...selection } = input;
+        return conditionalRead(
+          principal.ownerId,
+          "sense_read",
+          selection,
+          if_none_match,
+          () => sense.read(input.view, input.section_ids, input.include_skill),
+        );
       },
     ),
     sense_overview: operation(
@@ -196,7 +204,17 @@ export function contextOperations(
       schemas.corpusSpaceGetSchema,
       "corpus.read",
       "Read project context and document index; select whether its Skill is included.",
-      (raw) => corpus.spaceGet(raw),
+      async (raw) => {
+        const input = schemas.corpusSpaceGetSchema.parse(raw);
+        const { if_none_match, ...selection } = input;
+        return conditionalRead(
+          principal.ownerId,
+          "corpus_space_get",
+          selection,
+          if_none_match,
+          () => corpus.spaceGet(selection),
+        );
+      },
     ),
     corpus_space_search: operation(
       schemas.corpusSpaceSearchSchema,
@@ -256,7 +274,17 @@ export function contextOperations(
       native.corpusDocumentReadSchema,
       "corpus.read",
       "Read current or previous Markdown, optionally in version-pinned Unicode ranges.",
-      (raw) => docs.documentRead(raw),
+      async (raw) => {
+        const input = native.corpusDocumentReadSchema.parse(raw);
+        const { if_none_match, ...selection } = input;
+        return conditionalRead(
+          principal.ownerId,
+          "corpus_document_read",
+          selection,
+          if_none_match,
+          () => docs.documentRead(selection),
+        );
+      },
     ),
     corpus_document_revise: operation(
       native.corpusDocumentReviseSchema,

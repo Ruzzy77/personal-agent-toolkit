@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { readEtagSchema } from "./conditional-read";
 
 const spaceId = z
   .string()
@@ -198,6 +199,7 @@ export const corpusDocumentReadSchema = z
     expected_version: version.optional(),
     start_char: z.number().int().min(0).max(524_288).default(0),
     max_chars: z.number().int().min(1).max(200_000).default(30_000),
+    if_none_match: readEtagSchema,
   })
   .strict();
 

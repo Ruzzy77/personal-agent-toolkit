@@ -1147,7 +1147,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.4.0",
+      version: "0.5.0",
       resources: ["toolkit", "sense", "corpus", "hypes"],
     });
 
@@ -1381,7 +1381,96 @@ describe("remote personal context service", () => {
         },
       },
     });
+    const skillConditional = await callRead({
+      view: "sections",
+      section_ids: ["questions-and-choices"],
+      if_none_match: null,
+    });
+    const skillTag = String(
+      (
+        skillConditional.result as {
+          structuredContent: { result: Record<string, unknown> };
+        }
+      ).structuredContent.result.read_etag,
+    );
+    await runtime.STATE_DB.prepare(
+      `UPDATE sense_section_skills
+       SET instructions=?, version=version+1, updated_at=?
+       WHERE owner_id=? AND section_id=?`,
+    )
+      .bind(
+        "Use the changed method only when it applies.",
+        new Date().toISOString(),
+        "owner_test",
+        "questions-and-choices",
+      )
+      .run();
+    expect(
+      await callRead({
+        view: "sections",
+        section_ids: ["questions-and-choices"],
+        if_none_match: skillTag,
+      }),
+    ).toMatchObject({
+      result: {
+        structuredContent: {
+          result: {
+            sections: [
+              { skill: { instructions: "Use the changed method only when it applies." } },
+            ],
+            not_modified: false,
+          },
+        },
+      },
+    });
     expect(JSON.stringify(criteriaOnly)).not.toContain("Continue autonomously");
+    const conditionalFirst = await callRead({
+      view: "sections",
+      section_ids: ["questions-and-choices"],
+      include_skill: false,
+      if_none_match: null,
+    });
+    const conditionalResult = (
+      conditionalFirst.result as {
+        structuredContent: { result: Record<string, unknown> };
+        content: Array<{ type: string; text: string }>;
+      }
+    ).structuredContent.result;
+    expect(conditionalResult).toMatchObject({
+      sections: [{ text: profile.sections[0]!.text }],
+      not_modified: false,
+    });
+    expect(conditionalResult.read_etag).toMatch(/^read-v1:[0-9a-f]{64}$/);
+    expect(
+      JSON.parse(
+        (
+          conditionalFirst.result as {
+            content: Array<{ type: string; text: string }>;
+          }
+        ).content[0]!.text,
+      ),
+    ).toEqual(
+      (conditionalFirst.result as { structuredContent: unknown })
+        .structuredContent,
+    );
+    expect(
+      await callRead({
+        view: "sections",
+        section_ids: ["questions-and-choices"],
+        include_skill: false,
+        if_none_match: conditionalResult.read_etag,
+      }),
+    ).toMatchObject({
+      result: {
+        structuredContent: {
+          ok: true,
+          result: {
+            read_etag: conditionalResult.read_etag,
+            not_modified: true,
+          },
+        },
+      },
+    });
     // Direct MCP rejects misspelled inputs; an upstream connector may discard
     // unknown keys before this boundary, so the call contract must be explicit.
     for (const args of [
@@ -3876,6 +3965,26 @@ it("routes the Context Site through fixed server-owned credentials and strict op
   expect(
     await body(await call("corpus_space_create", createSpace)),
   ).toMatchObject({ result: { space_id, created: true } });
+  const conditionalSpace = await body(
+    await call("corpus_space_get", { space_id, if_none_match: null }),
+  );
+  const spaceTag = String(
+    (conditionalSpace.result as Record<string, unknown>).read_etag,
+  );
+  expect(spaceTag).toMatch(/^read-v1:[0-9a-f]{64}$/);
+  expect(
+    await body(
+      await call("corpus_space_get", { space_id, if_none_match: spaceTag }),
+    ),
+  ).toMatchObject({ result: { read_etag: spaceTag, not_modified: true } });
+  expect(
+    (
+      await call("corpus_space_get", {
+        space_id,
+        if_none_match: "invalid-tag",
+      })
+    ).status,
+  ).toBe(400);
   const document = {
     space_id,
     document_id: "design",
@@ -3897,6 +4006,16 @@ it("routes the Context Site through fixed server-owned credentials and strict op
   expect((await call("corpus_document_create", document)).status).toBe(200);
   expect(
     await body(
+      await call("corpus_space_get", { space_id, if_none_match: spaceTag }),
+    ),
+  ).toMatchObject({
+    result: {
+      space: { documents: { items: [{ document_id: "design" }] } },
+      not_modified: false,
+    },
+  });
+  expect(
+    await body(
       await call("corpus_document_read", { space_id, document_id: "design" }),
     ),
   ).toMatchObject({
@@ -3910,6 +4029,38 @@ it("routes the Context Site through fixed server-owned credentials and strict op
       has_more: false,
     },
   });
+  const conditionalDocument = await body(
+    await call("corpus_document_read", {
+      space_id,
+      document_id: "design",
+      if_none_match: null,
+    }),
+  );
+  const conditionalTag = String(
+    (conditionalDocument.result as Record<string, unknown>).read_etag,
+  );
+  expect(conditionalTag).toMatch(/^read-v1:[0-9a-f]{64}$/);
+  expect(
+    await body(
+      await call("corpus_document_read", {
+        space_id,
+        document_id: "design",
+        if_none_match: conditionalTag,
+      }),
+    ),
+  ).toMatchObject({
+    result: { read_etag: conditionalTag, not_modified: true },
+  });
+  expect(
+    (
+      await call("corpus_document_read", {
+        space_id,
+        document_id: "design",
+        expected_version: 999,
+        if_none_match: conditionalTag,
+      })
+    ).status,
+  ).toBe(409);
   expect(
     await runtime.STATE_DB.prepare(
       "SELECT owner_id FROM corpus_documents WHERE space_id=? AND document_id='design'",

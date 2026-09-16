@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { readEtagSchema } from "./conditional-read";
 
 // Remote context tools share one stable success envelope. Product payloads stay
 // extensible because their detailed contracts are versioned by each surface.
@@ -73,6 +74,7 @@ export const senseReadSchema = z
       .describe(
         "False omits linked Skill instructions while retaining criteria and Skill metadata; true includes the complete method.",
       ),
+    if_none_match: readEtagSchema,
   })
   .strict();
 
@@ -503,6 +505,7 @@ export const corpusSpaceGetSchema = z
     include_sources: z.boolean().default(false),
     source_limit: z.number().int().min(1).max(100).default(20),
     source_offset: z.number().int().min(0).max(200_000).default(0),
+    if_none_match: readEtagSchema,
   })
   .strict();
 

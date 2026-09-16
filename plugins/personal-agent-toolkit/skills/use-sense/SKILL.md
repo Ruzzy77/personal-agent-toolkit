@@ -17,6 +17,8 @@ Applying a quality criterion, loading its detailed method, and executing that me
 
 A direct continuation can open a known section immediately. Reuse already-read guidance of the same version within the task. Read again when the purpose changes, the user requests a reread, or an update or freshness check matters. Do not reread an already-injected common instruction body just to route back here. Trivial requests do not need a Sense lookup. The conversation and current sources support work during Sense unavailability. Explicit Sense requests include Sense diagnostics.
 
+When a later freshness check is genuinely expected and the exposed schema supports `if_none_match`, set it to `null` on the full read, retain the returned `read_etag` with that exact representation, and send the tag on the later identical selection. Treat `not_modified=true` as permission to reuse only when the complete earlier representation is still available in the current context. After compaction or when only a summary or tag remains, read the full representation again. Do not add a revalidation call when freshness does not matter.
+
 ## Content
 
 Sense sections contain user guidance that remains useful across contexts. A Section Skill contains a reusable working method connected to one section. Source material and locators belong with their sources. Conversation text belongs in conversation history. Project facts, operational states and QA records belong with their projects. Sense records the reusable intent in domain-neutral language.
