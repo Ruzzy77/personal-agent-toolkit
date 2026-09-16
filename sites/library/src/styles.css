@@ -1,21 +1,25 @@
+@import "tailwindcss";
+@import "@openai/apps-sdk-ui/css";
 @import "@personal-agent/ui-kit/react.css";
 
+@source "../node_modules/@openai/apps-sdk-ui/dist/es";
+
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
   font-family: "Noto Sans KR", "Helvetica Neue", Arial, sans-serif;
-  color: #f4f2e9;
-  background: #081747;
+  color: var(--su-ink);
+  background: var(--su-paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --cobalt: #081747;
-  --cobalt-deep: #040a28;
-  --cobalt-hover: rgba(35, 49, 156, 0.62);
-  --signal: #c9ed12;
-  --signal-hover: #ddfa31;
-  --paper: #f4f2e9;
-  --ink: #080b16;
-  --line: rgba(201, 237, 18, 0.24);
-  --muted: #9ca7d4;
+  --cobalt: var(--su-paper);
+  --cobalt-deep: var(--su-surface);
+  --cobalt-hover: var(--su-hover);
+  --signal: var(--su-accent);
+  --signal-hover: var(--su-accent);
+  --paper: var(--su-ink);
+  --ink: var(--su-paper);
+  --line: var(--su-line);
+  --muted: var(--su-muted);
   --font-brand: "Library Brush", "Arial Black", sans-serif;
   --font-label: "Library Brush", "Barlow Condensed", "Arial Narrow", "Noto Sans KR", sans-serif;
 }
@@ -61,15 +65,6 @@ input:focus-visible {
 }
 
 .library-app {
-  --su-paper: var(--cobalt);
-  --su-surface: var(--cobalt);
-  --su-ink: var(--paper);
-  --su-muted: var(--muted);
-  --su-line: var(--line);
-  --su-soft: var(--cobalt-hover);
-  --su-hover: var(--cobalt-hover);
-  --su-accent: var(--signal);
-  --su-on-accent: var(--ink);
   position: relative;
   min-height: 100svh;
   background: var(--cobalt);
@@ -80,8 +75,8 @@ input:focus-visible {
   top: 0;
   z-index: 8;
   width: 100%;
-  color: var(--paper);
-  background: var(--cobalt);
+  color: var(--su-ink);
+  background: var(--su-paper);
 }
 
 .archive-ticket-inner {
@@ -99,7 +94,7 @@ input:focus-visible {
 
 .library-wordmark {
   display: block;
-  color: var(--signal);
+  color: var(--su-ink);
   font-family: var(--font-brand);
   font-size: 25px;
   font-style: normal;

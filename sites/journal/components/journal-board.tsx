@@ -1,5 +1,8 @@
 'use client';
 
+import { Button } from '@openai/apps-sdk-ui/components/Button';
+import { Input } from '@openai/apps-sdk-ui/components/Input';
+import { Textarea } from '@openai/apps-sdk-ui/components/Textarea';
 import {
   Check,
   ChevronDown,
@@ -816,15 +819,19 @@ export function JournalBoard({
           <div className="board-heading-actions">
             <p>{`${board.items.length}개`}</p>
             {!isClosed && (
-              <button
+              <Button
                 type="button"
                 className="icon-button"
+                color="secondary"
+                variant="ghost"
+                size="md"
+                uniform
                 aria-label="항목 추가"
                 title="항목 추가"
                 onClick={() => setAddOpen(true)}
               >
                 <Plus aria-hidden="true" />
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -921,8 +928,9 @@ export function JournalBoard({
         <form className="record-search" onSubmit={handleSearch}>
           <label>
             <span className="sr-only">검색어</span>
-            <input
+            <Input
               type="search"
+              size="md"
               value={searchQuery}
               placeholder="검색"
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -930,21 +938,26 @@ export function JournalBoard({
           </label>
           <label>
             <span className="sr-only">프로젝트</span>
-            <input
+            <Input
+              size="md"
               value={searchProject}
               placeholder="프로젝트"
               onChange={(event) => setSearchProject(event.target.value)}
             />
           </label>
-          <button
+          <Button
             type="submit"
             className="icon-button"
+            color="secondary"
+            variant="outline"
+            size="md"
+            uniform
             aria-label="항목 찾기"
             title="찾기"
             disabled={searching}
           >
             <Search aria-hidden="true" />
-          </button>
+          </Button>
         </form>
         {searchResult && (
           <ol className="record-results">
@@ -976,29 +989,33 @@ export function JournalBoard({
       >
         <div className="dialog-header">
           <h2 id="add-item-title">항목 추가</h2>
-          <button
+          <Button
             type="button"
             className="icon-button"
+            color="secondary"
+            variant="ghost"
+            size="md"
+            uniform
             aria-label="닫기"
             title="닫기"
             onClick={() => setAddOpen(false)}
           >
             <X aria-hidden="true" />
-          </button>
+          </Button>
         </div>
         <form className="item-form" onSubmit={handleAdd}>
           <label>
             제목
-            <input name="title" required maxLength={240} />
+            <Input name="title" required maxLength={240} />
           </label>
           <label>
             현재 상태
-            <textarea name="summary" required maxLength={1000} rows={3} />
+            <Textarea name="summary" required maxLength={1000} rows={3} />
           </label>
           <div className="form-grid">
             <label>
               구분
-              <select name="lane" defaultValue="direct">
+              <select className="su-select" name="lane" defaultValue="direct">
                 <option value="today">오늘</option>
                 <option value="direct">직접 처리</option>
                 <option value="waiting">대기</option>
@@ -1007,7 +1024,7 @@ export function JournalBoard({
             </label>
             <label>
               담당
-              <select name="responsibility" defaultValue="user">
+              <select className="su-select" name="responsibility" defaultValue="user">
                 <option value="user">나</option>
                 <option value="counterparty">상대방</option>
                 <option value="system">시스템</option>
@@ -1016,15 +1033,15 @@ export function JournalBoard({
           </div>
           <label>
             프로젝트
-            <input name="projectKey" maxLength={120} />
+            <Input name="projectKey" maxLength={120} />
           </label>
           <div className="dialog-actions">
-            <button type="button" onClick={() => setAddOpen(false)}>
+            <Button color="secondary" variant="ghost" type="button" onClick={() => setAddOpen(false)}>
               취소
-            </button>
-            <button type="submit" className="primary-action">
+            </Button>
+            <Button color="primary" variant="solid" type="submit" className="primary-action">
               추가
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -1036,15 +1053,19 @@ export function JournalBoard({
       >
         <div className="dialog-header">
           <h2 id="item-detail-title">{detail?.item.title ?? '항목'}</h2>
-          <button
+          <Button
             type="button"
             className="icon-button"
+            color="secondary"
+            variant="ghost"
+            size="md"
+            uniform
             aria-label="닫기"
             title="닫기"
             onClick={() => setDetailOpen(false)}
           >
             <X aria-hidden="true" />
-          </button>
+          </Button>
         </div>
         {detailError && (
           <p className="dialog-status is-error" role="alert">
@@ -1109,9 +1130,9 @@ export function JournalBoard({
               <form className="correction-form" onSubmit={handleCorrection}>
                 <label>
                   정정
-                  <textarea name="note" required maxLength={2000} rows={2} />
+                  <Textarea name="note" required maxLength={2000} rows={2} />
                 </label>
-                <button type="submit">기록</button>
+                <Button color="primary" variant="solid" type="submit">기록</Button>
               </form>
             )}
           </>

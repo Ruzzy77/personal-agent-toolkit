@@ -75,6 +75,7 @@
     const returnNav = main.querySelector(":scope > [data-library-return]")
       || document.querySelector("[data-library-return]");
     if (returnNav) {
+      returnNav.classList.add("su-appbar");
       returnNav.setAttribute("aria-label", "Library 홈");
       const link = returnNav.querySelector("a");
       if (link) {
@@ -84,6 +85,12 @@
         logo.textContent = "LIBRARY";
         logo.setAttribute("aria-hidden", "true");
         link.replaceChildren(logo);
+      }
+      if (link && !link.parentElement?.classList.contains("su-appbar__inner")) {
+        const inner = document.createElement("div");
+        inner.className = "su-appbar__inner";
+        returnNav.insertBefore(inner, link);
+        inner.append(link);
       }
       document.body.insertBefore(returnNav, document.body.firstChild);
     }

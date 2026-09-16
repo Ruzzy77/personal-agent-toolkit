@@ -45,25 +45,25 @@
 /* 색인(Saegin) · tokens */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
 
   --cobalt: #081747;
   --cobalt-deep: #040a28;
-  --paper: #081747;
-  --surface: #0c1d54;
-  --surface-strong: #112766;
-  --ink: #f4f2e9;
-  --soft: #b2bcda;
-  --faint: #8d9ac2;
-  --line: #354877;
-  --line-strong: #f4f2e9;
-  --accent: #c9ed12;
-  --accent-hover: #ddfa31;
-  --accent-pressed: #afd108;
-  --accent-ink: #081747;
+  --paper: var(--su-paper);
+  --surface: var(--su-surface);
+  --surface-strong: var(--su-soft);
+  --ink: var(--su-ink);
+  --soft: var(--su-muted);
+  --faint: var(--su-muted);
+  --line: var(--su-line);
+  --line-strong: var(--su-ink);
+  --accent: var(--su-accent);
+  --accent-hover: var(--su-accent);
+  --accent-pressed: var(--su-accent);
+  --accent-ink: var(--su-on-accent);
   --highlight: #ffe47a;
   --highlight-hover: #ffed9f;
-  --link: #c9ed12;
+  --link: var(--su-accent);
 
   --font-sans: "Noto Sans KR", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Apple SD Gothic Neo", "Segoe UI", sans-serif;

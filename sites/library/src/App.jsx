@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "@openai/apps-sdk-ui/components/Button";
+import { Input } from "@openai/apps-sdk-ui/components/Input";
+import { Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registerCatalogWebMcpTools } from "./webmcp.js";
 
@@ -270,9 +273,9 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
             <p>개인 분류표</p>
             <h2 id="tag-dialog-title">{item.title}</h2>
           </div>
-          <button aria-label="Tag 편집 닫기" className="tag-dialog-close su-btn" data-variant="ghost" onClick={onClose} type="button">
-            닫기
-          </button>
+          <Button aria-label="Tag 편집 닫기" className="tag-dialog-close" color="secondary" onClick={onClose} size="md" title="닫기" type="button" uniform variant="ghost">
+            <X aria-hidden="true" size="1em" />
+          </Button>
         </header>
 
         <div aria-live="polite" className="tag-list su-row">
@@ -282,9 +285,9 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
             mark.tags.map((tag) => (
               <span className="tag-chip" key={tag}>
                 {tag}
-                <button aria-label={`${tag} 태그 삭제`} onClick={() => onRemoveTag(item.id, tag)} type="button">
-                  ×
-                </button>
+                <Button aria-label={`${tag} 태그 삭제`} color="secondary" onClick={() => onRemoveTag(item.id, tag)} size="2xs" type="button" uniform variant="ghost">
+                  <X aria-hidden="true" size="1em" />
+                </Button>
               </span>
             ))
           )}
@@ -293,9 +296,8 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
         <form className="tag-form su-stack" onSubmit={submit}>
           <label htmlFor="new-tag">새 태그</label>
           <div>
-            <input
+            <Input
               autoComplete="off"
-              className="su-input"
               id="new-tag"
               maxLength={24}
               onChange={(event) => setValue(event.target.value)}
@@ -303,9 +305,9 @@ function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
               ref={inputRef}
               value={value}
             />
-            <button aria-label="태그 추가" className="su-btn su-icon-btn" data-variant="solid" disabled={!value.trim()} title="추가" type="submit">
-              <img alt="" aria-hidden="true" src="/icons/library/action-add.png" />
-            </button>
+            <Button aria-label="태그 추가" color="primary" disabled={!value.trim()} size="md" title="추가" type="submit" uniform variant="solid">
+              <Plus aria-hidden="true" size="1em" />
+            </Button>
           </div>
         </form>
       </section>

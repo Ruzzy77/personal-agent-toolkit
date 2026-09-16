@@ -1,7 +1,10 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import '@openai/apps-sdk-ui/css';
 @import '@personal-agent/ui-kit/react.css';
+
+@source '../node_modules/@openai/apps-sdk-ui/dist/es';
 
 @custom-variant dark (&:is(.dark *));
 

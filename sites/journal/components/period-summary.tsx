@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '@openai/apps-sdk-ui/components/Button';
+import { Textarea } from '@openai/apps-sdk-ui/components/Textarea';
 import { Check, Pencil, X } from 'lucide-react';
 import { type SyntheticEvent, useState } from 'react';
 
@@ -71,20 +73,24 @@ export function PeriodSummary({
       <div className="period-summary-heading">
         <h3 id="period-summary-title">기간 요약</h3>
         {!editing && (
-          <button
+          <Button
             type="button"
             className="icon-button"
+            color="secondary"
+            variant="ghost"
+            size="md"
+            uniform
             aria-label="기간 요약 편집"
             title="편집"
             onClick={() => setEditing(true)}
           >
             <Pencil aria-hidden="true" />
-          </button>
+          </Button>
         )}
       </div>
       {editing ? (
         <form onSubmit={save}>
-          <textarea
+          <Textarea
             name="body"
             defaultValue={current?.body ?? ''}
             required
@@ -93,24 +99,32 @@ export function PeriodSummary({
             aria-label="기간 요약"
           />
           <div className="period-summary-actions">
-            <button
+            <Button
               type="button"
               className="icon-button"
+              color="secondary"
+              variant="ghost"
+              size="md"
+              uniform
               aria-label="편집 취소"
               title="취소"
               onClick={() => setEditing(false)}
             >
               <X aria-hidden="true" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               className="icon-button is-primary"
+              color="primary"
+              variant="solid"
+              size="md"
+              uniform
               aria-label="기간 요약 저장"
               title="저장"
               disabled={saving}
             >
               <Check aria-hidden="true" />
-            </button>
+            </Button>
           </div>
         </form>
       ) : (

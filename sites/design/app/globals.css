@@ -1,4 +1,8 @@
+@import "tailwindcss";
+@import "@openai/apps-sdk-ui/css";
 @import "@personal-agent/ui-kit/react.css";
+
+@source "../node_modules/@openai/apps-sdk-ui/dist/es";
 
 * {
   box-sizing: border-box;

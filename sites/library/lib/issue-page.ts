@@ -54,8 +54,11 @@ export function renderIssuePage(issue: LibraryIssue): string {
           `content=${quote}${addConnectSource(addFontSource(policy))}${quote}`,
       ),
   );
+  const sharedStyles = html.includes('/ui-kit/1.2.0/tokens.css')
+    ? ''
+    : `\n  <link rel="stylesheet" href="/ui-kit/1.2.0/tokens.css">\n  <link rel="stylesheet" href="/ui-kit/1.2.0/seomun.css">`;
   const editor = `\n  <link rel="stylesheet" href="/library-editor.css">\n  <script src="/library-editor.js" data-library-issue-id="${escapeAttribute(issue.id)}" data-library-version="${escapeAttribute(issue.version)}" defer></script>`;
-  html = html.replace(/<\/head>/i, `${editor}\n</head>`);
+  html = html.replace(/<\/head>/i, `${sharedStyles}${editor}\n</head>`);
   return html;
 }
 

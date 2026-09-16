@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "@openai/apps-sdk-ui/components/Button";
+import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
+import { Moon, Sun, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -1173,9 +1176,9 @@ function RequestBuilder({
     <section className="request-panel">
       <header>
         <h2 id="request-title">{note.koreanName} 참고 요청 만들기</h2>
-        <button type="button" aria-label="요청 만들기 닫기" onClick={onClose}>
-          닫기
-        </button>
+        <Button color="secondary" variant="ghost" size="md" uniform type="button" aria-label="요청 만들기 닫기" title="닫기" onClick={onClose}>
+          <X aria-hidden="true" size="1em" />
+        </Button>
       </header>
 
       <div className="request-grid">
@@ -1185,7 +1188,7 @@ function RequestBuilder({
             <p className="field-help">
               무엇을 만들고 누가 쓸지 한 줄로 적어 주세요.
             </p>
-            <textarea
+            <Textarea
               id="request-subject"
               autoFocus
               value={subject}
@@ -1218,20 +1221,22 @@ function RequestBuilder({
           <div className="request-output-heading">
             <h3>요청문</h3>
           </div>
-          <textarea
+          <Textarea
             readOnly
             value={requestText}
             rows={15}
             aria-label="완성된 요청문"
           />
           <div className="request-actions">
-            <button
+            <Button
+              color="primary"
+              variant="solid"
               type="button"
               onClick={copyRequest}
               disabled={!subject.trim()}
             >
               요청문 복사
-            </button>
+            </Button>
             {showTemplate ? (
               <a
                 href={`/api/design/files/${recipe.id}/${firstTemplate[1]}`}
@@ -1603,14 +1608,19 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
           >
             Design Reference Library
           </a>
-          <button
-            className="theme-button su-btn"
-            data-variant="ghost"
+          <Button
+            className="theme-button"
+            color="secondary"
+            variant="ghost"
+            size="md"
+            uniform
             type="button"
+            aria-label={theme === "light" ? "어두운 테마" : "밝은 테마"}
+            title={theme === "light" ? "어둡게" : "밝게"}
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
           >
-            {theme === "light" ? "어둡게" : "밝게"}
-          </button>
+            {theme === "light" ? <Moon aria-hidden="true" size="1em" /> : <Sun aria-hidden="true" size="1em" />}
+          </Button>
         </div>
       </header>
 
