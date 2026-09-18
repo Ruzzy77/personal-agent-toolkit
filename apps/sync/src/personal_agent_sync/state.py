@@ -803,9 +803,10 @@ class SyncState:
                 for row in connection.execute(
                     f"""
                     SELECT connection_key, document_id, local_relative_path,
-                           last_revision_sha256
+                           relative_path_nfc, last_revision_sha256
                     FROM documents
                     WHERE connection_key IN ({placeholders})
+                      AND missing_since IS NULL
                     ORDER BY connection_key, relative_path_nfc
                     """,
                     connection_keys,
@@ -820,9 +821,27 @@ class SyncState:
             for document in documents:
                 descriptor = -1
                 try:
-                    descriptor = open_relative(
-                        root_descriptor, str(document["local_relative_path"])
-                    )
+                    # A copy can land on a filesystem that stores the same name
+                    # in the other Unicode normalization, so the recorded local
+                    # spelling is tried first and the normalized one second.
+                    local_path = str(document["local_relative_path"])
+                    candidates = [local_path]
+                    normalized = str(document["relative_path_nfc"])
+                    if normalized != local_path:
+                        candidates.append(normalized)
+                    for index, relative in enumerate(candidates):
+                        try:
+                            descriptor = open_relative(root_descriptor, relative)
+                        except SyncError as error:
+                            if (
+                                error.code != "source_unavailable"
+                                or index == len(candidates) - 1
+                            ):
+                                raise
+                            continue
+                        local_path = relative
+                        break
+                    document = {**document, "local_relative_path": local_path}
                     before = os.fstat(descriptor)
                     digest: str | None = None
                     if document["last_revision_sha256"] is not None:
@@ -893,7 +912,7 @@ class SyncState:
                     """
                     UPDATE documents SET device = ?, inode = ?, size = ?,
                         modified_ns = ?, changed_ns = ?, last_seen_at = ?,
-                        missing_since = NULL
+                        missing_since = NULL, local_relative_path = ?
                     WHERE connection_key = ? AND document_id = ?
                     """,
                     (
@@ -903,6 +922,7 @@ class SyncState:
                         observed["modified_ns"],
                         observed["changed_ns"],
                         now,
+                        observed["local_relative_path"],
                         observed["connection_key"],
                         observed["document_id"],
                     ),

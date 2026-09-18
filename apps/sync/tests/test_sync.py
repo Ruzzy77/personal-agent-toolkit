@@ -2773,3 +2773,68 @@ def test_workspace_retirement_requires_exact_local_binding(tmp_path: Path):
             },
         )
     assert error.value.code == "workspace_scope_mismatch"
+
+
+def test_projection_summarizes_structures_beyond_the_remote_field_budget(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "sheet.xlsx"
+    source.write_bytes(b"sheet")
+    digest = hashlib.sha256(b"sheet").hexdigest()
+    snapshot = Snapshot(
+        path=source,
+        byte_size=5,
+        sha256=digest,
+        modified_ns=1,
+        changed_ns=1,
+        device=1,
+        inode=2,
+    )
+    descriptor = {
+        "adapter_id": "document-files.spreadsheet",
+        "adapter_version": "2",
+        "config_hash": "a" * 64,
+        "capabilities": {"format_ids": ["xlsx"], "supports_ocr": False},
+    }
+    merged = [
+        {"range": f"A{row}:B{row}", "row_span": 2, "col_span": 1} for row in range(4000)
+    ]
+    result = {
+        "input": {"format_id": "xlsx", "byte_size": 5, "sha256": digest},
+        "analyzer": descriptor,
+        "extraction": {
+            "descriptor": descriptor,
+            "completeness": "complete",
+            "coverage": {"text_content": "complete"},
+            "units": [
+                {
+                    "unit_type": "sheet",
+                    "structure_path": {"sheet": "표준", "merged_ranges": merged},
+                    "content": "cell",
+                    "derivation_method": "native_text",
+                    "geometry": {},
+                    "confidence": 1,
+                    "quality_flags": [],
+                    "issues": [],
+                }
+            ],
+            "issues": [],
+            "manifest_hash": "b" * 64,
+        },
+    }
+    _header, units = build_projection(
+        change={
+            "document_id": "doc_sheet",
+            "corpus_id": "notes",
+            "relative_path_nfc": "book.xlsx",
+        },
+        snapshot=snapshot,
+        selected_format="xlsx",
+        result=result,
+    )
+    unit = units[0]
+    for field in ("structurePath", "sourceAnchor", "geometry"):
+        assert len(json.dumps(unit[field], ensure_ascii=False).encode()) <= 65_536
+    assert unit["structurePath"]["sheet"] == "표준"
+    assert unit["structurePath"]["merged_ranges"] == {"summarized_item_count": 4000}
+    assert "structure_summarized" in unit["qualityFlags"]

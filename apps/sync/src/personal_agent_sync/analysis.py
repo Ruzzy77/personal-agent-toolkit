@@ -247,6 +247,50 @@ def _require_mapping(value: object, name: str) -> dict[str, Any]:
     return value
 
 
+# The remote accepts at most 64 KiB of JSON per structure field. A spreadsheet
+# with thousands of merged ranges exceeds that, so the description is summarized
+# instead of letting the whole Source revision fail validation forever.
+_STRUCTURE_BUDGET = 32 * 1024
+_MAXIMUM_UNIT_ISSUES = 1000
+_MAXIMUM_PROJECTION_ISSUES = 10_000
+_MAXIMUM_QUALITY_FLAGS = 128
+_SUMMARIZED_FLAG = "structure_summarized"
+
+
+def _encoded_size(value: Any) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+
+
+def _bounded_structure(value: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Summarize a structure description that exceeds the remote field budget."""
+
+    if _encoded_size(value) <= _STRUCTURE_BUDGET:
+        return value, False
+    reduced = dict(value)
+    containers = sorted(
+        (
+            (_encoded_size(item), key)
+            for key, item in value.items()
+            if isinstance(item, (dict, list))
+        ),
+        reverse=True,
+    )
+    for _size, key in containers:
+        item = reduced[key]
+        reduced[key] = {"summarized_item_count": len(item)}
+        if _encoded_size(reduced) <= _STRUCTURE_BUDGET:
+            return reduced, True
+    for key in [
+        key
+        for key, item in reduced.items()
+        if not isinstance(item, (int, float, bool)) and item is not None
+    ]:
+        reduced[key] = None
+        if _encoded_size(reduced) <= _STRUCTURE_BUDGET:
+            return reduced, True
+    return {"summarized": True}, True
+
+
 def build_projection(
     *,
     change: dict[str, Any],
@@ -310,6 +354,11 @@ def build_projection(
                 "invalid_analysis_result", "analysis Source unit is invalid"
             )
         derivation = unit.get("derivation_method", "native_text")
+        structure, structure_summarized = _bounded_structure(structure)
+        geometry, geometry_summarized = _bounded_structure(geometry)
+        quality_flags = [str(flag) for flag in flags]
+        if structure_summarized or geometry_summarized:
+            quality_flags.append(_SUMMARIZED_FLAG)
         units.append(
             {
                 "unitId": unit_ids[index],
@@ -326,12 +375,12 @@ def build_projection(
                 "nextUnitId": unit_ids[index + 1]
                 if index + 1 < len(unit_ids)
                 else None,
-                "extractionIssues": issues,
+                "extractionIssues": issues[:_MAXIMUM_UNIT_ISSUES],
                 "derivationMethod": str(derivation),
                 "geometry": geometry,
                 "confidence": unit.get("confidence"),
                 "ocr": str(derivation).startswith("ocr"),
-                "qualityFlags": [str(flag) for flag in flags],
+                "qualityFlags": quality_flags[:_MAXIMUM_QUALITY_FLAGS],
             }
         )
     header = {
@@ -363,7 +412,7 @@ def build_projection(
             "completenessState": extraction.get("completeness"),
             "coverage": coverage,
             "capabilityManifest": capabilities,
-            "issues": raw_issues,
+            "issues": raw_issues[:_MAXIMUM_PROJECTION_ISSUES],
             "assuranceState": "declared",
             "declaredUnitCount": len(units),
         },
