@@ -13,6 +13,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from personal_agent_host.config import HostConfig, read_token
+from personal_agent_host.jobs import JobManager
 from personal_agent_host.server import create_server
 
 MCP_PATH = "/mcp"
@@ -53,7 +54,8 @@ class BearerGuard:
 
 
 def build_app(config: HostConfig) -> Starlette:
-    server = create_server(config)
+    jobs = JobManager(config)
+    server = create_server(config, jobs)
     listen = f"{config.listen_host}:{config.listen_port}"
     security = TransportSecuritySettings(
         allowed_hosts=[
@@ -74,6 +76,7 @@ def build_app(config: HostConfig) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
+        await jobs.start()
         async with server.session_manager.run():
             yield
 
