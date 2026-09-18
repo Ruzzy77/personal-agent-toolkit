@@ -74,6 +74,7 @@ function metadataKind(path: string): ResourceKind | null {
     return "corpus";
   if (path === "/.well-known/oauth-protected-resource/hypes/mcp")
     return "hypes";
+  if (path === "/.well-known/oauth-protected-resource/host/mcp") return "host";
   return null;
 }
 
@@ -629,7 +630,7 @@ export async function handleHttp(
         ok: true,
         service: "personal-agent-context",
         version: packageInfo.version,
-        resources: ["toolkit", "sense", "corpus", "hypes"],
+        resources: ["toolkit", "sense", "corpus", "hypes", "host"],
       });
     }
     const kind = metadataKind(url.pathname);
@@ -667,7 +668,9 @@ export async function handleHttp(
         ? "sense"
         : path.startsWith("/hypes")
           ? "hypes"
-          : "corpus";
+          : path.startsWith("/host")
+            ? "host"
+            : "corpus";
       headers = unauthorizedMetadata(env, kind);
     }
     return json(

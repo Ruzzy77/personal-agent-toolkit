@@ -51,15 +51,7 @@ export default {
     const kind = mcpKind(url.pathname);
     if (!kind) return handleHttp(request, env);
     try {
-      const resourceHost = new URL(
-        kind === "toolkit"
-          ? env.TOOLKIT_RESOURCE
-          : kind === "sense"
-            ? env.SENSE_RESOURCE
-            : kind === "corpus"
-              ? env.CORPUS_RESOURCE
-              : env.HYPES_RESOURCE,
-      ).hostname;
+      const resourceHost = new URL(resourceUrl(env, kind)).hostname;
       const rejected = hostHeaderValidationResponse(request, [
         resourceHost,
         "localhost",

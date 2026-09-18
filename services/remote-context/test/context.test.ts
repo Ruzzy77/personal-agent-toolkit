@@ -1147,8 +1147,8 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.5.0",
-      resources: ["toolkit", "sense", "corpus", "hypes"],
+      version: "0.6.0",
+      resources: ["toolkit", "sense", "corpus", "hypes", "host"],
     });
 
     const toolkit = await SELF.fetch(
@@ -1160,7 +1160,7 @@ describe("remote personal context service", () => {
       authorization_servers: ["https://auth.test"],
     });
 
-    for (const kind of ["sense", "corpus", "hypes"] as const) {
+    for (const kind of ["sense", "corpus", "hypes", "host"] as const) {
       const response = await SELF.fetch(
         `https://context.test/.well-known/oauth-protected-resource/${kind}/mcp`,
       );
@@ -1416,7 +1416,11 @@ describe("remote personal context service", () => {
         structuredContent: {
           result: {
             sections: [
-              { skill: { instructions: "Use the changed method only when it applies." } },
+              {
+                skill: {
+                  instructions: "Use the changed method only when it applies.",
+                },
+              },
             ],
             not_modified: false,
           },
@@ -4497,26 +4501,130 @@ it("keeps exact Source origins and historical search after moving native and leg
   });
 });
 
-
 it("keeps Workspace management owner-bound and routes all four product contracts", async () => {
-  const siteEnv = { ...runtime, LIBRARY_MANAGEMENT_WRITE_ENABLED: "true", DESIGN_MANAGEMENT_WRITE_ENABLED: "true", CONTEXT_SITE_TOKEN: "workspace-token", CONTEXT_SITE_USER_ID: "workspace-user", CONTEXT_SITE_OWNER_ID: "workspace-owner" };
-  await new SenseService(runtime.STATE_DB, "workspace-owner").importProfile({ schema_version: 2, sections: [] });
-  const headers = { Authorization: "Bearer workspace-token", "X-Personal-Agent-Site-User-Id": "workspace-user", "Content-Type": "application/json" };
-  const call = (name: string, input: unknown = {}, selected: HeadersInit = headers) => handleHttp(new Request(`https://context.test/admin/v1/${name}`, { method: "POST", headers: selected, body: JSON.stringify(input) }), siteEnv);
+  const siteEnv = {
+    ...runtime,
+    LIBRARY_MANAGEMENT_WRITE_ENABLED: "true",
+    DESIGN_MANAGEMENT_WRITE_ENABLED: "true",
+    CONTEXT_SITE_TOKEN: "workspace-token",
+    CONTEXT_SITE_USER_ID: "workspace-user",
+    CONTEXT_SITE_OWNER_ID: "workspace-owner",
+  };
+  await new SenseService(runtime.STATE_DB, "workspace-owner").importProfile({
+    schema_version: 2,
+    sections: [],
+  });
+  const headers = {
+    Authorization: "Bearer workspace-token",
+    "X-Personal-Agent-Site-User-Id": "workspace-user",
+    "Content-Type": "application/json",
+  };
+  const call = (
+    name: string,
+    input: unknown = {},
+    selected: HeadersInit = headers,
+  ) =>
+    handleHttp(
+      new Request(`https://context.test/admin/v1/${name}`, {
+        method: "POST",
+        headers: selected,
+        body: JSON.stringify(input),
+      }),
+      siteEnv,
+    );
   expect((await call("corpus_space_list", {}, {})).status).toBe(401);
-  expect((await call("corpus_space_list", {}, { ...headers, "X-Personal-Agent-Site-User-Id": "other-site-user" })).status).toBe(401);
-  expect((await call("corpus_space_list", {}, { ...headers, Authorization: "Bearer other-token" })).status).toBe(401);
-  for (const name of ["constructor", "hypes_read", "corpus_file_write", "sense_revise", "library_update_issue", "design_upsert_recipe"]) expect((await call(name)).status, name).toBe(404);
-  expect((await call("corpus_space_create", { space_id: "workspace-admin-test", display_name: "Admin test", purpose: "Isolated test", owner_id: "other-owner" })).status).toBe(400);
-  expect((await call("corpus_space_create", { space_id: "workspace-admin-test", display_name: "Admin test", purpose: "Isolated test" })).status).toBe(200);
+  expect(
+    (
+      await call(
+        "corpus_space_list",
+        {},
+        { ...headers, "X-Personal-Agent-Site-User-Id": "other-site-user" },
+      )
+    ).status,
+  ).toBe(401);
+  expect(
+    (
+      await call(
+        "corpus_space_list",
+        {},
+        { ...headers, Authorization: "Bearer other-token" },
+      )
+    ).status,
+  ).toBe(401);
+  for (const name of [
+    "constructor",
+    "hypes_read",
+    "corpus_file_write",
+    "sense_revise",
+    "library_update_issue",
+    "design_upsert_recipe",
+  ])
+    expect((await call(name)).status, name).toBe(404);
+  expect(
+    (
+      await call("corpus_space_create", {
+        space_id: "workspace-admin-test",
+        display_name: "Admin test",
+        purpose: "Isolated test",
+        owner_id: "other-owner",
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await call("corpus_space_create", {
+        space_id: "workspace-admin-test",
+        display_name: "Admin test",
+        purpose: "Isolated test",
+      })
+    ).status,
+  ).toBe(200);
   const listed = await body(await call("corpus_space_list"));
-  expect(listed).toMatchObject({ ok: true, result: { spaces: expect.arrayContaining([expect.objectContaining({ space_id: "workspace-admin-test" })]) } });
-  for (const name of ["sense_trash_list", "corpus_trash_list", "library_list_issues", "library_trash_list", "design_list_recipes", "design_trash_list"]) {
-    const response = await call(name); expect(response.status, name).toBe(200); expect(await body(response)).toMatchObject({ ok: true });
+  expect(listed).toMatchObject({
+    ok: true,
+    result: {
+      spaces: expect.arrayContaining([
+        expect.objectContaining({ space_id: "workspace-admin-test" }),
+      ]),
+    },
+  });
+  for (const name of [
+    "sense_trash_list",
+    "corpus_trash_list",
+    "library_list_issues",
+    "library_trash_list",
+    "design_list_recipes",
+    "design_trash_list",
+  ]) {
+    const response = await call(name);
+    expect(response.status, name).toBe(200);
+    expect(await body(response)).toMatchObject({ ok: true });
   }
   // Dynamic UI operation names must resolve even though their test inputs are invalid.
-  for (const name of ["corpus_document_trash", "corpus_context_item_trash", "corpus_context_skill_trash", "corpus_space_trash", "corpus_trash_restore", "corpus_trash_purge", "sense_section_trash", "sense_skill_trash", "sense_trash_restore", "sense_trash_purge", "library_issue_trash", "library_trash_restore", "library_trash_purge", "design_recipe_trash", "design_file_trash", "design_trash_restore", "design_trash_purge"]) {
-    const response = await call(name); expect(response.status, name).toBe(400);
-    expect(await body(response)).toMatchObject({ ok: false, error: { code: "invalid_request" } });
+  for (const name of [
+    "corpus_document_trash",
+    "corpus_context_item_trash",
+    "corpus_context_skill_trash",
+    "corpus_space_trash",
+    "corpus_trash_restore",
+    "corpus_trash_purge",
+    "sense_section_trash",
+    "sense_skill_trash",
+    "sense_trash_restore",
+    "sense_trash_purge",
+    "library_issue_trash",
+    "library_trash_restore",
+    "library_trash_purge",
+    "design_recipe_trash",
+    "design_file_trash",
+    "design_trash_restore",
+    "design_trash_purge",
+  ]) {
+    const response = await call(name);
+    expect(response.status, name).toBe(400);
+    expect(await body(response)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
   }
 });
