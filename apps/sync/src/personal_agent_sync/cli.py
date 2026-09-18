@@ -230,6 +230,11 @@ def _launch_agent_path() -> Path:
 
 
 def _install_agent(config_path: Path | None, data_root: Path) -> dict:
+    if sys.platform != "darwin":
+        raise SyncError(
+            "unsupported_platform",
+            "on Linux the Sync loop runs inside personal-agent-host; use its install",
+        )
     executable = Path(sys.executable).parent / "personal-agent-sync"
     if not executable.is_file():
         discovered = shutil.which("personal-agent-sync")
@@ -274,6 +279,11 @@ def _install_agent(config_path: Path | None, data_root: Path) -> dict:
 
 
 def _uninstall_agent() -> dict:
+    if sys.platform != "darwin":
+        raise SyncError(
+            "unsupported_platform",
+            "on Linux the Sync loop runs inside personal-agent-host; use its uninstall",
+        )
     path = _launch_agent_path()
     if path.exists():
         os.spawnlp(

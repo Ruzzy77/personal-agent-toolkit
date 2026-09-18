@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,13 @@ class RootPolicy:
 
 
 @dataclass(frozen=True)
+class BackupConfig:
+    target: Path
+    paths: tuple[Path, ...]
+    time: str
+
+
+@dataclass(frozen=True)
 class HostConfig:
     sync: SyncConfig
     listen_host: str
@@ -51,7 +59,12 @@ class HostConfig:
     sandbox_image: str
     max_concurrent_jobs: int
     token_path: Path
+    backup: BackupConfig | None
     roots: tuple[RootPolicy, ...]
+
+    @property
+    def prefix(self) -> Path:
+        return self.token_path.parent.parent
 
     def root(self, root_id: str) -> RootPolicy:
         for item in self.roots:
@@ -73,6 +86,27 @@ def _execute(value: object, *, field: str) -> Execute:
     if value not in ("none", "sandbox"):
         raise SyncError("invalid_configuration", f"{field} must be none or sandbox")
     return value  # type: ignore[return-value]
+
+
+def _backup(value: object) -> BackupConfig | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise SyncError("invalid_configuration", "[host.backup] must be a table")
+    target = value.get("target")
+    paths = value.get("paths", [])
+    time = value.get("time", "03:30")
+    if not isinstance(target, str) or not target:
+        raise SyncError("invalid_configuration", "host.backup.target is required")
+    if not isinstance(paths, list) or not all(isinstance(v, str) for v in paths):
+        raise SyncError("invalid_configuration", "host.backup.paths must be strings")
+    if not isinstance(time, str) or not re.fullmatch(r"[0-2]\d:[0-5]\d", time):
+        raise SyncError("invalid_configuration", "host.backup.time must be HH:MM")
+    return BackupConfig(
+        target=Path(target).expanduser(),
+        paths=tuple(Path(v).expanduser() for v in paths),
+        time=time,
+    )
 
 
 def load_host_config(path: Path | None = None) -> HostConfig:
@@ -116,6 +150,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     token_value = host.get("token_path", str(source.parent / "host-upstream.token"))
     if not isinstance(token_value, str):
         raise SyncError("invalid_configuration", "host.token_path is invalid")
+    backup = _backup(host.get("backup"))
 
     raw_connections = raw.get("connections", [])
     policies: dict[str, tuple[Execute, tuple[str, ...]]] = {}
@@ -161,6 +196,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
         sandbox_image=sandbox_image,
         max_concurrent_jobs=max_jobs,
         token_path=Path(token_value).expanduser(),
+        backup=backup,
         roots=tuple(roots),
     )
 

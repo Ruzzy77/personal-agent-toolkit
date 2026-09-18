@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import tomllib
 import unicodedata
@@ -196,10 +197,17 @@ def _private_directory(path: Path) -> Path:
     return expanded
 
 
+def linux_prefix() -> Path:
+    base = Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser()
+    return base / "personal-agent-host"
+
+
 def default_config_path() -> Path:
     configured = os.environ.get("PERSONAL_AGENT_SYNC_CONFIG")
     if configured:
         return Path(configured).expanduser()
+    if sys.platform != "darwin":
+        return linux_prefix() / "config" / "host.toml"
     return (
         Path.home()
         / "Library"
@@ -404,7 +412,11 @@ def load_config(path: Path | None = None) -> SyncConfig:
         raise SyncError("invalid_configuration", "display_name is invalid")
     data_value = raw.get(
         "data_root",
-        str(Path.home() / "Library" / "Application Support" / "Personal Agent Sync"),
+        str(linux_prefix() / "state")
+        if sys.platform != "darwin"
+        else str(
+            Path.home() / "Library" / "Application Support" / "Personal Agent Sync"
+        ),
     )
     if not isinstance(data_value, str):
         raise SyncError("invalid_configuration", "data_root is invalid")

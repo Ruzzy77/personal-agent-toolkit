@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.transport_security import TransportSecuritySettings
+from personal_agent_sync.credentials import read_token as read_sync_token
+from personal_agent_sync.daemon import SyncDaemon
+from personal_agent_sync.errors import SyncError
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
@@ -17,6 +22,7 @@ from personal_agent_host.jobs import JobManager
 from personal_agent_host.server import create_server
 
 MCP_PATH = "/mcp"
+log = logging.getLogger("personal_agent_host")
 
 
 class BearerGuard:
@@ -53,6 +59,25 @@ class BearerGuard:
         await self.app(scope, receive, send)
 
 
+def start_sync(config: HostConfig) -> tuple[SyncDaemon, asyncio.Task[None]] | None:
+    """Run the Sync loop in-process once this device holds a Sync credential."""
+
+    try:
+        token = read_sync_token(config.sync.device_id)
+    except SyncError as exc:
+        log.warning("Sync loop not started: %s", exc)
+        return None
+    daemon = SyncDaemon(config.sync, token)
+    task = asyncio.create_task(daemon.run(), name="sync-loop")
+
+    def report(done: asyncio.Task[None]) -> None:
+        if not done.cancelled() and done.exception() is not None:
+            log.error("Sync loop stopped: %s", done.exception())
+
+    task.add_done_callback(report)
+    return daemon, task
+
+
 def build_app(config: HostConfig) -> Starlette:
     jobs = JobManager(config)
     server = create_server(config, jobs)
@@ -77,8 +102,15 @@ def build_app(config: HostConfig) -> Starlette:
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         await jobs.start()
-        async with server.session_manager.run():
-            yield
+        sync = start_sync(config)
+        try:
+            async with server.session_manager.run():
+                yield
+        finally:
+            if sync is not None:
+                sync[0].stopping.set()
+                sync[1].cancel()
+                await asyncio.gather(sync[1], return_exceptions=True)
 
     outer = Starlette(routes=[Mount("/", app=mcp_app)], lifespan=lifespan)
     return BearerGuard(outer, read_token(config))  # type: ignore[return-value]
