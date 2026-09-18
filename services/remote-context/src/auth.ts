@@ -2,6 +2,7 @@ import {
   bearerToken,
   constantTimeEqual,
 } from "@personal-agent/remote-runtime";
+import type { AccessValidationResult } from "@personal-agent/remote-runtime";
 
 import { ContextError } from "./errors";
 import type { Env, Principal, ResourceKind } from "./types";
@@ -51,6 +52,7 @@ export async function authenticateMcp(
   if (!env.AUTH_SERVICE) {
     throw new ContextError("invalid_token", "token is not recognized", 401);
   }
+  let failure: Extract<AccessValidationResult, { ok: false }> | null = null;
   for (const scope of requiredScopes) {
     const validation = await env.AUTH_SERVICE.validateAccessToken(
       token,
@@ -66,6 +68,19 @@ export async function authenticateMcp(
         owner: validation.owner,
       };
     }
+    failure = validation;
+  }
+  // An expired or otherwise invalid token must surface as 401 so that MCP
+  // clients refresh or re-authorize instead of treating it as a scope problem.
+  if (
+    failure &&
+    (failure.code === "invalid_token" || failure.code === "invalid_target")
+  ) {
+    throw new ContextError(
+      "invalid_token",
+      `the access token is not valid for the ${kind} resource`,
+      401,
+    );
   }
   throw new ContextError(
     "insufficient_scope",

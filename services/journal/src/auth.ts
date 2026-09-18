@@ -3,6 +3,7 @@ import {
   constantTimeEqual,
   hasAnyScope,
 } from "@personal-agent/remote-runtime";
+import type { AccessValidationResult } from "@personal-agent/remote-runtime";
 
 import { JournalError } from "./errors";
 import type { Env, Principal } from "./types";
@@ -60,6 +61,7 @@ export async function authenticate(
     throw new JournalError("invalid_token", "token is not recognized", 401);
   }
 
+  let failure: Extract<AccessValidationResult, { ok: false }> | null = null;
   for (const scope of anyScope) {
     const validation = await env.AUTH_SERVICE.validateAccessToken(
       token,
@@ -74,6 +76,20 @@ export async function authenticate(
         auth: "oauth",
       };
     }
+    failure = validation;
+  }
+
+  // An expired or otherwise invalid token must surface as 401 so that MCP
+  // clients refresh or re-authorize instead of treating it as a scope problem.
+  if (
+    failure &&
+    (failure.code === "invalid_token" || failure.code === "invalid_target")
+  ) {
+    throw new JournalError(
+      "invalid_token",
+      "the access token is not valid for the Journal resource",
+      401,
+    );
   }
 
   throw new JournalError(
