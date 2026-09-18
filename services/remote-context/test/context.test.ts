@@ -1147,7 +1147,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.6.0",
+      version: "0.7.0",
       resources: ["toolkit", "sense", "corpus", "hypes", "host"],
     });
 
@@ -1204,6 +1204,81 @@ describe("remote personal context service", () => {
       if (tool.name === "corpus_context_items_revise")
         expectContextAttributeSchema(tool.inputSchema);
     }
+  });
+
+  it("keeps one connection but lets the owner switch a product off", async () => {
+    const call = async (name: string, args: Record<string, unknown>) =>
+      mcpPayload(
+        await handleMcp(
+          new Request("https://context.test/mcp", {
+            method: "POST",
+            headers: {
+              Accept: "application/json, text/event-stream",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/call",
+              params: { name, arguments: args },
+            }),
+          }),
+          runtime,
+          legacyToolkitPrincipal,
+          "toolkit",
+        ),
+      );
+    const listTools = async () => {
+      const response = await handleMcp(
+        new Request("https://context.test/mcp", {
+          method: "POST",
+          headers: {
+            Accept: "application/json, text/event-stream",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        }),
+        runtime,
+        legacyToolkitPrincipal,
+        "toolkit",
+      );
+      const payload = await mcpPayload(response);
+      return (payload.result as { tools: Array<{ name: string }> }).tools.map(
+        (tool) => tool.name,
+      );
+    };
+
+    const before = await listTools();
+    expect(before).toContain("design_capabilities");
+
+    const off = await call("toolkit_products_set", {
+      product: "design",
+      enabled: false,
+    });
+    expect(
+      (off.result as { structuredContent: { ok: boolean } }).structuredContent
+        .ok,
+    ).toBe(true);
+
+    const narrowed = await listTools();
+    expect(narrowed).not.toContain("design_capabilities");
+    expect(narrowed).toContain("corpus_capabilities");
+    expect(narrowed).toContain("toolkit_products");
+
+    const state = await call("toolkit_products", {});
+    const products = (
+      state.result as {
+        structuredContent: {
+          result: { products: Array<{ product: string; enabled: boolean }> };
+        };
+      }
+    ).structuredContent.result.products;
+    expect(products.find((item) => item.product === "design")?.enabled).toBe(
+      false,
+    );
+
+    await call("toolkit_products_set", { product: "design", enabled: true });
+    expect(await listTools()).toEqual(MCP_SURFACES.toolkit.tools);
   });
 
   it("advertises stable, object-rooted MCP schemas for all three products", async () => {

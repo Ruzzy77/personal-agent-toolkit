@@ -1,4 +1,5 @@
 import registry from "../../../products.json";
+import { TOOLKIT_CONTROL_TOOLS } from "./toolkit-products";
 import type { ResourceKind } from "./types";
 
 export type McpSurface = {
@@ -24,13 +25,16 @@ export const MCP_SURFACES = {
     name: registry.distributions.openai.mcp.surface_name,
     version: registry.distributions.openai.mcp.surface_version,
     tools: [
-      "sense",
-      "corpus",
-      "hypes",
-      "journal",
-      "library",
-      "design",
-      "host",
-    ].flatMap((name) => registry.products[name as "sense"].mcp.tools),
+      ...TOOLKIT_CONTROL_TOOLS,
+      ...[
+        "sense",
+        "corpus",
+        "hypes",
+        "journal",
+        "library",
+        "design",
+        "host",
+      ].flatMap((name) => registry.products[name as "sense"].mcp.tools),
+    ],
   },
 } satisfies Record<ResourceKind, McpSurface>;

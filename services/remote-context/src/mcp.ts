@@ -10,6 +10,10 @@ import { contextOperations, executeContextOperation } from "./context-api";
 import { asContextError, ContextError } from "./errors";
 import { registerHostTools } from "./host";
 import { MCP_SURFACES } from "./surfaces";
+import {
+  disabledProducts,
+  registerToolkitProductTools,
+} from "./toolkit-products";
 import type { Env, Principal, ResourceKind } from "./types";
 import { registerDesignTools } from "personal-agent-design-service/mcp";
 import { DesignService } from "personal-agent-design-service/service";
@@ -54,7 +58,10 @@ function designOwner(principal: Principal) {
   return { ...owner, scopes: [...scopes] };
 }
 
-function toolkitServer(env: Env, principal: Principal): McpServer {
+async function toolkitServer(
+  env: Env,
+  principal: Principal,
+): Promise<McpServer> {
   if (!principal.owner) {
     throw new ContextError(
       "invalid_token",
@@ -70,39 +77,45 @@ function toolkitServer(env: Env, principal: Principal): McpServer {
     {
       instructions:
         "Personal Agent Toolkit combines Sense guidance, Corpus knowledge and Work files, " +
-        "the Hypes relationship model, Journal progress, Library publishing, and private " +
-        "Design assets in one " +
-        "owner-authenticated connection. Use only the product tools relevant to the request.",
+        "the Hypes relationship model, Journal progress, Library publishing, private " +
+        "Design assets, and the owner's Host workspace in one " +
+        "owner-authenticated connection. Use only the product tools relevant to the request. " +
+        "toolkit_products shows which products this connection exposes.",
     },
   );
-  registerSenseTools(server, env, principal);
-  registerCorpusTools(server, env, principal);
-  registerHypesTools(server, env, principal);
-  registerJournalTools(server, new JournalService(env.JOURNAL_DB), {
-    kind: "owner",
-    id: principal.ownerId,
-    scopes: principal.scopes,
-    auth: "oauth",
-  } satisfies JournalPrincipal);
-  registerLibraryTools(
-    server,
-    principal.owner,
-    new LibraryService({
-      DB: env.LIBRARY_DB,
-      MEDIA: env.LIBRARY_MEDIA,
-      MANAGEMENT_WRITE_ENABLED: env.LIBRARY_MANAGEMENT_WRITE_ENABLED,
-    }),
-  );
-  registerDesignTools(
-    server,
-    designOwner(principal),
-    new DesignService({
-      DB: env.DESIGN_DB,
-      ASSETS: env.DESIGN_ASSETS,
-      MANAGEMENT_WRITE_ENABLED: env.DESIGN_MANAGEMENT_WRITE_ENABLED,
-    }),
-  );
-  registerHostTools(server, env, principal);
+  const disabled = await disabledProducts(env, principal.ownerId);
+  registerToolkitProductTools(server, env, principal, disabled);
+  if (!disabled.has("sense")) registerSenseTools(server, env, principal);
+  if (!disabled.has("corpus")) registerCorpusTools(server, env, principal);
+  if (!disabled.has("hypes")) registerHypesTools(server, env, principal);
+  if (!disabled.has("journal"))
+    registerJournalTools(server, new JournalService(env.JOURNAL_DB), {
+      kind: "owner",
+      id: principal.ownerId,
+      scopes: principal.scopes,
+      auth: "oauth",
+    } satisfies JournalPrincipal);
+  if (!disabled.has("library"))
+    registerLibraryTools(
+      server,
+      principal.owner,
+      new LibraryService({
+        DB: env.LIBRARY_DB,
+        MEDIA: env.LIBRARY_MEDIA,
+        MANAGEMENT_WRITE_ENABLED: env.LIBRARY_MANAGEMENT_WRITE_ENABLED,
+      }),
+    );
+  if (!disabled.has("design"))
+    registerDesignTools(
+      server,
+      designOwner(principal),
+      new DesignService({
+        DB: env.DESIGN_DB,
+        ASSETS: env.DESIGN_ASSETS,
+        MANAGEMENT_WRITE_ENABLED: env.DESIGN_MANAGEMENT_WRITE_ENABLED,
+      }),
+    );
+  if (!disabled.has("host")) registerHostTools(server, env, principal);
   return server;
 }
 

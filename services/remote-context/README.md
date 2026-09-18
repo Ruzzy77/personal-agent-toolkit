@@ -52,6 +52,13 @@ current local Connection role, generation, source availability, and analyzer
 policy before reading bytes. A successful job reports the committed revision
 and projection; a queued response is not completion.
 
+One toolkit connection can serve every product, so `toolkit_products` reports
+which products it exposes and `toolkit_products_set` switches one on or off for
+the owner. A switched-off product is left out of `tools/list` on the next
+connection; authorization is untouched and a per-product endpoint that a client
+registered separately keeps working. State lives in `toolkit_product_state`
+(migration `0008`), and an absent row means the product is on.
+
 The Host tools (`host_*`) are declared in `src/host.ts` and forwarded to the
 owner's `personal-agent-host` over the `HOST_VPC` Workers VPC binding with the
 `HOST_UPSTREAM_TOKEN` secret; no public hostname exists for that host. Without
