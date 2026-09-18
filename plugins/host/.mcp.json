@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "host": {
+      "type": "http",
+      "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp"
+    }
+  }
+}

@@ -8,6 +8,7 @@ import {
 
 import { contextOperations, executeContextOperation } from "./context-api";
 import { asContextError, ContextError } from "./errors";
+import { registerHostTools } from "./host";
 import { MCP_SURFACES } from "./surfaces";
 import type { Env, Principal, ResourceKind } from "./types";
 import { registerDesignTools } from "personal-agent-design-service/mcp";
@@ -101,6 +102,7 @@ function toolkitServer(env: Env, principal: Principal): McpServer {
       MANAGEMENT_WRITE_ENABLED: env.DESIGN_MANAGEMENT_WRITE_ENABLED,
     }),
   );
+  registerHostTools(server, env, principal);
   return server;
 }
 

@@ -47,6 +47,13 @@
       "source": "./plugins/library",
       "description": "Read, edit, and publish an owner-authenticated Personal Library.",
       "category": "productivity"
+    },
+    {
+      "name": "host",
+      "source": "./plugins/host",
+      "description": "Workspace files and sandboxed execution on the owner's always-on host.",
+      "category": "design",
+      "displayName": "Personal Design"
     }
   ]
 }

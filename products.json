@@ -10,7 +10,8 @@
         "journal",
         "library",
         "design",
-        "document-files"
+        "document-files",
+        "host"
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
@@ -414,6 +415,44 @@
           "library_update_issue",
           "library_create_issue",
           "library_upload_asset"
+        ]
+      }
+    },
+    "host": {
+      "display_name": "Host",
+      "plugin": {
+        "path": "plugins/host",
+        "base_version": "0.1.0"
+      },
+      "delivery": {
+        "openai": {
+          "mode": "bundled_skills",
+          "runtime": "remote_mcp"
+        },
+        "claude": {
+          "mode": "remote_mcp"
+        },
+        "sync": {
+          "mode": "embedded_engine"
+        }
+      },
+      "data_authority": "owner-registered workspace roots on the always-on host; files and job output stay on that host",
+      "components": [
+        "plugins/host",
+        "apps/host",
+        "services/remote-context/src/host.ts"
+      ],
+      "versioned_packages": [],
+      "mcp": {
+        "server_key": "host",
+        "transport": "http",
+        "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
+        "implementation": "apps/host/src/personal_agent_host/server.py",
+        "surface_name": "Host",
+        "tools": [
+          "host_capabilities",
+          "host_roots",
+          "host_read"
         ]
       }
     }

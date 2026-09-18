@@ -1,0 +1,13 @@
+---
+name: use-host
+description: Use the host_* tools to search, read, write and run commands in the owner's workspace roots on the always-on host. Paths are relative to a root; a normal write needs only root, path and content.
+---
+
+# Host 작업공간 사용
+
+`host_roots`로 root 목록과 권한을 확인한 뒤 작업한다. 경로는 root 기준 상대 경로이며, 한 도구가 돌려준 경로는 다른 도구의 입력에 그대로 쓴다.
+
+- 읽기: `host_read`에 여러 파일과 행 범위를 한 번에 넘긴다. 큰 파일은 `host_search`로 좁힌 뒤 범위를 읽는다.
+- 쓰기: `host_write`는 `root`, `path`, `content` 세 필드로 끝난다. 동시 수정을 막아야 할 때만 `host_read`가 돌려준 `version`을 `expected_version`으로 넣는다.
+- 실행: `host_exec`는 짧게 끝나면 결과를, 아니면 `job_id`와 `queued`/`running`을 돌려준다. 이어지는 상태와 출력은 `host_job`으로 읽고, 중단은 `host_job_cancel`.
+- Spark 작업공간의 경로를 클라이언트 로컬 셸이나 파일 도구로 다루지 않는다.

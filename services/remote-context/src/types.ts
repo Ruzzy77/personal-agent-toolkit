@@ -39,6 +39,8 @@ export interface Env {
   CONTEXT_SITE_USER_ID?: string;
   CONTEXT_SITE_OWNER_ID?: string;
   CONTEXT_SITE_URL?: string;
+  HOST_VPC?: Fetcher;
+  HOST_UPSTREAM_TOKEN?: string;
 }
 
 export interface Principal {

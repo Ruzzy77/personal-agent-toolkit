@@ -1,0 +1,8 @@
+{
+  "name": "host",
+  "version": "0.1.0",
+  "description": "Workspace files and sandboxed execution on the owner's always-on host through the Personal Agent Toolkit MCP.",
+  "author": { "name": "Ruzzy77" },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

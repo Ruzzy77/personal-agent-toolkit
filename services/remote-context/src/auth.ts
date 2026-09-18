@@ -22,6 +22,8 @@ const RESOURCE_SCOPES: Record<ResourceKind, readonly string[]> = {
     "library.write",
     "design.read",
     "design.write",
+    "host.read",
+    "host.write",
   ],
   sense: ["sense.read", "sense.write"],
   corpus: ["corpus.read", "corpus.write", "corpus.sync"],

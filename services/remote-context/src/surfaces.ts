@@ -20,7 +20,7 @@ export const MCP_SURFACES = {
   toolkit: {
     name: registry.distributions.openai.mcp.surface_name,
     version: registry.distributions.openai.mcp.surface_version,
-    tools: ["sense", "corpus", "hypes", "journal", "library", "design"].flatMap(
+    tools: ["sense", "corpus", "hypes", "journal", "library", "design", "host"].flatMap(
       (name) => registry.products[name as "sense"].mcp.tools,
     ),
   },
