@@ -1,0 +1,23 @@
+service_url = "https://personal-agent-context.example.workers.dev"
+device_id = "spark-a"
+display_name = "Spark A"
+data_root = "~/.local/share/personal-agent-host/state"
+corpus_data_root = "~/.local/share/personal-agent-host/state/corpus"
+corpus_python = "~/.local/share/personal-agent-host/runtimes/corpus/bin/python"
+
+[host]
+listen = "127.0.0.1:18790"
+allowed_hosts = ["spark-host"]
+sandbox_image = "personal-agent-host-sandbox:1"
+max_concurrent_jobs = 4
+
+[[connections]]
+space_id = "research-note"
+connection_id = "main"
+root = "~/Agent-Workspace/research-note"
+roles = ["source", "work"]
+access_scope = "remote_allowed"
+permission = "read_write"
+corpus_id = "research-note"
+execute = "sandbox"
+sources = []
