@@ -1,6 +1,6 @@
 import { hostHeaderValidationResponse } from "@modelcontextprotocol/server";
 
-import { authenticateMcp, supportedScopes } from "./auth";
+import { authenticateMcp, resourceUrl, supportedScopes } from "./auth";
 import { CorpusShard } from "./corpus-shard";
 import { asContextError, ContextError } from "./errors";
 import { handleHttp } from "./http";
@@ -16,20 +16,13 @@ function mcpKind(path: string): ResourceKind | null {
   if (path === "/sense/mcp") return "sense";
   if (path === "/corpus/mcp") return "corpus";
   if (path === "/hypes/mcp") return "hypes";
+  if (path === "/host/mcp") return "host";
   return null;
 }
 
 function mcpError(error: unknown, env: Env, kind: ResourceKind): Response {
   const normalized = asContextError(error);
-  const resource = new URL(
-    kind === "toolkit"
-      ? env.TOOLKIT_RESOURCE
-      : kind === "sense"
-        ? env.SENSE_RESOURCE
-        : kind === "corpus"
-          ? env.CORPUS_RESOURCE
-          : env.HYPES_RESOURCE,
-  );
+  const resource = new URL(resourceUrl(env, kind));
   return Response.json(
     {
       jsonrpc: "2.0",

@@ -9,5 +9,6 @@ description: Use the host_* tools to search, read, write and run commands in the
 
 - 읽기: `host_read`에 여러 파일과 행 범위를 한 번에 넘긴다. 큰 파일은 `host_search`로 좁힌 뒤 범위를 읽는다.
 - 쓰기: `host_write`는 `root`, `path`, `content` 세 필드로 끝난다. 동시 수정을 막아야 할 때만 `host_read`가 돌려준 `version`을 `expected_version`으로 넣는다.
-- 실행: `host_exec`는 짧게 끝나면 결과를, 아니면 `job_id`와 `queued`/`running`을 돌려준다. 이어지는 상태와 출력은 `host_job`으로 읽고, 중단은 `host_job_cancel`.
+- 실행: `host_exec`는 root를 `/workspace`로 마운트한 컨테이너에서 실행한다(네트워크 없음, 루트 파일시스템 읽기 전용). 짧게 끝나면 결과를, 아니면 `job_id`와 `queued`/`running`을 돌려준다. 이어지는 상태와 출력은 `host_job`으로 읽고, 중단은 `host_job_cancel`. 컨테이너가 쓴 파일은 바로 `host_read`로 읽힌다.
+- 오류는 `isError`와 `code: message`(`invalid_path`, `not_found`, `policy_denied`, `version_conflict`, `marker_not_found`, `marker_ambiguous` 등)로 돌아온다. 같은 요청을 그대로 반복하지 말고 원인을 고친다.
 - Spark 작업공간의 경로를 클라이언트 로컬 셸이나 파일 도구로 다루지 않는다.

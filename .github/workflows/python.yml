@@ -6,6 +6,7 @@ on:
       - ".github/workflows/python.yml"
       - "ruff.toml"
       - "apps/sync/**"
+      - "apps/host/**"
       - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
@@ -20,6 +21,7 @@ on:
       - ".github/workflows/python.yml"
       - "ruff.toml"
       - "apps/sync/**"
+      - "apps/host/**"
       - "engines/**"
       - "plugins/corpus/**"
       - "plugins/document-files/**"
@@ -41,13 +43,15 @@ jobs:
       - name: Check shared Python formatting
         run: >-
           uvx ruff==0.16.5 format --check
-          engines/sense engines/corpus engines/hypes apps/sync
+          engines/sense engines/corpus engines/hypes apps/sync apps/host
       - name: Check shared Python lint
         run: >-
           uvx ruff==0.16.5 check
-          engines/sense engines/corpus engines/hypes apps/sync
-      - name: Check Sync runtime installer syntax
-        run: sh -n apps/sync/scripts/install-runtimes.sh
+          engines/sense engines/corpus engines/hypes apps/sync apps/host
+      - name: Check runtime installer syntax
+        run: |
+          sh -n apps/sync/scripts/install-runtimes.sh
+          bash -n apps/host/scripts/install-linux.sh
 
   test:
     runs-on: ${{ matrix.os }}
@@ -91,6 +95,10 @@ jobs:
           - component: Personal Agent Sync
             os: macos-latest
             directory: apps/sync
+            command: uv run --frozen --extra test pytest -q tests
+          - component: Personal Agent Host
+            os: ubuntu-latest
+            directory: apps/host
             command: uv run --frozen --extra test pytest -q tests
     name: Test ${{ matrix.component }}
     steps:

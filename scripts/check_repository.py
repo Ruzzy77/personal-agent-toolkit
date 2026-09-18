@@ -453,6 +453,19 @@ def check_product_versions(errors: list[str]) -> None:
         if implementation == ROOT / "services/remote-context/src/mcp.ts":
             continue
         source = implementation.read_text(encoding="utf-8")
+        if implementation.suffix == ".py":
+            # A Python MCPServer names the surface; its version is the package
+            # version with the remote suffix, like the Context engines.
+            project = tomllib.loads(
+                (implementation.parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+            )["project"]
+            if f'MCPServer("{mcp["surface_name"]}"' not in source or not mcp[
+                "surface_version"
+            ].startswith(f"{project['version']}-remote."):
+                errors.append(
+                    f"{name}: MCP implementation identity differs from products.json"
+                )
+            continue
         identity = re.compile(
             rf'name:\s*"{re.escape(mcp["surface_name"])}"\s*,\s*'
             rf'version:\s*"{re.escape(mcp["surface_version"])}"'

@@ -240,6 +240,21 @@ export function registerCorpusTools(
   }
 }
 
+function hostServer(env: Env, principal: Principal): McpServer {
+  const server = new McpServer(
+    { name: MCP_SURFACES.host.name, version: MCP_SURFACES.host.version },
+    {
+      instructions:
+        "Host exposes the owner's workspace roots on the always-on host. Start with host_roots. " +
+        "Paths are relative to a root; paths returned by one tool are valid inputs for the others. " +
+        "host_write needs only root, path and content. Long commands return a job_id; read the " +
+        "rest with host_job.",
+    },
+  );
+  registerHostTools(server, env, principal);
+  return server;
+}
+
 export async function handleMcp(
   request: Request,
   env: Env,
@@ -250,6 +265,7 @@ export async function handleMcp(
     if (kind === "toolkit") return toolkitServer(env, principal);
     if (kind === "sense") return senseServer(env, principal);
     if (kind === "hypes") return hypesServer(env, principal);
+    if (kind === "host") return hostServer(env, principal);
     return corpusServer(env, principal);
   });
   return handler.fetch(request, {

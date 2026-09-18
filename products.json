@@ -15,7 +15,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.6.0"
+        "base_version": "1.7.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -43,7 +43,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.6.0"
+        "surface_version": "1.7.0"
       }
     }
   },
@@ -446,14 +446,20 @@
       "mcp": {
         "server_key": "host",
         "transport": "http",
-        "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
+        "url": "https://personal-agent-context.hiyaq77.workers.dev/host/mcp",
         "implementation": "apps/host/src/personal_agent_host/server.py",
         "surface_name": "Host",
         "tools": [
           "host_capabilities",
           "host_roots",
-          "host_read"
-        ]
+          "host_search",
+          "host_read",
+          "host_write",
+          "host_exec",
+          "host_job",
+          "host_job_cancel"
+        ],
+        "surface_version": "0.1.0-remote.1"
       }
     }
   }

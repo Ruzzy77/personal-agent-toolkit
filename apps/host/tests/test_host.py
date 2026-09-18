@@ -1,0 +1,184 @@
+"""Host file tools: path safety, versions, marker replacement, and the HTTP guard."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+import sys
+from pathlib import Path
+
+import pytest
+from personal_agent_host.config import HostConfig, load_host_config
+from personal_agent_host.files import ToolError, read_files, search, write_file
+from personal_agent_sync.errors import SyncError
+
+TOKEN = "test-token-0123456789abcdef0123456789abcdef"
+
+
+@pytest.fixture
+def config(tmp_path: Path) -> HostConfig:
+    root = tmp_path / "workspace"
+    (root / "sub").mkdir(parents=True)
+    (root / "sub" / "a.txt").write_text("hello\nworld\n", encoding="utf-8")
+    prefix = tmp_path / "prefix"
+    (prefix / "config").mkdir(parents=True)
+    (prefix / "config" / "host-upstream.token").write_text(TOKEN + "\n")
+    (prefix / "config" / "host.toml").write_text(
+        f"""service_url = "https://context.example.workers.dev"
+device_id = "test"
+data_root = "{prefix / "state"}"
+corpus_data_root = "{prefix / "state" / "corpus"}"
+corpus_python = {json.dumps(sys.executable)}
+
+[host]
+listen = "127.0.0.1:18790"
+allowed_hosts = ["spark-host"]
+
+[[connections]]
+space_id = "demo"
+connection_id = "main"
+root = "{root}"
+roles = ["work"]
+access_scope = "remote_allowed"
+permission = "read_write"
+execute = "sandbox"
+
+[[connections]]
+space_id = "demo"
+connection_id = "frozen"
+root = "{root}"
+roles = ["source"]
+access_scope = "remote_allowed"
+permission = "read_only"
+corpus_id = "demo"
+""",
+        encoding="utf-8",
+    )
+    return load_host_config(prefix / "config" / "host.toml")
+
+
+def test_roots_and_policies(config: HostConfig) -> None:
+    assert [root.id for root in config.roots] == ["demo/main", "demo/frozen"]
+    assert config.root("demo/main").execute == "sandbox"
+    assert config.root("demo/frozen").permission == "read_only"
+    with pytest.raises(SyncError):
+        config.root("demo/missing")
+
+
+def test_read_rejects_paths_outside_the_root(config: HostConfig) -> None:
+    root = config.root("demo/main")
+    for path in ("../secret", "/etc/passwd", "sub/../../x", "sub/./../../y"):
+        with pytest.raises(ToolError) as failure:
+            read_files(root, [{"path": path}], 1024)
+        assert failure.value.code == "invalid_path"
+
+
+def test_write_read_versions_and_conflicts(config: HostConfig) -> None:
+    root = config.root("demo/main")
+    created = write_file(config, root, "notes/new.md", content="one\n")
+    assert created["version"].startswith("sha256:")
+    read = read_files(root, [{"path": "notes/new.md"}], 1024)
+    assert read["files"][0]["content"] == "one\n"
+    assert read["files"][0]["version"] == created["version"]
+
+    with pytest.raises(ToolError) as conflict:
+        write_file(
+            config, root, "notes/new.md", content="two\n", expected_version="sha256:0"
+        )
+    assert conflict.value.code == "version_conflict"
+    with pytest.raises(ToolError) as exists:
+        write_file(
+            config, root, "notes/new.md", content="two\n", expected_version="absent"
+        )
+    assert exists.value.code == "version_conflict"
+
+    updated = write_file(
+        config,
+        root,
+        "notes/new.md",
+        content="two\n",
+        expected_version=created["version"],
+    )
+    assert updated["version"] != created["version"]
+    recovery = list((config.sync.data_root / "host-recovery").glob("*.prev"))
+    assert len(recovery) == 1 and recovery[0].read_text() == "one\n"
+
+
+def test_marker_replacement_and_delete(config: HostConfig) -> None:
+    root = config.root("demo/main")
+    write_file(
+        config, root, "doc.md", content="head\n<!-- a -->\nold\n<!-- b -->\ntail\n"
+    )
+    replaced = write_file(
+        config,
+        root,
+        "doc.md",
+        replace={
+            "start_marker": "<!-- a -->\n",
+            "end_marker": "\n<!-- b -->",
+            "content": "new",
+        },
+    )
+    assert read_files(root, [{"path": "doc.md"}], 1024)["files"][0]["content"] == (
+        "head\n<!-- a -->\nnew\n<!-- b -->\ntail\n"
+    )
+    assert replaced["version"].startswith("sha256:")
+    with pytest.raises(ToolError) as missing:
+        write_file(
+            config,
+            root,
+            "doc.md",
+            replace={
+                "start_marker": "<!-- z -->",
+                "end_marker": "<!-- b -->",
+                "content": "",
+            },
+        )
+    assert missing.value.code == "marker_not_found"
+    deleted = write_file(config, root, "doc.md", delete=True)
+    assert deleted["version"] == "absent"
+    assert not (root.root / "doc.md").exists()
+
+
+def test_read_only_root_refuses_writes(config: HostConfig) -> None:
+    with pytest.raises(ToolError) as failure:
+        write_file(config, config.root("demo/frozen"), "x.txt", content="x")
+    assert failure.value.code == "policy_denied"
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
+def test_search_returns_context(config: HostConfig) -> None:
+    result = asyncio.run(
+        search(
+            config.root("demo/main"),
+            paths=["**/*"],
+            pattern="world",
+            max_results=10,
+            context=1,
+            ignore_vcs=True,
+        )
+    )
+    assert result["matches"][0]["path"] == "sub/a.txt"
+    assert result["matches"][0]["line"] == 2
+    assert result["matches"][0]["before"] == ["hello"]
+    assert result["truncated"] is False
+
+
+def test_bearer_guard(config: HostConfig) -> None:
+    from personal_agent_host.app import build_app
+    from starlette.testclient import TestClient
+
+    with TestClient(build_app(config)) as client:
+        assert client.post("/mcp", headers={"Host": "spark-host"}).status_code == 401
+        denied = client.post(
+            "/mcp",
+            headers={"Authorization": "Bearer wrong", "Host": "spark-host"},
+        )
+        assert denied.status_code == 401
+        rejected = client.post(
+            "/mcp",
+            headers={"Authorization": f"Bearer {TOKEN}", "Host": "evil.example"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        )
+        assert rejected.status_code == 421

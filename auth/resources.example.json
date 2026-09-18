@@ -17,7 +17,9 @@
         "library.read",
         "library.write",
         "design.read",
-        "design.write"
+        "design.write",
+        "host.read",
+        "host.write"
       ],
       "baselineScopes": [
         "sense.read",
@@ -31,36 +33,62 @@
       "id": "design",
       "name": "Design",
       "resource": "https://design.example.com/mcp",
-      "scopes": ["design.read", "design.write"],
-      "baselineScopes": ["design.read"]
+      "scopes": [
+        "design.read",
+        "design.write"
+      ],
+      "baselineScopes": [
+        "design.read"
+      ]
     },
     {
       "id": "library",
       "name": "Library",
       "resource": "https://library.example.com/api/mcp",
-      "scopes": ["library.read", "library.write"],
-      "baselineScopes": ["library.read"]
+      "scopes": [
+        "library.read",
+        "library.write"
+      ],
+      "baselineScopes": [
+        "library.read"
+      ]
     },
     {
       "id": "corpus",
       "name": "Corpus",
       "resource": "https://context.example.com/corpus/mcp",
-      "scopes": ["corpus.read", "corpus.write", "corpus.sync"],
-      "baselineScopes": ["corpus.read"]
+      "scopes": [
+        "corpus.read",
+        "corpus.write",
+        "corpus.sync"
+      ],
+      "baselineScopes": [
+        "corpus.read"
+      ]
     },
     {
       "id": "sense",
       "name": "Sense",
       "resource": "https://context.example.com/sense/mcp",
-      "scopes": ["sense.read", "sense.write"],
-      "baselineScopes": ["sense.read"]
+      "scopes": [
+        "sense.read",
+        "sense.write"
+      ],
+      "baselineScopes": [
+        "sense.read"
+      ]
     },
     {
       "id": "hypes",
       "name": "Hypes",
       "resource": "https://context.example.com/hypes/mcp",
-      "scopes": ["hypes.read", "hypes.write"],
-      "baselineScopes": ["hypes.read"]
+      "scopes": [
+        "hypes.read",
+        "hypes.write"
+      ],
+      "baselineScopes": [
+        "hypes.read"
+      ]
     },
     {
       "id": "journal",
@@ -72,7 +100,21 @@
         "journal.ingest",
         "journal.close"
       ],
-      "baselineScopes": ["journal.read"]
+      "baselineScopes": [
+        "journal.read"
+      ]
+    },
+    {
+      "id": "host",
+      "name": "Host",
+      "resource": "https://context.example.com/host/mcp",
+      "scopes": [
+        "host.read",
+        "host.write"
+      ],
+      "baselineScopes": [
+        "host.read"
+      ]
     }
   ]
 }

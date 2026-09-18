@@ -34,6 +34,7 @@ belong in the repository.
 - `/sense/mcp`
 - `/corpus/mcp`
 - `/hypes/mcp`
+- `/host/mcp`
 - `/sync/v1/connect`
 - `/sync/v1/connections:upsert` (device-scoped generation CAS, no Context replacement)
 - `/site/v1/{operation}` (configured private Site principal, same product service)
@@ -50,6 +51,12 @@ document and expose its bounded job status. The outbound Sync app rechecks the
 current local Connection role, generation, source availability, and analyzer
 policy before reading bytes. A successful job reports the committed revision
 and projection; a queued response is not completion.
+
+The Host tools (`host_*`) are declared in `src/host.ts` and forwarded to the
+owner's `personal-agent-host` over the `HOST_VPC` Workers VPC binding with the
+`HOST_UPSTREAM_TOKEN` secret; no public hostname exists for that host. Without
+the binding the tools answer `host_unavailable`. `HOST_RESOURCE` names the
+per-product resource URL for clients that register one MCP server per product.
 
 The Sync-only verification summary reports the deployed Sense, Corpus, and
 Hypes server versions and public tool-name sets. Migration verification compares

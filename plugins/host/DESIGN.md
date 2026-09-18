@@ -30,12 +30,12 @@ Spark로 들어오는 포트는 없다. 관리용 SSH는 그대로 두되 별도
 
 ## 3. Host 서버
 
-- 패키지 `apps/host`(`personal-agent-host`). `apps/sync`를 라이브러리로 쓰고 Corpus 격리 runtime을 같은 subprocess JSON 계약으로 부른다.
+- 패키지 `apps/host`(`personal-agent-host`). `apps/sync`를 라이브러리로 쓴다. Sync 루프는 `config/sync-device.token`이 있을 때만 같은 프로세스에서 시작하고, 없으면 Host 도구만 제공한다.
 - 프로세스 하나. `MCPServer`(`mcp` 2.0.0)의 `streamable_http_app()`을 ASGI로 올리고, 최상위 lifespan에서 MCP session manager와 Sync 루프·job 관리를 함께 시작한다. `mcp.run()`은 쓰지 않는다. 설정은 `stateless_http=True, json_response=True, transport_security=TransportSecuritySettings(allowed_hosts=["spark-host"])`.
 - HTTP 인증은 `config/host-upstream.token` bearer 하나. Sync의 device 자격은 `config/sync-device.token`.
-- 외부 프로세스 호출(Corpus helper, rg, docker)은 모두 비동기 subprocess다.
+- 외부 프로세스 호출(rg, docker)은 모두 비동기 subprocess다. 실패는 SDK `ToolError`의 하위 예외로 올려 `isError=true`와 `code: message` 본문이 된다.
 
-prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared), `runtimes/`(host venv, corpus venv), `config/`(host.toml, 토큰 2개, tunnel.json), `state/`, `jobs/`, `logs/`.
+prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared), `runtimes/`(host venv, corpus venv), `config/`(host.toml, 토큰 3개: host-upstream, sync-device, tunnel), `state/`(Sync 상태, `jobs/`, `host-recovery/`), `logs/`.
 
 ## 4. 도구
 
@@ -53,7 +53,7 @@ prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared),
 | `host_job_cancel` | `job_id` | `job_id`, `status` | queued면 대기열 제거, running이면 컨테이너 종료 후 cancelled. 종료된 job은 기존 상태 |
 
 - 읽기 도구 다섯은 `readOnlyHint`. 응답이 돌려준 경로는 다음 입력에 그대로 쓴다.
-- `host_write`는 Corpus Work 계약(권한 검사, 원자 교환, 직전본 복구)으로 쓴다. `expected_version` 생략은 helper까지 그대로 전달해 버전 비교만 건너뛴다. 사전 읽기·capabilities 호출을 쓰기의 필수 단계로 두지 않는다. 일반적인 쓰기는 `root, path, content` 세 필드로 끝난다.
+- `host_write`는 Corpus Work 계약과 같은 규칙(권한 검사, 임시 파일 후 원자 교환, 직전본 1개를 `state/host-recovery/`에 보관, sha256 version 비교)을 Host가 직접 적용한다. Corpus의 Work 등록 DB는 Sync가 소유하므로 helper를 거치지 않는다. `expected_version` 생략은 버전 비교만 건너뛴다. 사전 읽기·capabilities 호출을 쓰기의 필수 단계로 두지 않는다. 일반적인 쓰기는 `root, path, content` 세 필드로 끝난다.
 - `host_exec`는 Work 역할이 있고 `permission=read_write`, `execute=sandbox`인 root에서만 허용한다. 컨테이너가 `/workspace`에 직접 쓰며 Corpus의 version·복구는 적용되지 않는다. Source 겸용 root의 변경은 Sync가 재추출한다.
 
 ## 5. 실행
@@ -109,19 +109,19 @@ permission = "read_only"
 
 ## 7. Sync Linux 실행 경로
 
-- `credentials.py`: Keychain 대신 `config/sync-device.token`. `cli.py`: LaunchAgent 대신 systemd user unit과 `loginctl enable-linger`. `config.py`: XDG 경로. `paths.py`·`materialization.py`는 기존 darwin 분기로 충분하다.
-- `install-runtimes.sh`: `uv`를 prefix에 설치, rhwp 대상 `linux-aarch64`, `systemctl --user`.
+- `credentials.py`: Keychain 대신 `config/sync-device.token`(0600). `config.py`: 기본 설정 `config/host.toml`, 기본 `data_root` `state/`. `cli.py`의 install-agent/uninstall-agent는 Linux에서 Host의 install/uninstall로 안내한다. `paths.py`·`materialization.py`는 기존 darwin 분기로 충분하다.
+- `apps/host/scripts/install-linux.sh`: `uv`·venv 2개·`cloudflared`·launcher·샌드박스 이미지·upstream 토큰을 prefix에 준비한다.
 
 ## 8. 설치·제거
 
-- Spark: `personal-agent-host install`(prefix, venv, unit 4개, 토큰 파일), `uninstall`(unit 해제, device 해제, prefix 삭제). `cloudflared` 바이너리는 prefix, tunnel 토큰은 `config/tunnel.json`. Docker 이미지 하나. fstab 두 줄.
+- Spark: `install-linux.sh` 뒤 `personal-agent-host install`(systemd user unit 4개: host, tunnel, backup service·timer, `loginctl enable-linger`), `uninstall [--purge]`(unit 해제, prefix 삭제; device 해제는 `personal-agent-sync detach-device`). `cloudflared` 바이너리는 prefix, tunnel 토큰은 `config/tunnel.token`. Docker 이미지 하나(`plugins/host/sandbox/Dockerfile`). fstab 두 줄.
 - 클라이언트: 없음.
 - 맥: 이전 후 Sync 런타임·LaunchAgent·Keychain 항목 제거.
 
 ## 9. NAS와 백업
 
 - DSM: NFS(v4.1) 켜고 works(Spark IP, ro)·backup(Spark IP, rw) 내보내기. fstab: `192.168.50.87:/volume1/<works> /mnt/nas/works nfs4 ro,noexec,nosuid,_netdev,x-systemd.automount 0 0`, `192.168.50.87:/volume1/backup /mnt/nas/backup nfs4 rw,noexec,nosuid,_netdev,x-systemd.automount 0 0`.
-- `backup.sh`(매일 03:30): `mountpoint -q /mnt/nas/backup`이 아니면 종료. `rsync -a --delete ~/Agent-Workspace/ /mnt/nas/backup/agent-workspace/`. `state/`의 SQLite는 `sqlite3 <db> ".backup <dst>"`로 사본을 떠서 보내고, `config/`는 토큰·tunnel.json을 제외하고 복사한다. 결과는 `logs/backup.log`.
+- `personal-agent-host backup`(timer, 기본 03:30, `[host.backup]`의 `target`·`paths`·`time`): target이 마운트된 파일시스템이 아니면 종료. `paths`와 `state/`를 `rsync -rltD --delete`로(NAS는 소유자를 squash하므로 소유자·모드는 보존하지 않음), SQLite는 온라인 backup API로 사본을 떠서 `<target>/<device_id>/`에 보낸다. `config/`는 토큰을 제외하고 복사하고 `last-success`를 남긴다. 결과는 `logs/backup.log`.
 - 툴킷 정본(D1·R2)의 export는 Host와 분리된 별도 스크립트로 둔다.
 - NAS backup 폴더에 스냅샷 일정(매일, 30일).
 

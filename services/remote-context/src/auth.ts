@@ -1,7 +1,4 @@
-import {
-  bearerToken,
-  constantTimeEqual,
-} from "@personal-agent/remote-runtime";
+import { bearerToken, constantTimeEqual } from "@personal-agent/remote-runtime";
 import type { AccessValidationResult } from "@personal-agent/remote-runtime";
 
 import { ContextError } from "./errors";
@@ -28,12 +25,15 @@ const RESOURCE_SCOPES: Record<ResourceKind, readonly string[]> = {
   sense: ["sense.read", "sense.write"],
   corpus: ["corpus.read", "corpus.write", "corpus.sync"],
   hypes: ["hypes.read", "hypes.write"],
+  host: ["host.read", "host.write"],
 };
 
 export function resourceUrl(env: Env, kind: ResourceKind): string {
   if (kind === "toolkit") return env.TOOLKIT_RESOURCE;
   if (kind === "sense") return env.SENSE_RESOURCE;
   if (kind === "corpus") return env.CORPUS_RESOURCE;
+  if (kind === "host")
+    return env.HOST_RESOURCE ?? new URL("/host/mcp", env.TOOLKIT_RESOURCE).href;
   return env.HYPES_RESOURCE;
 }
 
@@ -91,13 +91,19 @@ export async function authenticateMcp(
   );
 }
 
-export async function authenticateSync(request: Request, env: Env): Promise<Principal> {
+export async function authenticateSync(
+  request: Request,
+  env: Env,
+): Promise<Principal> {
   const token = bearerToken(request);
   const deviceId = request.headers.get("X-Personal-Agent-Device");
   let expectedToken: string | undefined;
   if (deviceId && env.SYNC_DEVICE_TOKENS_JSON) {
     try {
-      const configured = JSON.parse(env.SYNC_DEVICE_TOKENS_JSON) as Record<string, unknown>;
+      const configured = JSON.parse(env.SYNC_DEVICE_TOKENS_JSON) as Record<
+        string,
+        unknown
+      >;
       const candidate = configured[deviceId];
       if (typeof candidate === "string") expectedToken = candidate;
     } catch {
@@ -138,7 +144,11 @@ export async function authenticateSync(request: Request, env: Env): Promise<Prin
     .bind(env.SYNC_OWNER_ID, deviceId)
     .first<{ status: string }>();
   if (device?.status === "revoked") {
-    throw new ContextError("device_revoked", "Sync device has been revoked", 403);
+    throw new ContextError(
+      "device_revoked",
+      "Sync device has been revoked",
+      403,
+    );
   }
   return {
     ownerId: env.SYNC_OWNER_ID,

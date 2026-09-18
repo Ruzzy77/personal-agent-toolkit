@@ -6,7 +6,7 @@ export type {
   AuthServiceBinding,
 } from "@personal-agent/remote-runtime";
 
-export type ResourceKind = "toolkit" | "sense" | "corpus" | "hypes";
+export type ResourceKind = "toolkit" | "sense" | "corpus" | "hypes" | "host";
 
 export interface Env {
   STATE_DB: D1Database;
@@ -23,6 +23,7 @@ export interface Env {
   CORPUS_RESOURCE: string;
   HYPES_RESOURCE: string;
   TOOLKIT_RESOURCE: string;
+  HOST_RESOURCE?: string;
   STRUCTURE_PATH_COMPACTION_WRITE_ENABLED?: string;
   SEARCH_INDEX_V2_WRITE_ENABLED?: string;
   SEARCH_INDEX_V2_CUTOVER_ENABLED?: string;

@@ -157,10 +157,10 @@ def write_file(
     policy: RootPolicy,
     path: str,
     *,
-    content: str | None,
-    replace: dict[str, str] | None,
-    delete: bool,
-    expected_version: str | None,
+    content: str | None = None,
+    replace: dict[str, str] | None = None,
+    delete: bool = False,
+    expected_version: str | None = None,
 ) -> dict[str, Any]:
     if (
         sum(1 for flag in (content is not None, replace is not None, delete) if flag)
@@ -207,8 +207,14 @@ def write_file(
             if not marker or len(marker.encode("utf-8")) > MAX_MARKER_BYTES:
                 raise ToolError("invalid_request", "marker is empty or too long")
         text = _decode(current or b"", path)
-        if text.count(start) != 1 or text.count(end) != 1:
-            raise ToolError("marker_ambiguous", "each marker must appear exactly once")
+        for label, marker in (("start_marker", start), ("end_marker", end)):
+            occurrences = text.count(marker)
+            if occurrences == 0:
+                raise ToolError("marker_not_found", f"{label} is not in the file")
+            if occurrences > 1:
+                raise ToolError(
+                    "marker_ambiguous", f"{label} appears {occurrences} times"
+                )
         head = text.index(start) + len(start)
         tail = text.index(end)
         if tail < head:

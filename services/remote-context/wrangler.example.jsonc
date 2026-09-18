@@ -49,6 +49,9 @@
       "new_sqlite_classes": ["CorpusShard", "SyncBroker"]
     }
   ],
+  // Optional: the owner's Host over a Workers VPC Service (no public hostname);
+  // set the HOST_UPSTREAM_TOKEN secret alongside it.
+  "vpc_services": [{ "binding": "HOST_VPC", "service_id": "<vpc-service-id>" }],
   "services": [
     {
       "binding": "AUTH_SERVICE",
@@ -68,6 +71,7 @@
     "CORPUS_RESOURCE": "https://personal-agent-context.example.workers.dev/corpus/mcp",
     "HYPES_RESOURCE": "https://personal-agent-context.example.workers.dev/hypes/mcp",
     "TOOLKIT_RESOURCE": "https://personal-agent-context.example.workers.dev/mcp",
+    "HOST_RESOURCE": "https://personal-agent-context.example.workers.dev/host/mcp",
     "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "false",
     "SEARCH_INDEX_V2_WRITE_ENABLED": "false",
     "SEARCH_INDEX_V2_CUTOVER_ENABLED": "false"

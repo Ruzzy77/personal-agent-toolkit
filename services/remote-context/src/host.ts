@@ -32,11 +32,20 @@ const hostToolOutputSchema = z.looseObject({});
 const rootId = z.string().min(1).max(256);
 const relativePath = z.string().min(1).max(4096);
 
+const jobId = z.string().min(1).max(256);
+
 const readFile = z
   .object({
     path: relativePath,
     start_line: z.number().int().min(1).optional(),
     end_line: z.number().int().min(1).optional(),
+  })
+  .strict();
+const replacement = z
+  .object({
+    start_marker: z.string().min(1).max(4096),
+    end_marker: z.string().min(1).max(4096),
+    content: z.string(),
   })
   .strict();
 
@@ -70,6 +79,24 @@ export const HOST_TOOLS: readonly HostTool[] = [
     schema: z.object({}).strict(),
   },
   {
+    name: "host_search",
+    title: "Search files",
+    description:
+      "Search file contents in a host root with a regular expression (ripgrep). paths are root-relative globs. Returns matching lines with context; truncated=true means a limit was hit.",
+    scope: "host.read",
+    annotations: READ_ONLY,
+    schema: z
+      .object({
+        root: rootId,
+        pattern: z.string().min(1).max(4096),
+        paths: z.array(z.string().min(1).max(4096)).max(32).optional(),
+        max_results: z.number().int().min(1).max(500).optional(),
+        context: z.number().int().min(0).max(5).optional(),
+        ignore_vcs: z.boolean().optional(),
+      })
+      .strict(),
+  },
+  {
     name: "host_read",
     title: "Read files",
     description:
@@ -83,6 +110,68 @@ export const HOST_TOOLS: readonly HostTool[] = [
         max_bytes: z.number().int().min(1).max(2_097_152).optional(),
       })
       .strict(),
+  },
+  {
+    name: "host_write",
+    title: "Write a file",
+    description:
+      'Create or replace a file in a host root (content), replace the text between two unique markers (replace), or delete a file (delete=true). A normal write needs only root, path and content. expected_version (from host_read, or "absent" for new files) rejects the write when the file changed.',
+    scope: "host.write",
+    annotations: WRITE,
+    schema: z
+      .object({
+        root: rootId,
+        path: relativePath,
+        content: z.string().max(2_097_152).optional(),
+        replace: replacement.optional(),
+        delete: z.boolean().optional(),
+        expected_version: z.string().max(256).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "host_exec",
+    title: "Run a command",
+    description:
+      "Run a command in a sandbox container on the host with the root mounted at /workspace. Give argv (preferred) or shell. Waits up to wait_s; if the job is still queued or running, poll host_job with the returned job_id.",
+    scope: "host.write",
+    annotations: WRITE,
+    schema: z
+      .object({
+        root: rootId,
+        cwd: z.string().max(4096).optional(),
+        argv: z.array(z.string()).min(1).max(256).optional(),
+        shell: z.string().min(1).max(65_536).optional(),
+        stdin: z.string().max(1_048_576).optional(),
+        timeout_s: z.number().int().min(1).max(21_600).optional(),
+        wait_s: z.number().int().min(0).max(50).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "host_job",
+    title: "Job status and output",
+    description:
+      "Return a host job's status and a slice of its stored stdout or stderr. offset is a byte position; use next_offset to continue; limit=0 returns status only. eof is true once the job finished and the output is fully read.",
+    scope: "host.read",
+    annotations: READ_ONLY,
+    schema: z
+      .object({
+        job_id: jobId,
+        stream: z.enum(["stdout", "stderr"]).optional(),
+        offset: z.number().int().min(0).optional(),
+        limit: z.number().int().min(0).max(262_144).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "host_job_cancel",
+    title: "Cancel a job",
+    description:
+      "Cancel a queued or running host job. Finished jobs keep their status.",
+    scope: "host.write",
+    annotations: WRITE,
+    schema: z.object({ job_id: jobId }).strict(),
   },
 ];
 
