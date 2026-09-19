@@ -19,3 +19,9 @@ test('management uses the authenticated, same-origin Workspace proxy without a n
   assert.match(read('../lib/management.ts'), /call\(name, input, "management"\)/);
   assert.ok(!read('../app/api/context/[operation]/route.ts').includes('corpus_document_trash'));
 });
+
+
+test("owner web worker may call public services in the same Cloudflare account", () => {
+  const config = read("../wrangler.example.jsonc");
+  assert.match(config, /global_fetch_strictly_public/);
+});

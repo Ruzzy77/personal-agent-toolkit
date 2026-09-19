@@ -3,7 +3,8 @@
   "main": "vinext/server/app-router-entry",
   "compatibility_date": "2026-09-19",
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat",
+    "global_fetch_strictly_public"
   ],
   "workers_dev": true,
   "kv_namespaces": [
