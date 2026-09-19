@@ -1,0 +1,88 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "surface-experiment",
+  "main": "src/experiment-worker.ts",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "STATE_DB",
+      "database_name": "personal-agent-surface-test",
+      "database_id": "d0352ad8-3f6e-4d22-acc1-a2f4977ba19f",
+      "migrations_dir": "migrations"
+    },
+    {
+      "binding": "JOURNAL_DB",
+      "database_name": "personal-agent-surface-test",
+      "database_id": "d0352ad8-3f6e-4d22-acc1-a2f4977ba19f"
+    },
+    {
+      "binding": "LIBRARY_DB",
+      "database_name": "personal-agent-surface-test",
+      "database_id": "d0352ad8-3f6e-4d22-acc1-a2f4977ba19f"
+    },
+    {
+      "binding": "DESIGN_DB",
+      "database_name": "personal-agent-surface-test",
+      "database_id": "d0352ad8-3f6e-4d22-acc1-a2f4977ba19f"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "LIBRARY_MEDIA",
+      "bucket_name": "surface-experiment-assets"
+    },
+    {
+      "binding": "DESIGN_ASSETS",
+      "bucket_name": "surface-experiment-assets"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CORPUS_SHARDS",
+        "class_name": "CorpusShard"
+      },
+      {
+        "name": "SYNC_BROKERS",
+        "class_name": "SyncBroker"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "CorpusShard",
+        "SyncBroker"
+      ]
+    }
+  ],
+  "vars": {
+    "SENSE_RESOURCE": "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp",
+    "CORPUS_RESOURCE": "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp",
+    "HYPES_RESOURCE": "https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp",
+    "TOOLKIT_RESOURCE": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
+    "HOST_RESOURCE": "https://personal-agent-context.hiyaq77.workers.dev/host/mcp",
+    "LIBRARY_MANAGEMENT_WRITE_ENABLED": "true",
+    "DESIGN_MANAGEMENT_WRITE_ENABLED": "true",
+    "SENSE_MANAGEMENT_WRITE_ENABLED": "true",
+    "CORPUS_MANAGEMENT_WRITE_ENABLED": "true",
+    "TRASH_SWEEP_ENABLED": "true",
+    "STRUCTURE_PATH_COMPACTION_WRITE_ENABLED": "true",
+    "SEARCH_INDEX_V2_WRITE_ENABLED": "true",
+    "SEARCH_INDEX_V2_CUTOVER_ENABLED": "true"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vpc_services": [
+    {
+      "binding": "HOST_VPC",
+      "service_id": "01a0b731-8e32-7b23-95eb-2b8378d9bfbf"
+    }
+  ]
+}

@@ -36,7 +36,7 @@ const principal: Principal = {
     subject: "manifest",
     scopes,
   },
-} as Principal;
+} as unknown as Principal;
 
 // Freezes the unfiltered unified tool definitions for the surface experiment.
 it("dumps the full toolkit manifest", async () => {

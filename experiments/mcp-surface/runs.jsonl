@@ -1,0 +1,32 @@
+{"case": "W1", "surface": "A", "seconds": 11.0, "passed": true, "detail": {"content": "surface experiment ok"}, "at": "2026-09-19T10:13:40"}
+{"case": "W1", "surface": "B", "seconds": 20.0, "passed": true, "detail": {"content": "surface experiment ok"}, "at": "2026-09-19T10:14:08"}
+{"case": "W2", "surface": "B", "seconds": 14.0, "passed": true, "detail": {"answer": "quail-7731"}, "at": "2026-09-19T10:14:29"}
+{"case": "W2", "surface": "A", "seconds": 15.0, "passed": true, "detail": {"answer": "quail-7731"}, "at": "2026-09-19T10:14:50"}
+{"case": "C1", "surface": "B", "seconds": 24.0, "passed": true, "detail": {"body": "# Surface summary\none paragraph about the experiment"}, "at": "2026-09-19T10:17:38"}
+{"case": "C1", "surface": "A", "seconds": 15.0, "passed": true, "detail": {"body": "# Surface summary\none paragraph about the experiment"}, "at": "2026-09-19T10:19:30"}
+{"case": "C2", "surface": "A", "seconds": 14.0, "passed": true, "detail": {"body": "# Fixture note\n\nbaseline line\n\n<!-- mark -->\nrevised-value\n<!-- mark -->\n\ntail line\n"}, "at": "2026-09-19T10:19:55"}
+{"case": "C2", "surface": "B", "seconds": 34.0, "passed": true, "detail": {"body": "# Fixture note\n\nbaseline line\n\n<!-- mark -->\nrevised-value\n<!-- mark -->\n\ntail line\n"}, "at": "2026-09-19T10:20:38"}
+{"case": "H1", "surface": "B", "seconds": 17.0, "passed": true, "detail": {"nodes": {"fixture-note": "keep this description", "other-node": "changed by task"}}, "at": "2026-09-19T10:21:03"}
+{"case": "H1", "surface": "A", "seconds": 19.0, "passed": true, "detail": {"nodes": {"other-node": "changed by task", "fixture-note": "keep this description"}}, "at": "2026-09-19T10:21:29"}
+{"case": "M1", "surface": "A", "seconds": 19.0, "passed": true, "detail": {"restored": true, "fixture_note": true}, "at": "2026-09-19T10:21:57"}
+{"case": "M1", "surface": "B", "seconds": 46.0, "passed": true, "detail": {"restored": true, "fixture_note": true}, "at": "2026-09-19T10:22:50"}
+{"case": "X1", "surface": "B", "seconds": 30.0, "passed": true, "detail": {"body": "# Fixture note\n\nedited line\n\n<!-- mark -->\nochre-4412\n<!-- mark -->\n\ntail line\n", "hypes": {"fixture-note": "keep this description", "other-node": "unchanged"}}, "at": "2026-09-19T10:23:28"}
+{"case": "X1", "surface": "A", "seconds": 22.0, "passed": true, "detail": {"body": "# Fixture note\n\nedited line\n\n<!-- mark -->\nochre-4412\n<!-- mark -->\n\ntail line\n", "hypes": {"other-node": "unchanged", "fixture-note": "keep this description"}}, "at": "2026-09-19T10:23:59"}
+{"case": "X2", "surface": "A", "seconds": 20.0, "passed": true, "detail": {"content": "ochre-4412"}, "at": "2026-09-19T10:24:27"}
+{"case": "X2", "surface": "B", "seconds": 26.0, "passed": true, "detail": {"content": "ochre-4412"}, "at": "2026-09-19T10:25:03"}
+{"case": "W1", "surface": "B", "seconds": 12.0, "passed": true, "detail": {"content": "surface experiment ok"}, "at": "2026-09-19T10:25:26"}
+{"case": "W1", "surface": "A", "seconds": 15.0, "passed": true, "detail": {"content": "surface experiment ok"}, "at": "2026-09-19T10:25:49"}
+{"case": "W2", "surface": "A", "seconds": 12.0, "passed": true, "detail": {"answer": "quail-7731"}, "at": "2026-09-19T10:26:08"}
+{"case": "W2", "surface": "B", "seconds": 14.0, "passed": true, "detail": {"answer": "quail-7731"}, "at": "2026-09-19T10:26:29"}
+{"case": "C1", "surface": "B", "seconds": 23.0, "passed": true, "detail": {"body": "# Surface summary\none paragraph about the experiment"}, "at": "2026-09-19T10:27:01"}
+{"case": "C1", "surface": "A", "seconds": 16.0, "passed": true, "detail": {"body": "# Surface summary\none paragraph about the experiment"}, "at": "2026-09-19T10:27:29"}
+{"case": "C2", "surface": "A", "seconds": 14.0, "passed": true, "detail": {"body": "# Fixture note\n\nbaseline line\n\n<!-- mark -->\nrevised-value\n<!-- mark -->\n\ntail line\n"}, "at": "2026-09-19T10:27:53"}
+{"case": "C2", "surface": "B", "seconds": 41.0, "passed": true, "detail": {"body": "# Fixture note\n\nbaseline line\n\n<!-- mark -->\nrevised-value\n<!-- mark -->\n\ntail line\n"}, "at": "2026-09-19T10:28:43"}
+{"case": "H1", "surface": "B", "seconds": 20.0, "passed": true, "detail": {"nodes": {"fixture-note": "keep this description", "other-node": "changed by task"}}, "at": "2026-09-19T10:29:10"}
+{"case": "H1", "surface": "A", "seconds": 16.0, "passed": true, "detail": {"nodes": {"other-node": "changed by task", "fixture-note": "keep this description"}}, "at": "2026-09-19T10:29:35"}
+{"case": "M1", "surface": "A", "seconds": 22.0, "passed": true, "detail": {"restored": true, "fixture_note": true}, "at": "2026-09-19T10:30:05"}
+{"case": "M1", "surface": "B", "seconds": 49.0, "passed": true, "detail": {"restored": true, "fixture_note": true}, "at": "2026-09-19T10:31:02"}
+{"case": "X1", "surface": "B", "seconds": 29.0, "passed": true, "detail": {"body": "# Fixture note\n\nedited line\n\n<!-- mark -->\nochre-4412\n<!-- mark -->\n\ntail line\n", "hypes": {"other-node": "unchanged", "fixture-note": "keep this description"}}, "at": "2026-09-19T10:31:38"}
+{"case": "X1", "surface": "A", "seconds": 25.0, "passed": true, "detail": {"body": "# Fixture note\n\nedited line\n\n<!-- mark -->\nochre-4412\n<!-- mark -->\n\ntail line\n", "hypes": {"fixture-note": "keep this description", "other-node": "unchanged"}}, "at": "2026-09-19T10:32:11"}
+{"case": "X2", "surface": "A", "seconds": 24.0, "passed": true, "detail": {"content": "ochre-4412"}, "at": "2026-09-19T10:32:43"}
+{"case": "X2", "surface": "B", "seconds": 28.0, "passed": true, "detail": {"content": "ochre-4412"}, "at": "2026-09-19T10:33:19"}
