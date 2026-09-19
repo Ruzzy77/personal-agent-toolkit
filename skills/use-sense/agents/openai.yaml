@@ -1,0 +1,13 @@
+interface:
+  display_name: "Use Sense"
+  short_description: "Use durable guidance and linked workflows"
+  default_prompt: "Use $use-sense when my Sense guidance or a linked workflow could shape this task, then answer the subject directly."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "sense"
+      description: "Read or revise the private guidance kept in Sense"
+      transport: "streamable_http"
+      url: "https://personal-agent-context.hiyaq77.workers.dev/sense/mcp"
+policy:
+  allow_implicit_invocation: true

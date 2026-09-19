@@ -15,7 +15,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.8.0"
+        "base_version": "1.9.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -43,7 +43,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.8.0"
+        "surface_version": "1.9.0"
       }
     }
   },
@@ -97,7 +97,11 @@
           "sense_operation_status",
           "sense_capabilities"
         ]
-      }
+      },
+      "skills": [
+        "manage-environment",
+        "use-sense"
+      ]
     },
     "corpus": {
       "display_name": "Corpus",
@@ -173,7 +177,13 @@
           "corpus_file_restore",
           "corpus_capabilities"
         ]
-      }
+      },
+      "skills": [
+        "investigate-corpus",
+        "refresh-corpus-sources",
+        "show-corpus-overview",
+        "work-in-corpus-folder"
+      ]
     },
     "hypes": {
       "display_name": "Hypes",
@@ -212,7 +222,10 @@
           "hypes_rewrite",
           "hypes_capabilities"
         ]
-      }
+      },
+      "skills": [
+        "use-user-model"
+      ]
     },
     "document-files": {
       "display_name": "Document Files",
@@ -261,7 +274,10 @@
           "document_verify_hwpx",
           "document_render_file"
         ]
-      }
+      },
+      "skills": [
+        "document-files"
+      ]
     },
     "design": {
       "display_name": "Personal Design",
@@ -314,7 +330,12 @@
           "design_update_recipe",
           "design_upload_asset"
         ]
-      }
+      },
+      "skills": [
+        "design",
+        "design-research",
+        "design-review"
+      ]
     },
     "journal": {
       "display_name": "Journal",
@@ -364,7 +385,11 @@
           "journal_record_corpus_promotion",
           "journal_save_period_summary"
         ]
-      }
+      },
+      "skills": [
+        "manage-journal",
+        "reflect-journal-outcomes"
+      ]
     },
     "library": {
       "display_name": "Library",
@@ -416,7 +441,10 @@
           "library_create_issue",
           "library_upload_asset"
         ]
-      }
+      },
+      "skills": [
+        "manage-library"
+      ]
     },
     "host": {
       "display_name": "Host",
@@ -460,7 +488,10 @@
           "host_job_cancel"
         ],
         "surface_version": "0.1.0-remote.1"
-      }
+      },
+      "skills": [
+        "use-host"
+      ]
     }
   }
 }

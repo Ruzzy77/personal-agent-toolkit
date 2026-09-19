@@ -1,0 +1,13 @@
+interface:
+  display_name: "Show Corpus"
+  short_description: "Show saved contexts and connected material"
+  default_prompt: "Use $show-corpus-overview to show my saved Corpus contexts and the material connected to them."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "corpus"
+      description: "Read-only view of saved Corpus contexts and connected material"
+      transport: "streamable_http"
+      url: "https://personal-agent-context.hiyaq77.workers.dev/corpus/mcp"
+policy:
+  allow_implicit_invocation: true

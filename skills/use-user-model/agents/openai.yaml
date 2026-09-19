@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hypes Relationship Model"
+  short_description: "Use and revise the agent’s relationship model of the user"
+  default_prompt: "Use $use-user-model when this conversation depends on or changes the agent’s relationship model of the user."
+policy:
+  allow_implicit_invocation: true

@@ -382,6 +382,31 @@ def check_openai_distribution(errors: list[str]) -> None:
     if actual_skills != expected_skills:
         errors.append("OpenAI distribution Skills differ from product Skills")
 
+    served = subprocess.run(
+        ["python3", "scripts/build_skill_registry.py", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if served.returncode != 0:
+        errors.append(
+            "the served Skill registry is stale; run scripts/build_skill_registry.py"
+        )
+
+    skills = subprocess.run(
+        ["python3", "scripts/sync_skills.py", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if skills.returncode != 0:
+        errors.append(
+            "product Skills differ from the shared skills/ source; "
+            "run scripts/sync_skills.py"
+        )
+
     result = subprocess.run(
         ["python3", "scripts/build_openai_plugin.py", "--check"],
         cwd=ROOT,

@@ -1147,7 +1147,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.7.0",
+      version: "0.8.0",
       resources: ["toolkit", "sense", "corpus", "hypes", "host"],
     });
 
@@ -1279,6 +1279,59 @@ describe("remote personal context service", () => {
 
     await call("toolkit_products_set", { product: "design", enabled: true });
     expect(await listTools()).toEqual(MCP_SURFACES.toolkit.tools);
+  });
+
+  it("serves the toolkit Skills through the one connection", async () => {
+    const call = async (name: string, args: Record<string, unknown>) =>
+      mcpPayload(
+        await handleMcp(
+          new Request("https://context.test/mcp", {
+            method: "POST",
+            headers: {
+              Accept: "application/json, text/event-stream",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/call",
+              params: { name, arguments: args },
+            }),
+          }),
+          runtime,
+          legacyToolkitPrincipal,
+          "toolkit",
+        ),
+      );
+
+    const listed = (
+      (await call("toolkit_skills_list", { product: "host" })).result as {
+        structuredContent: {
+          result: { skills: Array<{ name: string; uri: string }> };
+        };
+      }
+    ).structuredContent.result.skills;
+    expect(listed.map((skill) => skill.name)).toContain("use-host");
+
+    const read = (
+      await call("toolkit_skill_read", { uri: "skill://pat/use-host/SKILL.md" })
+    ).result as {
+      structuredContent: {
+        result: { text: string; skill: string; files: Array<{ path: string }> };
+      };
+      content: Array<{ type: string; text: string }>;
+    };
+    expect(read.structuredContent.result.skill).toBe("use-host");
+    expect(read.structuredContent.result.text).toContain("host_roots");
+    expect(read.content[0]?.text).toBe(read.structuredContent.result.text);
+    expect(
+      read.structuredContent.result.files.map((file) => file.path),
+    ).toContain("SKILL.md");
+
+    const missing = (
+      await call("toolkit_skill_read", { uri: "skill://pat/nope/SKILL.md" })
+    ).result as { isError: boolean };
+    expect(missing.isError).toBe(true);
   });
 
   it("advertises stable, object-rooted MCP schemas for all three products", async () => {

@@ -1,5 +1,6 @@
 import registry from "../../../products.json";
 import { TOOLKIT_CONTROL_TOOLS } from "./toolkit-products";
+import { TOOLKIT_SKILL_TOOLS } from "./toolkit-skills";
 import type { ResourceKind } from "./types";
 
 export type McpSurface = {
@@ -26,6 +27,7 @@ export const MCP_SURFACES = {
     version: registry.distributions.openai.mcp.surface_version,
     tools: [
       ...TOOLKIT_CONTROL_TOOLS,
+      ...TOOLKIT_SKILL_TOOLS,
       ...[
         "sense",
         "corpus",

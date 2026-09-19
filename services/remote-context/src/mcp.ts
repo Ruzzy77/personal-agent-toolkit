@@ -14,6 +14,7 @@ import {
   disabledProducts,
   registerToolkitProductTools,
 } from "./toolkit-products";
+import { registerToolkitSkillTools } from "./toolkit-skills";
 import type { Env, Principal, ResourceKind } from "./types";
 import { registerDesignTools } from "personal-agent-design-service/mcp";
 import { DesignService } from "personal-agent-design-service/service";
@@ -80,11 +81,13 @@ async function toolkitServer(
         "the Hypes relationship model, Journal progress, Library publishing, private " +
         "Design assets, and the owner's Host workspace in one " +
         "owner-authenticated connection. Use only the product tools relevant to the request. " +
-        "toolkit_products shows which products this connection exposes.",
+        "toolkit_products shows which products this connection exposes, and " +
+        "toolkit_skills_list finds the toolkit's own working methods when the method matters.",
     },
   );
   const disabled = await disabledProducts(env, principal.ownerId);
   registerToolkitProductTools(server, env, principal, disabled);
+  registerToolkitSkillTools(server);
   if (!disabled.has("sense")) registerSenseTools(server, env, principal);
   if (!disabled.has("corpus")) registerCorpusTools(server, env, principal);
   if (!disabled.has("hypes")) registerHypesTools(server, env, principal);

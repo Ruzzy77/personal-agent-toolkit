@@ -15,6 +15,7 @@ from document_files_release import document_source
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
 TARGET = PLUGIN_ROOT / "personal-agent-toolkit"
+REGISTRY = json.loads((ROOT / "products.json").read_text(encoding="utf-8"))
 PRODUCTS = tuple(
     json.loads((ROOT / "products.json").read_text(encoding="utf-8"))["distributions"][
         "openai"
@@ -23,13 +24,21 @@ PRODUCTS = tuple(
 
 
 def copy_skills(target: Path) -> None:
+    """Skills come from the shared `skills/` source; only the pinned
+    document-files package keeps its own copy."""
+
     target.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
     for product in PRODUCTS:
-        product_root = (
-            document_source() if product == "document-files" else PLUGIN_ROOT / product
+        skill_root = (
+            document_source() / "skills"
+            if product == "document-files"
+            else ROOT / "skills"
         )
-        for source in sorted((product_root / "skills").iterdir()):
+        names = set(REGISTRY["products"][product].get("skills", []))
+        for source in sorted(skill_root.iterdir()):
+            if source.name not in names:
+                continue
             if not source.is_dir():
                 continue
             if source.name in seen:
