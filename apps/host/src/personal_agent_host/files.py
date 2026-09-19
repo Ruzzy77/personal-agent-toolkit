@@ -15,6 +15,7 @@ from typing import Any
 from mcp.server.mcpserver.exceptions import ToolError as McpToolError
 
 from personal_agent_host.config import LIMITS, HostConfig, RootPolicy
+from personal_agent_host.file_locks import root_lock
 
 MAX_PATH_BYTES = 4096
 MAX_MARKER_BYTES = 4096
@@ -162,75 +163,76 @@ def write_file(
     delete: bool = False,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
-    if (
-        sum(1 for flag in (content is not None, replace is not None, delete) if flag)
-        != 1
-    ):
-        raise ToolError(
-            "invalid_request", "give exactly one of content, replace, or delete"
-        )
-    if policy.permission == "read_only":
-        raise ToolError("policy_denied", f"{policy.id} is read-only")
-    target = relative_path(policy.root, path)
-    if target == policy.root.resolve():
-        raise ToolError("invalid_path", "path must name a file")
-    if config.protects(target):
-        # A protected source stays read-only through every root that reaches it.
-        raise ToolError("policy_denied", f"{path} is inside a protected source")
-    exists = target.exists()
-    if exists and not target.is_file():
-        raise ToolError("invalid_path", f"{path} is not a regular file")
-    current = _read_bytes(target, path) if exists else None
-    current_version = file_version(current) if current is not None else ABSENT
+    with root_lock(policy.root):
+        if (
+            sum(1 for flag in (content is not None, replace is not None, delete) if flag)
+            != 1
+        ):
+            raise ToolError(
+                "invalid_request", "give exactly one of content, replace, or delete"
+            )
+        if policy.permission == "read_only":
+            raise ToolError("policy_denied", f"{policy.id} is read-only")
+        target = relative_path(policy.root, path)
+        if target == policy.root.resolve():
+            raise ToolError("invalid_path", "path must name a file")
+        if config.protects(target):
+            # A protected source stays read-only through every root that reaches it.
+            raise ToolError("policy_denied", f"{path} is inside a protected source")
+        exists = target.exists()
+        if exists and not target.is_file():
+            raise ToolError("invalid_path", f"{path} is not a regular file")
+        current = _read_bytes(target, path) if exists else None
+        current_version = file_version(current) if current is not None else ABSENT
 
-    if expected_version is not None and expected_version != current_version:
-        raise ToolError(
-            "version_conflict",
-            f"{path} is {current_version}, not {expected_version}",
-        )
-    if policy.permission == "create_only" and exists:
-        raise ToolError("policy_denied", f"{policy.id} only allows creating files")
+        if expected_version is not None and expected_version != current_version:
+            raise ToolError(
+                "version_conflict",
+                f"{path} is {current_version}, not {expected_version}",
+            )
+        if policy.permission == "create_only" and exists:
+            raise ToolError("policy_denied", f"{policy.id} only allows creating files")
 
-    if delete:
-        if not exists:
-            raise ToolError("not_found", f"{path} does not exist")
+        if delete:
+            if not exists:
+                raise ToolError("not_found", f"{path} does not exist")
+            _keep_previous(config, policy, target)
+            target.unlink()
+            return {"path": display_path(policy.root, target), "version": ABSENT}
+
+        if replace is not None:
+            if not exists:
+                raise ToolError("not_found", f"{path} does not exist")
+            start, end, body = (
+                replace["start_marker"],
+                replace["end_marker"],
+                replace["content"],
+            )
+            for marker in (start, end):
+                if not marker or len(marker.encode("utf-8")) > MAX_MARKER_BYTES:
+                    raise ToolError("invalid_request", "marker is empty or too long")
+            text = _decode(current or b"", path)
+            for label, marker in (("start_marker", start), ("end_marker", end)):
+                occurrences = text.count(marker)
+                if occurrences == 0:
+                    raise ToolError("marker_not_found", f"{label} is not in the file")
+                if occurrences > 1:
+                    raise ToolError(
+                        "marker_ambiguous", f"{label} appears {occurrences} times"
+                    )
+            head = text.index(start) + len(start)
+            tail = text.index(end)
+            if tail < head:
+                raise ToolError("marker_order", "start_marker must precede end_marker")
+            payload = (text[:head] + body + text[tail:]).encode("utf-8")
+        else:
+            payload = (content or "").encode("utf-8")
+
+        if len(payload) > LIMITS["write_bytes"]:
+            raise ToolError("too_large", "the resulting file exceeds write_bytes")
         _keep_previous(config, policy, target)
-        target.unlink()
-        return {"path": display_path(policy.root, target), "version": ABSENT}
-
-    if replace is not None:
-        if not exists:
-            raise ToolError("not_found", f"{path} does not exist")
-        start, end, body = (
-            replace["start_marker"],
-            replace["end_marker"],
-            replace["content"],
-        )
-        for marker in (start, end):
-            if not marker or len(marker.encode("utf-8")) > MAX_MARKER_BYTES:
-                raise ToolError("invalid_request", "marker is empty or too long")
-        text = _decode(current or b"", path)
-        for label, marker in (("start_marker", start), ("end_marker", end)):
-            occurrences = text.count(marker)
-            if occurrences == 0:
-                raise ToolError("marker_not_found", f"{label} is not in the file")
-            if occurrences > 1:
-                raise ToolError(
-                    "marker_ambiguous", f"{label} appears {occurrences} times"
-                )
-        head = text.index(start) + len(start)
-        tail = text.index(end)
-        if tail < head:
-            raise ToolError("marker_order", "start_marker must precede end_marker")
-        payload = (text[:head] + body + text[tail:]).encode("utf-8")
-    else:
-        payload = (content or "").encode("utf-8")
-
-    if len(payload) > LIMITS["write_bytes"]:
-        raise ToolError("too_large", "the resulting file exceeds write_bytes")
-    _keep_previous(config, policy, target)
-    _atomic_write(target, payload)
-    return {"path": display_path(policy.root, target), "version": file_version(payload)}
+        _atomic_write(target, payload)
+        return {"path": display_path(policy.root, target), "version": file_version(payload)}
 
 
 async def search(

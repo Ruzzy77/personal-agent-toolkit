@@ -20,6 +20,9 @@ from starlette.routing import Mount
 from personal_agent_host.config import HostConfig, read_token
 from personal_agent_host.jobs import JobManager
 from personal_agent_host.server import create_server
+from personal_agent_host.transfer_http import TransferHTTP
+from personal_agent_host.transfers import Transfers
+from personal_agent_host.workspace_files import WorkspaceFiles
 
 MCP_PATH = "/mcp"
 log = logging.getLogger("personal_agent_host")
@@ -80,7 +83,9 @@ def start_sync(config: HostConfig) -> tuple[SyncDaemon, asyncio.Task[None]] | No
 
 def build_app(config: HostConfig) -> Starlette:
     jobs = JobManager(config)
-    server = create_server(config, jobs)
+    transfers = Transfers(config)
+    workspace = WorkspaceFiles(config)
+    server = create_server(config, jobs, transfers, workspace)
     listen = f"{config.listen_host}:{config.listen_port}"
     security = TransportSecuritySettings(
         allowed_hosts=[
@@ -99,18 +104,34 @@ def build_app(config: HostConfig) -> Starlette:
         host=config.listen_host,
     )
 
+    async def expire_files() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await asyncio.to_thread(transfers.expire)
+                await asyncio.to_thread(workspace.expire)
+            except Exception:
+                log.exception("File retention cleanup failed")
+
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         await jobs.start()
+        await asyncio.to_thread(workspace.expire)
+        retention = asyncio.create_task(expire_files(), name="file-retention")
         sync = start_sync(config)
         try:
             async with server.session_manager.run():
                 yield
         finally:
+            retention.cancel()
+            await asyncio.gather(retention, return_exceptions=True)
             if sync is not None:
                 sync[0].stopping.set()
                 sync[1].cancel()
                 await asyncio.gather(sync[1], return_exceptions=True)
 
-    outer = Starlette(routes=[Mount("/", app=mcp_app)], lifespan=lifespan)
+    outer = Starlette(
+        routes=[*TransferHTTP(transfers).routes(), Mount("/", app=mcp_app)],
+        lifespan=lifespan,
+    )
     return BearerGuard(outer, read_token(config))  # type: ignore[return-value]

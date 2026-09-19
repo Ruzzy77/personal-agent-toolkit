@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Env, Principal } from "./types";
 
 /**
- * Host adapter: the eight `host_*` tools are declared here and every call is
+ * Host adapter: the `host_*` tools are declared here and every call is
  * forwarded to the owner's Host server over the Workers VPC binding as an
  * internal, sessionless MCP `tools/call`. Authorization ends in this Worker;
  * the Host only checks the upstream bearer.
@@ -130,6 +130,31 @@ export const HOST_TOOLS: readonly HostTool[] = [
         expected_version: z.string().max(256).optional(),
       })
       .strict(),
+  },
+  {
+    name: "host_files", title: "Workspace files",
+    description: "List folders, stat, mkdir, move/rename, trash, trash_list, or restore within one root. Move/trash require expected_version; restore never overwrites.",
+    scope: "host.read", annotations: WRITE,
+    schema: z.object({
+      root: rootId,
+      operation: z.enum(["list", "stat", "mkdir", "move", "trash", "trash_list", "restore"]),
+      path: relativePath.optional(), destination: relativePath.optional(),
+      expected_version: z.string().max(256).optional(),
+      trash_id: z.string().max(128).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+      cursor: z.string().max(4096).optional(),
+    }).strict(),
+  },
+  {
+    name: "host_transfer", title: "Start a file transfer",
+    description: "Prepare an authenticated upload/download without binary MCP output. Upload needs size and expected_version (absent for new files). Transfer credentials go in HTTP headers, never URLs/logs. Max 1 GiB; chunks max 8 MiB.",
+    scope: "host.read", annotations: WRITE,
+    schema: z.object({
+      root: rootId, path: relativePath, direction: z.enum(["upload", "download"]),
+      size: z.number().int().min(0).max(1073741824).optional(),
+      expected_version: z.string().max(256).optional(),
+      sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
+    }).strict(),
   },
   {
     name: "host_exec",
@@ -295,14 +320,35 @@ export function registerHostTools(
         annotations: tool.annotations,
       },
       async (input) => {
-        if (!granted.has(tool.scope)) {
+        const required = hostRequiredScope(tool.name, input as Record<string, unknown>);
+        if (!granted.has(required)) {
           return failure(
             "insufficient_scope",
-            `the token does not grant the required ${tool.scope} scope`,
+            `the token does not grant the required ${required} scope`,
           );
         }
-        return callHost(env, tool.name, input as Record<string, unknown>);
+        const result = await callHost(env, tool.name, input as Record<string, unknown>);
+        return tool.name === "host_transfer" ? transferReceipt(result, env) : result;
       },
     );
   }
+}
+
+export function hostRequiredScope(name: string, input: Record<string, unknown>): HostScope {
+  if (name === "host_files")
+    return ["list", "stat", "trash_list"].includes(String(input.operation)) ? "host.read" : "host.write";
+  if (name === "host_transfer") return input.direction === "download" ? "host.read" : "host.write";
+  return HOST_TOOLS.find(tool => tool.name === name)?.scope ?? "host.write";
+}
+
+export function transferReceipt(result: Awaited<ReturnType<typeof callHost>>, env: Env) {
+  const data = result.structuredContent as Record<string, unknown> | undefined;
+  if (result.isError || typeof data?.transfer_id !== "string") return result;
+  const origin = new URL(env.TOOLKIT_RESOURCE).origin;
+  const receipt = {
+    ...data, transfer_url: `${origin}/host/v1/transfers/${encodeURIComponent(data.transfer_id)}`,
+    token_header: "X-Toolkit-Transfer-Token",
+    actions: { upload: "PUT /chunk (Upload-Offset header)", download: "GET /content", status: "GET /status", commit: "POST /commit", cancel: "DELETE /status" },
+  };
+  return { ...result, structuredContent: receipt, content: [{ type: "text" as const, text: JSON.stringify(receipt) }] };
 }

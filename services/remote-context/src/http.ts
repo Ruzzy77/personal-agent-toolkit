@@ -12,6 +12,7 @@ import { CorpusService } from "./corpus";
 import { canonicalJson, nowIso } from "./canonical";
 import { handleAdminSite } from "./admin-site";
 import { handleContextSite } from "./context-site";
+import { handleHostHttp } from "./host-http";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import { importCorpusMetadata } from "./imports";
@@ -621,6 +622,8 @@ export async function handleHttp(
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
+    const host = await handleHostHttp(request, env);
+    if (host) return host;
     const adminSite = await handleAdminSite(request, env);
     if (adminSite) return adminSite;
     const contextSite = await handleContextSite(request, env);

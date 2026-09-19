@@ -1,8 +1,8 @@
-"""Host MCP tools: the eight `host_*` tools over the configured roots."""
+"""Host MCP tools over the configured workspace roots."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
@@ -13,6 +13,8 @@ from personal_agent_host.config import LIMITS, HostConfig
 from personal_agent_host.files import ToolError, read_files, search, write_file
 from personal_agent_host.jobs import JobManager, clamp_timeout
 from personal_agent_host.runtime import execution_capabilities
+from personal_agent_host.transfers import CHUNK_BYTES, MAX_FILE_BYTES, Transfers
+from personal_agent_host.workspace_files import WorkspaceFiles
 
 SERVER_INSTRUCTIONS = (
     "Host exposes the owner's workspace roots on the always-on host. Start with "
@@ -54,7 +56,12 @@ class Replacement(BaseModel):
     content: str
 
 
-def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
+def create_server(
+    config: HostConfig, jobs: JobManager,
+    transfers: Transfers | None = None, workspace: WorkspaceFiles | None = None,
+) -> MCPServer:
+    transfers = transfers or Transfers(config)
+    workspace = workspace or WorkspaceFiles(config)
     server = MCPServer("Host", version=__version__, instructions=SERVER_INSTRUCTIONS)
 
     @server.tool(
@@ -64,7 +71,7 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
         annotations=READ_ONLY,
     )
     async def host_capabilities() -> dict[str, Any]:
-        return {"version": __version__, "limits": dict(LIMITS),
+        return {"version": __version__, "limits": {**LIMITS, "file_bytes": MAX_FILE_BYTES, "chunk_bytes": CHUNK_BYTES, "trash_days": 30},
                 **await execution_capabilities(config)}
 
     @server.tool(
@@ -162,6 +169,52 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
             delete=delete,
             expected_version=expected_version,
         )
+
+    @server.tool(
+        name="host_files", title="Workspace files",
+        description=(
+            "List folders, stat a file, create a folder, move or rename, trash, list "
+            "trash, or restore. All paths stay within one registered root. Move and "
+            "trash require expected_version from stat; restore never overwrites."
+        ), annotations=WRITE,
+    )
+    def host_files(
+        root: RootId,
+        operation: Literal["list", "stat", "mkdir", "move", "trash", "trash_list", "restore"],
+        path: RelPath = ".",
+        destination: RelPath | None = None,
+        expected_version: Annotated[str | None, Field(max_length=256)] = None,
+        trash_id: Annotated[str | None, Field(max_length=128)] = None,
+        limit: Annotated[int, Field(ge=1, le=200)] = 200,
+        cursor: Annotated[str | None, Field(max_length=4096)] = None,
+    ) -> dict[str, Any]:
+        return workspace.dispatch(
+            root, operation, path=path, destination=destination,
+            expected_version=expected_version, trash_id=trash_id, limit=limit, cursor=cursor,
+        )
+
+    @server.tool(
+        name="host_transfer", title="Start a file transfer",
+        description=(
+            "Prepare an authenticated upload or download without returning binary "
+            "bytes in MCP. Uploads require size and expected_version (absent for new "
+            "files); chunks are at most 8 MiB and total size at most 1 GiB. Use the "
+            "returned transfer credential only in HTTP headers, never in URLs or logs."
+        ), annotations=WRITE,
+    )
+    def host_transfer(
+        root: RootId, path: RelPath, direction: Literal["upload", "download"],
+        size: Annotated[int | None, Field(ge=0, le=MAX_FILE_BYTES)] = None,
+        expected_version: Annotated[str | None, Field(max_length=256)] = None,
+        sha256: Annotated[str | None, Field(pattern="^[0-9a-fA-F]{64}$")] = None,
+    ) -> dict[str, Any]:
+        if direction == "upload":
+            if size is None or expected_version is None:
+                raise ToolError("invalid_request", "upload requires size and expected_version")
+            return transfers.begin_upload(
+                config.root(root), path, size, expected_version, sha256,
+            )
+        return transfers.begin_download(config.root(root), path, expected_version)
 
     @server.tool(
         name="host_exec",

@@ -450,7 +450,7 @@
       "display_name": "Host",
       "plugin": {
         "path": "plugins/host",
-        "base_version": "0.2.0"
+        "base_version": "0.3.0"
       },
       "delivery": {
         "openai": {
@@ -483,11 +483,13 @@
           "host_search",
           "host_read",
           "host_write",
+          "host_files",
+          "host_transfer",
           "host_exec",
           "host_job",
           "host_job_cancel"
         ],
-        "surface_version": "0.2.0-remote.1"
+        "surface_version": "0.3.0-remote.1"
       },
       "skills": [
         "use-host"
