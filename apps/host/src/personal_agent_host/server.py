@@ -56,6 +56,30 @@ class Replacement(BaseModel):
     content: str
 
 
+def root_descriptors(config: HostConfig) -> list[dict[str, Any]]:
+    def connection(root):
+        if root.connection is None:
+            return None
+        return {"space_id": root.connection.space_id,
+                "connection_id": root.connection.connection_id}
+    result = []
+    for root in config.roots:
+        locations = []
+        for other in config.roots:
+            if other.id == root.id or other.connection is None:
+                continue
+            try:
+                relative = other.root.resolve().relative_to(root.root.resolve()).as_posix()
+            except ValueError:
+                continue
+            locations.append({"root": other.id, "path": relative,
+                              "permission": other.permission, "corpus": connection(other)})
+        result.append({"id": root.id, "permission": root.permission, "execute": root.execute,
+                       "sources": list(root.sources), "corpus": connection(root),
+                       "locations": locations})
+    return result
+
+
 def create_server(
     config: HostConfig, jobs: JobManager,
     transfers: Transfers | None = None, workspace: WorkspaceFiles | None = None,
@@ -84,17 +108,7 @@ def create_server(
         annotations=READ_ONLY,
     )
     def host_roots() -> dict[str, Any]:
-        return {
-            "roots": [
-                {
-                    "id": root.id,
-                    "permission": root.permission,
-                    "execute": root.execute,
-                    "sources": list(root.sources),
-                }
-                for root in config.roots
-            ]
-        }
+        return {"roots": root_descriptors(config)}
 
     @server.tool(
         name="host_search",

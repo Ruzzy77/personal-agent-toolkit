@@ -1,0 +1,1 @@
+export default function SignedOut(){return <main className="su-workspace su-stack" id="main-content"><h1>Toolkit</h1><p>로그아웃했습니다.</p><a className="su-btn" href="/auth/login">Google 계정으로 로그인</a></main>;}

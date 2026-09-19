@@ -6,7 +6,7 @@ import { DesignService } from "personal-agent-design-service/service";
 import { contextOperations } from "./context-api";
 import { authenticateSite, json, readJson } from "./context-site";
 import { asContextError, ContextError } from "./errors";
-import type { Env } from "./types";
+import type { Env, Principal } from "./types";
 
 // This surface is deliberately narrower than owner OAuth or the Context editor.
 export const ADMIN_OPERATIONS = new Set([
@@ -61,7 +61,7 @@ export const ADMIN_OPERATIONS = new Set([
   "sense_trash_list",
 ]);
 
-export async function handleAdminSite(request: Request, env: Env): Promise<Response | null> {
+export async function handleAdminSite(request: Request, env: Env, authenticated?: Principal): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (!path.startsWith("/admin/")) return null;
   try {
@@ -71,12 +71,12 @@ export async function handleAdminSite(request: Request, env: Env): Promise<Respo
       return json({ ok: false, error: { code: "method_not_allowed", message: "Use POST" } }, 405, {
         Allow: "POST",
       });
-    const authenticated = authenticateSite(request, env);
-    const principal = {
-      ...authenticated,
+    const sitePrincipal = authenticated ?? authenticateSite(request, env);
+    const principal = authenticated ?? {
+      ...sitePrincipal,
       clientId: "workspace-management",
       scopes: new Set([
-        ...authenticated.scopes,
+        ...sitePrincipal.scopes,
         "library.read",
         "library.write",
         "design.read",

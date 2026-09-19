@@ -13,6 +13,7 @@ import { canonicalJson, nowIso } from "./canonical";
 import { handleAdminSite } from "./admin-site";
 import { handleContextSite } from "./context-site";
 import { handleHostHttp } from "./host-http";
+import { handleWeb, readJson } from "./web";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import { importCorpusMetadata } from "./imports";
@@ -20,8 +21,6 @@ import { SenseService } from "./sense";
 import { MCP_SURFACES } from "./surfaces";
 import { syncConnectionsUpsertSchema } from "./sync-connection-schemas";
 import type { Env, Principal, ResourceKind } from "./types";
-
-const JSON_BODY_LIMIT = 16 * 1024 * 1024;
 
 function json(
   body: unknown,
@@ -32,22 +31,6 @@ function json(
     status,
     headers: { "Cache-Control": "no-store", ...headers },
   });
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  const length = Number(request.headers.get("Content-Length") ?? "0");
-  if (Number.isFinite(length) && length > JSON_BODY_LIMIT) {
-    throw new ContextError(
-      "request_too_large",
-      "request body is too large",
-      413,
-    );
-  }
-  try {
-    return await request.json();
-  } catch {
-    throw new ContextError("invalid_json", "request body must be JSON");
-  }
 }
 
 function protectedMetadata(
@@ -624,6 +607,8 @@ export async function handleHttp(
     const url = new URL(request.url);
     const host = await handleHostHttp(request, env);
     if (host) return host;
+    const web = await handleWeb(request, env);
+    if (web) return web;
     const adminSite = await handleAdminSite(request, env);
     if (adminSite) return adminSite;
     const contextSite = await handleContextSite(request, env);

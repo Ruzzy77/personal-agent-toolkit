@@ -15,7 +15,7 @@ import {
   savePeriodSummarySchema,
 } from "./schemas";
 import { JournalService } from "./service";
-import type { Env } from "./types";
+import type { Env, Principal } from "./types";
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -87,7 +87,26 @@ function unauthorizedHeaders(env: Env): HeadersInit {
   };
 }
 
-export async function handleHttp(request: Request, env: Env): Promise<Response> {
+async function authorizeHttp(
+  request: Request,
+  env: Env,
+  principal: Principal | undefined,
+  anyScope: readonly string[],
+): Promise<Principal> {
+  if (!principal) return authenticate(request, env, anyScope);
+  if (anyScope.some((scope) => principal.scopes.has(scope))) return principal;
+  throw new JournalError(
+    "insufficient_scope",
+    "the token does not grant the required Journal scope",
+    403,
+  );
+}
+
+async function handleHttpRequest(
+  request: Request,
+  env: Env,
+  principal?: Principal,
+): Promise<Response> {
   try {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
@@ -122,7 +141,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
 
     const service = new JournalService(env.DB);
     if (request.method === "GET" && url.pathname === "/api/v1/board") {
-      await authenticate(request, env, ["journal.read"]);
+      await authorizeHttp(request, env, principal, ["journal.read"]);
       const week = url.searchParams.get("week");
       const includeResolved =
         url.searchParams.get("include_resolved") === "true";
@@ -131,17 +150,17 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
     }
 
     if (request.method === "POST" && url.pathname === "/api/v1/items:ingest") {
-      const principal = await authenticate(request, env, [
+      const actor = await authorizeHttp(request, env, principal, [
         "journal.ingest",
         "journal.write",
       ]);
       const input = await readJson(request, ingestRequestSchema);
-      const result = await service.ingestItems(input.items, principal);
+      const result = await service.ingestItems(input.items, actor);
       return jsonResponse(request, env, { ok: true, result }, 200);
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/items") {
-      await authenticate(request, env, ["journal.read"]);
+      await authorizeHttp(request, env, principal, ["journal.read"]);
       const parsed = findItemsSchema.safeParse({
         weekId: url.searchParams.get("week"),
         startsOn: url.searchParams.get("starts_on"),
@@ -163,7 +182,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       url.pathname,
     );
     if (request.method === "GET" && itemDetailMatch) {
-      await authenticate(request, env, ["journal.read"]);
+      await authorizeHttp(request, env, principal, ["journal.read"]);
       const itemId = itemDetailMatch[1];
       if (!itemId) {
         throw new JournalError("item_not_found", "item was not found", 404);
@@ -175,13 +194,13 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
     const resolutionMatch =
       /^\/api\/v1\/items\/([0-9a-f-]+)\/resolution$/.exec(url.pathname);
     if (request.method === "PATCH" && resolutionMatch) {
-      const principal = await authenticate(request, env, ["journal.write"]);
+      const actor = await authorizeHttp(request, env, principal, ["journal.write"]);
       const input = await readJson(request, resolutionRequestSchema);
       const itemId = resolutionMatch[1];
       if (!itemId) {
         throw new JournalError("item_not_found", "item was not found", 404);
       }
-      const result = await service.setResolution(itemId, input, principal);
+      const result = await service.setResolution(itemId, input, actor);
       return jsonResponse(request, env, { ok: true, result });
     }
 
@@ -190,12 +209,12 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
         url.pathname,
       );
     if (request.method === "POST" && prepareCloseMatch) {
-      const principal = await authenticate(request, env, ["journal.close"]);
+      const actor = await authorizeHttp(request, env, principal, ["journal.close"]);
       const weekId = prepareCloseMatch[1];
       if (!weekId) {
         throw new JournalError("week_not_found", "week was not found", 404);
       }
-      const result = await service.prepareWeekClose(weekId, principal);
+      const result = await service.prepareWeekClose(weekId, actor);
       return jsonResponse(request, env, { ok: true, result });
     }
 
@@ -204,7 +223,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
         url.pathname,
       );
     if (request.method === "POST" && confirmCloseMatch) {
-      const principal = await authenticate(request, env, ["journal.close"]);
+      const actor = await authorizeHttp(request, env, principal, ["journal.close"]);
       const input = await readJson(request, closeWeekRequestSchema);
       const weekId = confirmCloseMatch[1];
       if (!weekId) {
@@ -215,7 +234,7 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
         input.preparationVersion,
         input.idempotencyKey,
         input.occurredAt,
-        principal,
+        actor,
       );
       return jsonResponse(request, env, { ok: true, result });
     }
@@ -225,18 +244,18 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
         url.pathname,
       );
     if (request.method === "POST" && correctionMatch) {
-      const principal = await authenticate(request, env, ["journal.write"]);
+      const actor = await authorizeHttp(request, env, principal, ["journal.write"]);
       const input = await readJson(request, correctionRequestSchema);
       const weekId = correctionMatch[1];
       if (!weekId) {
         throw new JournalError("week_not_found", "week was not found", 404);
       }
-      const result = await service.addCorrection(weekId, input, principal);
+      const result = await service.addCorrection(weekId, input, actor);
       return jsonResponse(request, env, { ok: true, result });
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/period") {
-      await authenticate(request, env, ["journal.read"]);
+      await authorizeHttp(request, env, principal, ["journal.read"]);
       const kindResult = periodKindSchema.safeParse(
         url.searchParams.get("kind") ?? "week",
       );
@@ -254,9 +273,9 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       request.method === "POST" &&
       url.pathname === "/api/v1/period-summaries"
     ) {
-      const principal = await authenticate(request, env, ["journal.write"]);
+      const actor = await authorizeHttp(request, env, principal, ["journal.write"]);
       const input = await readJson(request, savePeriodSummarySchema);
-      const result = await service.savePeriodSummary(input, principal);
+      const result = await service.savePeriodSummary(input, actor);
       return jsonResponse(request, env, { ok: true, result });
     }
 
@@ -264,11 +283,11 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
       request.method === "POST" &&
       url.pathname === "/api/v1/corpus-promotions"
     ) {
-      const principal = await authenticate(request, env, [
+      const actor = await authorizeHttp(request, env, principal, [
         "journal.write",
       ]);
       const input = await readJson(request, promotionRequestSchema);
-      const result = await service.recordPromotion(input, principal);
+      const result = await service.recordPromotion(input, actor);
       return jsonResponse(request, env, { ok: true, result });
     }
 
@@ -307,4 +326,16 @@ export async function handleHttp(request: Request, env: Env): Promise<Response> 
     }
     return response;
   }
+}
+
+export function handleHttp(request: Request, env: Env): Promise<Response> {
+  return handleHttpRequest(request, env);
+}
+
+export function handlePreauthenticatedHttp(
+  request: Request,
+  env: Env,
+  principal: Principal,
+): Promise<Response> {
+  return handleHttpRequest(request, env, principal);
 }

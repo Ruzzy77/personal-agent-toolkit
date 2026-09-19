@@ -82,6 +82,28 @@ export async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+export async function executeContextSiteOperation(
+  request: Request,
+  env: Env,
+  principal: Principal,
+  operation: string,
+): Promise<Response> {
+  if (!Object.hasOwn(contextOperations(env, principal), operation)) {
+    throw new ContextError(
+      "operation_not_found",
+      "Context operation does not exist",
+      404,
+    );
+  }
+  const result = await executeContextOperation(
+    env,
+    principal,
+    operation,
+    await readJson(request),
+  );
+  return json({ ok: true, result });
+}
+
 export async function handleContextSite(request: Request, env: Env): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (!path.startsWith("/site/")) return null;
@@ -94,12 +116,7 @@ export async function handleContextSite(request: Request, env: Env): Promise<Res
       } }, 405, { Allow: "POST" });
     }
     const principal = authenticateSite(request, env);
-    const operation = route[1]!;
-    if (!Object.hasOwn(contextOperations(env, principal), operation)) {
-      throw new ContextError("operation_not_found", "Context operation does not exist", 404);
-    }
-    const result = await executeContextOperation(env, principal, operation, await readJson(request));
-    return json({ ok: true, result });
+    return executeContextSiteOperation(request, env, principal, route[1]!);
   } catch (error) {
     const normalized = asContextError(error);
     return json({ ok: false, error: {

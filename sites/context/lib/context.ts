@@ -1,3 +1,4 @@
+import { ownerFetch } from "./owner-client";
 import {
   sameContent,
   type Content,
@@ -23,7 +24,7 @@ export class ContextFailure extends Error {
   }
 }
 export async function contextCall(name: string, input: unknown, surface: "context" | "management" = "context"): Promise<Row> {
-  const response = await fetch(`/api/${surface}/` + name, {
+  const response = await ownerFetch(`/api/${surface}/` + name, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),

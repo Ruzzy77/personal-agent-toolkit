@@ -1,0 +1,15 @@
+{
+  "client_id": "https://personal-agent-toolkit.hiyaq77.workers.dev/oauth-client.json",
+  "client_name": "Personal Agent Toolkit",
+  "redirect_uris": [
+    "https://personal-agent-toolkit.hiyaq77.workers.dev/auth/callback"
+  ],
+  "token_endpoint_auth_method": "none",
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ]
+}

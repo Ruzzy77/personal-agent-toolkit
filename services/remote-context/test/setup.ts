@@ -7,6 +7,10 @@ import type { Env } from "../src/types";
 beforeAll(async () => {
   const migrations = inject("migrations") as D1Migration[];
   await applyD1Migrations((env as unknown as Env).STATE_DB, migrations);
+  await applyD1Migrations(
+    (env as unknown as Env).JOURNAL_DB,
+    inject("journalMigrations"),
+  );
   await applyD1Migrations((env as unknown as Env).LIBRARY_DB, inject("libraryMigrations"));
   await applyD1Migrations((env as unknown as Env).DESIGN_DB, inject("designMigrations"));
 });

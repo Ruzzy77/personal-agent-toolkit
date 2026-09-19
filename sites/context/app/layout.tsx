@@ -1,22 +1,14 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './workspace.css';
+import '../styles/products.css';
+import { ToolkitShell } from './toolkit-shell';
 import { UIProvider } from './ui';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://resolver-control-plane.ruzzy.chatgpt.site'),
-  title: 'Workspace',
-  description: 'Sense · Corpus',
-  openGraph: {
-    title: 'Workspace',
-    description: 'Sense · Corpus',
-    images: ['https://resolver-control-plane.ruzzy.chatgpt.site/og.png'],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Workspace',
-    description: 'Sense · Corpus',
-    images: ['https://resolver-control-plane.ruzzy.chatgpt.site/og.png'],
-  },
+  metadataBase: new URL("https://personal-agent-toolkit.hiyaq77.workers.dev"),
+  title: { default: "Toolkit", template: "%s · Toolkit" },
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
@@ -26,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className="ui-document"><UIProvider>{children}</UIProvider></body>
+      <body className="ui-document"><UIProvider><ToolkitShell>{children}</ToolkitShell></UIProvider></body>
     </html>
   );
 }

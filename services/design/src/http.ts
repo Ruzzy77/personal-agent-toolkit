@@ -1,5 +1,9 @@
 import { executeDesignOperation } from "./operations";
-import { bearerToken, constantTimeEqual } from "@personal-agent/remote-runtime";
+import {
+  bearerToken,
+  constantTimeEqual,
+  type OperationActor,
+} from "@personal-agent/remote-runtime";
 
 import { asDesignError, DesignError } from "./errors";
 import {
@@ -14,14 +18,18 @@ import {
 import { DesignService } from "./service";
 import type { Env } from "./types";
 
-const siteActor = {
+const siteActor: OperationActor = {
   ownerId: "site-owner",
   clientId: "site",
   kind: "owner" as const,
   scopes: new Set(["design.read", "design.write"]),
 };
-const execute = (service: DesignService, name: string, input: unknown) =>
-  executeDesignOperation(service, siteActor, name, input);
+const execute = (
+  service: DesignService,
+  actor: OperationActor,
+  name: string,
+  input: unknown,
+) => executeDesignOperation(service, actor, name, input);
 const MAX_JSON_BYTES = 16_500_000;
 
 function success(result: unknown, status = 200): Response {
@@ -87,6 +95,7 @@ function decodedSegments(pathname: string): string[] {
 async function handleRecipeRoutes(
   request: Request,
   service: DesignService,
+  actor: OperationActor,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname === "/api/v1/recipes" && request.method === "GET")
@@ -94,6 +103,7 @@ async function handleRecipeRoutes(
       (
         await execute(
           service,
+          actor,
           "design_list_recipes",
           listRecipesSchema.parse({
             ...Object.fromEntries(url.searchParams),
@@ -104,15 +114,15 @@ async function handleRecipeRoutes(
       ).recipes,
     );
   if (url.pathname === "/api/v1/catalog" && request.method === "GET") {
-    return success(await execute(service, "design_catalog", {}));
+    return success(await execute(service, actor, "design_catalog", {}));
   }
   if (url.pathname === "/api/v1/recipes" && request.method === "POST") {
     const input = createRecipeSchema.parse(await readJson(request));
-    return success(await execute(service, "design_create_recipe", input), 201);
+    return success(await execute(service, actor, "design_create_recipe", input), 201);
   }
   if (url.pathname === "/api/v1/import/recipes" && request.method === "POST") {
     const input = importRecipeSchema.parse(await readJson(request));
-    return success(await execute(service, "design_import_recipe", input), 201);
+    return success(await execute(service, actor, "design_import_recipe", input), 201);
   }
 
   const segments = decodedSegments(url.pathname);
@@ -130,14 +140,14 @@ async function handleRecipeRoutes(
   const id = parsedId.data;
 
   if (segments.length === 4 && request.method === "GET") {
-    return success(await execute(service, "design_read_recipe", { id }));
+    return success(await execute(service, actor, "design_read_recipe", { id }));
   }
   if (segments.length === 4 && request.method === "PUT") {
     const input = updateRecipeSchema.parse({
       ...((await readJson(request)) as Record<string, unknown>),
       id,
     });
-    return success(await execute(service, "design_update_recipe", input));
+    return success(await execute(service, actor, "design_update_recipe", input));
   }
 
   if (segments[4] !== "files" || segments.length < 6) return null;
@@ -148,6 +158,7 @@ async function handleRecipeRoutes(
   if (request.method === "GET" || request.method === "HEAD") {
     const { loaded } = (await execute(
       service,
+      actor,
       "design_file_download",
       parsedFile,
     )) as {
@@ -167,9 +178,46 @@ async function handleRecipeRoutes(
   if (request.method === "PUT") {
     const body = (await readJson(request)) as Record<string, unknown>;
     const input = uploadFileSchema.parse({ ...body, id, path });
-    return success(await execute(service, "design_upload_asset", input));
+    return success(await execute(service, actor, "design_upload_asset", input));
   }
   return null;
+}
+
+async function handleAuthorizedHttp(
+  request: Request,
+  env: Pick<Env, "DB" | "ASSETS"> & Partial<Pick<Env, "MANAGEMENT_WRITE_ENABLED">>,
+  actor: OperationActor,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const service = new DesignService(env);
+  if (
+    request.method === "POST" &&
+    url.pathname.startsWith("/api/v1/operations/")
+  ) {
+    return success(
+      await executeDesignOperation(
+        service,
+        actor,
+        url.pathname.slice("/api/v1/operations/".length),
+        await readJson(request),
+      ),
+    );
+  }
+  const response = await handleRecipeRoutes(request, service, actor);
+  if (response) return response;
+  return new Response("Not found", { status: 404 });
+}
+
+export async function handlePreauthenticatedHttp(
+  request: Request,
+  env: Pick<Env, "DB" | "ASSETS"> & Partial<Pick<Env, "MANAGEMENT_WRITE_ENABLED">>,
+  actor: OperationActor,
+): Promise<Response> {
+  try {
+    return await handleAuthorizedHttp(request, env, actor);
+  } catch (error) {
+    return failure(error);
+  }
 }
 
 export async function handleHttp(
@@ -178,28 +226,7 @@ export async function handleHttp(
 ): Promise<Response> {
   try {
     requireSite(request, env);
-    const url = new URL(request.url),
-      service = new DesignService(env);
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/api/v1/operations/")
-    )
-      return success(
-        await executeDesignOperation(
-          service,
-          {
-            ownerId: "site-owner",
-            clientId: "site",
-            kind: "owner",
-            scopes: new Set(["design.read", "design.write"]),
-          },
-          url.pathname.slice("/api/v1/operations/".length),
-          await readJson(request),
-        ),
-      );
-    const response = await handleRecipeRoutes(request, service);
-    if (response) return response;
-    return new Response("Not found", { status: 404 });
+    return await handleAuthorizedHttp(request, env, siteActor);
   } catch (error) {
     return failure(error);
   }

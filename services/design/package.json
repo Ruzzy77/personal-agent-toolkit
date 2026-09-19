@@ -6,6 +6,7 @@
   "description": "Owner-authenticated storage and MCP service for private design assets",
   "exports": {
     "./mcp": "./src/mcp.ts",
+    "./http": "./src/http.ts",
     "./service": "./src/service.ts",
     "./management": "./src/management.ts",
     "./operations": "./src/operations.ts"

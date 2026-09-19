@@ -10,7 +10,6 @@ type Tool = {
   execute: (input: unknown) => unknown;
 };
 type Registry = { registerTool: (tool: Tool, options?: { signal?: AbortSignal }) => void | Promise<void> };
-declare global { interface Document { modelContext?: Registry } }
 type Host = {
   read: () => Workspace;
   write: (next: Workspace) => void;
@@ -157,7 +156,7 @@ export function guidanceTools(host: Host): Tool[] {
   } }));
 }
 export function registerGuidanceTools(host: Host, ready: (supported: boolean) => void): () => void {
-  const registry = document.modelContext;
+  const registry = (document as Document & {modelContext?: Registry}).modelContext;
   if (!registry?.registerTool) { ready(false); return () => {}; }
   const lifecycle = new AbortController();
   Promise.all(guidanceTools(host).map(tool =>

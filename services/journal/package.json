@@ -6,6 +6,7 @@
   "description": "Owner-operated Journal API and MCP service for Personal Agent Toolkit",
   "exports": {
     "./mcp": "./src/mcp.ts",
+    "./http": "./src/http.ts",
     "./service": "./src/service.ts",
     "./types": "./src/types.ts"
   },

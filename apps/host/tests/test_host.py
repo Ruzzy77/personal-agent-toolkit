@@ -287,3 +287,10 @@ def test_bearer_guard(config: HostConfig) -> None:
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
         )
         assert rejected.status_code == 421
+
+
+def test_root_descriptors_only_use_explicit_connections(config: HostConfig) -> None:
+    from personal_agent_host.server import root_descriptors
+    roots = root_descriptors(config)
+    assert roots[0]["corpus"] == {"space_id": "demo", "connection_id": "main"}
+    assert roots[1]["corpus"] == {"space_id": "demo", "connection_id": "frozen"}

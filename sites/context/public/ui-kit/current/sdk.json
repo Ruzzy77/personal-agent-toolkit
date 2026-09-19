@@ -1,0 +1,10 @@
+{
+  "sdkVersion": "1.3.0",
+  "documentSchema": "editable-report-v1",
+  "assetMode": "linked",
+  "assetHashes": {
+    "tokens.css": "82312cb06d89c4cf60825a428379798decffc1b64edc66395fa3dcabbaefd43c",
+    "seomun.css": "b69d71033fecd941fb010ed16f1037296e902b2ada680a1fd754b5a8e7d0f322"
+  },
+  "assetBase": "/ui-kit/current/"
+}
