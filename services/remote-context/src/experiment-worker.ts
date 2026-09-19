@@ -289,5 +289,3 @@ export default {
   },
 };
 
-export { CorpusShard } from "./corpus-shard";
-export { SyncBroker } from "./sync-broker";

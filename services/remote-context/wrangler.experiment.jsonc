@@ -39,22 +39,17 @@
       "bucket_name": "surface-experiment-assets"
     }
   ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "CORPUS_SHARDS",
-        "class_name": "CorpusShard"
-      },
-      {
-        "name": "SYNC_BROKERS",
-        "class_name": "SyncBroker"
-      }
-    ]
-  },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": [
+        "CorpusShard",
+        "SyncBroker"
+      ]
+    },
+    {
+      "tag": "v2",
+      "deleted_classes": [
         "CorpusShard",
         "SyncBroker"
       ]

@@ -82,3 +82,25 @@ B 및 직접 노출 확대 변형: 채택하지 않음
 Claude Code and Codex headless attempts stay recorded as `environment_blocked`.
 For those clients this is not a finding that the surface performs the same; it
 records that production continues unchanged without further measurement.
+
+## Teardown (2026-09-19 01:46 UTC)
+
+| resource | id | result |
+|---|---|---|
+| Aside connections `exp-a`, `exp-b` | - | removed with their cached inventories |
+| Spark `personal-agent-host-test.service` and `~/mcp-surface-test/` | - | stopped, disabled, unit and directory deleted; port 18791 closed |
+| Durable Object classes `CorpusShard`, `SyncBroker` (test worker) | migration `v2` `deleted_classes` | deployed before the worker was deleted |
+| Worker `surface-experiment` | - | deleted (endpoint answers 404) |
+| Worker `surface-probe` | - | deleted (endpoint answers 404) |
+| VPC service `surface-host-test` | `01a0b731-8e32-7b23-95eb-2b8378d9bfbf` | deleted; shared service `spark-host` kept |
+| D1 `personal-agent-surface-test` | `d0352ad8-3f6e-4d22-acc1-a2f4977ba19f` | deleted |
+| R2 `surface-experiment-assets` | - | deleted |
+
+Nothing failed to delete. No experiment-only credential remains: the test Host
+token lived in `~/mcp-surface-test/config` and went with that directory, and the
+`HOST_UPSTREAM_TOKEN` secret went with the deleted worker.
+
+Production after teardown: context service 0.7.0 healthy, `/host/mcp` answering
+401 for an unauthenticated call, Spark Host and tunnel active.
+
+철거 완료, 후속 작업 없음.
