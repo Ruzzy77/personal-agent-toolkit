@@ -64,3 +64,21 @@ eight tasks would fit the surface to the test rather than to real use.
 - Aside connects to a stdio server only when a tool is actually called.
 - Claude Code and Codex: environment_blocked (sandbox login, usage limit). Interactive material prepared separately.
 - The largest B penalties are C2 (+20s, +27s) and M1 (+27s, +27s): both need a schema first, so discovery adds a round trip.
+
+## Close-out (2026-09-19)
+
+```
+실험 상태: 종료
+운영 표면: 기존 통합 /mcp, 기존 도구 직접 노출
+제품 스위치: 현재 의미와 저장값 유지
+Aside: A 선택
+Claude Code·Codex 대화형 측정: not_measured
+미측정 사유: 사용자 제약에 따라 추가 플랫폼 측정 제외
+B 및 직접 노출 확대 변형: 채택하지 않음
+후속 측정·설계 미결 항목: 없음
+시험 인프라: 철거
+```
+
+Claude Code and Codex headless attempts stay recorded as `environment_blocked`.
+For those clients this is not a finding that the surface performs the same; it
+records that production continues unchanged without further measurement.
