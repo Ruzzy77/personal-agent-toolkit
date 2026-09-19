@@ -1,0 +1,27 @@
+{
+  "commit": "experiment/mcp-surface",
+  "surface": "Personal Agent Toolkit 1.8.0",
+  "tool_count": 103,
+  "served_bytes_with_output_schema": 142965,
+  "served_bytes_without_output_schema": 98937,
+  "probe_worker": "https://surface-probe.hiyaq77.workers.dev/s7k2q9/{base,full,paged}/mcp",
+  "clients": {
+    "aside": {
+      "version": "1.26.917.1731",
+      "protocol": "2025-11-25",
+      "client_capabilities": {},
+      "transport_tested": [
+        "stdio",
+        "streamable-http"
+      ]
+    },
+    "claude-code": {
+      "version": "2.1.277",
+      "status": "headless login unavailable in sandbox"
+    },
+    "codex": {
+      "version": "codex-cli 0.155.0",
+      "status": "usage limit hit on headless run"
+    }
+  }
+}

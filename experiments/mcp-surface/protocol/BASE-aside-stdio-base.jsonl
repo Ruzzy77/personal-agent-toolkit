@@ -1,0 +1,10 @@
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "11160460a385", "at": "2026-09-19T00:29:33.005+00:00", "event": "start", "pid": 74683, "tool_count": 1}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "11160460a385", "at": "2026-09-19T00:29:33.006+00:00", "event": "initialize", "request_id": 0, "protocol_version": "2025-11-25", "client_info": {"name": "aside-browser", "version": "1.26.917.1731"}, "client_capabilities": {}}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "11160460a385", "at": "2026-09-19T00:29:33.006+00:00", "event": "notification", "method": "notifications/initialized"}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "11160460a385", "at": "2026-09-19T00:29:33.006+00:00", "event": "tools/list", "request_id": 1, "cursor": null, "returned": 1, "names": ["surface_probe"], "bytes": 304, "next_cursor": null}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "11160460a385", "at": "2026-09-19T00:29:33.013+00:00", "event": "exit"}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "10ebbd71e4f6", "at": "2026-09-19T00:30:26.456+00:00", "event": "start", "pid": 74687, "tool_count": 1}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "10ebbd71e4f6", "at": "2026-09-19T00:30:26.456+00:00", "event": "initialize", "request_id": 0, "protocol_version": "2025-11-25", "client_info": {"name": "aside-browser", "version": "1.26.917.1731"}, "client_capabilities": {}}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "10ebbd71e4f6", "at": "2026-09-19T00:30:26.457+00:00", "event": "notification", "method": "notifications/initialized"}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "10ebbd71e4f6", "at": "2026-09-19T00:30:26.457+00:00", "event": "tools/call", "request_id": 1, "name": "surface_probe", "arguments": {}, "is_error": false, "duration_ms": 0.01}
+{"trial_id": "aside-stdio-base", "mode": "BASE", "connection": "10ebbd71e4f6", "at": "2026-09-19T00:40:28.001+00:00", "event": "exit"}

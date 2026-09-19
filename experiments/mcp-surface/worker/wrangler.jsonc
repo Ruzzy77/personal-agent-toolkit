@@ -1,0 +1,6 @@
+{
+  "name": "surface-probe",
+  "main": "worker.ts",
+  "compatibility_date": "2026-08-31",
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

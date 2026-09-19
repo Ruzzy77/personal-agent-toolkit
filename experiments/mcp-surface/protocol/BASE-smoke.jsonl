@@ -1,0 +1,5 @@
+{"trial_id": "smoke", "mode": "BASE", "connection": "ced21a2a4cc6", "at": "2026-09-19T00:29:07.165+00:00", "event": "start", "pid": 74640, "tool_count": 1}
+{"trial_id": "smoke", "mode": "BASE", "connection": "ced21a2a4cc6", "at": "2026-09-19T00:29:07.165+00:00", "event": "initialize", "request_id": 1, "protocol_version": "2025-06-18", "client_info": {"name": "smoke", "version": "0"}, "client_capabilities": {"tools": {}}}
+{"trial_id": "smoke", "mode": "BASE", "connection": "ced21a2a4cc6", "at": "2026-09-19T00:29:07.165+00:00", "event": "tools/list", "request_id": 2, "cursor": null, "returned": 1, "names": ["surface_probe"], "bytes": 304, "next_cursor": null}
+{"trial_id": "smoke", "mode": "BASE", "connection": "ced21a2a4cc6", "at": "2026-09-19T00:29:07.165+00:00", "event": "tools/call", "request_id": 3, "name": "surface_probe", "arguments": {}, "is_error": false, "duration_ms": 0.01}
+{"trial_id": "smoke", "mode": "BASE", "connection": "ced21a2a4cc6", "at": "2026-09-19T00:29:07.165+00:00", "event": "exit"}

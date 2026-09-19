@@ -1,0 +1,116 @@
+heading "ChatGPT의 말:" [level=4]
+      - button "6m 54s 동안 처리함" [ref=e147]
+      - generic [ref=e148]:
+        - text: "제품 스위치는 현재 의미와 저장값을 그대로 두십시오. 운영 도구를 병합하거나 “숨김”으로 바꾸지 않습니다. 먼저 별도 시험 표면에서 A를 측정하고, 아래 조건에 해당하는 클라이언트에서만 B를 비교합니다.\n선택 단위는  클라이언트 × 버전 × 모델 × 연결 방식 입니다. Aside에는 B, Claude Code에는 A를 사용하는 결과도 허용합니다. 등록·인증을 하나로 만드는 것과 모든 클라이언트에 같은 도구 목록을 보내는 것은 분리합니다.\n아래 수치는 이번 툴킷의 선택 기준으로 제가 정한 값입니다."
+        - heading "1. 먼저 고정할 것" [level=2]
+        - text: "experiment/mcp-surface  브랜치를 만들고 다음을 기록하십시오."
+        - button "복사" [ref=e149]
+        - text: "experiments/mcp-surface/\n  manifest.full.json       # 현재 전체 도구 정의\n  environment.json         # 커밋·클라이언트·모델·설정\n  cases.json               # 아래 작업 8개의 입력과 기대 결과\n  runs.jsonl               # 실행별 측정값\n  protocol/                # MCP 요청·응답 기록\n  report.md\n manifest.full.json 에는  제품 스위치 필터 적용 전의 전체 registry 를 저장합니다. 이름·설명·입력 스키마·출력 스키마·annotation을 수정하지 마십시오. 개수는 101로 하드코딩하지 않고 실제로 세십시오. toolkit_products  두 도구가 별도로 추가됐다면 포함합니다.\n실험 중에는 SDK·모델·도구 설명·스킬을 함께 업데이트하지 않습니다. 각 클라이언트에서는 기존 제품별 연결과 시험용 통합 연결이 중복 활성화되지 않게 합니다. document-files 를 평소 사용한다면 A/B 양쪽에서 동일하게 유지하십시오.\n스위치의 처리도 고정합니다. 운영 설정은 읽어서 기록만 하고, 시험 서버에서는 모든 제품이 활성화된 별도 설정을 사용합니다. 운영 사용자의 설정값을 바꿔 전체 목록을 얻지는 마십시오."
+        - heading "2. 만들 시험 표면" [level=2]
+        - heading "2.1 로딩 측정용 서버" [level=3]
+        - text: "현재 저장소의 MCP 구현을 재사용해 다음 세 모드를 만드십시오."
+        - table: "모드 제공하는 도구 용도 BASE surface_probe  하나 같은 MCP 연결이 있지만 툴킷 정의는 없는 기준선 FULL 전체 registry + surface_probe 현재 표면의 증가분 PAGED FULL과 동일하되 페이지당 20개 목록 누락과 페이지네이션 문제 분리"
+        - text: "surface_probe 는 인자가 없고, 호출할 때 서버가 새로 만든 임의 문자열을  receipt 로 반환하는 읽기 도구로 만듭니다. PAGED 에서는 마지막 페이지에 놓습니다.\n이 서버에서 기존 제품 이름의 도구는  정의만 제공하며 실제 운영 핸들러로 연결하지 않습니다. 로딩 시험 중 실수로 호출되면  probe_only  오류를 반환합니다.\n기록할 항목은 다음으로 한정합니다."
+        - button "복사" [ref=e150]
+        - text: "trial_id, 시각, 연결 식별자\n요청 method, request id, cursor\ninitialize의 원문 capabilities와 protocolVersion\ntools/list 응답의 도구 이름·개수·UTF-8 bytes·nextCursor\ntools/call의 이름·arguments·결과·소요시간\n 토큰·Authorization 헤더는 기록하지 않습니다. stdio에서는 로그를 stdout에 섞지 마십시오."
+        - paragraph:
+          - text: "페이지네이션과 native search는 별도로 취급합니다. tools/list 의 페이지네이션은 목록 전달 기능이고, tools.listChanged 는 서버의 알림 선언입니다. 클라이언트 capabilities에 어떤 항목이 없다는 이유로 native search 지원 여부를 결정하지 않습니다."
+          - link "Model Context Protocol" [ref=e151]
+        - heading "2.2 작업 비교용 표면" [level=3]
+        - text: "작업 시험은 별도의 시험 데이터에 연결한  현재 핸들러 로 실행합니다. 기존 통합 테스트의 저장소·fixture를 재사용하고, 운영 데이터에는 연결하지 마십시오.\nA는 전체 registry를 그대로 노출합니다.\nB가 필요한 경우에만 다음 표면을 추가합니다."
+        - button "복사" [ref=e152]
+        - text: "상시 노출\n  host_* 8개\n  toolkit_products\n  toolkit_products_set\n\n추가\n  toolkit_discover\n  toolkit_call_read\n  toolkit_call_write\n 이번 B 시험에서는 검색 알고리즘까지 동시에 개발하지 않도록  toolkit_discover 를 다음처럼 단순하게 고정합니다."
+        - list:
+          - listitem: "product 를 주면 해당 제품의  도구 이름·설명·읽기/쓰기 구분 을 반환합니다. 스키마는 반환하지 않습니다."
+          - listitem: "names 를 주면 지정한 도구  최대 3개 의 원래 스키마를 반환합니다."
+          - listitem: "product 와  names  중 하나만 받습니다."
+        - text: "toolkit_call_read/write 는  name, arguments 를 받아 원래 스키마와 권한 처리를 거쳐  A와 같은 핸들러 를 호출합니다. read 경로로 쓰기 도구를 실행할 수 없어야 합니다. 별도의 에이전트·LLM 라우터는 만들지 않습니다.\nB의  tools/list 는 세션 내내 고정합니다. 검색 결과를 새 도구로 등록하지 않고, list_changed 도 보내지 않습니다."
+        - heading "3. 실행 순서" [level=2]
+        - heading "3.1 먼저 Aside stdio에서 계측 코드만 확인합니다" [level=3]
+        - text: "Aside에서  BASE → FULL → PAGED 를 각각 새 세션으로 한 번 실행하십시오.\n각 세션에서 다음 두 문장을 순서대로 보냅니다."
+        - button "복사" [ref=e153]
+        - text: "도구를 호출하지 말고 READY 한 단어만 답하십시오."
+        - button "복사" [ref=e154]
+        - text: "시험 서버의 surface_probe를 한 번 호출하고, 반환된 receipt만 답하십시오.\nFULL의 도구 정의가 snapshot과 일치하고, probe 호출이 로그에 남는지만 확인합니다. 이 단계의 지연이나 캐시 크기로 A/B를 선택하지 않습니다.\nPAGED에서 마지막 페이지의 probe가 보이지 않으면  pagination_incomplete 로 기록합니다. 이후 본시험에서는 단일 페이지를 사용합니다. 목록 전달 문제를 B가 필요한 이유로 계산하지 마십시오."
+        - heading "3.2 본측정은 실제로 사용할 원격 연결에서 합니다" [level=3]
+        - text: "같은 시험 표면을 원격 HTTP로 제공하고  Aside → Claude Code → Codex  순서로 진행하십시오. 통합 /mcp 를 사용할 연결 방식 그대로 시험합니다."
+        - paragraph:
+          - text: "Codex에서 직접 등록한 MCP와 플러그인이 공급하는 도구를 혼동하지 마십시오. 공식 문서도 두 경로의 지원 기능이 다를 수 있다고 구분합니다. 등록 방식을 재현하지 못했다면 그 결과는 해당 시험 연결에만 적용합니다."
+          - link "OpenAI Developers" [ref=e155]
+        - text: "클라이언트마다 다음 여섯 세션을 실행합니다."
+        - button "복사" [ref=e156]
+        - text: "반복 1: BASE → FULL\n반복 2: FULL → BASE\n반복 3: BASE → FULL\n 각 세션은 새 대화에서 시작하고, 앞의 READY와 probe 요청을 동일하게 사용합니다.\n새 대화와 도구 inventory 갱신은 별개이므로, 시험 서버의 등록 식별자를 모드별로 분리하십시오. 사용자가 실제로 받은 목록의 hash를 확인할 수 있으면 기록합니다. OAuth 자격 전체를 지우거나 운영 연결을 재인증할 필요는 없습니다.\nREADY 응답 직후와 probe 완료 직후에 다음을 기록합니다."
+        - table: "값 기록 방법 클라이언트가 표시하는 현재 사용 맥락 총 사용량과 도구 항목을 원문 그대로 저장 도구 inventory 도구 개수와 bytes. Aside에서는 캐시된 inventory도 저장 MCP 요청 tools/list  시점·횟수·페이지와 probe 호출 지연 사용자 요청 전송부터 결과 완료까지 native search 표시 UI·공식 실행 로그에 실제 검색/지연 로딩이 표시됐는지"
+        - paragraph:
+          - text: "Claude Code는 /context 를 사용하고, 항목이 접혀 있으면 해당 버전이 지원하는 /context all 을 사용하십시오. 이 명령은 현재 맥락 사용량을 보여 주는 공식 기능입니다."
+          - link "Claude" [ref=e157]
+        - text: "“전체 등록 도구의 예상 토큰”과 “현재 사용 중인 맥락”을 구분할 수 없다면 그 숫자는 선택 기준에 넣지 않습니다. 원문은 보관하되  context_used_tokens=null 로 기록하십시오. Aside의 inventory bytes를 토큰으로 바꿔 이 칸에 넣지 마십시오.\n초기 증가량은 다음으로 계산합니다."
+        - math "C_A=\operatorname{median}_{r=1,2,3} \left(C_{\mathrm{FULL},r}-C_{\mathrm{BASE},r}\right)"
+        - paragraph:
+          - text: "여기서"
+          - math "C"
+          - text: "는 READY 응답 직후의  클라이언트 표시 사용량 입니다. 실제 모델 프롬프트 토큰이라고 이름 붙이지 않습니다."
+        - heading "3.3 Claude Code는 설정으로 해결되는지 한 번 더 분리합니다" [level=3]
+        - text: "현재 설정과  ENABLE_TOOL_SEARCH  값을 먼저 기록하십시오."
+        - paragraph:
+          - text: "현재 설정에서"
+          - math "C_A>4{,}096"
+          - text: "이고 tool search가 꺼져 있거나 임계값 방식이라면, 시험 프로세스에만  ENABLE_TOOL_SEARCH=true 를 적용해 BASE/FULL 세 쌍을 다시 실행 합니다. 이것으로 기준 안에 들어오면 서버를 바꾸지 않는 A의 설정 조정안으로 처리합니다."
+        - paragraph:
+          - text: "현재 Claude Code는 tool search를 통한 지연 로딩과  true/false/auto  설정을 문서화하고 있습니다. 지원되지 않는 제공 환경의 제한까지 설정으로 우회하려고 하지는 마십시오."
+          - link "Claude+1" [ref=e159]
+        - text: "Codex와 Aside에는 확인되지 않은 대응 옵션을 추측해서 넣지 않습니다.\n헤드리스 실행이 자격이나 한도로 막히면 반복 시도하지 마십시오. 준비된 입력과 설정으로 대화형 실행을 한 번 요청하고, 그것도 실행할 수 없으면 해당 클라이언트는  not_measured 로 남긴 뒤 다음 클라이언트로 넘어갑니다."
+        - heading "4. 작업 시험: 8개를 두 번씩" [level=2]
+        - text: "아래 작업을  cases.json 에 고정하십시오. 각 작업의 시험 데이터와 기대 결과를 먼저 만들고, A/B 사이에서 바꾸지 않습니다.\n사용자에게 주는 문장에는  실제 제품·대상·원하는 결과만  적습니다. 사용할 도구 이름이나 호출 순서는 알려 주지 않습니다."
+        - table: "ID 작업 성공 조건 W1 알려 준 Host root에  notes/result.txt 를 지정한 내용으로 새로 저장 파일 내용 일치. 사전 읽기 없이  host_write  한 번 W2 Host의 시험 파일들에서 지정한 표식을 찾아 해당 내용을 읽기 실제 파일에서 얻은 표식 일치. 추측 답변 제외 C1 Corpus에 제목·본문을 가진 문서 하나 생성 문서 하나만 생성되고 지정 내용 일치 C2 기존 Corpus 문서를 중첩 입력이 필요한 방식으로 수정 지정 부분만 변경. 기존 성공 테스트의 중첩 수정 사례를 그대로 사용 H1 Hypes의 기존 항목 일부를 변경하면서 나머지는 유지 변경 대상과 보존 대상 모두 일치. 기존 rewrite fixture 재사용 M1 Corpus 휴지통의 지정 문서 하나 복원 지정 문서만 복원. 재연결·제품 설정 변경 불필요 X1 Corpus와 Hypes에 같은 이름의 항목을 두고 Corpus 쪽만 수정 Corpus만 변경되고 Hypes는 불변 X2 Corpus에서 읽은 시험용 표식을 Host 파일로 저장 읽은 값과 저장된 값 일치"
+        - text: "C2·H1은 입력 스키마를 단순화하지 않습니다. fixture에는 현재 저장소의 성공 사례를 사용하되, 해당 사례가 없다면 임의의 성공 결과를 만들지 말고  fixture_missing 으로 보고하십시오.\n각 작업은  서로 독립된 새 대화에서 두 번, 총 16회 실행합니다. 반복할 때 시험 저장소를 초기 상태로 되돌립니다. 모든 모델 응답은 결과만 짧게 답하도록 동일하게 요청합니다.\n성공은 모델의 “완료했습니다”가 아니라  시험 저장소의 최종 상태 로 계산합니다. 모델이 잘못 호출했다가 스스로 고친 경우 최종 성공에는 포함하되 오류 호출 수를 별도로 기록합니다.\n공통 중단 조건은 다음으로 고정합니다."
+        - list:
+          - listitem: "작업당 활성 실행 시간  120초  또는 MCP 도구 호출  10회 를 넘으면 실패."
+          - listitem: "사람이 입력·도구 선택을 고쳐 주면 실패."
+          - listitem: "재연결이나 제품 스위치 변경이 필요하면 실패."
+          - listitem: "권한 없는 변경이나 지정하지 않은 대상의 변경은 별도 중대 실패."
+          - listitem: "로그인·사용량 제한·명확한 서비스 장애는 작업 실패와 섞지 않고  environment_blocked 로 기록."
+        - text: "도구 확인 창에서 사람이 기다린 시간은 별도 기록하고 활성 실행 시간에서 뺍니다. 시험 데이터에만 적용되는 동일한 확인 정책을 A/B에 사용하십시오."
+        - heading "B를 측정하게 된 경우의 순서" [level=3]
+        - text: "같은 작업을 A/B에서 짝지어 실행합니다."
+        - button "복사" [ref=e160]
+        - text: "첫 반복: 홀수 작업 A→B, 짝수 작업 B→A\n둘째 반복: 순서를 반대로\n 따라서 A 16회, B 16회입니다. 이미 끝낸 A 시험은 기능 기록으로 보존하되, 지연 비교는 이 짝지은 실행 결과만 사용 합니다.\nB에서는 discovery 응답의 bytes와 반환한 스키마 수까지 기록합니다. 시작할 때 아낀 정의를 검색 응답으로 전부 다시 보내는 구현인지 확인하기 위한 값입니다."
+        - heading "5. A/B 선택 기준" [level=2]
+        - heading "5.1 언제 B 시험을 시작하는가" [level=3]
+        - table:
+          - text: "관측 결과 실행할 다음 작업"
+          - math "C_A\le4{,}096"
+          - text: ", A 성공  15/16 이상, W1  2/2, 중대 실패 없음 A 선택 후보. B는 만들지 않습니다."
+          - math "C_A>4{,}096"
+          - text: "B를 만들어 A/B 비교 현재 사용 맥락을 측정할 수 없음 B를 만들어 A/B 비교. inventory bytes만으로 선택하지 않음 A 성공 14/16 이하 또는 W1 실패 B 비교. 실패가 표면 선택 문제인지 함께 기록 도구 목록 누락·잘못된 cache·fixture 오류 해당 문제부터 수정. A/B 비교에 넣지 않음 자격·한도 때문에 실행 불가 해당 클라이언트 보류. B 필요로 간주하지 않음"
+        - paragraph:
+          - text: "A를 유지하더라도 native search가 실제로 관측되지 않았다면 보고서에는 “A 유지, 내부 로딩 방식 미확인”이라고 적습니다. 도구 목록을 한 번만 요청했다는 사실은 native search 사용의 표시가 아닙니다. Claude Code의 지연 로딩도 서버 목록 변경 없이 작동하는 별도 기능입니다."
+          - link "Claude" [ref=e161]
+        - heading "5.2 B를 선택하는 조건" [level=3]
+        - text: "먼저 B가 다음 공통 조건을 모두 만족해야 합니다.\n성공 15/16 이상, 성공 수가 A 이상, W1 2/2, 중대 실패 0회.\n그다음 아래 세 조건 중 하나를 만족하면 B를 선택합니다."
+        - table:
+          - text: "B 선택 경로 수치 조건 작업 성공 개선 B가 A보다  최소 2회 더 성공 맥락 감소"
+          - math "C_A>4{,}096"
+          - text: ","
+          - math "C_B\le4{,}096"
+          - text: ","
+          - math "C_B\le0.5C_A"
+          - text: ". 작업 종료 후 표시 맥락의 중앙값도 B가 A 이하 완료 시간 개선 양쪽 모두 성공한 짝이 최소 12개이고, B의 완료 시간 중앙값이  20% 이상이면서 2초 이상  짧음"
+        - text: "맥락 감소를 이유로 B를 선택할 때에는 추가로 다음 지연 조건을 적용합니다."
+        - math "\operatorname{median}(T_B-T_A) \le \max\left(2\text{초},\;0.2\,\operatorname{median}(T_A)\right)"
+        - text: "즉, 맥락을 줄이기 위해 허용하는 지연 증가는  2초 또는 A 시간의 20% 중 큰 값까지 입니다. 시간 비교에는 양쪽 모두 성공한 짝이 최소 12개 있어야 합니다.\n맥락을 볼 수 없는 클라이언트에서는 성공 개선이나 시간 개선으로만 B를 선택합니다. 둘 다 없으면 A를 유지합니다. “B의 도구 JSON이 작으니 실제 맥락도 그만큼 줄었을 것”이라는 추정으로 바꾸지 않습니다.\nA와 B 모두 기본 성공 조건을 충족하지 못하면 어느 쪽도 새 설계로 확정하지 않습니다. 운영 표면은 유지하고 실패 기록을 가져오십시오."
+        - heading "6. 스위치와 보고 범위" [level=2]
+        - text: "toolkit_products 와  toolkit_products_set 은  지금 그대로 유지 합니다.\n“꺼짐”을 “숨김이지만 dispatcher로는 실행 가능”으로 바꾸지 마십시오. B 시험도 모든 제품을 활성화한 별도 시험 설정에서 수행하므로, 이번에는 그 의미를 바꿀 필요가 없습니다. 관리 기능을 여덟 번째 제품으로 추가하거나 스위치 저장 구조를 바꾸는 작업도 하지 않습니다.\n보고서는 다음 두 표와 원시 기록이면 됩니다."
+        - button "복사" [ref=e163]
+        - text: "환경별:\nclient / version / model / 연결 방식 / 등록 방식\n전체 도구 수 / 정의 bytes / inventory bytes\nBASE 사용 맥락 / FULL 사용 맥락 / C_A\nnative search 관측 여부 / 페이지 누락 여부 / 실행 불가 사유\n\nA/B별:\n성공 수 / W1 성공 수 / 잘못된 대상 변경 수\n완료 시간 중앙값 / 첫 유효 호출까지 시간\nMCP 호출 수 / 오류 호출 수 / discovery 응답 bytes\n초기·작업 종료 후 표시 맥락\n위 기준으로 산출한 A·B·보류\n 실행 순서는  snapshot 고정 → Aside stdio 계측 확인 → 원격 Aside·Claude Code·Codex 로딩 측정 → A 작업 시험 → 필요한 클라이언트만 B 비교 → 결과 보고 입니다. 이번 작업에는 운영 스위치 변경, 도구 병합, 운영 표면 전환을 포함하지 않습니다."
+      - group "응답 작업":
+        - button "응답 복사" [ref=e164]
+        - button "Pro 피드백" [ref=e165]
+        - button "프로젝트 소스에 추가" [ref=e166]
+        - button "모델 바꾸기" [ref=e167]
+        - button "더 많은 액션" [ref=e168]
+    - form:
+      - button "파일 등 추가" [ref=e63]
+      - textbox "ChatGPT와 채팅" [ref=e64]: "ChatGPT에게 물어보세요"
+      - button "6 Pro" [ref=e65]
+      - button "Voice 시작" [ref=e169]
