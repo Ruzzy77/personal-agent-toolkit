@@ -106,7 +106,7 @@ function localReturnTo(value: string | null): string {
 
 function scopes(): string {
   return [
-    "sense.read", "sense.write", "corpus.read", "corpus.write",
+    "sense.read", "sense.write", "corpus.read", "corpus.write", "hypes.read",
     "journal.read", "journal.write",
     "journal.close", "library.read", "library.write", "design.read",
     "design.write", "host.read", "host.write",

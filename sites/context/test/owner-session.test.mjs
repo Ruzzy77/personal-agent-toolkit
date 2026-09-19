@@ -20,6 +20,8 @@ test("owner OAuth binds state, keeps credentials server-side and persists token 
  try{
   const login=await auth.startOwnerLogin("/\\outside.example");
   const authorization=new URL(login.headers.get("Location"));
+  const granted=new Set(authorization.searchParams.get("scope").split(" "));
+  for(const scope of ["sense.read","corpus.read","hypes.read","journal.read","library.read"])assert.ok(granted.has(scope));
   const state=authorization.searchParams.get("state");
   const flow=JSON.parse(values.get("personal-agent-web:flow:"+state));
   assert.equal(flow.returnTo,"/");
