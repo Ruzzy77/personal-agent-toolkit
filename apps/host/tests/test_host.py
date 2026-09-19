@@ -74,6 +74,22 @@ def test_read_rejects_paths_outside_the_root(config: HostConfig) -> None:
         assert failure.value.code == "invalid_path"
 
 
+def test_empty_file_read(config: HostConfig) -> None:
+    root = config.root("demo/main")
+    created = write_file(config, root, "empty.md", content="")
+    read = read_files(root, [{"path": "empty.md"}], 1024)
+    assert read == {
+        "files": [{
+            "path": "empty.md",
+            "content": "",
+            "version": created["version"],
+            "start_line": 1,
+            "end_line": 0,
+        }],
+        "truncated": False,
+    }
+
+
 def test_write_read_versions_and_conflicts(config: HostConfig) -> None:
     root = config.root("demo/main")
     created = write_file(config, root, "notes/new.md", content="one\n")

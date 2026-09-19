@@ -90,8 +90,9 @@ def read_files(
         data = _read_bytes(target, label)
         lines = _decode(data, label).splitlines(keepends=True)
         start = int(request.get("start_line") or 1)
-        end = int(request.get("end_line") or len(lines))
-        if end < start:
+        requested_end = request.get("end_line")
+        end = int(requested_end) if requested_end is not None else len(lines)
+        if end < start and not (not lines and requested_end is None and start == 1):
             raise ToolError("invalid_range", "end_line is before start_line")
         selected: list[str] = []
         last = start - 1
