@@ -12,6 +12,7 @@ from personal_agent_host import __version__
 from personal_agent_host.config import LIMITS, HostConfig
 from personal_agent_host.files import ToolError, read_files, search, write_file
 from personal_agent_host.jobs import JobManager, clamp_timeout
+from personal_agent_host.runtime import execution_capabilities
 
 SERVER_INSTRUCTIONS = (
     "Host exposes the owner's workspace roots on the always-on host. Start with "
@@ -30,6 +31,10 @@ WRITE = ToolAnnotations(
     destructiveHint=True,
     idempotentHint=False,
     openWorldHint=False,
+)
+
+EXECUTE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True,
 )
 
 RootId = Annotated[str, Field(min_length=1, max_length=256)]
@@ -55,11 +60,12 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
     @server.tool(
         name="host_capabilities",
         title="Host capabilities",
-        description="Return the Host version and the shared size and time limits.",
+        description="Return limits, installed execution profiles and allowed HTTPS destinations.",
         annotations=READ_ONLY,
     )
-    def host_capabilities() -> dict[str, Any]:
-        return {"version": __version__, "limits": dict(LIMITS)}
+    async def host_capabilities() -> dict[str, Any]:
+        return {"version": __version__, "limits": dict(LIMITS),
+                **await execution_capabilities(config)}
 
     @server.tool(
         name="host_roots",
@@ -163,9 +169,11 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
         description=(
             "Run a command in a sandbox container with the root mounted at /workspace. "
             "Give argv (preferred) or shell. Waits up to wait_s; if the job is still "
-            "queued or running, poll host_job with the returned job_id."
+            "queued or running, poll host_job with the returned job_id. "
+            "profile selects an installed runtime; https_hosts opts into allowed "
+            "HTTPS destinations. Both are optional; the default has no network."
         ),
-        annotations=WRITE,
+        annotations=EXECUTE,
     )
     async def host_exec(
         root: RootId,
@@ -175,6 +183,8 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
         stdin: Annotated[str | None, Field(max_length=1_048_576)] = None,
         timeout_s: Annotated[int, Field(ge=1, le=LIMITS["timeout_s"])] = 1800,
         wait_s: Annotated[int, Field(ge=0, le=LIMITS["wait_s"])] = 5,
+        profile: Annotated[str | None, Field(min_length=1, max_length=64)] = None,
+        https_hosts: Annotated[list[str] | None, Field(max_length=32)] = None,
     ) -> dict[str, Any]:
         job = await jobs.submit(
             config.root(root),
@@ -183,6 +193,8 @@ def create_server(config: HostConfig, jobs: JobManager) -> MCPServer:
             shell=shell,
             stdin=stdin,
             timeout_s=clamp_timeout(timeout_s),
+            profile=profile,
+            https_hosts=https_hosts,
         )
         job = await jobs.wait(job.id, wait_s)
         return {

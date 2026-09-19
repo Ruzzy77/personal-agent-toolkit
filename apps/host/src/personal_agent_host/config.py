@@ -5,12 +5,16 @@ from __future__ import annotations
 import os
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 from personal_agent_sync.config import ConnectionConfig, SyncConfig, load_config
 from personal_agent_sync.errors import SyncError
+
+from personal_agent_host.egress import HostnameError, normalize_hostname
 
 Execute = Literal["none", "sandbox"]
 
@@ -23,8 +27,8 @@ LIMITS = {
     "wait_s": 50,
 }
 
-
 ROOT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+PROFILE_NAME = re.compile(r"[a-z][a-z0-9_-]*")
 PERMISSIONS = ("read_only", "create_only", "read_write")
 
 
@@ -54,6 +58,9 @@ class HostConfig:
     listen_port: int
     allowed_hosts: tuple[str, ...]
     sandbox_image: str
+    execution_profiles: Mapping[str, str]
+    https_host_allowlist: frozenset[str]
+    egress_proxy_image: str
     max_concurrent_jobs: int
     token_path: Path
     backup: BackupConfig | None
@@ -65,7 +72,7 @@ class HostConfig:
         return self.token_path.parent.parent
 
     def protects(self, target: Path) -> bool:
-        """Report whether ``target`` sits in a protected source, wherever it is reached."""
+        """Report whether target sits in a protected source, wherever it is reached."""
 
         resolved = target.resolve(strict=False)
         return any(
@@ -74,7 +81,7 @@ class HostConfig:
         )
 
     def protected_within(self, root: Path) -> tuple[Path, ...]:
-        """Return protected sources nested inside ``root``, shallowest first."""
+        """Return protected sources nested inside root, shallowest first."""
 
         base = root.resolve(strict=False)
         nested = [guard for guard in self.read_only_paths if base in guard.parents]
@@ -85,6 +92,15 @@ class HostConfig:
             if item.id == root_id:
                 return item
         raise SyncError("root_not_found", "root is not registered on this host")
+
+    def execution_profile(self, name: str | None) -> str:
+        profile = name or "base"
+        try:
+            return self.execution_profiles[profile]
+        except KeyError as exc:
+            raise SyncError(
+                "invalid_configuration", f"unknown execution profile: {profile}"
+            ) from exc
 
 
 def default_config_path() -> Path:
@@ -118,6 +134,53 @@ def _guards(value: object) -> tuple[Path, ...]:
 
 def _protected(root: Path, guards: tuple[Path, ...]) -> bool:
     return any(root == guard or guard in root.parents for guard in guards)
+
+
+def _image(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise SyncError("invalid_configuration", f"{field} is invalid")
+    return value
+
+
+def _execution_profiles(value: object, *, sandbox_image: str) -> Mapping[str, str]:
+    profiles = {
+        "base": sandbox_image,
+        "web": "personal-agent-host-web:1",
+        "documents": "personal-agent-host-documents:1",
+    }
+    if value is None:
+        return MappingProxyType(profiles)
+    if not isinstance(value, dict):
+        raise SyncError(
+            "invalid_configuration", "[host.execution_profiles] must be a table"
+        )
+    for name, image in value.items():
+        if not isinstance(name, str) or not PROFILE_NAME.fullmatch(name):
+            raise SyncError(
+                "invalid_configuration", "host.execution_profiles name is invalid"
+            )
+        profiles[name] = _image(image, field=f"host.execution_profiles.{name}")
+    return MappingProxyType(profiles)
+
+
+def _https_host_allowlist(value: object) -> frozenset[str]:
+    if value is None:
+        return frozenset()
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise SyncError(
+            "invalid_configuration", "host.https_host_allowlist must be hostnames"
+        )
+    try:
+        names = [normalize_hostname(item) for item in value]
+    except HostnameError as exc:
+        raise SyncError(
+            "invalid_configuration", "host.https_host_allowlist is invalid"
+        ) from exc
+    if len(set(names)) != len(names):
+        raise SyncError(
+            "invalid_configuration", "host.https_host_allowlist contains duplicates"
+        )
+    return frozenset(names)
 
 
 def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
@@ -154,7 +217,6 @@ def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
         ):
             raise SyncError("invalid_configuration", f"{identifier}: sources are invalid")
         if _protected(root, guards):
-            # A root inside a protected source stays readable and never writable.
             permission, execute = "read_only", "none"
         if execute == "sandbox" and permission != "read_write":
             raise SyncError(
@@ -220,9 +282,18 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     allowed = host.get("allowed_hosts", [])
     if not isinstance(allowed, list) or not all(isinstance(v, str) for v in allowed):
         raise SyncError("invalid_configuration", "host.allowed_hosts must be strings")
-    sandbox_image = host.get("sandbox_image", "personal-agent-host-sandbox:1")
-    if not isinstance(sandbox_image, str) or not sandbox_image:
-        raise SyncError("invalid_configuration", "host.sandbox_image is invalid")
+    sandbox_image = _image(
+        host.get("sandbox_image", "personal-agent-host-sandbox:1"),
+        field="host.sandbox_image",
+    )
+    profiles = _execution_profiles(
+        host.get("execution_profiles"), sandbox_image=sandbox_image
+    )
+    https_host_allowlist = _https_host_allowlist(host.get("https_host_allowlist"))
+    egress_proxy_image = _image(
+        host.get("egress_proxy_image", "personal-agent-host-sandbox:1"),
+        field="host.egress_proxy_image",
+    )
     max_jobs = host.get("max_concurrent_jobs", 4)
     if (
         isinstance(max_jobs, bool)
@@ -263,7 +334,6 @@ def load_host_config(path: Path | None = None) -> HostConfig:
         elif permission == "read_write" and any(
             connection.root.resolve(strict=False) in guard.parents for guard in guards
         ):
-            # A writable Connection root is never a way around a protected source.
             raise SyncError(
                 "invalid_configuration",
                 f"{connection.key}: a writable Connection cannot contain a protected source",
@@ -304,6 +374,9 @@ def load_host_config(path: Path | None = None) -> HostConfig:
         listen_port=listen_port,
         allowed_hosts=tuple(allowed),
         sandbox_image=sandbox_image,
+        execution_profiles=profiles,
+        https_host_allowlist=https_host_allowlist,
+        egress_proxy_image=egress_proxy_image,
         max_concurrent_jobs=max_jobs,
         token_path=Path(token_value).expanduser(),
         backup=backup,

@@ -11,15 +11,20 @@
 #   install-linux.sh <repo> --runtime-only [--packages host,sync,corpus,document-files] [--no-deps]
 #
 # --packages defaults to host,sync. Add --no-deps for a code-only update whose
-# dependencies are unchanged.
+# dependencies are unchanged. Use --build-images to explicitly build all profiles;
+# use --test-runtime to run checks in a removable pytest/ruff environment.
 set -euo pipefail
 
 PREFIX="${PERSONAL_AGENT_HOST_PREFIX:-$HOME/.local/share/personal-agent-host}"
 CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.9.1}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+UV_VERSION="${UV_VERSION:-0.12.8}"
 RUNTIME_ONLY=0
 PACKAGES="host,sync"
 NO_DEPS=0
+BUILD_IMAGES=0
+TEST_RUNTIME=0
+TEST_RUFF_VERSION="${TEST_RUFF_VERSION:-0.16.5}"
 REPO=""
 
 while [ $# -gt 0 ]; do
@@ -28,12 +33,41 @@ while [ $# -gt 0 ]; do
     --packages) PACKAGES="${2:-}"; shift ;;
     --packages=*) PACKAGES="${1#*=}" ;;
     --no-deps) NO_DEPS=1 ;;
+    --build-images) BUILD_IMAGES=1 ;;
+    --test-runtime) TEST_RUNTIME=1 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) REPO="$1" ;;
   esac
   shift
 done
 REPO="${REPO:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+
+if [ "$BUILD_IMAGES" = 1 ]; then
+  if [ "$RUNTIME_ONLY" = 1 ] || [ "$TEST_RUNTIME" = 1 ]; then
+    echo "--build-images cannot be combined with runtime installation options" >&2
+    exit 2
+  fi
+  exec "$REPO/apps/host/scripts/build-sandbox.sh" "$REPO" all
+fi
+
+if [ "$TEST_RUNTIME" = 1 ]; then
+  if [ "$RUNTIME_ONLY" = 1 ] || [ "$PACKAGES" != "host,sync" ] || [ "$NO_DEPS" = 1 ]; then
+    echo "--test-runtime is a standalone test-only action" >&2
+    exit 2
+  fi
+  UV="$PREFIX/bin/uv"
+  [ -x "$UV" ] || { echo "$UV is missing; run the full install first" >&2; exit 1; }
+  test_root="$(mktemp -d -t personal-agent-host-test.XXXXXX)"
+  trap 'rm -rf "$test_root"' EXIT
+  test_python="$test_root/venv/bin/python"
+  "$UV" venv --quiet --python "$PYTHON_VERSION" "$test_root/venv"
+  "$UV" pip install --quiet --no-cache --python "$test_python" "$REPO/apps/sync" "$REPO/apps/host[test]" "ruff==$TEST_RUFF_VERSION"
+  "$UV" pip check --python "$test_python"
+  "$test_python" -m pytest "$REPO/apps/host/tests"
+  "$test_root/venv/bin/ruff" check "$REPO/apps/host/src" "$REPO/apps/host/tests"
+  echo "test checks passed; removed temporary test environment"
+  exit 0
+fi
 
 case "$(uname -m)" in
   aarch64|arm64) CF_ARCH=arm64 ;;
@@ -43,7 +77,6 @@ esac
 
 HOST_PYTHON="$PREFIX/runtimes/host/bin/python"
 CORPUS_PYTHON="$PREFIX/runtimes/corpus/bin/python"
-
 if [ "$RUNTIME_ONLY" = 1 ]; then
   UV="$PREFIX/bin/uv"
   [ -x "$UV" ] || { echo "$UV is missing; run the full install first" >&2; exit 1; }
@@ -112,10 +145,10 @@ for dir in bin runtimes config state jobs logs; do
 done
 chmod 700 "$PREFIX/config" "$PREFIX/state" "$PREFIX/jobs"
 
-if [ ! -x "$PREFIX/bin/uv" ]; then
-  curl -fsSL https://astral.sh/uv/install.sh | UV_INSTALL_DIR="$PREFIX/bin" UV_NO_MODIFY_PATH=1 sh
-fi
 UV="$PREFIX/bin/uv"
+if [ ! -x "$UV" ] || ! "$UV" --version | grep -Fq "uv $UV_VERSION"; then
+  curl -fsSL "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-installer.sh"     | UV_INSTALL_DIR="$PREFIX/bin" UV_NO_MODIFY_PATH=1 sh
+fi
 
 "$UV" venv --quiet --python "$PYTHON_VERSION" "$PREFIX/runtimes/host"
 "$UV" pip install --quiet --python "$HOST_PYTHON" \
@@ -132,8 +165,10 @@ if [ ! -x "$PREFIX/bin/cloudflared" ] || ! "$PREFIX/bin/cloudflared" --version |
   mv "$PREFIX/bin/cloudflared.new" "$PREFIX/bin/cloudflared"
 fi
 
+provision_test_runtime
+
 if command -v docker >/dev/null 2>&1; then
-  docker build --quiet -t personal-agent-host-sandbox:1 "$REPO/plugins/host/sandbox" >/dev/null
+  "$REPO/apps/host/scripts/build-sandbox.sh" "$REPO" base >/dev/null
 fi
 
 if [ ! -s "$PREFIX/config/host-upstream.token" ]; then

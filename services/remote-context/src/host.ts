@@ -28,6 +28,8 @@ const WRITE = {
   openWorldHint: false,
 } as const;
 
+const EXECUTE = { ...WRITE, openWorldHint: true } as const;
+
 const hostToolOutputSchema = z.looseObject({});
 const rootId = z.string().min(1).max(256);
 const relativePath = z.string().min(1).max(4096);
@@ -56,7 +58,7 @@ interface HostTool {
   title: string;
   description: string;
   scope: HostScope;
-  annotations: typeof READ_ONLY | typeof WRITE;
+  annotations: typeof READ_ONLY | typeof WRITE | typeof EXECUTE;
   schema: z.ZodObject<z.ZodRawShape>;
 }
 
@@ -64,7 +66,7 @@ export const HOST_TOOLS: readonly HostTool[] = [
   {
     name: "host_capabilities",
     title: "Host capabilities",
-    description: "Return the Host version and the shared size and time limits.",
+    description: "Return limits, installed execution profiles and allowed HTTPS destinations.",
     scope: "host.read",
     annotations: READ_ONLY,
     schema: z.object({}).strict(),
@@ -133,9 +135,9 @@ export const HOST_TOOLS: readonly HostTool[] = [
     name: "host_exec",
     title: "Run a command",
     description:
-      "Run a command in a sandbox container on the host with the root mounted at /workspace. Give argv (preferred) or shell. Waits up to wait_s; if the job is still queued or running, poll host_job with the returned job_id.",
+      "Run a command in a sandbox container with the root at /workspace. Give argv or shell. Optional profile selects an installed runtime; https_hosts selects approved HTTPS destinations. Defaults keep the base runtime and no network. Poll host_job when still running.",
     scope: "host.write",
-    annotations: WRITE,
+    annotations: EXECUTE,
     schema: z
       .object({
         root: rootId,
@@ -145,6 +147,8 @@ export const HOST_TOOLS: readonly HostTool[] = [
         stdin: z.string().max(1_048_576).optional(),
         timeout_s: z.number().int().min(1).max(21_600).optional(),
         wait_s: z.number().int().min(0).max(50).optional(),
+        profile: z.string().min(1).max(64).optional(),
+        https_hosts: z.array(z.string().min(1).max(253)).max(32).optional(),
       })
       .strict(),
   },
