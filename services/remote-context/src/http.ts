@@ -11,9 +11,9 @@ import {
 import { CorpusService } from "./corpus";
 import { canonicalJson, nowIso } from "./canonical";
 import { handleAdminSite } from "./admin-site";
-import { handleContextSite } from "./context-site";
+import { handleContextSite, readJson } from "./context-site";
 import { handleHostHttp } from "./host-http";
-import { handleWeb, readJson } from "./web";
+import { handleWeb } from "./web";
 import { asContextError, ContextError } from "./errors";
 import { HypesService } from "./hypes";
 import { importCorpusMetadata } from "./imports";

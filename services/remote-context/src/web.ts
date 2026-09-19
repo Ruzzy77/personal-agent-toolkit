@@ -3,60 +3,12 @@ import { handlePreauthenticatedHttp as handleJournalHttp } from "personal-agent-
 import { handlePreauthenticatedHttp as handleLibraryHttp } from "personal-agent-library-service/http";
 import { handlePreauthenticatedHttp as handleDesignHttp } from "personal-agent-design-service/http";
 import { handleAdminSite } from "./admin-site";
-import { executeContextSiteOperation } from "./context-site";
+import { executeContextSiteOperation, readJson } from "./context-site";
 import { asContextError, ContextError } from "./errors";
 import { callHost, HOST_TOOLS, hostRequiredScope, transferReceipt } from "./host";
 import type { Env } from "./types";
 
-const JSON_BODY_LIMIT = 16 * 1024 * 1024;
 const TRANSFER_TOKEN = "X-Toolkit-Transfer-Token";
-
-export async function readJson(request: Request): Promise<unknown> {
-  const length = Number(request.headers.get("Content-Length") ?? "0");
-  if (Number.isFinite(length) && length > JSON_BODY_LIMIT) {
-    throw new ContextError(
-      "request_too_large",
-      "request body is too large",
-      413,
-    );
-  }
-  if (!request.body) {
-    throw new ContextError("invalid_json", "request body must be JSON");
-  }
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > JSON_BODY_LIMIT) {
-        await reader.cancel();
-        throw new ContextError(
-          "request_too_large",
-          "request body is too large",
-          413,
-        );
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    if (error instanceof ContextError) throw error;
-    throw new ContextError("invalid_json", "request body must be JSON");
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-  } catch {
-    throw new ContextError("invalid_json", "request body must be JSON");
-  }
-}
 const WEB_HOST_TOOLS = new Set([
   "host_capabilities", "host_roots", "host_read", "host_write",
   "host_files", "host_transfer",
