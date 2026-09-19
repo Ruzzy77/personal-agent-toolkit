@@ -24,23 +24,20 @@ LIMITS = {
 }
 
 
+ROOT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+PERMISSIONS = ("read_only", "create_only", "read_write")
+
+
 @dataclass(frozen=True)
 class RootPolicy:
-    connection: ConnectionConfig
+    """One exposed root: either a Host-only root or a Corpus Connection root."""
+
+    id: str
+    root: Path
+    permission: str
     execute: Execute
     sources: tuple[str, ...]
-
-    @property
-    def id(self) -> str:
-        return f"{self.connection.space_id}/{self.connection.connection_id}"
-
-    @property
-    def permission(self) -> str:
-        return self.connection.permission
-
-    @property
-    def root(self) -> Path:
-        return self.connection.root
+    connection: ConnectionConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -61,10 +58,27 @@ class HostConfig:
     token_path: Path
     backup: BackupConfig | None
     roots: tuple[RootPolicy, ...]
+    read_only_paths: tuple[Path, ...]
 
     @property
     def prefix(self) -> Path:
         return self.token_path.parent.parent
+
+    def protects(self, target: Path) -> bool:
+        """Report whether ``target`` sits in a protected source, wherever it is reached."""
+
+        resolved = target.resolve(strict=False)
+        return any(
+            resolved == guard or guard in resolved.parents
+            for guard in self.read_only_paths
+        )
+
+    def protected_within(self, root: Path) -> tuple[Path, ...]:
+        """Return protected sources nested inside ``root``, shallowest first."""
+
+        base = root.resolve(strict=False)
+        nested = [guard for guard in self.read_only_paths if base in guard.parents]
+        return tuple(sorted(nested, key=lambda item: len(item.parts)))
 
     def root(self, root_id: str) -> RootPolicy:
         for item in self.roots:
@@ -86,6 +100,77 @@ def _execute(value: object, *, field: str) -> Execute:
     if value not in ("none", "sandbox"):
         raise SyncError("invalid_configuration", f"{field} must be none or sandbox")
     return value  # type: ignore[return-value]
+
+
+def _guards(value: object) -> tuple[Path, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item for item in value
+    ):
+        raise SyncError(
+            "invalid_configuration", "host.read_only_paths must be non-empty strings"
+        )
+    return tuple(
+        sorted({Path(item).expanduser().resolve(strict=False) for item in value})
+    )
+
+
+def _protected(root: Path, guards: tuple[Path, ...]) -> bool:
+    return any(root == guard or guard in root.parents for guard in guards)
+
+
+def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise SyncError("invalid_configuration", "[[host.roots]] must be a list")
+    roots: list[RootPolicy] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise SyncError("invalid_configuration", "[[host.roots]] entry is invalid")
+        identifier = entry.get("id")
+        if not isinstance(identifier, str) or not ROOT_ID.fullmatch(identifier):
+            raise SyncError("invalid_configuration", "host.roots.id is invalid")
+        raw_path = entry.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise SyncError(
+                "invalid_configuration", f"{identifier}: host.roots.path is required"
+            )
+        root = Path(raw_path).expanduser().resolve(strict=False)
+        if not root.is_dir():
+            raise SyncError(
+                "invalid_configuration", f"{identifier}: root is not a directory"
+            )
+        permission = entry.get("permission", "read_write")
+        if permission not in PERMISSIONS:
+            raise SyncError(
+                "invalid_configuration", f"{identifier}: permission is invalid"
+            )
+        execute = _execute(entry.get("execute"), field=f"{identifier}.execute")
+        sources = entry.get("sources", [])
+        if not isinstance(sources, list) or not all(
+            isinstance(item, str) for item in sources
+        ):
+            raise SyncError("invalid_configuration", f"{identifier}: sources are invalid")
+        if _protected(root, guards):
+            # A root inside a protected source stays readable and never writable.
+            permission, execute = "read_only", "none"
+        if execute == "sandbox" and permission != "read_write":
+            raise SyncError(
+                "invalid_configuration",
+                f"{identifier}: execute=sandbox requires a read_write root",
+            )
+        roots.append(
+            RootPolicy(
+                id=identifier,
+                root=root,
+                permission=permission,
+                execute=execute,
+                sources=tuple(sources),
+            )
+        )
+    return roots
 
 
 def _backup(value: object) -> BackupConfig | None:
@@ -151,6 +236,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     if not isinstance(token_value, str):
         raise SyncError("invalid_configuration", "host.token_path is invalid")
     backup = _backup(host.get("backup"))
+    guards = _guards(host.get("read_only_paths"))
 
     raw_connections = raw.get("connections", [])
     policies: dict[str, tuple[Execute, tuple[str, ...]]] = {}
@@ -168,18 +254,42 @@ def load_host_config(path: Path | None = None) -> HostConfig:
             tuple(sources),
         )
 
-    roots: list[RootPolicy] = []
+    roots: list[RootPolicy] = _host_roots(host.get("roots"), guards)
     for connection in sync.connections:
         execute, sources = policies.get(connection.key, ("none", ()))
+        permission = connection.permission
+        if _protected(connection.root.resolve(strict=False), guards):
+            permission, execute = "read_only", "none"
+        elif permission == "read_write" and any(
+            connection.root.resolve(strict=False) in guard.parents for guard in guards
+        ):
+            # A writable Connection root is never a way around a protected source.
+            raise SyncError(
+                "invalid_configuration",
+                f"{connection.key}: a writable Connection cannot contain a protected source",
+            )
         if execute == "sandbox" and (
-            "work" not in connection.roles or connection.permission != "read_write"
+            "work" not in connection.roles or permission != "read_write"
         ):
             raise SyncError(
                 "invalid_configuration",
                 f"{connection.key}: execute=sandbox requires a read_write work root",
             )
-        roots.append(RootPolicy(connection, execute, sources))
-    ids = {root.id for root in roots}
+        roots.append(
+            RootPolicy(
+                id=f"{connection.space_id}/{connection.connection_id}",
+                root=connection.root,
+                permission=permission,
+                execute=execute,
+                sources=sources,
+                connection=connection,
+            )
+        )
+    ids: set[str] = set()
+    for root in roots:
+        if root.id in ids:
+            raise SyncError("invalid_configuration", f"{root.id}: duplicate root id")
+        ids.add(root.id)
     for root in roots:
         for source_id in root.sources:
             if source_id not in ids:
@@ -198,6 +308,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
         token_path=Path(token_value).expanduser(),
         backup=backup,
         roots=tuple(roots),
+        read_only_paths=guards,
     )
 
 

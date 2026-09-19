@@ -174,6 +174,9 @@ def write_file(
     target = relative_path(policy.root, path)
     if target == policy.root.resolve():
         raise ToolError("invalid_path", "path must name a file")
+    if config.protects(target):
+        # A protected source stays read-only through every root that reaches it.
+        raise ToolError("policy_denied", f"{path} is inside a protected source")
     exists = target.exists()
     if exists and not target.is_file():
         raise ToolError("invalid_path", f"{path} is not a regular file")

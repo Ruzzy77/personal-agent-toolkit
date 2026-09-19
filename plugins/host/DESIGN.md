@@ -54,7 +54,13 @@ prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared),
 
 - 읽기 도구 다섯은 `readOnlyHint`. 응답이 돌려준 경로는 다음 입력에 그대로 쓴다.
 - `host_write`는 Corpus Work 계약과 같은 규칙(권한 검사, 임시 파일 후 원자 교환, 직전본 1개를 `state/host-recovery/`에 보관, sha256 version 비교)을 Host가 직접 적용한다. Corpus의 Work 등록 DB는 Sync가 소유하므로 helper를 거치지 않는다. `expected_version` 생략은 버전 비교만 건너뛴다. 사전 읽기·capabilities 호출을 쓰기의 필수 단계로 두지 않는다. 일반적인 쓰기는 `root, path, content` 세 필드로 끝난다.
-- `host_exec`는 Work 역할이 있고 `permission=read_write`, `execute=sandbox`인 root에서만 허용한다. 컨테이너가 `/workspace`에 직접 쓰며 Corpus의 version·복구는 적용되지 않는다. Source 겸용 root의 변경은 Sync가 재추출한다.
+- `host_exec`는 `permission=read_write`, `execute=sandbox`인 root에서 허용한다. Host 전용 root에는 Corpus Work 역할을 요구하지 않는다. 컨테이너가 `/workspace`에 직접 쓰며 Corpus의 version·복구는 적용되지 않는다. Source 겸용 root의 변경은 Sync가 재추출한다.
+
+## 4-1. root와 보호 원본
+
+root는 두 갈래다. `[[host.roots]]`는 Corpus 식별자 없이 파일 접근과 실행 범위만 정의하고, `[[connections]]`에서 파생한 root는 기존 ID와 원격 Work 계약을 유지한다. 새 작업 폴더는 작업공간 root 아래에 만들면 되고 Space·Connection 등록을 요구하지 않는다. 등록은 그 폴더를 Source 색인이나 원격 Work에 연결할 때만 한다.
+
+권한은 두 층이다. 호출자가 지정한 root의 권한을 적용하고, 그 위에 `[host].read_only_paths`를 상한으로 건다. 같은 파일이 여러 root로 보여도 다른 root로 자동 전환하지 않는다. root 자체가 보호 경로와 같거나 그 안에 있으면 `read_write`로 적어도 읽기 전용으로 내려간다. 보호 경로 안에서는 생성·수정·교체·삭제를 모두 거부하며, 파일이 아직 없다는 사실을 보호 해제로 해석하지 않는다. 보호 경로를 품은 쓰기 가능한 Connection은 설정 오류로 막는다.
 
 ## 5. 실행
 
@@ -64,12 +70,17 @@ docker create -i --name pah-<job-id> --user <uid>:<gid>
   --memory 8g --cpus 4 --pids-limit 512
   --read-only --tmpfs /tmp:rw,size=1g
   --log-opt max-size=64m --log-opt max-file=2
-  -v <root>:/workspace  -v <허용 Source>:/sources/<id>:ro …
+  --mount type=bind,src=<root>,dst=/workspace,bind-propagation=rprivate
+  --mount …,dst=/workspace/<보호 경로의 조상>,bind-propagation=rprivate …
+  --mount …,dst=/workspace/<보호 경로>,readonly,bind-recursive=readonly …
+  --mount …,dst=/sources/<id>,readonly,bind-recursive=readonly …
   -w /workspace/<cwd>  personal-agent-host-sandbox:1 <argv>
 docker start -ai pah-<job-id>      # 비동기 subprocess. stdin 전달 후 EOF, TTY 없음
 ```
 
 - `shell`은 컨테이너 안에서 `sh -c`. 네트워크는 `none` 고정.
+- 작업공간 안의 보호 원본은 숨기지 않고 제자리에 읽기 전용으로 겹쳐 마운트한다. 보호 경로의 조상 디렉터리도 같은 위치에 마운트해 컨테이너에서 통째로 이름을 바꾸지 못하게 한다. 마운트 경계를 가로지르는 `rename()`은 `EXDEV`로 실패한다.
+- 보호 경로가 없거나 디렉터리가 아니거나 재귀 읽기 전용을 적용할 수 없으면 job을 거부한다. 보호 수준을 낮춰 재시도하지 않는다. 보호 원본의 파일이 다른 위치와 inode를 공유하면 그 구성도 거부한다.
 - `timeout_s`는 실행 시작부터, `wait_s`는 접수부터 센다. 클라이언트 연결 종료는 취소가 아니다.
 - 데몬이 출력을 `jobs/<id>/`에 스트림별 64 MiB까지 저장하고 초과분은 소비만 하며 `truncated=true`. 종료 후 exit code를 기록하고 컨테이너를 지운다. 재시작 시 `pah-*` 컨테이너를 실행 중·종료 모두 다시 읽어 출력 저장을 마친 뒤 최종 상태를 기록한다.
 - 동시 실행은 `max_concurrent_jobs`(기본 4)까지, 넘으면 `queued`. 종료된 job은 7일 보관.
@@ -89,6 +100,16 @@ listen = "127.0.0.1:18790"
 allowed_hosts = ["spark-host"]
 sandbox_image = "personal-agent-host-sandbox:1"
 max_concurrent_jobs = 4
+read_only_paths = [
+  "~/Agent-Workspace/work/research-regulations/sources/tukorea/current",
+  "/mnt/nas/works",
+]
+
+[[host.roots]]
+id = "workspace"
+path = "~/Agent-Workspace"
+permission = "read_write"
+execute = "sandbox"
 
 [[connections]]
 space_id = "research-note"

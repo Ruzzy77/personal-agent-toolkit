@@ -10,6 +10,18 @@ listen = "127.0.0.1:18790"
 allowed_hosts = ["spark-host"]
 sandbox_image = "personal-agent-host-sandbox:1"
 max_concurrent_jobs = 4
+# Protected sources stay read-only through every root that reaches them.
+read_only_paths = [
+  "~/Agent-Workspace/work/research-regulations/sources/tukorea/current",
+  "/mnt/nas/works",
+]
+
+# A Host-only root needs no Corpus Space, Connection or generation.
+[[host.roots]]
+id = "workspace"
+path = "~/Agent-Workspace"
+permission = "read_write"
+execute = "sandbox"
 
 [[connections]]
 space_id = "research-note"

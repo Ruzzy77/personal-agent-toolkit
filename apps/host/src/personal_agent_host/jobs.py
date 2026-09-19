@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import sqlite3
+import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -39,6 +40,45 @@ class Job:
     @property
     def container(self) -> str:
         return f"pah-{self.id}"
+
+
+def _inner(base: Path, target: Path) -> str:
+    return "/workspace/" + target.relative_to(base).as_posix()
+
+
+def _mount(source: Path, destination: str, *, readonly: bool = False) -> list[str]:
+    """Build one bind mount; a read-only mount also covers its own submounts."""
+
+    text = str(source)
+    if '"' in text:
+        raise ToolError("invalid_path", "a mounted path cannot contain a quote")
+    field = f'"{text}"' if "," in text else text
+    spec = f"type=bind,src={field},dst={destination},bind-propagation=rprivate"
+    if readonly:
+        spec += ",readonly,bind-recursive=readonly"
+    return ["--mount", spec]
+
+
+def _refuse_shared_inodes(guard: Path, label: str, limit: int = 20_000) -> None:
+    """Refuse a protected source whose files are also linked outside it."""
+
+    seen = 0
+    for item in guard.rglob("*"):
+        seen += 1
+        if seen > limit:
+            raise ToolError(
+                "protected_source_unavailable",
+                f"{label} is too large to verify before execution",
+            )
+        try:
+            status = item.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(status.st_mode) and status.st_nlink > 1:
+            raise ToolError(
+                "protected_source_shared",
+                f"{label} shares a file with a writable location",
+            )
 
 
 class JobStore:
@@ -148,6 +188,7 @@ class JobManager:
     ) -> Job:
         if policy.execute != "sandbox" or policy.permission != "read_write":
             raise ToolError("policy_denied", f"{policy.id} does not allow execution")
+        self._verify_protection(policy)
         if (argv is None) == (shell is None):
             raise ToolError("invalid_request", "give exactly one of argv or shell")
         workdir = relative_path(policy.root, cwd or ".")
@@ -283,16 +324,63 @@ class JobManager:
             "max-file=2",
             "-e",
             "HOME=/tmp",
-            "-v",
-            f"{policy.root.resolve()}:/workspace",
             "-w",
             job.cwd,
         ]
+        args += _mount(policy.root.resolve(), "/workspace")
+        args += self._protection_mounts(policy)
         for source_id in policy.sources:
             source = self.config.root(source_id)
-            args += ["-v", f"{source.root.resolve()}:/sources/{source_id}:ro"]
+            args += _mount(
+                source.root.resolve(), f"/sources/{source_id}", readonly=True
+            )
         args.append(self.config.sandbox_image)
         args += job.command
+        return args
+
+    def _verify_protection(self, policy: RootPolicy) -> None:
+        """Refuse the job unless every protected source can be mounted read-only."""
+
+        base = policy.root.resolve()
+        for guard in self.config.protected_within(base):
+            try:
+                resolved = guard.resolve(strict=True)
+            except OSError as exc:
+                raise ToolError(
+                    "protected_source_unavailable",
+                    f"{_inner(base, guard)} cannot be resolved",
+                ) from exc
+            if resolved != guard or not resolved.is_dir():
+                raise ToolError(
+                    "protected_source_unavailable",
+                    f"{_inner(base, guard)} is not the expected directory",
+                )
+            _refuse_shared_inodes(guard, _inner(base, guard))
+        for source_id in policy.sources:
+            source = self.config.root(source_id).root.resolve()
+            if not source.is_dir():
+                raise ToolError(
+                    "source_unavailable", f"{source_id} is currently unavailable"
+                )
+            if base in source.parents and not self.config.protects(source):
+                raise ToolError(
+                    "policy_denied",
+                    f"{source_id} is also writable inside {policy.id}",
+                )
+
+    def _protection_mounts(self, policy: RootPolicy) -> list[str]:
+        """Pin the path to each protected source, then mount it read-only."""
+
+        base = policy.root.resolve()
+        args: list[str] = []
+        pinned: set[Path] = set()
+        for guard in self.config.protected_within(base):
+            for ancestor in reversed(guard.parents):
+                if base not in ancestor.parents or ancestor in pinned:
+                    continue
+                pinned.add(ancestor)
+                args += _mount(ancestor, _inner(base, ancestor))
+            args += _mount(guard, _inner(base, guard), readonly=True)
         return args
 
     async def _run(self, job: Job, policy: RootPolicy, stdin: str | None) -> None:

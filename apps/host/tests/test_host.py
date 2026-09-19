@@ -141,6 +141,111 @@ def test_marker_replacement_and_delete(config: HostConfig) -> None:
     assert not (root.root / "doc.md").exists()
 
 
+def _workspace_config(tmp_path: Path, *, guard: str, permission: str = "read_write") -> HostConfig:
+    root = tmp_path / "workspace"
+    (root / "work" / "regulations" / "current").mkdir(parents=True)
+    (root / "work" / "regulations" / "current" / "rule.txt").write_text("fixed\n")
+    prefix = tmp_path / "prefix"
+    (prefix / "config").mkdir(parents=True)
+    (prefix / "config" / "host-upstream.token").write_text(TOKEN + "\n")
+    (prefix / "config" / "host.toml").write_text(
+        f"""service_url = "https://context.example.workers.dev"
+device_id = "test"
+data_root = "{prefix / "state"}"
+corpus_data_root = "{prefix / "state" / "corpus"}"
+corpus_python = {json.dumps(sys.executable)}
+
+[host]
+listen = "127.0.0.1:18790"
+allowed_hosts = ["spark-host"]
+read_only_paths = [{json.dumps(guard)}]
+
+[[host.roots]]
+id = "workspace"
+path = "{root}"
+permission = "{permission}"
+execute = "sandbox"
+""",
+        encoding="utf-8",
+    )
+    return load_host_config(prefix / "config" / "host.toml")
+
+
+def test_host_root_works_without_a_corpus_connection(tmp_path: Path) -> None:
+    config = _workspace_config(
+        tmp_path, guard=str(tmp_path / "workspace" / "work" / "regulations" / "current")
+    )
+    root = config.root("workspace")
+    assert root.connection is None
+    assert (root.permission, root.execute) == ("read_write", "sandbox")
+    written = write_file(config, root, "new-project/notes.md", content="one\n")
+    assert written["path"] == "new-project/notes.md"
+
+
+def test_protected_source_stays_read_only_inside_a_writable_root(
+    tmp_path: Path,
+) -> None:
+    guard = tmp_path / "workspace" / "work" / "regulations" / "current"
+    config = _workspace_config(tmp_path, guard=str(guard))
+    root = config.root("workspace")
+    assert read_files(root, [{"path": "work/regulations/current/rule.txt"}], 1024)[
+        "files"
+    ][0]["content"] == "fixed\n"
+    for attempt in (
+        {"content": "changed\n"},
+        {"delete": True},
+    ):
+        with pytest.raises(ToolError) as failure:
+            write_file(
+                config, root, "work/regulations/current/rule.txt", **attempt
+            )
+        assert failure.value.code == "policy_denied"
+    with pytest.raises(ToolError) as created:
+        write_file(config, root, "work/regulations/current/added.txt", content="x")
+    assert created.value.code == "policy_denied"
+
+
+def test_root_inside_a_protected_source_is_read_only(tmp_path: Path) -> None:
+    config = _workspace_config(tmp_path, guard=str(tmp_path / "workspace"))
+    root = config.root("workspace")
+    assert (root.permission, root.execute) == ("read_only", "none")
+
+
+def test_protection_mounts_pin_the_path_to_the_source(tmp_path: Path) -> None:
+    from personal_agent_host.jobs import JobManager
+
+    guard = tmp_path / "workspace" / "work" / "regulations" / "current"
+    config = _workspace_config(tmp_path, guard=str(guard))
+    mounts = JobManager(config)._protection_mounts(config.root("workspace"))
+    destinations = [
+        item.split("dst=")[1].split(",")[0] for item in mounts if item != "--mount"
+    ]
+    assert destinations == [
+        "/workspace/work",
+        "/workspace/work/regulations",
+        "/workspace/work/regulations/current",
+    ]
+    assert "readonly,bind-recursive=readonly" in mounts[-1]
+    assert "readonly" not in mounts[1]
+
+
+def test_writable_connection_cannot_contain_a_protected_source(
+    config: HostConfig, tmp_path: Path
+) -> None:
+    source = tmp_path / "prefix" / "config" / "host.toml"
+    guard = tmp_path / "workspace" / "sub"
+    source.write_text(
+        source.read_text(encoding="utf-8").replace(
+            'allowed_hosts = ["spark-host"]',
+            f'allowed_hosts = ["spark-host"]\nread_only_paths = [{json.dumps(str(guard))}]',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(SyncError) as failure:
+        load_host_config(source)
+    assert failure.value.code == "invalid_configuration"
+
+
 def test_read_only_root_refuses_writes(config: HostConfig) -> None:
     with pytest.raises(ToolError) as failure:
         write_file(config, config.root("demo/frozen"), "x.txt", content="x")
