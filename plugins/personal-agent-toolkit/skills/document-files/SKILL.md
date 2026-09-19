@@ -28,6 +28,8 @@ description: 문서·스프레드시트·발표 자료를 읽고 만들거나 �
   `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. 호스트가 제공하는 실행 환경은 사용 가능한 의존성 안내 도구에서 확인한다.
 - 파일 작업에 필요한 실행 기능이나 라이브러리가 없으면 `runtime_unavailable`을 알리고 해당 작업을 중단한다. 원문을 다른 서버나 Cloudflare 분석기로 보내지 않는다. Google 문서의 연결·권한 조건은 해당 안내를 따른다.
 - 경로는 CLI·MCP 입력 어댑터에서만 받는다. 분석 계약은 `AnalysisJob v1`과 별도 byte stream이며 결과는 `AnalysisResult v1`이다.
+- 경로는 그 실행기가 도는 환경에서 해석한다. 맥의 로컬 파일, Spark의 작업공간 파일, ChatGPT 실행 환경의 파일은 서로 다른 경로 공간이다. 다른 환경의 파일을 다루려면 먼저 그 환경으로 파일을 옮긴다. 경로가 없다고 다른 환경의 실행기로 바꿔 부르지 않는다.
+- `extract-schema`가 돌려준 결과 식별자는 그 결과를 보관한 실행기에서만 다시 읽는다. 다른 환경으로 식별자를 넘기지 않는다.
 
 배포 진입점은 다음처럼 호출한다. Python 경로를 지정하지 않으면 호스트의 `python3`를 사용한다.
 

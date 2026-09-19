@@ -61,3 +61,31 @@ Six of the eleven only read. Five write a file the caller names.
 | ChatGPT | uploaded personal Skill with its own runtime | ChatGPT |
 
 So the same engine already runs in three places with three provisioning paths.
+
+## Placement decision (2026-09-19)
+
+The three runtimes stay where they are. The toolkit is reached through one
+remote connection; document work stays next to the files it touches.
+
+| files | runtime used |
+|---|---|
+| Mac downloads and attachments saved locally | the local Document Files MCP server |
+| registered Corpus Sources on Spark and the NAS | the engine Sync already calls during extraction |
+| documents inside the ChatGPT run | the runtime bundled with the uploaded Skill |
+
+So a client keeps two connections: the unified toolkit and this local server.
+That is the finished state for now, not a step toward one connection.
+
+Nothing was built to move files between those environments: no Spark MCP server
+for documents, no document tools on Host or the Worker, no binary transfer API,
+no local relay, no folder sync, and no new home for what `document_extract_schema`
+retains. Installing the same engine in three places does not make the file paths
+one space.
+
+Two rules follow for callers:
+
+- A document path is read in the environment where that Document Files runtime
+  runs. Mac paths, Spark paths and ChatGPT run paths are separate spaces. To work
+  on a file elsewhere, move it there explicitly first.
+- A result id from `document_extract_schema` is only readable from the same
+  server instance that produced it. Do not carry it to another runtime.
