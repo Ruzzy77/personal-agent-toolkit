@@ -46,6 +46,17 @@ W1: 2/2 on both surfaces.
 - Context path: not applied for Aside (no observable context).
 - Therefore B is not selected. A stays.
 
+## Decision (reviewer, 2026-09-19)
+Aside uses surface A through the single unified /mcp connection. This is not a
+finding that native search works; it is the choice of the direct surface as the
+operating default from what could be observed here. It is also not a decision to
+keep seven per-product connections.
+The test bench stays in place as the reference environment for the other
+clients; only the Aside test connections are switched off. No B variant with a
+longer direct-exposure list is built now: the comparison for such a variant
+would be A, which already scored 16/16, and tuning the exposure list to these
+eight tasks would fit the surface to the test rather than to real use.
+
 ## Notes
 - Aside keeps a cached inventory without outputSchema: 81,942 B for A, 7,507 B for B.
 - Aside pages through tools/list correctly (20 per page, 6 pages, last page reached).

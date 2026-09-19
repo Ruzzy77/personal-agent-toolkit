@@ -30,7 +30,15 @@ production toolkit connections while measuring.
    (probe lives on the BASE/FULL/PAGED endpoints, not on A/B)
 5. Record the context display again, plus the wall time for step 4.
 
-Repeat BASE → FULL, FULL → BASE, BASE → FULL for three pairs.
+Start with one pair only: BASE then FULL. Report before doing more.
+
+- If the client shows a usable current-context number, continue with
+  FULL → BASE and BASE → FULL for three pairs in total.
+- If there is no context number, or it cannot be told apart from an estimate of
+  the whole registered tool list, stop after the first pair and report null.
+- If login or a usage limit blocks the run, stop and report environment_blocked.
+- If the tool list arrives short, or another connection is mixed in, fix the
+  connection and drop that run; it is not a surface result.
 
 ## Collect
 
@@ -38,6 +46,11 @@ Repeat BASE → FULL, FULL → BASE, BASE → FULL for three pairs.
 - Tool count and bytes each client reports.
 - Whether the client shows tool search or deferred loading.
 - Any refusal, timeout or login prompt, verbatim.
+
+The loading test uses the probe endpoints below: BASE has 1 tool, FULL has 104
+(103 definitions plus surface_probe). The task surfaces `/a/mcp` (103) and
+`/b/mcp` (13) are a different bench; do not run the loading test against them,
+and do not run task trials against the probe server, which answers `probe_only`.
 
 Probe endpoints:
 `https://surface-probe.hiyaq77.workers.dev/s7k2q9/{base,full,paged}/mcp`
