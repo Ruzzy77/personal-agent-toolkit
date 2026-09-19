@@ -128,6 +128,22 @@ roles = ["source"]
 permission = "read_only"
 ```
 
+## 6-1. 런타임 갱신
+
+서비스는 저장소가 아니라 prefix의 venv에 설치된 사본을 실행한다. 코드를 고치면 정본 저장소에서 재설치해야 반영된다.
+
+```
+bash apps/host/scripts/install-linux.sh "$REPO" --runtime-only --packages host,sync [--no-deps]
+```
+
+- `--runtime-only`는 기존 venv에 선택한 패키지만 다시 설치한다. uv·Python·cloudflared·샌드박스 이미지·systemd unit·`config/`·`state/`·`jobs/`는 건드리지 않고 venv를 새로 만들지 않는다.
+- 기본 묶음은 `host,sync`다. Corpus는 helper 계약이 함께 바뀔 때, `document-files`는 고정 공급 패키지를 바꾸는 릴리스에서만 포함한다.
+- 의존성이 그대로인 코드 갱신에는 `--no-deps`를 붙인다. 의존성이 바뀌는 릴리스에는 붙이지 않는다.
+- 패키지별로 `uv cache clean`과 `--reinstall-package`를 적용하고 `uv pip check`로 마친다. 전체 캐시 삭제나 일괄 업그레이드는 하지 않는다.
+- Host·백업 서비스가 실행 중이면 갱신을 거부한다. 큐와 실행 중 job이 0일 때 백업 timer 정지 → Host 정지 → 재설치 → Host 기동 → timer 복귀 순으로 진행한다. Tunnel은 건드리지 않고, `personal-agent-host install`은 unit 자체가 바뀐 릴리스에서만 다시 실행한다.
+- editable 설치는 쓰지 않는다. 커밋하지 않은 편집이 재시작만으로 운영에 반영되지 않게 한다.
+- 설치 출처는 정본 저장소 하나다. 별도의 staging 사본을 두지 않으며 `direct_url.json`이 정본 경로를 가리켜야 한다.
+
 ## 7. Sync Linux 실행 경로
 
 - `credentials.py`: Keychain 대신 `config/sync-device.token`(0600). `config.py`: 기본 설정 `config/host.toml`, 기본 `data_root` `state/`. `cli.py`의 install-agent/uninstall-agent는 Linux에서 Host의 install/uninstall로 안내한다. `paths.py`·`materialization.py`는 기존 darwin 분기로 충분하다.
