@@ -31,6 +31,7 @@ test("owner OAuth binds state, keeps credentials server-side and persists token 
   await assert.rejects(auth.completeOwnerLogin(new Request(callback)),/expired/);
   globalThis.fetch=async(input,init)=>{
    if(String(input).includes("/oauth/token")){
+    assert.equal(init.redirect,"manual");
     const body=new URLSearchParams(init.body);
     if(body.get("grant_type")==="refresh_token"){refreshCount++;assert.equal(body.get("refresh_token"),"unit-refresh");return Response.json({access_token:"unit-access-new",refresh_token:"unit-refresh-new",expires_in:900});}
     assert.equal(body.get("code_verifier"),flow.verifier);

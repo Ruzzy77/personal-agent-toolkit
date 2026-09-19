@@ -158,7 +158,7 @@ async function tokenRequest(body: URLSearchParams): Promise<Record<string, unkno
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
     cache: "no-store",
-    redirect: "error",
+    redirect: "manual",
   });
   if (!response.ok) throw new OwnerSessionError(401, "owner login has expired");
   return response.json() as Promise<Record<string, unknown>>;
