@@ -82,6 +82,10 @@ no local relay, no folder sync, and no new home for what `document_extract_schem
 retains. Installing the same engine in three places does not make the file paths
 one space.
 
+While the package is consumed from this repository, the two rules below live in
+its Skill. When it moves to a pinned external release, carry them upstream
+rather than patching the supplied copy.
+
 Two rules follow for callers:
 
 - A document path is read in the environment where that Document Files runtime
