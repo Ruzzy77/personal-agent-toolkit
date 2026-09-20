@@ -128,7 +128,7 @@ export function WorkspaceFiles(){
   const parts=path==="."?[]:path.split("/");
   return <main className={"file-workspace"+(selected?" has-selection":"")} id="main-content">
     <div className="file-workspace-heading">
-      <div className="su-row"><h1>작업공간</h1><FieldSelect className="workspace-root-select" aria-label="작업공간" value={root} onChange={option=>navigate(".",option.value)}>{roots.map(item=><option key={item.id} value={item.id}>{item.id==="workspace"?"Spark":item.id}</option>)}</FieldSelect></div>
+      <div className="su-row"><h1>작업공간</h1><FieldSelect aria-label="작업공간" value={root} onChange={option=>navigate(".",option.value)}>{roots.map(item=><option key={item.id} value={item.id}>{item.id==="workspace"?"Spark":item.id}</option>)}</FieldSelect></div>
       <div className="su-row"><Link className="file-project-link" href={linked?"/context?space="+encodeURIComponent(linked.space_id):"/context"}>프로젝트 문서<FileText size={18} aria-hidden="true"/></Link></div>
     </div>
     <nav className="file-breadcrumbs su-row" aria-label="폴더 경로"><button onClick={()=>navigate(".")}>{root==="workspace"?"Spark":root}</button>{parts.map((part,i)=><span className="su-row" key={i}><span aria-hidden="true">/</span><button aria-current={i===parts.length-1?"location":undefined} onClick={()=>navigate(parts.slice(0,i+1).join("/"))}>{part}</button></span>)}</nav>
