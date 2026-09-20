@@ -7,12 +7,13 @@ Host는 항상 켜진 호스트(Spark)의 작업공간과 샌드박스 실행을
 
 ## 도구
 
-`host_capabilities`, `host_roots`, `host_search`, `host_read`, `host_write`, `host_exec`, `host_job`, `host_job_cancel`. 통합 툴킷 MCP(`/mcp`)에 포함되고, Claude Code·Aside처럼 제품별 URL을 쓰는 클라이언트는 `/host/mcp`를 등록한다(`.mcp.json`). 계약은 DESIGN.md 4절.
+`host_capabilities`, `host_roots`, `host_search`, `host_read`, `host_write`, `host_files`, `host_transfer`, `host_exec`, `host_job`, `host_job_cancel`. 통합 툴킷 MCP(`/mcp`)에 포함되고, Claude Code·Aside처럼 제품별 URL을 쓰는 클라이언트는 `/host/mcp`를 등록한다(`.mcp.json`). 계약은 DESIGN.md 4절.
 
 ## 호스트 설치
 
 ```sh
 apps/host/scripts/install-linux.sh            # uv, venv 2개, cloudflared, launcher, 샌드박스 이미지, upstream 토큰
+sudo apps/host/scripts/install-egress-guard.sh "$PWD" "$USER"  # root 소유 고정 방화벽 helper
 $EDITOR ~/.local/share/personal-agent-host/config/host.toml   # apps/host/config.example.toml 참고
 # tunnel 토큰을 config/tunnel.token 에 두고
 ~/.local/share/personal-agent-host/bin/personal-agent-host install   # systemd user unit 4개

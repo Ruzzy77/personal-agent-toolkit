@@ -15,7 +15,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.10.0"
+        "base_version": "1.11.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -43,7 +43,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.10.0"
+        "surface_version": "1.11.0"
       }
     }
   },
@@ -299,13 +299,11 @@
       },
       "components": [
         "plugins/design",
-        "services/design",
-        "sites/design"
+        "services/design"
       ],
       "data_authority": "services/design",
       "versioned_packages": [
-        "services/design/package.json",
-        "sites/design/package.json"
+        "services/design/package.json"
       ],
       "mcp": {
         "server_key": "design",
@@ -357,13 +355,11 @@
       },
       "components": [
         "plugins/journal",
-        "services/journal",
-        "sites/journal"
+        "services/journal"
       ],
       "data_authority": "services/journal",
       "versioned_packages": [
-        "services/journal/package.json",
-        "sites/journal/package.json"
+        "services/journal/package.json"
       ],
       "mcp": {
         "server_key": "journal",
@@ -411,13 +407,11 @@
       },
       "components": [
         "plugins/library",
-        "services/library",
-        "sites/library"
+        "services/library"
       ],
       "data_authority": "services/library",
       "versioned_packages": [
-        "services/library/package.json",
-        "sites/library/package.json"
+        "services/library/package.json"
       ],
       "mcp": {
         "server_key": "library",
@@ -450,7 +444,7 @@
       "display_name": "Host",
       "plugin": {
         "path": "plugins/host",
-        "base_version": "0.3.0"
+        "base_version": "0.4.0"
       },
       "delivery": {
         "openai": {
@@ -489,7 +483,7 @@
           "host_job",
           "host_job_cancel"
         ],
-        "surface_version": "0.3.0-remote.1"
+        "surface_version": "0.4.0-remote.1"
       },
       "skills": [
         "use-host"

@@ -7,6 +7,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from personal_agent_host.config import HostConfig, load_host_config
@@ -290,7 +291,9 @@ def test_bearer_guard(config: HostConfig) -> None:
     from personal_agent_host.app import build_app
     from starlette.testclient import TestClient
 
-    with TestClient(build_app(config)) as client:
+    with patch(
+        "personal_agent_host.jobs.JobManager.start", new=AsyncMock()
+    ), TestClient(build_app(config)) as client:
         assert client.post("/mcp", headers={"Host": "spark-host"}).status_code == 401
         denied = client.post(
             "/mcp",

@@ -139,10 +139,7 @@ OpenAI plugin은 등록 app을 통해 통합 endpoint를 사용하고, Claude pl
 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
 필요하지 않습니다.
 
-Journal, Library와 Design의 시각 화면은 각각 소유자 전용
-[Journal Site](https://personal-journal.ruzzy.chatgpt.site)와
-[Library Site](https://personal-edition-library.ruzzy.chatgpt.site),
-[Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 사용합니다.
+Journal, Library와 Design의 기능은 각각 Journal·Library·Design 원격 MCP와 Toolkit Skill을 사용합니다.
 
 원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 화면과
@@ -355,13 +352,12 @@ Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토�
 현재 프로젝트의 디자인 시스템을 우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를
 골라 씁니다.
 
-시각적 탐색과 비교는 <https://personal-material-index.ruzzy.chatgpt.site>에서 할 수 있으며, 화면
-소스는 `sites/design`, 저장과 MCP는 `services/design`에서 관리합니다. 개인 자산은 공개 저장소나
+시각적 탐색과 비교는 Design 원격 MCP와 `design` 도구를 사용하며, 저장과 MCP는 `services/design`에서 관리합니다. 개인 자산은 공개 저장소나
 plugin 묶음에 복사하지 않습니다.
 
 ## Journal 시작
 
-Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. 시각적 보드는 <https://personal-journal.ruzzy.chatgpt.site>에서 확인하며, 화면 소스는 `sites/journal`에서 관리합니다.
+Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이번 주 보드와 기간 기록을 대화에서 읽을 수 있습니다. Journal 데이터와 MCP는 `services/journal`에서 관리합니다.
 
 인증된 원격 MCP를 호출할 수 있는 자동화는 `manage-journal` Skill과
 `journal_ingest_items`로 달라진 항목만 반영합니다. MCP client가 아닌 별도 로컬 모니터가
@@ -372,9 +368,7 @@ Journal plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 이�
 ## Library 시작
 
 Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily·Digest·Research 발간호를
-대화에서 읽고 고치거나 새 호를 발행할 수 있습니다. 읽기와 직접 편집은
-<https://personal-edition-library.ruzzy.chatgpt.site>에서 이어지며, 화면 소스는
-`sites/library`, 원격 MCP는 `services/library`에서 관리합니다.
+대화에서 읽고 고치거나 새 호를 발행할 수 있습니다. 발간호 데이터와 MCP는 `services/library`에서 관리합니다.
 
 본문이나 시각물을 만들고 개작할 때에는 `manage-library` Skill이 Corpus의
 `library-editorial` Context와 현재 발간호를 연결합니다. 온라인 정본을 바꾼 뒤에는 같은
@@ -408,11 +402,9 @@ local MCP와 단일 `document-files` Skill을 소유합니다. `plugins/personal
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 상태형 제품의 OpenAI
 통합 MCP를 제공합니다. 문서 분석용 Cloudflare Worker나 Service Binding은 두지 않습니다.
-Design은 `plugins/design`, `services/design`, `sites/design`으로 구성하며 개인 데이터는 service의
-D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고,
-`sites/journal`은 소유자 전용 화면입니다. `services/library`와 `sites/library`는 Library의 서비스
-소유 저장·MCP와
-읽기·편집 화면을 나눕니다. 저장층 이전과 복구 범위는
+Design은 `plugins/design`과 `services/design`으로 구성하며 개인 데이터는 service의
+D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고, `services/library`는 Library의 서비스
+소유 저장·MCP를 담당합니다. 저장층 이전과 복구 범위는
 [Library](./plugins/library/DESIGN.md#저장-변경과-이전)와
 [Design](./plugins/design/DESIGN.md#현행-저장층의-복구-확인)의 제품 설계에 둡니다. `auth`는 원격 제품이
 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.

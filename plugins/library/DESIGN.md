@@ -2,35 +2,35 @@
 
 ## 목적과 경계
 
-Library는 Daily·Digest·Research 발간호와 표지·삽화를 읽고 편집하고 발행한다. MCP와 Site가 같은
-발간호를 다루며, 저장 뒤 다시 읽었을 때 HTML, 참고자료, asset과 발행 정보가 일치해야 한다.
+Library는 Daily·Digest·Research 발간호와 표지·삽화를 읽고 편집하고 발행한다. MCP와 통합
+Toolkit이 같은 발간호를 다루며, 저장 뒤 다시 읽었을 때 HTML, 참고자료, asset과 발행 정보가 일치해야 한다.
 
 ## 소스 구성
 
 - `plugins/library`: 편집·발행 Skill과 클라이언트별 원격 연결
 - `services/library`: owner 인증, MCP, HTTP API, D1 문서와 R2 asset 정본
-- `sites/library`: 읽기·직접 편집 UI와 service client
+- `sites/context`: 통합 Toolkit의 읽기·직접 편집 UI와 service client
 
-Site와 MCP는 서로를 중계하지 않고 같은 service의 업무 규칙과 저장층을 사용한다. 내부
-Site-to-service token은 사용자 OAuth와 별도로 관리한다.
+Toolkit 화면과 MCP는 서로를 중계하지 않고 같은 service의 업무 규칙과 저장층을 사용한다. 내부
+Toolkit-to-service token은 사용자 OAuth와 별도로 관리한다.
 
 ## 운영 구조
 
-발간호와 이미지의 운영 정본은 Library service의 D1·R2다. 운영 Site는 `LIBRARY_SERVICE_URL`과
+발간호와 이미지의 운영 정본은 Library service의 D1·R2다. 통합 Toolkit은 `LIBRARY_SERVICE_URL`과
 비밀 `LIBRARY_SITE_TOKEN`으로 service를 호출하며 자체 D1·R2 binding을 두지 않는다. 개별
 Library MCP와 통합 MCP는 같은 `LibraryService` 구현과 저장층을 사용한다.
 
-Site는 Vite·React·Vinext와 공통 인증·service client를 사용한다. 소유자의 직접 입력은 자동
+통합 Toolkit은 Vite·React·Vinext와 공통 인증·service client를 사용한다. 소유자의 직접 입력은 자동
 저장하고, WebMCP 수정안은 화면에서 검토한 뒤 별도로 저장한다. 원격 MCP 수정은 온라인 정본에
 바로 저장한다. 이 읽기·편집 경험은 유지한다.
 
-2026-09-05 운영 Site의 서비스 연결 설정과 데이터 binding 부재, 원격 MCP의 발간호 읽기를
+2026-09-05 당시 운영 화면의 서비스 연결 설정과 데이터 binding 부재, 원격 MCP의 발간호 읽기를
 확인했다. 과거 원본은 같은 Site 프로젝트의 D1 `DB`와 R2 `MEDIA`였으며, Git `edc6f78`에서
 두 binding을 제거했다. 이는 원본 저장소의 삭제나 rollback 보관 종료를 입증하지 않는다.
 
 확인한 Git·등록 파일에는 과거 D1·R2의 실제 저장소 ID, 이관 당시 전체 대조 결과와 명시적 보관
 종료 승인이 없다. 현재 Sites 조회도 과거 attachment·보존·삭제 이력을 제공하지 않는다. 현재
-Site는 service를 중계하므로 두 URL의 읽기 일치를 과거 원본 대조로 사용하지 않는다. 원본
+Toolkit은 service를 중계하므로 두 URL의 읽기 일치를 과거 원본 대조로 사용하지 않는다. 원본
 식별자와 존재 상태를 먼저 확인한 뒤 보관 기간·미참조 자산의 취급을 결정하며, 기간 종료를
 원본 삭제 승인으로 대신하지 않는다.
 
@@ -69,7 +69,7 @@ export schema·행의 대조는 유지했다. 객체의 새 version·업로드 �
 
 ## 버전과 검증
 
-plugin, service와 Site는 같은 제품 release version을 사용한다. 핵심 검증은 권한, version 충돌,
+plugin과 service는 같은 제품 계약을 사용하며, 통합 Toolkit은 호환되는 service 계약을 소비한다. 핵심 검증은 권한, version 충돌,
 migration 전후 데이터 동일성과 대표 발간호의 읽기·편집 흐름이다. 구현 상수를 그대로 반복하는
 snapshot이나 모든 발간호의 중복 보관은 추가하지 않는다.
 
@@ -78,7 +78,7 @@ snapshot이나 모든 발간호의 중복 보관은 추가하지 않는다.
 2026-09-05 조사에서 편집 충돌 이후의 초안 손실과 이미지 덮어쓰기 경로를 확인하고, 첫 구현을
 두 문제로 좁혔다. 운영 발간호의 내용과 발행 정책은 바꾸지 않는다.
 
-- **미저장 초안 보존:** [Site 편집기](../../sites/library/public/library-editor.js)는 version 충돌 때
+- **미저장 초안 보존:** [Toolkit 편집기](../../sites/context/components/library/library-reader.tsx)는 version 충돌 때
   새로고침을 안내하면서, 다시 열린 서버 본문이 초안의 기준 본문과 다르면 보관한 초안을 지웠다.
   이 삭제 분기는 원본 함수를 메모리에서 실행해 확인했으며 운영 문서를 수정한 검증은 아니다.
   서버의 충돌 차단은 유지하되, 사용자가 새 서버 내용과 자신의 수정을 확인하고 복원·복사하거나
@@ -127,13 +127,13 @@ v2는 열려 있는 구형 편집기가 같은 키를 쓸 수 있어 새 편집�
 
 초안 목록과 조작은 main 밖에 두고 발간호 HTML과 형광펜 텍스트 위치 계산에 포함시키지 않는다.
 새 서버 저장소나 영구 편집 이력을 만들지 않으며, 일반 직접 편집의 자동 저장은 유지한다. 로컬 보관·복사가 실패하면
-성공으로 표시하지 않고 현재 화면과 기존 기록을 유지한다. 기존 Site 검사와 격리된 상태 전이 확인으로
+성공으로 표시하지 않고 현재 화면과 기존 기록을 유지한다. 기존 편집기 검사와 격리된 상태 전이 확인으로
 충돌·제안 취소·재로드·서로 다른 탭·저장 중 추가 입력을 확인한다.
 
 소스의 일회성 격리 확인에서 초안 상태 전이·복사 실패·사본 삭제 경합·형광펜 재로드 등 14개
 경로를 통과했다. 격리된 D1·R2에서는 같은 이미지의 재시도, 내용·형식 충돌, 동시 생성과 오래된
 문서 저장 거절 뒤의 기존 이미지·참조 보존을 확인했다. 실제 브라우저 조작이나 운영 쓰기를 한
-검사는 아니며, 서비스·Site 반영과 클라이언트 갱신은 별도로 확인한다.
+검사는 아니며, 서비스·Toolkit 반영과 클라이언트 갱신은 별도로 확인한다.
 
 2026-09-06에는 사용자가 허용한 인앱브라우저 점검을 수행했다. 정상 로그인 후 현재 목록 97개에서
 발간호를 찾아 열고, WebMCP의 임시 제목 수정안이 온라인에 저장되지 않는 것을 확인했다. 복사,

@@ -31,16 +31,20 @@ def test_absent_image_is_not_advertised_as_available():
     assert value["reason"] == "image_not_installed"
 
 
-def test_capabilities_keep_network_disabled_by_default():
+def test_capabilities_advertise_direct_guarded_public_egress():
     config = SimpleNamespace(
         execution_profiles={"base": "base:1", "web": "web:1"},
-        sandbox_image="base:1", https_host_allowlist=frozenset({"registry.npmjs.org"}),
+        sandbox_image="base:1",
     )
     with patch("personal_agent_host.runtime.inspect_profile", AsyncMock(
         side_effect=lambda name, image: {"name": name, "image": image, "available": True}
     )):
         value = asyncio.run(execution_capabilities(config))
     assert value["default_profile"] == "base"
-    assert value["network"]["default"] == "none"
-    assert value["network"]["allowed_https_hosts"] == ["registry.npmjs.org"]
+    assert value["network"] == {
+        "default": "public_ipv4",
+        "policy": "direct_public_only_guarded",
+        "protocols": ["tcp", "udp", "icmp"],
+        "inbound": "blocked",
+    }
     assert [item["name"] for item in value["profiles"]] == ["base", "web"]

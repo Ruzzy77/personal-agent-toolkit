@@ -91,7 +91,7 @@ def create_server(
     @server.tool(
         name="host_capabilities",
         title="Host capabilities",
-        description="Return limits, installed execution profiles and allowed HTTPS destinations.",
+        description="Return limits, installed execution profiles and the guarded public IPv4 network policy.",
         annotations=READ_ONLY,
     )
     async def host_capabilities() -> dict[str, Any]:
@@ -237,8 +237,8 @@ def create_server(
             "Run a command in a sandbox container with the root mounted at /workspace. "
             "Give argv (preferred) or shell. Waits up to wait_s; if the job is still "
             "queued or running, poll host_job with the returned job_id. "
-            "profile selects an installed runtime; https_hosts opts into allowed "
-            "HTTPS destinations. Both are optional; the default has no network."
+            "profile selects an installed runtime. Jobs use direct guarded public IPv4 "
+            "egress by default; inbound traffic and private destinations are blocked."
         ),
         annotations=EXECUTE,
     )
@@ -251,7 +251,6 @@ def create_server(
         timeout_s: Annotated[int, Field(ge=1, le=LIMITS["timeout_s"])] = 1800,
         wait_s: Annotated[int, Field(ge=0, le=LIMITS["wait_s"])] = 5,
         profile: Annotated[str | None, Field(min_length=1, max_length=64)] = None,
-        https_hosts: Annotated[list[str] | None, Field(max_length=32)] = None,
     ) -> dict[str, Any]:
         job = await jobs.submit(
             config.root(root),
@@ -261,7 +260,6 @@ def create_server(
             stdin=stdin,
             timeout_s=clamp_timeout(timeout_s),
             profile=profile,
-            https_hosts=https_hosts,
         )
         job = await jobs.wait(job.id, wait_s)
         return {

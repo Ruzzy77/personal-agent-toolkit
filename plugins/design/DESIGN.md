@@ -10,11 +10,11 @@ Design은 제품 화면 설계·구현, 디자인 검토와 사용자 조사에 
 
 - `plugins/design`: Skill과 Claude용 원격 MCP 연결
 - `services/design`: D1 메타데이터, R2 파일과 소유자 인증 MCP를 소유하는 정본
-- `sites/design`: 같은 서비스를 읽는 소유자 전용 탐색·비교 화면
+- `sites/context`: 같은 서비스를 읽는 통합 Toolkit의 디자인 자료 탐색·비교 화면
 - `plugins/personal-agent-toolkit`: ChatGPT와 Codex에 Design Skill과 도구를 포함하는 통합 배포본
 
 레시피, 패턴, 버전과 파일 메타데이터는 D1에 저장하고 템플릿·CSS·이미지 바이트는 비공개 R2에
-저장한다. Site와 MCP는 같은 서비스만 사용한다. plugin과 공개 저장소에는 개인 자산 사본을 넣지
+저장한다. Toolkit 화면과 MCP는 같은 서비스만 사용한다. plugin과 공개 저장소에는 개인 자산 사본을 넣지
 않는다.
 
 ### 현행 저장층의 복구 확인
@@ -35,14 +35,14 @@ SQLite가 만든 빈 `sqlite_stat4`만 실행 환경 차이로 분리했다. 수
 ## 공개 표면과 권한
 
 `design.read`는 레시피와 자산 읽기, `design.write`는 레시피·파일 생성과 갱신에 사용한다. 쓰기는
-revision을 확인하며 모든 원격 요청은 공통 소유자 OAuth 또는 Site 전용 비밀 토큰으로 제한한다.
+revision을 확인하며 모든 원격 요청은 공통 소유자 OAuth 또는 Toolkit 서버 전용 비밀 토큰으로 제한한다.
 Site의 화면 도구는 현재 화면의 탐색·비교·요청 준비만 수행한다. 작업 파일 권한은 Design이 아니라
 현재 실행 환경과 대상 프로젝트가 정한다.
 
 ## 선택 상태와 정보 읽기
 
-서비스의 레시피 목록·상세 읽기는 `selection_ready`로 제한하지 않는다. Site catalog는 폐기되지
-않은 레시피 메타데이터를 전달하고, Site는 그중 `status=validated`이면서 `selection_ready=true`인
+서비스의 레시피 목록·상세 읽기는 `selection_ready`로 제한하지 않는다. Toolkit catalog는 폐기되지
+않은 레시피 메타데이터를 전달하고, Toolkit은 그중 `status=validated`이면서 `selection_ready=true`인
 레시피만 추천·카드·비교·미리보기와 제작 요청에 사용한다. 선택 대상 여부와 레시피 정보의 읽기
 가능 여부는 다른 조건이다.
 
@@ -50,13 +50,13 @@ Site의 화면 도구는 현재 화면의 탐색·비교·요청 준비만 수�
 존재나 검증 결과에서 선택 상태를 자동으로 계산하지 않는다. 선택에서 제외됐다는 사실만으로
 자산 부족, 검증 실패나 적용 불가를 추론하지 않으며, 기록에 없는 제외 사유는 만들지 않는다.
 
-Site catalog에는 레시피 메타데이터의 `version`이 있지만 서비스 레코드의 `revision`은 포함되지
+Toolkit catalog에는 레시피 메타데이터의 `version`이 있지만 서비스 레코드의 `revision`은 포함되지
 않는다. 화면에서 요청을 이어 전달할 때는 실제로 받은 ID와 version만 사용한다. 현재 revision이
 필요한 편집은 별도의 레시피 상세 읽기에서 확인한다.
 
 ## 버전과 검증
 
-plugin, service와 Site는 같은 제품 release version을 사용한다. 저장 계약과 대표적인 읽기·쓰기
+plugin과 service는 같은 제품 계약을 사용하며, 통합 Toolkit은 호환되는 service 계약을 소비한다. 저장 계약과 대표적인 읽기·쓰기
 흐름, 모든 MCP 도구의 output schema, Site build를 확인한다. 시각적 판단이 필요한 화면 변경은
 실제 렌더링을 확인하되 자산마다 의미 없는 snapshot을 추가하지 않는다.
 
@@ -80,13 +80,13 @@ plugin, service와 Site는 같은 제품 release version을 사용한다. 저장
 - WebMCP 찾기도 후보가 없을 때 안내와 제외 항목 ID를 반환한다. 선택 가능한 레시피가 없으면
   요청 작성 도구를, 두 개 미만이면 비교 도구를 등록하지 않는다.
 
-구현 대상은 `sites/design/app/design-gallery.tsx`와 꼭 필요한 인접 스타일에 한정한다. 서비스
+구현 대상은 `sites/context/components/design/design-gallery.tsx`와 꼭 필요한 인접 스타일에 한정한다. 서비스
 API·저장 계약·운영 메타데이터는 바꾸지 않는다. 준비·검증 정책 신설, 선택 상태 승격, 순위 재설계,
 새 분류와 자산 제작은 포함하지 않는다.
 
 ### 완료 확인
 
-기존 Site lint·typecheck·production build를 통과했다. 등록 없음, 전부 선택 제외, 선택 대상과
+통합 Toolkit lint·typecheck·production build를 통과했다. 등록 없음, 전부 선택 제외, 선택 대상과
 제외 항목이 함께 있는 경우, 상세 메타데이터가 없는 제외 항목을 가상 자료로 렌더링했다.
 기존 추천 조건, 요청문의 실제 ID·version과 후보 수에 따른 WebMCP 도구·응답도 일회성으로
 확인했으며 자료는 바꾸지 않았다. 브라우저의 실제 복사·확대·반응형 조작은 이 확인에 포함하지

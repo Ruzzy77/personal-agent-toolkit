@@ -65,4 +65,4 @@ description: Use Journal to review daily or weekly progress, ingest concise moni
 
 사용자가 기간 요약을 고쳐 채택하면 현재 `version`을 `expectedVersion`으로 보내 `journal_save_period_summary`로 새 버전을 저장합니다. 이전 요약 버전과 연결 Event는 그대로 둡니다.
 
-시각적 확인이나 빠른 버튼 처리가 필요하면 소유자 전용 [Journal Site](https://personal-journal.ruzzy.chatgpt.site)를 엽니다.
+보드와 기간 기록의 확인·처리는 `journal_*` 원격 MCP 도구를 사용합니다.

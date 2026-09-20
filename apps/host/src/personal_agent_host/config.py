@@ -14,8 +14,6 @@ from typing import Literal
 from personal_agent_sync.config import ConnectionConfig, SyncConfig, load_config
 from personal_agent_sync.errors import SyncError
 
-from personal_agent_host.egress import HostnameError, normalize_hostname
-
 Execute = Literal["none", "sandbox"]
 
 DEFAULT_PREFIX = Path("~/.local/share/personal-agent-host").expanduser()
@@ -59,8 +57,6 @@ class HostConfig:
     allowed_hosts: tuple[str, ...]
     sandbox_image: str
     execution_profiles: Mapping[str, str]
-    https_host_allowlist: frozenset[str]
-    egress_proxy_image: str
     max_concurrent_jobs: int
     token_path: Path
     backup: BackupConfig | None
@@ -163,26 +159,6 @@ def _execution_profiles(value: object, *, sandbox_image: str) -> Mapping[str, st
     return MappingProxyType(profiles)
 
 
-def _https_host_allowlist(value: object) -> frozenset[str]:
-    if value is None:
-        return frozenset()
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise SyncError(
-            "invalid_configuration", "host.https_host_allowlist must be hostnames"
-        )
-    try:
-        names = [normalize_hostname(item) for item in value]
-    except HostnameError as exc:
-        raise SyncError(
-            "invalid_configuration", "host.https_host_allowlist is invalid"
-        ) from exc
-    if len(set(names)) != len(names):
-        raise SyncError(
-            "invalid_configuration", "host.https_host_allowlist contains duplicates"
-        )
-    return frozenset(names)
-
-
 def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
     if value is None:
         return []
@@ -269,6 +245,12 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     host = raw.get("host", {})
     if not isinstance(host, dict):
         raise SyncError("invalid_configuration", "[host] must be a table")
+    retired = {"https_host_allowlist", "egress_proxy_image"} & set(host)
+    if retired:
+        raise SyncError(
+            "invalid_configuration",
+            f"host.{min(retired)} was removed; public egress is guarded per job",
+        )
     listen = host.get("listen", "127.0.0.1:18790")
     if not isinstance(listen, str) or ":" not in listen:
         raise SyncError("invalid_configuration", "host.listen must be host:port")
@@ -288,11 +270,6 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     )
     profiles = _execution_profiles(
         host.get("execution_profiles"), sandbox_image=sandbox_image
-    )
-    https_host_allowlist = _https_host_allowlist(host.get("https_host_allowlist"))
-    egress_proxy_image = _image(
-        host.get("egress_proxy_image", "personal-agent-host-sandbox:1"),
-        field="host.egress_proxy_image",
     )
     max_jobs = host.get("max_concurrent_jobs", 4)
     if (
@@ -369,19 +346,11 @@ def load_host_config(path: Path | None = None) -> HostConfig:
                 )
 
     return HostConfig(
-        sync=sync,
-        listen_host=listen_host,
-        listen_port=listen_port,
-        allowed_hosts=tuple(allowed),
-        sandbox_image=sandbox_image,
-        execution_profiles=profiles,
-        https_host_allowlist=https_host_allowlist,
-        egress_proxy_image=egress_proxy_image,
-        max_concurrent_jobs=max_jobs,
-        token_path=Path(token_value).expanduser(),
-        backup=backup,
-        roots=tuple(roots),
-        read_only_paths=guards,
+        sync=sync, listen_host=listen_host, listen_port=listen_port,
+        allowed_hosts=tuple(allowed), sandbox_image=sandbox_image,
+        execution_profiles=profiles, max_concurrent_jobs=max_jobs,
+        token_path=Path(token_value).expanduser(), backup=backup,
+        roots=tuple(roots), read_only_paths=guards,
     )
 
 

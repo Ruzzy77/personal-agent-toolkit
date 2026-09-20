@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ipaddress
 import json
 import logging
 import os
+import re
 import sqlite3
 import stat
 import time
@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from personal_agent_host import guard
 from personal_agent_host.config import LIMITS, HostConfig, RootPolicy
-from personal_agent_host.egress import PROXY_ALIAS, HostnameError, normalize_hostname
 from personal_agent_host.files import ToolError, relative_path
 
 OUTPUT_CAP = 64 * 1024 * 1024
@@ -48,20 +48,11 @@ class Job:
 
 
 @dataclass(frozen=True)
-class EgressRequest:
+class DirectEgress:
     job_id: str
-    hosts: tuple[str, ...]
-    proxy_ip: str = ""
-    @property
-    def private_network(self) -> str:
-        return "pah-private-" + self.job_id
 
     @property
-    def uplink_network(self) -> str:
-        return "pah-uplink-" + self.job_id
-
-    @property
-    def proxy_container(self) -> str:
+    def network(self) -> str:
         return "pah-egress-" + self.job_id
 
 
@@ -175,8 +166,31 @@ class JobManager:
 
     async def start(self) -> None:
         self.store.expire(time.time())
+        resumed_ids: set[str] = set()
         for job in self.store.active():
             if job.status == "running" and await self._container_exists(job):
+                paused = await self._docker("pause", job.container)
+                try:
+                    if paused.returncode != 0:
+                        raise ToolError(
+                            "egress_unavailable", "running job could not be paused for guard verification"
+                        )
+                    await guard.invoke("attach", DirectEgress(job.id).network)
+                    await guard.invoke("check", DirectEgress(job.id).network)
+                    resumed = await self._docker("unpause", job.container)
+                    if resumed.returncode != 0:
+                        raise ToolError(
+                            "egress_unavailable", "running job could not resume after guard verification"
+                        )
+                except (ToolError, OSError):
+                    await self._docker("rm", "-f", job.container)
+                    job.status = "lost"
+                    job.finished = time.time()
+                    self.store.save(job)
+                    with contextlib.suppress(Exception):
+                        await self._cleanup_egress(job)
+                    continue
+                resumed_ids.add(job.id)
                 self.done[job.id] = asyncio.Event()
                 self.tasks[job.id] = asyncio.create_task(self._finish_existing(job))
             else:
@@ -185,9 +199,9 @@ class JobManager:
                 self.store.save(job)
                 await self._cleanup_egress(job)
 
-        for job in self.store.terminal():
-            with contextlib.suppress(Exception):
-                await self._cleanup_egress(job)
+        for job_id in await self._labeled_job_ids():
+            if job_id not in resumed_ids:
+                await self._cleanup_egress(job_id)
 
     async def submit(
         self,
@@ -210,7 +224,11 @@ class JobManager:
             image = self.config.execution_profile(profile)
         except Exception as exc:
             raise ToolError("invalid_request", "unknown execution profile") from exc
-        egress = self._egress_request(https_hosts)
+        if https_hosts is not None:
+            raise ToolError(
+                "invalid_request",
+                "https_hosts was removed; public egress is direct and guarded per job",
+            )
         workdir = relative_path(policy.root, cwd or ".")
         if not workdir.is_dir():
             raise ToolError("invalid_path", "cwd is not a directory")
@@ -221,8 +239,7 @@ class JobManager:
             command=command, status="queued", exit_code=None, created=time.time(),
             started=None, finished=None, timeout_s=timeout_s, truncated=False,
         )
-        if egress is not None:
-            egress = EgressRequest(job.id, egress.hosts)
+        egress = DirectEgress(job.id)
         (self.store.directory / job.id).mkdir(parents=True, exist_ok=True)
         self.store.save(job)
         self.done[job.id] = asyncio.Event()
@@ -230,22 +247,6 @@ class JobManager:
             self._run(job, policy, stdin, image, egress)
         )
         return job
-
-    def _egress_request(self, requested: list[str] | None) -> EgressRequest | None:
-        if requested is None or not requested:
-            return None
-        if not isinstance(requested, list) or not all(isinstance(item, str) for item in requested):
-            raise ToolError("invalid_request", "https_hosts must be a hostname list")
-        try:
-            hosts = tuple(sorted({normalize_hostname(item) for item in requested}))
-        except HostnameError as exc:
-            raise ToolError("invalid_request", "https_hosts contains an invalid hostname") from exc
-        if len(hosts) != len(requested):
-            raise ToolError("invalid_request", "https_hosts contains duplicates")
-        denied = set(hosts) - self.config.https_host_allowlist
-        if denied:
-            raise ToolError("policy_denied", "https_hosts is not owner-approved")
-        return EgressRequest("", hosts)
 
     async def wait(self, job_id: str, seconds: float) -> Job:
         event = self.done.get(job_id)
@@ -311,7 +312,7 @@ class JobManager:
         }
 
     def _docker_create_args(
-        self, job: Job, policy: RootPolicy, image: str, egress: EgressRequest | None
+        self, job: Job, policy: RootPolicy, image: str, egress: DirectEgress
     ) -> list[str]:
         uid, gid = os.getuid(), os.getgid()
         args = [
@@ -320,19 +321,10 @@ class JobManager:
             "--user", f"{uid}:{gid}", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
         ]
-        if egress is None:
-            args += ["--network", "none"]
-        else:
-            args += [
-                "--network", egress.private_network, "--dns", "127.0.0.1",
-                "--add-host", f"{PROXY_ALIAS}:{egress.proxy_ip}",
-                "-e", f"HTTPS_PROXY=http://{PROXY_ALIAS}:3128",
-                "-e", f"https_proxy=http://{PROXY_ALIAS}:3128",
-                "-e", "NO_PROXY=", "-e", "no_proxy=",
-            ]
+        args += ["--network", egress.network]
         args += [
             "--memory", "8g", "--cpus", "4", "--pids-limit", "512",
-            "--read-only", "--tmpfs", "/tmp:rw,size=1g",
+            "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g,mode=1777",
             "--log-opt", "max-size=64m", "--log-opt", "max-file=2",
             "-e", "HOME=/tmp", "-w", job.cwd,
         ]
@@ -347,18 +339,18 @@ class JobManager:
 
     def _verify_protection(self, policy: RootPolicy) -> None:
         base = policy.root.resolve()
-        for guard in self.config.protected_within(base):
+        for protected in self.config.protected_within(base):
             try:
-                resolved = guard.resolve(strict=True)
+                resolved = protected.resolve(strict=True)
             except OSError as exc:
                 raise ToolError(
-                    "protected_source_unavailable", f"{_inner(base, guard)} cannot be resolved"
+                    "protected_source_unavailable", f"{_inner(base, protected)} cannot be resolved"
                 ) from exc
-            if resolved != guard or not resolved.is_dir():
+            if resolved != protected or not resolved.is_dir():
                 raise ToolError(
-                    "protected_source_unavailable", f"{_inner(base, guard)} is not the expected directory"
+                    "protected_source_unavailable", f"{_inner(base, protected)} is not the expected directory"
                 )
-            _refuse_shared_inodes(guard, _inner(base, guard))
+            _refuse_shared_inodes(protected, _inner(base, protected))
         for source_id in policy.sources:
             source = self.config.root(source_id).root.resolve()
             if not source.is_dir():
@@ -370,18 +362,18 @@ class JobManager:
         base = policy.root.resolve()
         args: list[str] = []
         pinned: set[Path] = set()
-        for guard in self.config.protected_within(base):
-            for ancestor in reversed(guard.parents):
+        for protected in self.config.protected_within(base):
+            for ancestor in reversed(protected.parents):
                 if base not in ancestor.parents or ancestor in pinned:
                     continue
                 pinned.add(ancestor)
                 args += _mount(ancestor, _inner(base, ancestor))
-            args += _mount(guard, _inner(base, guard), readonly=True)
+            args += _mount(protected, _inner(base, protected), readonly=True)
         return args
 
     async def _run(
         self, job: Job, policy: RootPolicy, stdin: str | None,
-        image: str, egress: EgressRequest | None,
+        image: str, egress: DirectEgress,
     ) -> None:
         try:
             async with self.slots:
@@ -399,14 +391,10 @@ class JobManager:
 
     async def _execute(
         self, job: Job, policy: RootPolicy, stdin: str | None,
-        image: str, egress: EgressRequest | None,
+        image: str, egress: DirectEgress,
     ) -> None:
         try:
-            if egress is not None:
-                await self._prepare_egress(egress)
-                egress = EgressRequest(
-                    egress.job_id, egress.hosts, await self._proxy_ip(egress)
-                )
+            await self._prepare_egress(egress)
             created = await self._docker(*self._docker_create_args(job, policy, image, egress)[1:])
             if created.returncode != 0:
                 job.status = "failed"
@@ -462,67 +450,26 @@ class JobManager:
                         self.store.save(job)
                         self._write(job, "stderr", f"egress cleanup failed: {exc}")
 
-    async def _prepare_egress(self, egress: EgressRequest) -> None:
+    async def _prepare_egress(self, egress: DirectEgress) -> None:
         labels = ["--label", f"{RESOURCE_LABEL}={egress.job_id}"]
-        script = Path(__file__).with_name("egress.py").resolve()
-        if not script.is_file():
-            raise ToolError("egress_unavailable", "egress proxy script is unavailable")
-        private = await self._docker(
-            "network", "create", "--driver", "bridge", "--internal", "--ipv6=false",
-            "-o", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
-            *labels, egress.private_network,
-        )
-        if private.returncode != 0:
-            raise ToolError("egress_unavailable", "private egress network could not be created")
-        uplink = await self._docker(
+        created = await self._docker(
             "network", "create", "--driver", "bridge", "--ipv6=false",
             "-o", "com.docker.network.bridge.enable_icc=false",
-            *labels, egress.uplink_network,
+            *labels, egress.network,
         )
-        if uplink.returncode != 0:
-            raise ToolError("egress_unavailable", "egress uplink network could not be created")
-        proxy = await self._docker(
-            "create", "--name", egress.proxy_container, *labels,
-            *_mount(script, "/opt/pah-egress.py", readonly=True),
-            "--user", "65532:65532", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges", "--network", egress.uplink_network,
-            "--memory", "256m", "--cpus", "0.5", "--pids-limit", "64",
-            "--read-only", "--tmpfs", "/tmp:rw,size=64m",
-            "--log-opt", "max-size=16m", "--log-opt", "max-file=1",
-            "-e", "HOME=/tmp", "-e", "PAH_EGRESS_PORT=3128",
-            "-e", "PAH_EGRESS_ALLOWLIST_JSON=" + json.dumps(egress.hosts),
-            self.config.egress_proxy_image, "python3", "/opt/pah-egress.py",
-        )
-        if proxy.returncode != 0:
-            raise ToolError("egress_unavailable", "egress proxy could not be created")
-        attached = await self._docker(
-            "network", "connect", egress.private_network, egress.proxy_container
-        )
-        if attached.returncode != 0:
-            raise ToolError("egress_unavailable", "egress proxy could not be isolated")
-        started = await self._docker("start", egress.proxy_container)
-        if started.returncode != 0:
-            raise ToolError("egress_unavailable", "egress proxy could not start")
-        running = await self._docker(
-            "inspect", "--format", "{{.State.Running}}", egress.proxy_container
-        )
-        if running.returncode != 0 or running.stdout.strip() != "true":
-            raise ToolError("egress_unavailable", "egress proxy did not become ready")
-
-    async def _proxy_ip(self, egress: EgressRequest) -> str:
-        template = '{{with index .NetworkSettings.Networks "' + egress.private_network + '"}}{{.IPAddress}}{{end}}'
-        result = await self._docker("inspect", "--format", template, egress.proxy_container)
-        address = result.stdout.strip()
+        if created.returncode != 0:
+            raise ToolError("egress_unavailable", "job egress network could not be created")
         try:
-            private_address = ipaddress.ip_address(address)
-        except ValueError as exc:
-            raise ToolError("egress_unavailable", "egress proxy address is invalid") from exc
-        if not private_address.is_private:
-            raise ToolError("egress_unavailable", "egress proxy address is not private")
-        if result.returncode != 0 or not address:
-            raise ToolError("egress_unavailable", "egress proxy address is unavailable")
-        return address
-
+            await guard.invoke("attach", egress.network)
+            await guard.invoke("check", egress.network)
+        except ToolError:
+            # Preserve the labeled network when detach cannot be confirmed so a
+            # later startup can identify and remove any partial guard rules.
+            await guard.invoke("detach", egress.network)
+            await self._remove_labeled(
+                "network", egress.network, "network", "rm"
+            )
+            raise
 
     async def _finish_existing(self, job: Job) -> None:
         process = await asyncio.create_subprocess_exec(
@@ -564,11 +511,38 @@ class JobManager:
         job.finished = time.time()
         self.store.save(job)
 
-    async def _cleanup_egress(self, job: Job) -> None:
-        egress = EgressRequest(job.id, ())
-        await self._remove_labeled("container", egress.proxy_container, "rm", "-f")
-        await self._remove_labeled("network", egress.private_network, "network", "rm")
-        await self._remove_labeled("network", egress.uplink_network, "network", "rm")
+    async def _labeled_job_ids(self) -> set[str]:
+        result: set[str] = set()
+        template = '{{.Label "' + RESOURCE_LABEL + '"}}'
+        for args in (
+            ("ps", "-a", "--filter", f"label={RESOURCE_LABEL}", "--format", template),
+            ("network", "ls", "--filter", f"label={RESOURCE_LABEL}", "--format", template),
+        ):
+            listed = await self._docker(*args)
+            if listed.returncode != 0:
+                raise ToolError(
+                    "egress_cleanup_failed", "labeled egress resources could not be listed"
+                )
+            for job_id in listed.stdout.splitlines():
+                if re.fullmatch(r"[0-9a-f]{12}", job_id):
+                    result.add(job_id)
+        return result
+
+    async def _cleanup_egress(self, job: Job | str) -> None:
+        job_id = job.id if isinstance(job, Job) else job
+        egress = DirectEgress(job_id)
+        # Remove pre-0.4 proxy resources if a Host restart interrupted migration.
+        await self._remove_labeled("container", egress.network, "rm", "-f")
+        await self._remove_labeled(
+            "network", "pah-private-" + job_id, "network", "rm"
+        )
+        await self._remove_labeled(
+            "network", "pah-uplink-" + job_id, "network", "rm"
+        )
+        # Keep the labeled network if rule removal cannot be confirmed; deleting
+        # it first would discard the bridge identity needed for a safe retry.
+        await guard.invoke("detach", egress.network)
+        await self._remove_labeled("network", egress.network, "network", "rm")
 
     async def _remove_labeled(self, kind: str, name: str, *remove: str) -> None:
         template = (
@@ -576,11 +550,18 @@ class JobManager:
             if kind == "container"
             else '{{index .Labels "' + RESOURCE_LABEL + '"}}'
         )
-        inspected = await self._docker("inspect", "--format", template, name)
+        inspected = await self._docker(
+            "inspect", "--type", kind, "--format", template, name
+        )
         if inspected.returncode != 0:
-            if "No such" in inspected.stderr:
+            detail = (inspected.stderr or inspected.stdout).strip()
+            lowered = detail.lower()
+            if any(marker in lowered for marker in ("no such", "not found", "does not exist")):
                 return
-            raise ToolError("egress_cleanup_failed", "egress resource could not be inspected")
+            raise ToolError(
+                "egress_cleanup_failed",
+                f"{kind} {name} could not be inspected{': ' + detail if detail else ''}",
+            )
         if inspected.stdout.strip() != name.rsplit("-", 1)[-1]:
             raise ToolError("egress_cleanup_failed", "egress resource label does not match")
         removed = await self._docker(*remove, name)

@@ -1,3 +1,3 @@
-"""Host: workspace files and sandboxed execution for agents."""
+"""Personal Agent Host package."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

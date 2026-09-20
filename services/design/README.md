@@ -2,13 +2,13 @@
 
 Design Service는 개인 디자인 레시피의 메타데이터와 파일을 보관하는 원격 정본입니다. D1에는
 레시피, 패턴, 버전과 파일 해시를 두고 R2에는 HTML, CSS, 이미지와 템플릿 파일을 둡니다.
-Design Site와 MCP는 이 서비스를 함께 사용하며 plugin이나 Site 배포본에는 개인 자산을 넣지
-않습니다.
+통합 Toolkit의 디자인 자료 화면과 MCP는 이 서비스를 함께 사용하며 plugin이나 웹 배포본에는
+개인 자산을 넣지 않습니다.
 
 ## 공개 표면
 
 - `/mcp`: 소유자 OAuth가 필요한 Design MCP
-- `/api/v1/*`: Design Site의 서버 경로만 사용하는 비공개 API
+- `/api/v1/*`: 통합 Toolkit 서버 경로만 사용하는 비공개 API
 - `/health`: 배포 상태 확인
 
 레시피 메타데이터는 `revision`, 파일은 `file_revision`을 대조해 오래된 편집이 새 내용을

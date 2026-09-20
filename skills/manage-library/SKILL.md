@@ -6,7 +6,7 @@ description: Use when reading, revising, or publishing Daily, Digest, or Researc
 # Manage Library
 
 Library keeps issue documents in the Library service's D1 database and cover and illustration
-assets in its R2 bucket. The owner-only Site and the authenticated remote MCP operate on the same
+assets in its R2 bucket. The owner-only Toolkit and the authenticated remote MCP operate on the same
 canonical data.
 
 ## Restore the editorial context
@@ -36,8 +36,8 @@ expected_version returned by the preceding read; if it changed, reread before pr
 revision. Omitting references keeps the current list, while an empty array removes it. Omit
 cover_path when the cover is not part of the requested change.
 
-The Site's WebMCP preview applies an agent proposal to the visible page without autosaving it. A
-direct owner edit in the Site autosaves. A remote library_update_issue call writes the canonical
+The Toolkit's WebMCP preview applies an agent proposal to the visible page without autosaving it. A
+direct owner edit in the Toolkit autosaves. A remote library_update_issue call writes the canonical
 issue immediately.
 
 Use a new asset path when replacing a cover or illustration. Upload it first, then update the
@@ -64,7 +64,7 @@ collection sequence, complete HTML, references, cover path, and returned publica
 the request could affect. A successful write response without this reread is not a completed
 publication.
 
-Do not create a local issue archive or use a local Site deployment as a fallback when the remote
+Do not create a local issue archive or use a duplicate local frontend deployment as a fallback when the remote
 Library write connection is unavailable. Temporary generated assets may exist only until upload and
 verification finish.
 

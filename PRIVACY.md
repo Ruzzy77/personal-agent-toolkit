@@ -157,17 +157,17 @@ local Codex, Claude local MCP, and the OpenAI host use the same analysis boundar
 
 ## Library
 
-Library is an owner-operated publication service. The Library Site is the canonical reading and
+Library is an owner-operated publication service. The unified Toolkit is the canonical reading and
 direct-editing surface, while its authenticated remote MCP supports page-independent reading,
 revision, asset upload, and publication against the same data.
 
 - Issue HTML, titles, publication metadata, public references, and interaction state are stored in
   the Library service's D1 database. Cover and illustration assets are stored in its R2 bucket.
-- The plugin and public repository contain the Site, service, schema, and migration source but no
+- The plugin and public repository contain the Toolkit UI, service, schema, and migration source but no
   published issue records, catalog export, uploaded media, or production database.
 - The remote MCP accepts tokens only for the exact Library resource. Reading requires
   `library.read`; issue revision, publication, and asset upload require `library.write`.
-- The Library service verifies owner OAuth through a private Service Binding. The owner-only Site
+- The Library service verifies owner OAuth through a private Service Binding. The owner-only Toolkit
   requires both authenticated identity headers and calls the same service with a separate internal
   credential; it has no Library data binding of its own.
 - The Site performs direct edits through its authenticated server API. Agent proposals
@@ -223,17 +223,15 @@ The release repository must not contain:
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
 build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
-Skills and connection metadata, while `services/design` and `sites/design` contain service and UI
-source. Local Sense, Corpus, and Hypes development or migration implementations live under
-`engines/` and are not part of their remote plugin bundles. `services/journal`,
-`services/library` and `services/design` contain deployable service
-source; `sites/journal`, `sites/library`, and `sites/design` contain owner-only Sites frontends and
-their public UI assets. Runtime values and secrets stay in ignored configuration or the hosting environment.
-Public resource and Site endpoints may appear in the plugin manifest.
+Skills and connection metadata. Local Sense, Corpus, and Hypes development or migration
+implementations live under `engines/` and are not part of their remote plugin bundles.
+`services/journal`, `services/library`, and `services/design` contain deployable service source;
+`sites/context` contains the owner-only unified Toolkit frontend and its public UI assets. Runtime
+values and secrets stay in ignored configuration or the hosting environment. Public resource and
+Toolkit endpoints may appear in the plugin manifest.
 
 The authentication template, remote services, and Sites record their resolved JavaScript
 dependencies in `auth/package-lock.json`, `services/remote-context/package-lock.json`,
 `services/design/package-lock.json`,
-`services/journal/package-lock.json`, `services/library/package-lock.json`,
-`sites/context/package-lock.json`, `sites/journal/package-lock.json`, `sites/design/package-lock.json`, and
-`sites/library/package-lock.json`.
+`services/journal/package-lock.json`, `services/library/package-lock.json`, and
+`sites/context/package-lock.json`.

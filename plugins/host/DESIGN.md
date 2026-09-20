@@ -48,7 +48,7 @@ prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared),
 | `host_search` | `root`, `paths?[]`(기본 `["**/*"]`, ≤32), `pattern`(정규식 ≤4,096 B), `max_results?`(기본 100, ≤500), `context?`(기본 2, ≤5) | `matches[{path, line, text, before[], after[]}]`, `truncated` | 10초, 발췌 합계 256 KiB. 한도 도달 시 부분 결과 + truncated |
 | `host_read` | `root`, `files[{path, start_line?=1, end_line?}]`(1~32), `max_bytes?`(기본 65,536, ≤2 MiB) | `files[{path, content, version, start_line, end_line}]`, `truncated` | UTF-8 텍스트만. 행 번호 1부터 양 끝 포함. 행 단위로 자르고 한 행이 한도를 넘으면 오류. version은 파일 전체 기준 |
 | `host_write` | `root`, `path`, `content?` 또는 `replace?{start_marker, end_marker, content}` 또는 `delete?`, `expected_version?` | `path`, `version` | 셋 중 정확히 하나. 결과 파일 ≤2 MiB, marker 각 1~4,096 B, 각각 한 번만 등장, marker는 남기고 사이만 교체. 부모 폴더 자동 생성. `"absent"`는 신규 생성 전용, 생략하면 버전 비교 없이 적용(권한 검사는 그대로). 삭제 후 version은 `"absent"`. 디렉터리 삭제 없음 |
-| `host_exec` | `root`, `cwd?="."`, `argv?[]` 또는 `shell?`, `stdin?`, `profile?="base"`, `https_hosts?=[]`, `timeout_s?`(기본 1800, ≤21,600), `wait_s?`(기본 5, ≤50) | `job_id`, `status`, `exit_code`(null 가능), `stdout_tail`, `stderr_tail`, `truncated` | argv/shell 중 하나. argv ≤256개·각 ≤16 KiB·합계 ≤64 KiB, stdin ≤1 MiB 후 EOF. 꼬리 스트림별 32 KiB. 짧게 끝나도 job_id 반환. 대기 중이면 `queued` |
+| `host_exec` | `root`, `cwd?="."`, `argv?[]` 또는 `shell?`, `stdin?`, `profile?="base"`, `timeout_s?`(기본 1800, ≤21,600), `wait_s?`(기본 5, ≤50) | `job_id`, `status`, `exit_code`(null 가능), `stdout_tail`, `stderr_tail`, `truncated` | argv/shell 중 하나. argv ≤256개·각 ≤16 KiB·합계 ≤64 KiB, stdin ≤1 MiB 후 EOF. 꼬리 스트림별 32 KiB. 짧게 끝나도 job_id 반환. 대기 중이면 `queued` |
 | `host_job` | `job_id`, `stream?="stdout"`, `offset?=0`, `limit?=65,536`(≤262,144) | `job_id`, `status`, `exit_code`, `stream`, `output`, `next_offset`, `eof`, `truncated` | offset은 저장된 UTF-8 로그의 byte 위치. limit 0이면 상태만. 문자 경계에서 잘라 next_offset으로 이어 읽음. eof는 job 종료와 출력 끝을 모두 만족할 때 |
 | `host_job_cancel` | `job_id` | `job_id`, `status` | queued면 대기열 제거, running이면 컨테이너 종료 후 cancelled. 종료된 job은 기존 상태 |
 
@@ -66,7 +66,7 @@ root는 두 갈래다. `[[host.roots]]`는 Corpus 식별자 없이 파일 접근
 
 ```
 docker create -i --name pah-<job-id> --user <uid>:<gid>
-  --cap-drop ALL --security-opt no-new-privileges --network none
+  --cap-drop ALL --security-opt no-new-privileges --network pah-egress-<job-id>
   --memory 8g --cpus 4 --pids-limit 512
   --read-only --tmpfs /tmp:rw,size=1g
   --log-opt max-size=64m --log-opt max-file=2
@@ -78,7 +78,7 @@ docker create -i --name pah-<job-id> --user <uid>:<gid>
 docker start -ai pah-<job-id>      # 비동기 subprocess. stdin 전달 후 EOF, TTY 없음
 ```
 
-- `shell`은 컨테이너 안에서 `sh -c`. profile 생략 시 base, https_hosts 생략 시 network=none이다. 기존 호출은 그대로 동작한다.
+- `shell`은 컨테이너 안에서 `sh -c`. profile 생략 시 base이며, 공개 IPv4 외부 송신은 기본으로 사용할 수 있다.
 - 작업공간 안의 보호 원본은 숨기지 않고 제자리에 읽기 전용으로 겹쳐 마운트한다. 보호 경로의 조상 디렉터리도 같은 위치에 마운트해 컨테이너에서 통째로 이름을 바꾸지 못하게 한다. 마운트 경계를 가로지르는 `rename()`은 `EXDEV`로 실패한다.
 - 보호 경로가 없거나 디렉터리가 아니거나 재귀 읽기 전용을 적용할 수 없으면 job을 거부한다. 보호 수준을 낮춰 재시도하지 않는다. 보호 원본의 파일이 다른 위치와 inode를 공유하면 그 구성도 거부한다.
 - `timeout_s`는 실행 시작부터, `wait_s`는 접수부터 센다. 클라이언트 연결 종료는 취소가 아니다.
@@ -86,12 +86,19 @@ docker start -ai pah-<job-id>      # 비동기 subprocess. stdin 전달 후 EOF,
 - 동시 실행은 `max_concurrent_jobs`(기본 4)까지, 넘으면 `queued`. 종료된 job은 7일 보관.
 - 실행 프로필은 base, web, documents다. base는 Python·Git·uv·ripgrep, web은 고정 Node/npm, documents는 고정 Document Files 공급 계약과 DOCX·XLSX·PPTX·PDF 라이브러리를 제공한다. host_capabilities는 이미지 설치 여부·image_id와 이미지 label의 기능 목록을 보고한다.
 - 이미지 빌드는 `apps/host/scripts/build-sandbox.sh "$REPO" all`로 수행한다. 프로젝트 의존성은 각 잠금 파일을 사용한다. documents는 `scripts/document_files_release.py source`와 공급 lock을 따르며 migration_pending에서는 1.7.0 baseline을 유지한다.
-- https_hosts는 보호된 Host 설정의 정확한 호스트명 허용목록에서 선택한다. 초기 목적지는 registry.npmjs.org, pypi.org, files.pythonhosted.org뿐이다. 작업이 목록을 변경하거나 임의 프록시·외부 주소를 지정할 수 없다.
-- 허용된 네트워크 작업에는 작업별 internal isolated bridge와 임시 HTTPS CONNECT 프록시를 사용한다. 작업 컨테이너에는 외부 경로·외부 DNS·호스트 gateway·Docker socket을 주지 않는다. 프록시만 private bridge와 uplink에 연결하며 포트는 공개하지 않는다.
-- CONNECT는 허용된 DNS 이름과 443 포트만 수락한다. IP literal과 DNS가 반환한 내부·호스트·메타데이터·예약 주소는 거부하고 검사한 공인 주소로 연결한다. TLS 복호화는 하지 않는다.
-- 취소·실패·timeout·재시작 때 Host 소유 label이 있는 작업 컨테이너·프록시·네트워크를 함께 정리한다. 격리 구성을 만들 수 없으면 네트워크 작업을 거부한다.
+- 작업마다 직접 인터넷에 연결되는 전용 IPv4 bridge를 만든다. 목적지·포트 허용목록이나 HTTPS 프록시는 두지 않으며 TCP·UDP·ICMP를 사용할 수 있다.
+- root 소유 guard가 Host label과 정확한 작업망을 확인한 뒤 Spark 호스트·사설망·공유 주소대역·메타데이터·다른 작업망과 외부에서 시작된 연결을 차단한다. 포트를 공개하거나 host network·Docker socket·추가 capability를 제공하지 않는다.
+- guard 규칙의 설치와 확인이 끝난 뒤에만 작업 컨테이너를 만든다. 실패하면 실행을 거부한다. 취소·실패·timeout 때 컨테이너, 규칙과 작업망을 순서대로 정리하며 규칙 제거를 확인하지 못하면 재시도를 위해 label이 있는 작업망을 보존한다.
+- Host 재시작 때 실행 중 컨테이너를 잠시 멈추고 보호 규칙을 확인·복구한 뒤 재개한다. 복구할 수 없는 작업은 종료한다. IPv6 외부 경로는 열지 않는다.
 
 ## 6. 설정
+
+공개 IPv4 실행을 활성화하기 전에 root 소유 helper와 고정 sudo 계약을 설치한다. helper는
+`attach|check|detach pah-egress-<12hex>` 외의 입력을 거부한다.
+
+```sh
+sudo apps/host/scripts/install-egress-guard.sh "$REPO" "$USER"
+```
 
 ```toml
 service_url = "https://personal-agent-context.<account>.workers.dev"

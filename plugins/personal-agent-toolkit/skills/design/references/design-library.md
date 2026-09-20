@@ -4,9 +4,7 @@
 탐색하거나, 현재 프로젝트만으로 적절한 구성 원리를 정하기 어렵거나, 형식에 맞는 예시
 자산이 실제로 도움이 될 때만 사용한다.
 
-시각적 비교가 필요하면 소유자 전용
-[Design Reference Library Site](https://personal-material-index.ruzzy.chatgpt.site)를 열 수 있다.
-에이전트에서는 현재 연결에 노출된 Design 도구로 같은 개인 라이브러리를 읽는다.
+시각적 비교가 필요하면 현재 연결에 노출된 Design 도구로 개인 라이브러리를 읽는다.
 
 ## 우선순위
 

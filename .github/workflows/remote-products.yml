@@ -13,9 +13,6 @@ on:
       - "services/library/**"
       - "services/remote-context/**"
       - "sites/context/**"
-      - "sites/design/**"
-      - "sites/journal/**"
-      - "sites/library/**"
   push:
     branches:
       - main
@@ -30,9 +27,6 @@ on:
       - "services/library/**"
       - "services/remote-context/**"
       - "sites/context/**"
-      - "sites/design/**"
-      - "sites/journal/**"
-      - "sites/library/**"
 
 permissions:
   contents: read
@@ -60,17 +54,8 @@ jobs:
           - component: Library service
             directory: services/library
             command: npm run check
-          - component: Design Site
-            directory: sites/design
-            command: npm run check
           - component: Context Site
             directory: sites/context
-            command: npm run lint && npm run build && npm test
-          - component: Journal Site
-            directory: sites/journal
-            command: npm run lint && npm run build && npm test
-          - component: Library Site
-            directory: sites/library
             command: npm run lint && npm run build && npm test
     name: Test ${{ matrix.component }}
     steps:

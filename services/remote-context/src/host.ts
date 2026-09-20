@@ -66,7 +66,7 @@ export const HOST_TOOLS: readonly HostTool[] = [
   {
     name: "host_capabilities",
     title: "Host capabilities",
-    description: "Return limits, installed execution profiles and allowed HTTPS destinations.",
+    description: "Return limits, installed execution profiles and the guarded public IPv4 network policy.",
     scope: "host.read",
     annotations: READ_ONLY,
     schema: z.object({}).strict(),
@@ -160,7 +160,7 @@ export const HOST_TOOLS: readonly HostTool[] = [
     name: "host_exec",
     title: "Run a command",
     description:
-      "Run a command in a sandbox container with the root at /workspace. Give argv or shell. Optional profile selects an installed runtime; https_hosts selects approved HTTPS destinations. Defaults keep the base runtime and no network. Poll host_job when still running.",
+      "Run a command in a sandbox container with the root at /workspace. Give argv or shell. Optional profile selects an installed runtime. Public IPv4 egress is available by default while host, private, metadata and other job networks remain blocked. Poll host_job when still running.",
     scope: "host.write",
     annotations: EXECUTE,
     schema: z
@@ -173,7 +173,6 @@ export const HOST_TOOLS: readonly HostTool[] = [
         timeout_s: z.number().int().min(1).max(21_600).optional(),
         wait_s: z.number().int().min(0).max(50).optional(),
         profile: z.string().min(1).max(64).optional(),
-        https_hosts: z.array(z.string().min(1).max(253)).max(32).optional(),
       })
       .strict(),
   },

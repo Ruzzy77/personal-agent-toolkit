@@ -51,8 +51,9 @@ async def execution_capabilities(config: HostConfig) -> dict[str, Any]:
         "default_profile": "base",
         "profiles": values,
         "network": {
-            "default": "none",
-            "allowed_https_hosts": sorted(config.https_host_allowlist),
-            "policy": "https_connect_destinations",
+            "default": "public_ipv4",
+            "policy": "direct_public_only_guarded",
+            "protocols": ["tcp", "udp", "icmp"],
+            "inbound": "blocked",
         },
     }

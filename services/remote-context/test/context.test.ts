@@ -1147,7 +1147,7 @@ describe("remote personal context service", () => {
     expect(await body(health)).toMatchObject({
       ok: true,
       service: "personal-agent-context",
-      version: "0.8.0",
+      version: "0.9.0",
       resources: ["toolkit", "sense", "corpus", "hypes", "host"],
     });
 

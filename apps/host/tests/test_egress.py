@@ -1,4 +1,4 @@
-"""Standard-library tests for Host egress policy and Docker argument construction."""
+"""Host direct-public egress policy and Docker argument construction."""
 
 from __future__ import annotations
 
@@ -8,20 +8,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from personal_agent_host.config import HostConfig, load_host_config
-from personal_agent_host.egress import (
-    HostnameError,
-    _resolve_public,
-    is_public_address,
-    normalize_hostname,
-)
 from personal_agent_host.files import ToolError
-from personal_agent_host.jobs import EgressRequest, Job, JobManager
+from personal_agent_host.jobs import DirectEgress, Job, JobManager
 
 
-def _config(tmp_path: Path, allowlist: list[str] | None = None) -> HostConfig:
+def _config(tmp_path: Path, retired: str = "") -> HostConfig:
     root = tmp_path / "workspace"
     root.mkdir()
     prefix = tmp_path / "prefix"
@@ -35,8 +29,7 @@ corpus_data_root = "{prefix / "state" / "corpus"}"
 corpus_python = {json.dumps(sys.executable)}
 
 [host]
-https_host_allowlist = {json.dumps(allowlist or [])}
-
+{retired}
 [[host.roots]]
 id = "workspace"
 path = "{root}"
@@ -81,106 +74,85 @@ class EgressTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def test_exact_hostname_normalization_and_public_filter(self) -> None:
-        self.assertEqual(normalize_hostname("PyPI.ORG."), "pypi.org")
-        with self.assertRaises(HostnameError):
-            normalize_hostname("127.0.0.1")
-        self.assertFalse(is_public_address("100.64.0.1"))
-        self.assertFalse(is_public_address("169.254.169.254"))
-        self.assertFalse(is_public_address("fc00::1"))
-        self.assertFalse(is_public_address("224.0.0.1"))
-        self.assertFalse(is_public_address("0.0.0.0"))
-        with patch(
-            "personal_agent_host.egress.socket.getaddrinfo",
-            return_value=[
-                (2, 1, 6, "", ("10.0.0.1", 443)),
-                (2, 1, 6, "", ("93.184.216.34", 443)),
-            ],
-        ):
-            self.assertEqual(
-                _resolve_public("example.com", 443), [(2, "93.184.216.34")]
-            )
+    def test_retired_proxy_configuration_is_rejected(self) -> None:
+        with self.assertRaises(Exception) as failure:
+            _config(self.path, 'https_host_allowlist = ["pypi.org"]')
+        self.assertIn("was removed", str(failure.exception))
 
-    def test_default_job_stays_network_none_and_profiles_select_images(self) -> None:
+    def test_default_job_uses_a_direct_job_network_without_proxy(self) -> None:
         config = _config(self.path)
         manager = JobManager(config)
         args = manager._docker_create_args(
-            _job(), config.root("workspace"), config.execution_profile("documents"), None
+            _job(), config.root("workspace"), config.execution_profile("documents"),
+            DirectEgress("abcdef123456"),
         )
-        self.assertEqual(args[args.index("--network") + 1], "none")
+        self.assertEqual(args[args.index("--network") + 1], "pah-egress-abcdef123456")
         self.assertIn("personal-agent-host-documents:1", args)
         self.assertNotIn("--dns", args)
+        self.assertNotIn("HTTPS_PROXY", " ".join(args))
+        self.assertNotIn("--publish", args)
+        self.assertEqual(args[args.index("--tmpfs") + 1], "/tmp:rw,exec,nosuid,nodev,size=1g,mode=1777")
 
-    def test_egress_job_uses_private_network_proxy_and_owner_allowlist(self) -> None:
-        config = _config(self.path, ["pypi.org"])
-        manager = JobManager(config)
-        request = manager._egress_request(["PyPI.ORG"])
-        assert request is not None
-        request = EgressRequest("abcdef123456", request.hosts, "172.30.0.2")
-        args = manager._docker_create_args(
-            _job(), config.root("workspace"), config.execution_profile(None), request
-        )
-        self.assertEqual(
-            args[args.index("--network") + 1], "pah-private-abcdef123456"
-        )
-        self.assertEqual(
-            args[args.index("--dns") : args.index("--dns") + 2],
-            ["--dns", "127.0.0.1"],
-        )
-        self.assertIn("pah-egress-proxy:172.30.0.2", args)
-        self.assertIn("HTTPS_PROXY=http://pah-egress-proxy:3128", args)
-        with self.assertRaises(ToolError) as denied:
-            manager._egress_request(["registry.npmjs.org"])
-        self.assertEqual(denied.exception.code, "policy_denied")
+    def test_legacy_https_hosts_is_explicitly_rejected(self) -> None:
+        manager = JobManager(_config(self.path))
+        with self.assertRaises(ToolError) as failure:
+            asyncio.run(manager.submit(
+                manager.config.root("workspace"), cwd=".", argv=["true"],
+                shell=None, stdin=None, timeout_s=30, https_hosts=["pypi.org"],
+            ))
+        self.assertEqual(failure.exception.code, "invalid_request")
 
-    def test_cleanup_removes_only_label_matched_egress_resources(self) -> None:
+    def test_prepare_creates_one_isolated_network_and_checks_guard(self) -> None:
         manager = _FakeDockerManager(_config(self.path))
-        asyncio.run(manager._cleanup_egress(_job()))
-        self.assertIn(("rm", "-f", "pah-egress-abcdef123456"), manager.calls)
+        with patch("personal_agent_host.jobs.guard.invoke", new=AsyncMock()) as invoke:
+            asyncio.run(manager._prepare_egress(DirectEgress("abcdef123456")))
         self.assertIn(
-            ("network", "rm", "pah-private-abcdef123456"), manager.calls
+            (
+                "network", "create", "--driver", "bridge", "--ipv6=false",
+                "-o", "com.docker.network.bridge.enable_icc=false",
+                "--label", "personal-agent-host.job=abcdef123456",
+                "pah-egress-abcdef123456",
+            ),
+            manager.calls,
+        )
+        self.assertEqual(
+            [call.args for call in invoke.await_args_list],
+            [("attach", "pah-egress-abcdef123456"), ("check", "pah-egress-abcdef123456")],
+        )
+
+    def test_guard_failure_removes_the_created_network(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        failure = ToolError("egress_unavailable", "no guard")
+        with patch(
+            "personal_agent_host.jobs.guard.invoke", new=AsyncMock(side_effect=[failure, None])
+        ), self.assertRaises(ToolError):
+            asyncio.run(manager._prepare_egress(DirectEgress("abcdef123456")))
+        self.assertIn(
+            ("network", "rm", "pah-egress-abcdef123456"), manager.calls
+        )
+
+    def test_guard_and_detach_failure_preserves_labeled_network(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        failure = ToolError("egress_unavailable", "no guard")
+        with patch(
+            "personal_agent_host.jobs.guard.invoke",
+            new=AsyncMock(side_effect=[failure, failure]),
+        ), self.assertRaises(ToolError):
+            asyncio.run(manager._prepare_egress(DirectEgress("abcdef123456")))
+        self.assertNotIn(
+            ("network", "rm", "pah-egress-abcdef123456"), manager.calls
+        )
+
+    def test_cleanup_detaches_guard_then_removes_only_labeled_network(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        with patch("personal_agent_host.jobs.guard.invoke", new=AsyncMock()) as invoke:
+            asyncio.run(manager._cleanup_egress(_job()))
+        self.assertEqual(
+            invoke.await_args.args, ("detach", "pah-egress-abcdef123456")
         )
         self.assertIn(
-            ("network", "rm", "pah-uplink-abcdef123456"), manager.calls
+            ("network", "rm", "pah-egress-abcdef123456"), manager.calls
         )
-
-
-    def test_cancel_after_container_creation_removes_endpoint_before_network(self) -> None:
-        async def scenario() -> None:
-            created = asyncio.Event()
-
-            class CancellingDocker(_FakeDockerManager):
-                async def _prepare_egress(self, egress: EgressRequest) -> None:
-                    return None
-
-                async def _proxy_ip(self, egress: EgressRequest) -> str:
-                    return "172.30.0.2"
-
-                async def _docker(self, *args: str) -> _Result:
-                    result = await super()._docker(*args)
-                    if args[0] == "create" and "pah-abcdef123456" in args:
-                        created.set()
-                        await asyncio.Event().wait()
-                    return result
-
-            manager = CancellingDocker(_config(self.path, ["pypi.org"]))
-            with patch("personal_agent_host.jobs.uuid.uuid4") as identifier:
-                identifier.return_value.hex = "abcdef123456"
-                job = await manager.submit(
-                    manager.config.root("workspace"), cwd=".", argv=["true"],
-                    shell=None, stdin=None, timeout_s=30, https_hosts=["pypi.org"],
-                )
-            task = manager.tasks[job.id]
-            await asyncio.wait_for(created.wait(), 2)
-            await manager.cancel(job.id)
-            await asyncio.gather(task, return_exceptions=True)
-            self.assertEqual(manager.store.load(job.id).status, "cancelled")
-            self.assertLess(
-                manager.calls.index(("rm", "-f", "pah-abcdef123456")),
-                manager.calls.index(("network", "rm", "pah-private-abcdef123456")),
-            )
-
-        asyncio.run(scenario())
 
 
 if __name__ == "__main__":
