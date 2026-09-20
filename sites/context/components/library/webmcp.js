@@ -58,6 +58,7 @@ function register(context, tool, controller) {
 
 export function registerCatalogWebMcpTools({
   getItems,
+  showIssue,
   targetDocument = document,
   targetWindow = window,
 } = {}) {
@@ -105,7 +106,10 @@ export function registerCatalogWebMcpTools({
         return { status: "invalid_collection", issues: [] };
       }
       const issues = findLibraryIssues(getItems(), { collection, limit, query });
-      if (issues[0]) revealIssue(targetDocument, targetWindow, issues[0].id);
+      if (issues[0]) {
+        showIssue?.(issues[0].id);
+        targetWindow.setTimeout(() => revealIssue(targetDocument, targetWindow, issues[0].id), 0);
+      }
       return {
         status: "found",
         count: issues.length,

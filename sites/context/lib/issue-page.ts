@@ -36,7 +36,7 @@ function addIssueIdentity(html: string, issue: LibraryIssue): string {
     );
     return (
       `<html${cleanAttributes}` +
-      ` data-library-issue-id="${escapeAttribute(issue.id)}"` +
+      ` data-toolkit-reader="true" data-library-issue-id="${escapeAttribute(issue.id)}"` +
       ` data-library-collection="${escapeAttribute(issue.collection)}"` +
       ` data-library-date="${escapeAttribute(issue.date)}"` +
       ` data-library-version="${escapeAttribute(issue.version)}">`
@@ -57,7 +57,7 @@ export function renderIssuePage(issue: LibraryIssue): string {
   const sharedStyles = html.includes('/ui-kit/current/tokens.css')
     ? ''
     : `\n  <link rel="stylesheet" href="/ui-kit/current/tokens.css">\n  <link rel="stylesheet" href="/ui-kit/current/seomun.css">`;
-  const editor = `\n  <link rel="stylesheet" href="/library-editor.css">\n  <script src="/library-editor.js" data-library-issue-id="${escapeAttribute(issue.id)}" data-library-version="${escapeAttribute(issue.version)}" defer></script>`;
+  const editor = `\n  <link rel="stylesheet" href="/library-editor.css">\n  <link rel="stylesheet" href="/toolkit-reader.css">\n  <script src="/library-editor.js" data-library-issue-id="${escapeAttribute(issue.id)}" data-library-version="${escapeAttribute(issue.version)}" defer></script>`;
   html = html.replace(/<\/head>/i, `${sharedStyles}${editor}\n</head>`);
   return html;
 }
@@ -68,6 +68,8 @@ export function issueHtmlResponse(issue: LibraryIssue, head = false): Response {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'private, no-store',
       'X-Robots-Tag': 'noindex, nofollow',
+      'Content-Security-Policy': "frame-ancestors 'self'",
+      'X-Frame-Options': 'SAMEORIGIN',
     },
   });
 }

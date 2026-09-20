@@ -1,8 +1,8 @@
 'use client';
 import { UiButton, UiInput, UiTextarea, IconButton, Menu } from '../ui';
 
-import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, FileUp, History, Info, Menu as MenuIcon, Moon, Pencil, RefreshCw, Save, Search, Sun, X } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, type ReactNode } from 'react';
+import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, FileUp, History, Info, Menu as MenuIcon, Pencil, RefreshCw, Search, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { candidates, groups, readCanonical, saveCanonical, saveGroups, locatorOf, contextCall, type Candidate, type Group } from '../../lib/context';
 import { registerGuidanceTools } from '../../lib/webmcp';
 import { InlineDocument } from '../inline-document';
@@ -92,7 +92,13 @@ function Modal({ titleId, close, children, className = '' }: { titleId: string; 
   }} onCancel={event => { event.preventDefault(); close(); }}>{className === 'navigation-dialog' ? children : <div className="su-section">{children}</div>}</dialog>;
 }
 
+const subscribeNarrow = (notify: () => void) => {
+  const media = matchMedia('(max-width:760px)');
+  media.addEventListener('change', notify);
+  return () => media.removeEventListener('change', notify);
+};
 export default function Home() {
+  const narrow = useSyncExternalStore(subscribeNarrow, () => matchMedia('(max-width:760px)').matches, () => false);
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const stateRef = useRef(workspace);
   const [ready, setReady] = useState(false);
@@ -105,7 +111,6 @@ export default function Home() {
   const [compare, setCompare] = useState(false);
   const [editing, setEditing] = useState(false);
   const [activeSection, setActiveSection] = useState('section-0');
-  const [dark, setDark] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [copyFallback, setCopyFallback] = useState('');
@@ -158,7 +163,7 @@ export default function Home() {
       } catch {
         setStorageError('수정안 복원 실패');
       }
-      setDark(document.documentElement.dataset.theme === "dark"); setReady(true);
+      setReady(true);
     });
     return () => { active = false; };
   }, []);
@@ -169,7 +174,7 @@ export default function Home() {
   }, [message]);
   useEffect(() => {
     if (!navigationOpen) return;
-    const frame = requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.navigation-dialog input[type="search"]')?.focus());
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.context-source-nav input[type="search"]')?.focus());
     return () => cancelAnimationFrame(frame);
   }, [navigationOpen, navigationTab]);
   useEffect(() => {
@@ -179,9 +184,6 @@ export default function Home() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
-  useEffect(() => {
-    if (ready) document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  }, [dark, ready]);
   useEffect(() => {
     if (editing || compare || !entry) return;
     const observer = new IntersectionObserver(records => {
@@ -371,12 +373,40 @@ export default function Home() {
   }
   const projects = catalog.filter(g => g.title.toLocaleLowerCase().includes(projectQuery.toLocaleLowerCase()));
 
+  const navigationBody = <>
+      <div className="navigation-header su-stack">
+        <div className="dialog-head su-toolbar"><h2 id="navigation-title">문서 탐색</h2><IconButton label="탐색 닫기" onClick={() => setNavigationOpen(false)}><X size="1em" aria-hidden="true" /></IconButton></div>
+        <div className="navigation-tabs su-row"><UiButton aria-pressed={navigationTab !== 'toc'} onClick={() => setNavigationTab('sources')}>자료</UiButton><UiButton aria-pressed={navigationTab === 'toc'} disabled={!entry} onClick={() => setNavigationTab('toc')}>목차</UiButton></div>
+        {navigationTab === 'projects' ? <div className="navigation-search su-stack">
+          <UiButton className="project-back" aria-label="현재 자료로 돌아가기" onClick={() => setNavigationTab('sources')}><ArrowLeft size="1em" aria-hidden="true" />자료 범위</UiButton>
+          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label="Sense·프로젝트 찾기" placeholder="Sense·프로젝트 찾기" autoFocus value={projectQuery} onChange={e => setProjectQuery(e.target.value)} /></label>
+        </div> : navigationTab === 'sources' ? <div className="navigation-search su-stack">
+          <UiButton className="project-picker" aria-label={`자료 범위 변경: ${browseGroup?.title ?? 'Sense'}`} onClick={() => { setNavigationTab('projects'); setProjectQuery(''); }}><span>{browseGroup?.title ?? 'Sense'}</span><ChevronDown size="1em" aria-hidden="true" /></UiButton>
+          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label={`${browseGroup?.title ?? 'Sense'} 자료 검색`} placeholder="자료 검색" value={query} onChange={e => setQuery(e.target.value)} autoFocus /></label>
+        </div> : null}
+      </div>
+      <div className="navigation-content">
+      {navigationTab === 'projects' ? <>
+        <nav className="candidate-list" aria-label="프로젝트">{projects.map(g => <button key={g.id} aria-current={g.id === groupId ? 'true' : undefined} onClick={() => { setGroupId(g.id); setQuery(''); setAvailable([]); setNavigationTab('sources'); }}><span className="candidate-title">{g.title}</span>{g.id === groupId && <Check size="1em" aria-hidden="true" />}</button>)}</nav>
+        {!projects.length && <p className="empty-result">결과 없음</p>}
+      </> : navigationTab === 'toc' ? <nav className="toc-list" aria-label="현재 문서 목차">{sections.map(section => <button key={section.key} aria-current={activeSection === section.key ? 'location' : undefined} onClick={() => navigateSection(section.key)}>{section.title === '본문' ? documentTitle : section.title}</button>)}</nav> : <>
+        <nav className="candidate-list" aria-label="자료" aria-busy={loadingCandidates}>
+          {available.map(c => <button key={c.id} aria-current={c.id === workspace.selectedId ? 'page' : undefined} onClick={() => void openCandidate(c)}><span className={'candidate-title' + (c.excerpt ? ' excerpt' : '')}>{c.title}</span><span className="candidate-kind">{c.excerpt ? '발췌' : c.locator.product === 'source' ? '원자료' : c.locator.product === 'context-skill' || (c.locator.product === 'sense' && c.locator.skill) ? '스킬' : c.subtitle === '지침' || c.subtitle === 'Context' ? c.subtitle : ''}</span></button>)}
+        </nav>
+        {!available.length && <p className="empty-result" role="status">{loadingCandidates ? '불러오는 중' : candidateError ? '자료 조회 실패' : '결과 없음'}</p>}
+        {filtered.length > 0 && <section className="open-documents"><h3>열린 자료</h3><nav className="candidate-list" aria-label="열린 자료">{filtered.map(e => <button key={e.source.id} aria-current={e.source.id === workspace.selectedId ? 'page' : undefined} onClick={() => selectSource(e.source.id)}><span className="candidate-title">{readingTitle(e.source, e.draft)}</span>{isDirty(e) && <span className="draft-dot"><Circle size="1em" aria-hidden="true" /><span className="visually-hidden">미저장 수정안</span></span>}</button>)}</nav></section>}
+      </>}
+      {navigationTab === 'sources' && <div className="navigation-tools"><UiButton onClick={() => { setNavigationOpen(false); setImportOpen(true); }}><FileUp size="1em" aria-hidden="true" />자료 가져오기</UiButton></div>}
+      </div>
+  </>;
+
   return <>
     <a className="skip" href="#main">본문으로 건너뛰기</a>
-    <header className="su-appbar workspace-bar"><div className="su-appbar__inner">
-      <div className="workspace-home su-row"><IconButton label="목차" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><MenuIcon size="1em" aria-hidden="true" /></IconButton></div>
+    <header className="toolkit-page-header context-page-header">
+      <div className="workspace-home su-row"><h1>프로젝트 문서</h1><IconButton className="context-mobile-picker" label="문서 탐색" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><MenuIcon size="1em" aria-hidden="true" /></IconButton></div>
       <div className="document-actions su-row">
-        {changes.length > 0 && <IconButton label="수정안 저장" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}><Save size="1em" aria-hidden="true" /></IconButton>}
+        {entry && <UiButton type="button" disabled={!canEdit} onClick={() => switchView(editing ? 'read' : 'edit')}>{editing ? '읽기' : '편집'}</UiButton>}
+        {entry && changes.length > 0 && <UiButton type="button" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}>저장</UiButton>}
         <Menu forceOpen={moreOpen} onOpen={()=>setMoreOpen(true)} onClose={()=>setMoreOpen(false)}>
           <Menu.Trigger><IconButton label="도구"><Ellipsis size="1em" aria-hidden="true" /></IconButton></Menu.Trigger>
           <Menu.Content align="end" minWidth={180}>
@@ -390,17 +420,18 @@ export default function Home() {
               <Menu.Item onSelect={()=>setInfoOpen(true)}><Info size="1em" aria-hidden="true"/>원본 정보</Menu.Item>
             </>}
             {changes.length>0 && <Menu.Item onSelect={()=>void copy(JSON.stringify({changes},null,2))}><Copy size="1em" aria-hidden="true"/>수정안 복사</Menu.Item>}
-            <Menu.Separator/>
-            <Menu.Item onSelect={()=>setDark(!dark)}>{dark?<Sun size="1em" aria-hidden="true"/>:<Moon size="1em" aria-hidden="true"/>}{dark?'라이트 모드':'다크 모드'}</Menu.Item>
           </Menu.Content>
         </Menu>
-      </div></div>
+      </div>
     </header>
-    <div className="workspace-layout su-workspace">
+    <div className="context-workspace">
+      {!narrow && <aside className="context-source-nav" aria-labelledby="navigation-title">
+        {navigationBody}
+      </aside>}
       <main id="main" tabIndex={-1}>
         <div className="status-area" role="status" aria-live="polite">{message}</div>
         {storageError && <div className="notice su-stack"><p>{storageError}</p><UiButton onClick={downloadRecovery}>보관본 내려받기</UiButton></div>}
-        {!entry ? <div className="welcome"><h1>Sense · Corpus</h1><UiButton onClick={() => openNavigation()}>자료 열기</UiButton></div> : <>
+        {entry ? <>
           <header className={'document-header report-head' + (editing || compare ? ' compact' : '')} id={titleOnlySection?.key} data-guidance-section={titleOnlySection ? true : undefined} tabIndex={titleOnlySection ? -1 : undefined} aria-labelledby="document-title">
             <h1 id="document-title" tabIndex={-1} className={selectedLocator?.product === 'context-item' ? 'visually-hidden' : 'report-title'}>{selectedLocator?.product === 'context-item' ? 'Context 항목' : documentTitle}</h1>
             {!editing && !compare && entry.draft.description && <p className="lead">{entry.draft.description}</p>}
@@ -439,35 +470,10 @@ export default function Home() {
               }} />}
             </>}
           </article>
-        </>}
+        </> : <p className="context-empty">문서를 선택하세요.</p>}
       </main>
     </div>
-    {navigationOpen && <Modal titleId="navigation-title" className="navigation-dialog" close={() => setNavigationOpen(false)}>
-      <div className="navigation-header su-stack">
-        <div className="dialog-head su-toolbar"><h2 id="navigation-title">프로젝트 문서</h2><IconButton label="탐색 닫기" onClick={() => setNavigationOpen(false)}><X size="1em" aria-hidden="true" /></IconButton></div>
-        <div className="navigation-tabs su-row"><UiButton aria-pressed={navigationTab !== 'toc'} onClick={() => setNavigationTab('sources')}>자료</UiButton><UiButton aria-pressed={navigationTab === 'toc'} disabled={!entry} onClick={() => setNavigationTab('toc')}>목차</UiButton></div>
-        {navigationTab === 'projects' ? <div className="navigation-search su-stack">
-          <UiButton className="project-back" aria-label="현재 자료로 돌아가기" onClick={() => setNavigationTab('sources')}><ArrowLeft size="1em" aria-hidden="true" />자료 범위</UiButton>
-          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label="Sense·프로젝트 찾기" placeholder="Sense·프로젝트 찾기" autoFocus value={projectQuery} onChange={e => setProjectQuery(e.target.value)} /></label>
-        </div> : navigationTab === 'sources' ? <div className="navigation-search su-stack">
-          <UiButton className="project-picker" aria-label={`자료 범위 변경: ${browseGroup?.title ?? 'Sense'}`} onClick={() => { setNavigationTab('projects'); setProjectQuery(''); }}><span>{browseGroup?.title ?? 'Sense'}</span><ChevronDown size="1em" aria-hidden="true" /></UiButton>
-          <label className="search-field"><UiInput startAdornment={<Search size="1em" aria-hidden="true"/>} type="search" aria-label={`${browseGroup?.title ?? 'Sense'} 자료 검색`} placeholder="자료 검색" value={query} onChange={e => setQuery(e.target.value)} autoFocus /></label>
-        </div> : null}
-      </div>
-      <div className="navigation-content">
-      {navigationTab === 'projects' ? <>
-        <nav className="candidate-list" aria-label="프로젝트">{projects.map(g => <button key={g.id} aria-current={g.id === groupId ? 'true' : undefined} onClick={() => { setGroupId(g.id); setQuery(''); setAvailable([]); setNavigationTab('sources'); }}><span className="candidate-title">{g.title}</span>{g.id === groupId && <Check size="1em" aria-hidden="true" />}</button>)}</nav>
-        {!projects.length && <p className="empty-result">결과 없음</p>}
-      </> : navigationTab === 'toc' ? <nav className="toc-list" aria-label="현재 문서 목차">{sections.map(section => <button key={section.key} aria-current={activeSection === section.key ? 'location' : undefined} onClick={() => navigateSection(section.key)}>{section.title === '본문' ? documentTitle : section.title}</button>)}</nav> : <>
-        <nav className="candidate-list" aria-label="자료" aria-busy={loadingCandidates}>
-          {available.map(c => <button key={c.id} aria-current={c.id === workspace.selectedId ? 'page' : undefined} onClick={() => void openCandidate(c)}><span className={'candidate-title' + (c.excerpt ? ' excerpt' : '')}>{c.title}</span><span className="candidate-kind">{c.excerpt ? '발췌' : c.locator.product === 'source' ? '원자료' : c.locator.product === 'context-skill' || (c.locator.product === 'sense' && c.locator.skill) ? '스킬' : c.subtitle === '지침' || c.subtitle === 'Context' ? c.subtitle : ''}</span></button>)}
-        </nav>
-        {!available.length && <p className="empty-result" role="status">{loadingCandidates ? '불러오는 중' : candidateError ? '자료 조회 실패' : '결과 없음'}</p>}
-        {filtered.length > 0 && <section className="open-documents"><h3>열린 자료</h3><nav className="candidate-list" aria-label="열린 자료">{filtered.map(e => <button key={e.source.id} aria-current={e.source.id === workspace.selectedId ? 'page' : undefined} onClick={() => selectSource(e.source.id)}><span className="candidate-title">{readingTitle(e.source, e.draft)}</span>{isDirty(e) && <span className="draft-dot"><Circle size="1em" aria-hidden="true" /><span className="visually-hidden">미저장 수정안</span></span>}</button>)}</nav></section>}
-      </>}
-      {navigationTab === 'sources' && <div className="navigation-tools"><UiButton onClick={() => { setNavigationOpen(false); setImportOpen(true); }}><FileUp size="1em" aria-hidden="true" />자료 가져오기</UiButton></div>}
-      </div>
-    </Modal>}
+    {narrow && navigationOpen && <Modal titleId="navigation-title" className="context-navigation-dialog" close={() => setNavigationOpen(false)}>{navigationBody}</Modal>}
     {infoOpen && entry && <Modal titleId="info-title" close={() => setInfoOpen(false)}>
       <div className="dialog-head su-toolbar"><h2 id="info-title">원본 정보</h2><IconButton label="원본 정보 닫기" onClick={() => setInfoOpen(false)}><X size="1em" aria-hidden="true" /></IconButton></div>
       <dl><dt>위치</dt><dd>{entry.source.reference}</dd><dt>버전</dt><dd>{entry.source.version}</dd>

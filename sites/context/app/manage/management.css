@@ -7,7 +7,7 @@
 .management-page { font-size:14px; }
 .management-page-header { align-items:center; }
 .management-page-header>div { min-width:0; }
-.management-page h1 { margin:0; font-size:32px; line-height:1.25; font-weight:500; letter-spacing:-.035em; }
+.management-page h1 { margin:0; font-size:28px; line-height:36px; font-weight:600; letter-spacing:-.035em; }
 .management-page h3 { font-size:16px; line-height:1.5; font-weight:500; margin:0 0 var(--su-space-2); }
 .management-list p { margin:0; }
 .management-page :is(.management-meta,.management-empty) { color:var(--su-muted); font-size:13px; }
@@ -41,3 +41,6 @@
 .management-dialog .management-actions { justify-content:flex-end; padding-top:var(--su-stack-gap); border-top:1px solid var(--su-line); }
 .product-navigation-compact { display:none; }
 @media(max-width:540px) { .toolkit-admin .site-header .product-navigation-wide { display:none; } .product-navigation-compact { display:block; } }
+
+.management-page.su-workspace{width:100%;max-width:none;margin:0;padding:24px}
+@media(max-width:760px){.management-page.su-workspace{padding:16px}.toolkit-admin .site-header{position:static}}

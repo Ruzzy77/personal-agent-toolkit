@@ -3,5 +3,17 @@ import { requireOwnerUser } from "../../lib/owner-service";
 export const dynamic="force-dynamic";
 export default async function Settings(){
  await requireOwnerUser("/settings");
- return <main id="main-content" className="su-workspace su-stack" data-gap="section"><h1>설정</h1><section className="su-section"><h2>자료 관리</h2><div className="su-row"><Link className="su-btn" href="/manage">Corpus</Link><Link className="su-btn" href="/manage/sense">Sense</Link><Link className="su-btn" href="/manage/library">Library</Link><Link className="su-btn" href="/manage/design">디자인 자료</Link></div></section><section className="su-section"><h2>작업공간 연결</h2><p>Finder와 에이전트에서 Spark의 같은 파일을 사용할 수 있습니다.</p><a href="smb://spark-1de5.tail556ab.ts.net/Agent-Workspace">Finder로 열기</a></section></main>;
+ return <main id="main-content" className="toolkit-page su-stack" data-gap="section">
+   <header className="toolkit-page-header"><div><h1 className="toolkit-page-title">설정</h1></div></header>
+   <section className="su-section" aria-labelledby="settings-data-heading">
+     <h2 id="settings-data-heading">자료 관리</h2>
+     <p>Corpus, Sense, Library와 디자인 자료의 설정·휴지통·복원을 관리합니다.</p>
+     <nav className="toolkit-page-tools" aria-label="자료 관리"><Link className="su-btn" href="/manage">Corpus</Link><Link className="su-btn" href="/manage/sense">Sense</Link><Link className="su-btn" href="/manage/library">Library</Link><Link className="su-btn" href="/manage/design">디자인 자료</Link></nav>
+   </section>
+   <section className="su-section" aria-labelledby="settings-workspace-heading">
+     <h2 id="settings-workspace-heading">작업공간 연결</h2>
+     <p>Finder와 에이전트에서 Spark의 같은 파일을 사용할 수 있습니다.</p>
+     <a href="smb://spark-1de5.tail556ab.ts.net/Agent-Workspace">Finder로 열기</a>
+   </section>
+ </main>;
 }

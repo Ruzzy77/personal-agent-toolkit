@@ -19,6 +19,12 @@ async function issue(
     const value = await libraryRequest<LibraryIssue>(
       `/api/v1/issues/by-path?path=${encodeURIComponent(pathname)}`,
     );
+    if (new URL(request.url).searchParams.get('embedded') !== '1') {
+      return new Response(null, {status: 307, headers: {
+        Location: '/library/read?path=' + encodeURIComponent(pathname),
+        'Cache-Control': 'private, no-store',
+      }});
+    }
     return issueHtmlResponse(value, request.method === 'HEAD');
   } catch (error) {
     return libraryApiError(error);

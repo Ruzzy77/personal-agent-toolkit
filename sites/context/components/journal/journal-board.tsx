@@ -1,6 +1,7 @@
 'use client';
 
 import { ownerFetch } from '@/lib/owner-client';
+import '../../styles/journal-workspace.css';
 
 import { Button } from '@openai/apps-sdk-ui/components/Button';
 import { Input } from '@openai/apps-sdk-ui/components/Input';
@@ -8,6 +9,8 @@ import { Textarea } from '@openai/apps-sdk-ui/components/Textarea';
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   History,
   Pause,
   Plus,
@@ -301,60 +304,64 @@ function BoardRow({
           )}
         </p>
       </td>
-      <td className="item-state">{item.summary}</td>
+      <td className="item-state">
+        <p className="item-state-text">{item.summary}</p>
+      </td>
       <td className="row-actions" aria-label={`${item.title} 처리 상태`}>
-        <button
-          type="button"
-          aria-label={`${item.title} 이력`}
-          title="이력"
-          onClick={() => onDetail(item.id)}
-        >
-          <History aria-hidden="true" />
-        </button>
-        {item.resolution !== 'active' && (
+        <div className="row-action-controls">
           <button
             type="button"
-            aria-label={`${item.title} 다시 진행`}
-            title="다시 진행"
-            disabled={disabled || pending}
-            onClick={() => onResolution(item.id, 'active')}
+            aria-label={`${item.title} 이력`}
+            title="이력"
+            onClick={() => onDetail(item.id)}
           >
-            <RotateCcw aria-hidden="true" />
+            <History aria-hidden="true" />
           </button>
-        )}
-        <button
-          type="button"
-          className={item.resolution === 'completed' ? 'is-selected' : ''}
-          aria-label={`${item.title} 완료`}
-          aria-pressed={item.resolution === 'completed'}
-          title="완료"
-          disabled={disabled || pending}
-          onClick={() => onResolution(item.id, 'completed')}
-        >
-          <Check aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={item.resolution === 'held' ? 'is-selected' : ''}
-          aria-label={`${item.title} 보류`}
-          aria-pressed={item.resolution === 'held'}
-          title="보류"
-          disabled={disabled || pending}
-          onClick={() => onResolution(item.id, 'held')}
-        >
-          <Pause aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={item.resolution === 'canceled' ? 'is-selected' : ''}
-          aria-label={`${item.title} 취소`}
-          aria-pressed={item.resolution === 'canceled'}
-          title="취소"
-          disabled={disabled || pending}
-          onClick={() => onResolution(item.id, 'canceled')}
-        >
-          <X aria-hidden="true" />
-        </button>
+          {item.resolution !== 'active' && (
+            <button
+              type="button"
+              aria-label={`${item.title} 다시 진행`}
+              title="다시 진행"
+              disabled={disabled || pending}
+              onClick={() => onResolution(item.id, 'active')}
+            >
+              <RotateCcw aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            className={item.resolution === 'completed' ? 'is-selected' : ''}
+            aria-label={`${item.title} 완료`}
+            aria-pressed={item.resolution === 'completed'}
+            title="완료"
+            disabled={disabled || pending}
+            onClick={() => onResolution(item.id, 'completed')}
+          >
+            <Check aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={item.resolution === 'held' ? 'is-selected' : ''}
+            aria-label={`${item.title} 보류`}
+            aria-pressed={item.resolution === 'held'}
+            title="보류"
+            disabled={disabled || pending}
+            onClick={() => onResolution(item.id, 'held')}
+          >
+            <Pause aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={item.resolution === 'canceled' ? 'is-selected' : ''}
+            aria-label={`${item.title} 취소`}
+            aria-pressed={item.resolution === 'canceled'}
+            title="취소"
+            disabled={disabled || pending}
+            onClick={() => onResolution(item.id, 'canceled')}
+          >
+            <X aria-hidden="true" />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -363,9 +370,11 @@ function BoardRow({
 export function JournalBoard({
   initialBoard,
   today,
+  selectedPeriod,
 }: {
   initialBoard: BoardResult;
   today: string;
+  selectedPeriod: string;
 }) {
   const [board, setBoard] = useState(initialBoard);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -799,8 +808,30 @@ export function JournalBoard({
       });
   }
 
+  const previousWeek = addDays(board.week.id, -7);
+  const nextWeek = addDays(board.week.id, 7);
+
   return (
     <>
+      <header className="journal-workspace-header">
+        <div>
+          <h1 id="journal-title">Journal</h1>
+          <p>
+            {Number(board.week.startsOn.slice(5, 7))}월 {Number(board.week.startsOn.slice(8, 10))}일–
+            {Number(board.week.endsOn.slice(5, 7))}월 {Number(board.week.endsOn.slice(8, 10))}일
+          </p>
+        </div>
+        <nav className="journal-week-nav" aria-label="주간 이동">
+          <a href={'/journal?week=' + previousWeek + '&period=' + selectedPeriod} aria-label="이전 주" title="이전 주">
+            <ChevronLeft aria-hidden="true" />
+          </a>
+          <span>{board.week.status === 'closed' ? '마감' : '진행 중'}</span>
+          <a href={'/journal?week=' + nextWeek + '&period=' + selectedPeriod} aria-label="다음 주" title="다음 주">
+            <ChevronRight aria-hidden="true" />
+          </a>
+        </nav>
+      </header>
+
       <dl className="summary-strip" aria-label="진행 상태 요약">
         <div className="summary-cell is-today">
           <dt>오늘</dt>
@@ -827,10 +858,14 @@ export function JournalBoard({
       {focus && (
         <section className="focus-line" aria-label="오늘 먼저 볼 항목">
           <p className="focus-time">{dueTime(focus.dueAt) ?? '오늘'}</p>
-          <div>
-            <h2>{focus.title}</h2>
-            <p>{focus.summary}</p>
-          </div>
+          <button
+            type="button"
+            className="focus-detail"
+            onClick={() => void openItemDetail(focus.id)}
+          >
+            <span>{focus.title}</span>
+            <span aria-hidden="true">상세 보기</span>
+          </button>
         </section>
       )}
 

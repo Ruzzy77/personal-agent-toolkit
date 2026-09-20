@@ -1,0 +1,489 @@
+/* Journal workspace overrides. Loaded after the preserved product stylesheet. */
+.journal-shell.su-workspace {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  color: var(--su-ink);
+  background: transparent;
+  font-size: 14px;
+}
+
+.journal-shell .journal-sheet {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.journal-workspace-header {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--su-space-4);
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--su-line);
+}
+
+.journal-workspace-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.035em;
+}
+
+.journal-workspace-header p {
+  margin: 4px 0 0;
+  color: var(--su-muted);
+  font-size: 13px;
+}
+
+.journal-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.journal-week-nav a {
+  display: inline-flex;
+  width: var(--su-control-md);
+  height: var(--su-control-md);
+  align-items: center;
+  justify-content: center;
+  color: var(--su-ink);
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+}
+
+.journal-week-nav a:hover {
+  background: var(--su-hover);
+}
+
+.journal-week-nav a:focus-visible {
+  outline: 2px solid var(--su-focus);
+  outline-offset: 2px;
+}
+
+.journal-week-nav svg {
+  width: 18px;
+  height: 18px;
+}
+
+.journal-week-nav span {
+  min-width: 62px;
+  color: var(--su-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.journal-shell .summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0 24px;
+  border: 0;
+  border-bottom: 1px solid var(--su-line);
+  background: transparent;
+}
+
+.journal-shell .summary-cell {
+  min-height: 72px;
+  padding: 16px 12px;
+  border: 0;
+  border-right: 1px solid var(--su-line);
+  background: transparent;
+}
+
+.journal-shell .summary-cell:last-child {
+  border-right: 0;
+}
+
+.journal-shell .summary-cell dt {
+  color: var(--su-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.journal-shell .summary-cell dd {
+  margin: 4px 0 0;
+  color: var(--su-ink);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.journal-shell .focus-line {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 16px;
+  margin: 0 24px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--su-line);
+  background: transparent;
+}
+
+.journal-shell .focus-time {
+  color: var(--su-info);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.journal-shell .focus-detail {
+  display: flex;
+  min-width: 0;
+  min-height: var(--su-control-md);
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  color: var(--su-ink);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.journal-shell .focus-detail span:first-child {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-shell .focus-detail span:last-child {
+  flex: none;
+  color: var(--su-muted);
+  font-size: 13px;
+}
+
+.journal-shell .focus-detail:hover span:first-child {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.journal-shell .focus-detail:focus-visible {
+  border-radius: var(--su-radius-sm);
+  outline: 2px solid var(--su-focus);
+  outline-offset: 3px;
+}
+
+.journal-shell .board-section,
+.journal-shell .week-section,
+.journal-shell .records-section,
+.journal-shell .period-section {
+  margin: 0 24px;
+  padding: 24px 0;
+  border: 0;
+  border-bottom: 1px solid var(--su-line);
+  background: transparent;
+}
+
+.journal-shell .section-heading {
+  min-height: 40px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--su-line);
+}
+
+.journal-shell .section-heading h2,
+.journal-shell .secondary-summary h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.journal-shell .board-heading-actions {
+  gap: 8px;
+}
+
+.journal-shell .board-heading-actions > p,
+.journal-shell .week-heading-meta p {
+  color: var(--su-muted);
+  font-size: 12px;
+}
+
+.journal-shell .board {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.journal-shell .board-head {
+  color: var(--su-muted);
+  background: transparent;
+}
+
+.journal-shell .board-head th {
+  height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--su-line);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.journal-shell .board-head th:nth-child(1) { width: 104px; }
+.journal-shell .board-head th:nth-child(2) { width: 30%; }
+.journal-shell .board-head th:nth-child(4) { width: 184px; }
+
+.journal-shell .board-row {
+  background: transparent;
+}
+
+.journal-shell .board-row td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--su-line);
+  vertical-align: middle;
+}
+
+.journal-shell .board-row:last-child td {
+  border-bottom: 0;
+}
+
+.journal-shell .board-row:hover {
+  background: var(--su-hover);
+}
+
+.journal-shell .lane-cell,
+.journal-shell .item-project {
+  font-size: 13px;
+}
+
+.journal-shell .item-title,
+.journal-shell .item-title-button {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.journal-shell .item-state {
+  display: table-cell;
+  color: var(--su-muted);
+  font-size: 14px;
+}
+
+.journal-shell .item-state-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.journal-shell .row-actions {
+  display: table-cell;
+  text-align: right;
+}
+
+.journal-shell .row-action-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.journal-shell .row-actions button {
+  width: var(--su-control-sm);
+  height: var(--su-control-sm);
+  border: 1px solid transparent;
+  border-radius: var(--su-radius);
+  color: var(--su-muted);
+  background: transparent;
+}
+
+.journal-shell .row-actions button:hover,
+.journal-shell .row-actions button.is-selected {
+  color: var(--su-ink);
+  border-color: var(--su-line);
+  background: var(--su-surface);
+}
+
+.journal-shell .week-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  overflow: hidden;
+}
+
+.journal-shell .week-grid > li {
+  min-height: 108px;
+  padding: 12px;
+  border: 0;
+  border-right: 1px solid var(--su-line);
+  background: var(--su-surface);
+}
+
+.journal-shell .week-grid > li:last-child {
+  border-right: 0;
+}
+
+.journal-shell .week-grid > li.is-current {
+  box-shadow: inset 0 2px 0 var(--su-info);
+}
+
+.journal-shell .secondary-summary {
+  min-height: var(--su-control-lg);
+  padding: 0;
+}
+
+.journal-shell .record-search {
+  padding: 16px 0 0;
+}
+
+.journal-shell .record-results {
+  margin-top: 12px;
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+}
+
+.journal-shell .record-results button {
+  background: var(--su-surface);
+}
+
+.journal-shell .journal-dialog {
+  inset: 0;
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(760px, calc(100dvh - 32px));
+  margin: auto;
+  overflow: auto;
+}
+
+.journal-shell .journal-dialog {
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+  box-shadow: var(--su-shadow);
+}
+
+.journal-shell .dialog-header,
+.journal-shell .item-form,
+.journal-shell .detail-summary,
+.journal-shell .detail-facts,
+.journal-shell .detail-section,
+.journal-shell .correction-form {
+  padding-inline: 24px;
+}
+
+.journal-shell .period-section {
+  margin-inline: 24px;
+}
+
+@media (max-width: 860px) {
+  .journal-workspace-header,
+  .journal-shell .summary-strip,
+  .journal-shell .focus-line,
+  .journal-shell .board-section,
+  .journal-shell .week-section,
+  .journal-shell .records-section,
+  .journal-shell .period-section {
+    margin-inline: 0;
+  }
+
+  .journal-workspace-header {
+    padding-inline: 16px;
+  }
+
+  .journal-shell .summary-strip {
+    grid-template-columns: repeat(5, minmax(84px, 1fr));
+    overflow-x: auto;
+  }
+
+  .journal-shell .board-head {
+    display: none;
+  }
+
+  .journal-shell .board,
+  .journal-shell .board tbody,
+  .journal-shell .board-row {
+    display: block;
+  }
+
+  .journal-shell .board-row {
+    position: relative;
+    padding: 12px 0 52px;
+    border-bottom: 1px solid var(--su-line);
+  }
+
+  .journal-shell .board-row td {
+    display: block;
+    padding: 3px 0;
+    border: 0;
+  }
+
+  .journal-shell .board-row .lane-cell {
+    color: var(--su-muted);
+    font-size: 11px;
+  }
+
+  .journal-shell .board-row .item-state {
+    margin-top: 6px;
+  }
+
+  .journal-shell .board-row .row-actions {
+    position: absolute;
+    right: 0;
+    bottom: 10px;
+  }
+
+  .journal-shell .week-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .journal-shell .week-grid > li {
+    border-right: 1px solid var(--su-line);
+    border-bottom: 1px solid var(--su-line);
+  }
+}
+
+@media (max-width: 520px) {
+  .journal-workspace-header h1 {
+    font-size: 24px;
+  }
+
+  .journal-week-nav span {
+    display: none;
+  }
+
+  .journal-shell .focus-line {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .journal-shell .record-search {
+    grid-template-columns: 1fr auto;
+  }
+
+  .journal-shell .record-search label:nth-of-type(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journal-shell *,
+  .journal-shell *::before,
+  .journal-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media(min-width:861px){
+ .journal-shell .board-head{border-bottom:1px solid var(--su-line)}
+ .journal-shell .board-head th,.journal-shell .board-row td{border:0;padding:0 10px;width:auto;height:auto}
+ .journal-shell .board-head{min-height:40px;align-items:center}
+ .journal-shell .board-head,.journal-shell .board-row{grid-template-columns:78px minmax(120px,.9fr) minmax(140px,1.25fr) 144px;column-gap:12px}
+}
+@media(max-width:860px){
+ .journal-shell .focus-line,.journal-shell .board-section,.journal-shell .week-section,.journal-shell .records-section,.journal-shell .period-section{margin-inline:16px}
+}
+
+@media(pointer:coarse){.journal-shell .row-actions button{width:44px;height:44px}}
+@media(pointer:coarse) and (max-width:860px){.journal-shell .board-row{padding-bottom:56px}}

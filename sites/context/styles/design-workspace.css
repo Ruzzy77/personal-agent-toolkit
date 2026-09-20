@@ -1,0 +1,423 @@
+/* Design workspace overrides. */
+.gallery {
+  width: 100%;
+  min-height: 100%;
+  color: var(--su-ink);
+  background: transparent;
+  font-size: 14px;
+}
+
+.design-workspace-header {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--su-space-4);
+  margin: 0 24px;
+  padding: 24px 0 16px;
+  border-bottom: 1px solid var(--su-line);
+}
+
+.design-workspace-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.035em;
+}
+
+.design-workspace-header a {
+  display: inline-flex;
+  min-height: var(--su-control-md);
+  align-items: center;
+  padding: 0 12px;
+  color: var(--su-ink);
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.design-workspace-header a:hover {
+  background: var(--su-hover);
+}
+
+.gallery .finder,
+.gallery .design-section {
+  width: auto;
+  margin: 0 24px;
+  padding: 24px 0;
+}
+
+.gallery .workspace-section-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.gallery .finder-controls {
+  display: grid;
+  grid-template-columns: 0.75fr 1.25fr 1fr;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+}
+
+.gallery .finder fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  border-right: 1px solid var(--su-line);
+}
+
+.gallery .finder fieldset:last-child {
+  border-right: 0;
+}
+
+.gallery .finder legend {
+  padding: 0;
+  color: var(--su-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.gallery .format-options,
+.gallery .content-options,
+.gallery .need-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.gallery .format-options button,
+.gallery .content-options button,
+.gallery .need-options button {
+  width: auto;
+  min-height: var(--su-control-sm);
+  padding: 0 10px;
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  color: var(--su-ink);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.gallery .content-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery .content-options button span {
+  display: none;
+}
+
+.gallery .format-options button[aria-pressed="true"],
+.gallery .content-options button[aria-pressed="true"],
+.gallery .need-options button[aria-pressed="true"] {
+  color: var(--su-on-accent);
+  border-color: var(--su-accent);
+  background: var(--su-accent);
+}
+
+.gallery .need-options button span {
+  width: auto;
+  color: inherit;
+}
+
+.gallery .recommendation-details {
+  margin: 0 24px 24px;
+  border-top: 1px solid var(--su-line);
+  border-bottom: 1px solid var(--su-line);
+}
+
+.gallery .recommendation-details > summary {
+  display: flex;
+  min-height: var(--su-control-lg);
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--su-ink);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.gallery .recommendation-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gallery .recommendation-details > summary span:last-child {
+  color: var(--su-muted);
+  font-weight: 500;
+}
+
+.gallery .recommendation-details > summary:focus-visible {
+  outline: 2px solid var(--su-focus);
+  outline-offset: 2px;
+}
+
+.gallery .finder-result {
+  min-width: 0;
+  padding: 4px 0 16px;
+  border: 0;
+  border-top: 1px solid var(--su-line);
+  background: transparent;
+}
+
+.gallery .result-label {
+  margin: 0 0 8px;
+  color: var(--su-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.gallery .candidate-item {
+  padding: 12px 0;
+  border-top: 1px solid var(--su-line);
+}
+
+.gallery .candidate-item:first-child {
+  border-top: 0;
+}
+
+.gallery .candidate-item header {
+  gap: 12px;
+}
+
+.gallery .candidate-item h2 {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.gallery .candidate-rank {
+  font-size: 11px;
+}
+
+.gallery .result-purpose,
+.gallery .candidate-reasons,
+.gallery .candidate-tensions ul {
+  font-size: 12px;
+}
+
+.gallery .candidate-reasons {
+  margin-top: 8px;
+}
+
+.gallery .candidate-actions {
+  margin-top: 10px;
+}
+
+.gallery .candidate-actions button {
+  min-height: var(--su-control-sm);
+  border-radius: var(--su-radius);
+  font-size: 13px;
+}
+
+.gallery .section-heading {
+  min-height: 40px;
+  align-items: center;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--su-line);
+}
+
+.gallery .section-heading h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.gallery .section-heading > span {
+  color: var(--su-muted);
+  font-size: 12px;
+}
+
+.gallery .design-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px 0 48px;
+}
+
+.gallery .design-card {
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+  overflow: hidden;
+}
+
+.gallery .design-card.is-reference {
+  border-color: var(--su-line);
+}
+
+.gallery .specimen {
+  min-height: 240px;
+  padding: 16px;
+  border-right: 1px solid var(--su-line);
+  background: var(--su-soft);
+}
+
+.gallery .specimen-canvas {
+  min-height: 208px;
+}
+
+.gallery .card-body {
+  padding: 20px;
+}
+
+.gallery .card-heading h3 {
+  font-size: 22px;
+}
+
+.gallery .purpose {
+  margin-top: 14px;
+  font-size: 13px;
+}
+
+.gallery .best-when {
+  min-height: 0;
+  font-size: 13px;
+}
+
+.gallery .pattern-tags,
+.gallery .strengths {
+  margin-top: 14px;
+}
+
+.gallery .card-actions {
+  margin-top: 18px;
+}
+
+.gallery .card-actions button,
+.gallery .template-links,
+.gallery .compare-tray,
+.gallery .panel-actions a,
+.gallery .panel-actions button {
+  font-size: 13px;
+}
+
+.gallery .unselected-recipes {
+  padding: 0 0 48px;
+}
+
+.gallery .unselected-recipes > p {
+  display: none;
+}
+
+.gallery .compare-tray {
+  right: 24px;
+  bottom: 24px;
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  color: var(--su-ink);
+  background: var(--su-surface);
+  box-shadow: var(--su-shadow);
+}
+
+.gallery .modal-shell {
+  border: 1px solid var(--su-line);
+  border-radius: var(--su-radius);
+  background: var(--su-surface);
+  box-shadow: var(--su-shadow);
+}
+
+.gallery .preview-panel,
+.gallery .compare-panel,
+.gallery .request-panel {
+  background: var(--su-surface);
+}
+
+@media (min-width: 1500px) {
+  .gallery .design-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .gallery .design-card {
+    display: block;
+  }
+
+  .gallery .specimen {
+    border-right: 0;
+    border-bottom: 1px solid var(--su-line);
+  }
+}
+
+@media (max-width: 1100px) {
+  .gallery .design-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .design-workspace-header {
+    margin-inline: 16px;
+  }
+
+  .design-workspace-header h1 {
+    font-size: 24px;
+  }
+
+  .gallery .finder,
+  .gallery .design-section,
+  .gallery .recommendation-details {
+    margin-inline: 16px;
+  }
+
+  .gallery .finder-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery .finder fieldset {
+    border-right: 0;
+    border-bottom: 1px solid var(--su-line);
+  }
+
+  .gallery .finder fieldset:last-child {
+    border-bottom: 0;
+  }
+
+  .gallery .design-card {
+    display: block;
+  }
+
+  .gallery .specimen {
+    min-height: 210px;
+    border-right: 0;
+    border-bottom: 1px solid var(--su-line);
+  }
+
+  .gallery .compare-tray {
+    right: 12px;
+    bottom: 12px;
+    min-width: calc(100vw - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery *,
+  .gallery *::before,
+  .gallery *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.gallery .card-actions button,.gallery .panel-actions button,.gallery .panel-actions a{
+ border-radius:var(--su-radius);min-height:var(--su-control-md);border-color:var(--su-line);font-weight:500
+}
+.gallery .card-heading h3{font-size:20px;font-weight:600}
+.gallery .modal-shell{inset:0;margin:auto}
+
+@media(pointer:coarse){.gallery .format-options button,.gallery .content-options button,.gallery .need-options button,.gallery .card-actions button,.gallery .panel-actions button,.gallery .panel-actions a{min-height:44px}}
+
+.design-preview-state{padding:24px;color:var(--su-muted)}

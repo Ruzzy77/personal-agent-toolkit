@@ -1,444 +1,135 @@
 "use client";
-
+import Link from "next/link";
 import { ownerFetch } from "@/lib/owner-client";
-
 import { Button } from "@openai/apps-sdk-ui/components/Button";
-import { Input } from "@openai/apps-sdk-ui/components/Input";
-import { Plus, X } from "lucide-react";
+import { BookOpen, Flame, Grid2X2, List, Plus, Search, Settings2, Star, Tags, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActionMenu, FieldSelect, IconButton, Menu, UiInput } from "@/app/ui";
+import { catalogTags, filterIssues, issueTags } from "@/lib/library-catalog";
 import { registerCatalogWebMcpTools } from "./webmcp.js";
 
 const MARKS_STORAGE_KEY = "library:marks:v1";
 const EMPTY_MARK = { hyped: false, starred: false, tags: [] };
-const COVER_PLACEMENTS = [
-  { x: -3, y: 7, r: -0.7 },
-  { x: 2, y: -1, r: 0.45 },
-  { x: -1, y: 4, r: -0.35 },
-  { x: 3, y: 10, r: 0.8 },
-  { x: -2, y: 1, r: -0.55 },
-  { x: 3, y: 13, r: 0.4 },
-  { x: -2, y: 5, r: -0.85 },
-  { x: 2, y: -4, r: 0.5 },
-  { x: -3, y: 8, r: -0.25 },
-  { x: 1, y: 2, r: 0.7 },
-  { x: -2, y: 12, r: -0.6 },
-  { x: 3, y: 4, r: 0.3 },
-  { x: -2, y: -2, r: -0.75 },
-  { x: 2, y: 9, r: 0.55 },
-];
-
-function coverMaterial(index) {
-  if (index === 11 || index % 7 === 0 || index % 13 === 0) return "deckled";
-  return "crisp";
-}
-
-function coverSource(item) {
-  return item.cover || item.sourceCover || null;
-}
-
-function displayCollection(item) {
-  return item.collection === "digest" ? "요약" : item.koreanLabel;
-}
-
-function displayDate(date) {
-  return date.replaceAll("-", ".");
-}
-
-function mergeOnlineItems(current, online) {
-  const currentById = new Map(current.map((item) => [item.id, item]));
-  const labels = {
-    daily: { label: "DAILY", koreanLabel: "일간" },
-    digest: { label: "DIGEST", koreanLabel: "다이제스트" },
-    research: { label: "RESEARCH", koreanLabel: "연구" },
-  };
-
-  return online
-    .map((issue) => {
-      const previous = currentById.get(issue.id) || {};
-      const collectionLabels = labels[issue.collection] || labels.daily;
-      return {
-        ...collectionLabels,
-        ...previous,
-        id: issue.id,
-        collection: issue.collection,
-        date: issue.date,
-        publishedAt: issue.publishedAt,
-        title: issue.title,
-        cover: issue.coverPath || previous.cover || previous.sourceCover || null,
-        readerHref: issue.canonicalPath,
-        canonical: true,
-        availability: "available",
-      };
-    })
-    .sort((left, right) => right.publishedAt.localeCompare(left.publishedAt));
-}
-
-function sanitizeMarks(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([id, mark]) => {
-      if (!mark || typeof mark !== "object" || Array.isArray(mark)) return [];
-      const tags = Array.isArray(mark.tags)
-        ? [...new Set(mark.tags.filter((tag) => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean))].slice(0, 8)
-        : [];
-      return [[id, {
-        hyped: mark.hyped === true,
-        starred: mark.starred === true,
-        tags,
-      }]];
-    }),
-  );
-}
+const displayDate = date => String(date || "").replaceAll("-", ".");
 
 function readMarks() {
   try {
-    return sanitizeMarks(JSON.parse(window.localStorage.getItem(MARKS_STORAGE_KEY) || "{}"));
-  } catch {
-    return {};
-  }
-}
-
-function writeMarks(marks) {
-  try {
-    window.localStorage.setItem(MARKS_STORAGE_KEY, JSON.stringify(marks));
-  } catch {
-    // Reactions remain usable for the current view when local storage is unavailable.
-  }
-}
-
-function LibraryHeader({ count }) {
-  return (
-    <header aria-label={`Library, ${count} indexed`} className="archive-ticket su-appbar">
-      <div className="archive-ticket-inner su-appbar__inner">
-        <span aria-hidden="true" className="library-wordmark">LIBRARY</span>
-        <span>{count} INDEXED</span>
-      </div>
-    </header>
-  );
-}
-
-function CoverCard({ actionsOpen, eager = false, index, item, mark, onOpenTags, onToggleActions, onToggleMark }) {
-  const hasMarks = mark.hyped || mark.starred || mark.tags.length > 0;
-  const placement = COVER_PLACEMENTS[index % COVER_PLACEMENTS.length];
-  const material = coverMaterial(index);
-  const source = coverSource(item);
-  const actionsId = `cover-actions-${item.id}`;
-  const image = (
-    <span className="cover-frame">
-      {source && (
-        <img
-          alt=""
-          className="cover-art"
-          loading={eager ? "eager" : "lazy"}
-          src={source}
-        />
-      )}
-    </span>
-  );
-
-  return (
-    <article
-      className="cover-card"
-      data-edge={material}
-      data-library-issue-id={item.id}
-      data-marked={hasMarks || undefined}
-      data-pending={item.availability === "pending_archive" || undefined}
-      data-actions-open={actionsOpen || undefined}
-      style={{
-        "--cover-rotation": `${placement.r}deg`,
-        "--cover-shift-x": `${placement.x}px`,
-        "--cover-shift-y": `${placement.y}px`,
-      }}
-    >
-      {item.readerHref ? (
-        <a
-          aria-label={`${displayDate(item.date)}, ${displayCollection(item)}, ${item.title} 읽기`}
-          className="cover-link"
-          href={item.readerHref}
-        >
-          {image}
-        </a>
-      ) : (
-        <div
-          aria-disabled="true"
-          aria-label={`${displayDate(item.date)}, ${item.title}, 보관 전`}
-          className="cover-link"
-        >
-          {image}
-        </div>
-      )}
-
-      <button
-        aria-controls={actionsId}
-        aria-expanded={actionsOpen}
-        aria-label={actionsOpen ? "Hype, Star, Tag 닫기" : "Hype, Star, Tag 열기"}
-        className="cover-action-handle"
-        onClick={() => onToggleActions(item.id)}
-        type="button"
-      >
-        <span aria-hidden="true" />
-      </button>
-
-      <div
-        aria-label={`${item.title} 표시`}
-        className="cover-actions"
-        hidden={!actionsOpen}
-        id={actionsId}
-      >
-        <button
-          aria-label={mark.hyped ? "Hype 취소" : "Hype 표시"}
-          aria-pressed={mark.hyped}
-          data-active={mark.hyped || undefined}
-          onClick={() => onToggleMark(item.id, "hyped")}
-          title="Hype"
-          type="button"
-        >
-          <img alt="" aria-hidden="true" src="/icons/library/action-hype.png" />
-        </button>
-        <button
-          aria-label={mark.starred ? "Star 취소" : "Star 표시"}
-          aria-pressed={mark.starred}
-          data-active={mark.starred || undefined}
-          onClick={() => onToggleMark(item.id, "starred")}
-          title="Star"
-          type="button"
-        >
-          <img alt="" aria-hidden="true" src="/icons/library/action-star.png" />
-        </button>
-        <button
-          aria-haspopup="dialog"
-          aria-label={`Tag 편집, 현재 ${mark.tags.length}개`}
-          data-active={mark.tags.length > 0 || undefined}
-          onClick={() => onOpenTags(item.id)}
-          title="Tag"
-          type="button"
-        >
-          <img alt="" aria-hidden="true" src="/icons/library/action-tag.png" />
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function CoverFeed({ activeActionsId, items, marks, onOpenTags, onToggleActions, onToggleMark }) {
-  return (
-    <section aria-label="모든 발간물" className="cover-feed">
-      {items.map((item, index) => (
-        <CoverCard
-          actionsOpen={activeActionsId === item.id}
-          eager={index < 28}
-          index={index}
-          item={item}
-          key={item.id}
-          mark={marks[item.id] || EMPTY_MARK}
-          onOpenTags={onOpenTags}
-          onToggleActions={onToggleActions}
-          onToggleMark={onToggleMark}
-        />
-      ))}
-    </section>
-  );
+    const value = JSON.parse(window.localStorage.getItem(MARKS_STORAGE_KEY) || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).flatMap(([id, mark]) => {
+      if (!mark || typeof mark !== "object" || Array.isArray(mark)) return [];
+      return [[id, { hyped: mark.hyped === true, starred: mark.starred === true,
+        tags: Array.isArray(mark.tags) ? [...new Set(mark.tags.filter(tag => typeof tag === "string").map(tag => tag.trim()).filter(Boolean))].slice(0, 8) : [] }]];
+    }));
+  } catch { return {}; }
 }
 
 function TagDialog({ item, mark, onAddTag, onClose, onRemoveTag }) {
   const [value, setValue] = useState("");
-  const inputRef = useRef(null);
-
+  const dialog = useRef(null);
   useEffect(() => {
-    inputRef.current?.focus();
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+  return <dialog ref={dialog} className="library-tag-dialog" aria-labelledby="tag-dialog-title" onCancel={onClose} onClick={event => { if (event.target === dialog.current) onClose(); }}>
+    <header className="su-toolbar">
+      <h2 id="tag-dialog-title">태그 편집</h2>
+      <IconButton label="태그 편집 닫기" onClick={onClose}><X size="1em" /></IconButton>
+    </header>
+    <p className="library-tag-title">{item.title}</p>
+    <div className="library-tag-values" aria-live="polite">
+      {mark.tags.length ? mark.tags.map(tag => <span key={tag}>{tag}<IconButton label={tag + " 태그 삭제"} onClick={() => onRemoveTag(item.id, tag)}><X size="1em" /></IconButton></span>) : <p>추가한 태그가 없습니다.</p>}
+    </div>
+    <form onSubmit={event => { event.preventDefault(); if (value.trim()) { onAddTag(item.id, value.trim()); setValue(""); } }}>
+      <label htmlFor="library-new-tag">새 태그</label>
+      <div className="su-row"><UiInput id="library-new-tag" autoFocus autoComplete="off" maxLength={24} value={value} onChange={event => setValue(event.target.value)} /><Button color="primary" variant="solid" type="submit" disabled={!value.trim() || mark.tags.length >= 8}><Plus size="1em" />추가</Button></div>
+    </form>
+  </dialog>;
+}
 
-  const submit = (event) => {
-    event.preventDefault();
-    const tag = value.trim();
-    if (!tag) return;
-    onAddTag(item.id, tag);
-    setValue("");
-  };
-
-  return (
-    <dialog
-      aria-labelledby="tag-dialog-title"
-      aria-modal="true"
-      className="tag-dialog-backdrop"
-      open
-    >
-      <section className="tag-dialog su-panel">
-        <header className="tag-dialog-header su-toolbar">
-          <div>
-            <p>개인 분류표</p>
-            <h2 id="tag-dialog-title">{item.title}</h2>
-          </div>
-          <Button aria-label="Tag 편집 닫기" className="tag-dialog-close" color="secondary" onClick={onClose} size="md" title="닫기" type="button" uniform variant="ghost">
-            <X aria-hidden="true" size="1em" />
-          </Button>
-        </header>
-
-        <div aria-live="polite" className="tag-list su-row">
-          {mark.tags.length === 0 ? (
-            <p className="tag-empty">아직 붙인 태그가 없습니다.</p>
-          ) : (
-            mark.tags.map((tag) => (
-              <span className="tag-chip" key={tag}>
-                {tag}
-                <Button aria-label={`${tag} 태그 삭제`} color="secondary" onClick={() => onRemoveTag(item.id, tag)} size="2xs" type="button" uniform variant="ghost">
-                  <X aria-hidden="true" size="1em" />
-                </Button>
-              </span>
-            ))
-          )}
+function Publication({ item, mark, eager, onToggleMark, onOpenTags }) {
+  const source = item.cover || item.sourceCover;
+  const tags = issueTags(item, mark);
+  return <article className="publication" data-library-issue-id={item.id}>
+    <Link className="cover-link publication-cover" href={item.readerHref} aria-label={displayDate(item.date) + ", " + tags.join(", ") + ", " + item.title + " 읽기"}>
+      {source ? <img src={source} alt="" loading={eager ? "eager" : "lazy"} /> : <span className="publication-no-cover"><BookOpen size={32} /><span>{item.title}</span></span>}
+    </Link>
+    <div className="publication-info">
+      <div className="publication-heading">
+        <h2><Link href={item.readerHref}>{item.title}</Link></h2>
+        <div className="publication-actions">
+          <IconButton label={mark.starred ? item.title + " 즐겨찾기 해제" : item.title + " 즐겨찾기"} aria-pressed={mark.starred} onClick={() => onToggleMark(item.id, "starred")}><Star size="1em" fill={mark.starred ? "currentColor" : "none"} /></IconButton>
+          <ActionMenu label={item.title + " 도구"}>
+            <Menu.Item onSelect={() => onToggleMark(item.id, "hyped")}><Flame size="1em" />{mark.hyped ? "Hype 해제" : "Hype 표시"}</Menu.Item>
+            <Menu.Item onSelect={() => onOpenTags(item.id)}><Tags size="1em" />태그 편집</Menu.Item>
+          </ActionMenu>
         </div>
-
-        <form className="tag-form su-stack" onSubmit={submit}>
-          <label htmlFor="new-tag">새 태그</label>
-          <div>
-            <Input
-              autoComplete="off"
-              id="new-tag"
-              maxLength={24}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="예: 다시 읽기"
-              ref={inputRef}
-              value={value}
-            />
-            <Button aria-label="태그 추가" color="primary" disabled={!value.trim()} size="md" title="추가" type="submit" uniform variant="solid">
-              <Plus aria-hidden="true" size="1em" />
-            </Button>
-          </div>
-        </form>
-      </section>
-    </dialog>
-  );
+      </div>
+      <div className="publication-meta"><span>{tags.join(" · ")}</span><time dateTime={item.date}>{displayDate(item.date)}</time>{mark.hyped && <Flame size={14} aria-label="Hype 표시됨" />}</div>
+    </div>
+  </article>;
 }
 
 export function App() {
   const [items, setItems] = useState([]);
-  const [marks, setMarks] = useState(() => readMarks());
-  const [activeActionsId, setActiveActionsId] = useState(null);
+  const [marks, setMarks] = useState(readMarks);
   const [tagItemId, setTagItemId] = useState(null);
+  const [query, setQuery] = useState(""), [tag, setTag] = useState(""), [view, setView] = useState("grid");
+  const [loading, setLoading] = useState(true), [error, setError] = useState(""), [retry, setRetry] = useState(0);
   const itemsRef = useRef(items);
-
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
-
-  useEffect(() => registerCatalogWebMcpTools({
-    getItems: () => itemsRef.current,
-  }), []);
-
-  useEffect(() => writeMarks(marks), [marks]);
-
+  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => registerCatalogWebMcpTools({ getItems: () => itemsRef.current, showIssue: () => { setQuery(""); setTag(""); } }), []);
+  useEffect(() => { try { window.localStorage.setItem(MARKS_STORAGE_KEY, JSON.stringify(marks)); } catch { /* Keep current-view marks when storage is unavailable. */ } }, [marks]);
   useEffect(() => {
     const controller = new AbortController();
     ownerFetch("/api/library/issues?limit=200", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
+      .then(async response => { if (!response.ok) throw new Error(); return response.json(); })
+      .then(result => {
+        setItems((Array.isArray(result.issues) ? result.issues : []).map(issue => ({
+          ...issue, cover: issue.coverPath || null, readerHref: issue.canonicalPath,
+        })).sort((left, right) => right.publishedAt.localeCompare(left.publishedAt)));
+        setLoading(false);
       })
-      .then((result) => {
-        setItems((current) => mergeOnlineItems(current, Array.isArray(result.issues) ? result.issues : []));
-      })
-      .catch((error) => {
-        if (error.name !== "AbortError") console.warn("Online Library index is unavailable", error);
-      });
+      .catch(error => { if (error.name !== "AbortError") { setError("발간물을 불러오지 못했습니다."); setLoading(false); } });
     return () => controller.abort();
-  }, []);
+  }, [retry]);
 
-  useEffect(() => {
-    if (!activeActionsId) return undefined;
-
-    const closeFromOutside = (event) => {
-      const openCard = document.querySelector('.cover-card[data-actions-open="true"]');
-      if (!openCard?.contains(event.target)) setActiveActionsId(null);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key !== "Escape") return;
-      const openCard = document.querySelector('.cover-card[data-actions-open="true"]');
-      setActiveActionsId(null);
-      openCard?.querySelector(".cover-action-handle")?.focus();
-    };
-    const closeOnScroll = () => setActiveActionsId(null);
-
-    document.addEventListener("pointerdown", closeFromOutside);
-    window.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("scroll", closeOnScroll, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeFromOutside);
-      window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("scroll", closeOnScroll, true);
-    };
-  }, [activeActionsId]);
-
-  const activeTagItem = useMemo(
-    () => items.find((item) => item.id === tagItemId) || null,
-    [items, tagItemId],
-  );
-
+  const tags = useMemo(() => catalogTags(items, marks), [items, marks]);
+  const visible = useMemo(() => filterIssues(items, marks, query, tag), [items, marks, query, tag]);
+  const activeTagItem = items.find(item => item.id === tagItemId);
   const closeTags = useCallback(() => setTagItemId(null), []);
+  const toggleMark = useCallback((id, field) => setMarks(current => {
+    const previous = current[id] || EMPTY_MARK;
+    return { ...current, [id]: { ...previous, [field]: !previous[field] } };
+  }), []);
+  const addTag = useCallback((id, nextTag) => setMarks(current => {
+    const previous = current[id] || EMPTY_MARK;
+    return { ...current, [id]: { ...previous, tags: [...new Set([...previous.tags, nextTag])].slice(0, 8) } };
+  }), []);
+  const removeTag = useCallback((id, removedTag) => setMarks(current => {
+    const previous = current[id] || EMPTY_MARK;
+    return { ...current, [id]: { ...previous, tags: previous.tags.filter(value => value !== removedTag) } };
+  }), []);
 
-  const toggleActions = useCallback((id) => {
-    setActiveActionsId((current) => current === id ? null : id);
-  }, []);
-
-  const openTags = useCallback((id) => {
-    setActiveActionsId(null);
-    setTagItemId(id);
-  }, []);
-
-  const toggleMark = useCallback((id, field) => {
-    setMarks((current) => {
-      const previous = current[id] || EMPTY_MARK;
-      return {
-        ...current,
-        [id]: { ...previous, [field]: !previous[field] },
-      };
-    });
-  }, []);
-
-  const addTag = useCallback((id, nextTag) => {
-    setMarks((current) => {
-      const previous = current[id] || EMPTY_MARK;
-      const tags = [...new Set([...previous.tags, nextTag])].slice(0, 8);
-      return { ...current, [id]: { ...previous, tags } };
-    });
-  }, []);
-
-  const removeTag = useCallback((id, removedTag) => {
-    setMarks((current) => {
-      const previous = current[id] || EMPTY_MARK;
-      return {
-        ...current,
-        [id]: { ...previous, tags: previous.tags.filter((tag) => tag !== removedTag) },
-      };
-    });
-  }, []);
-
-  return (
-    <main className="library-app">
-      <LibraryHeader count={items.length} />
-      <CoverFeed
-        activeActionsId={activeActionsId}
-        items={items}
-        marks={marks}
-        onOpenTags={openTags}
-        onToggleActions={toggleActions}
-        onToggleMark={toggleMark}
-      />
-      {activeTagItem && (
-        <TagDialog
-          item={activeTagItem}
-          mark={marks[activeTagItem.id] || EMPTY_MARK}
-          onAddTag={addTag}
-          onClose={closeTags}
-          onRemoveTag={removeTag}
-        />
-      )}
-    </main>
-  );
+  return <main className="toolkit-page library-workspace" id="main-content">
+    <header className="toolkit-page-header">
+      <h1>Library</h1>
+      <div className="toolkit-page-tools">{!loading && !error && <span className="toolkit-page-count">{items.length}개의 발간물</span>}<Link className="file-project-link" href="/manage/library"><Settings2 size={18} />자료 관리</Link></div>
+    </header>
+    <div className="library-toolbar">
+      <div className="library-search"><UiInput type="search" aria-label="발간물 찾기" placeholder="발간물 찾기" startAdornment={<Search size="1em" />} value={query} onChange={event => setQuery(event.target.value)} /></div>
+      <div className="library-tag-filter"><FieldSelect aria-label="태그 필터" value={tag} onChange={option => setTag(option.value)}><option value="">태그</option>{tags.map(value => <option key={value} value={value}>{value}</option>)}</FieldSelect></div>
+      {tag && <IconButton label="태그 필터 해제" onClick={() => setTag("")}><X size="1em" /></IconButton>}
+      <div className="library-view" role="group" aria-label="보기 방식">
+        <IconButton label="표지 보기" aria-pressed={view === "grid"} selected={view === "grid"} onClick={() => setView("grid")}><Grid2X2 size="1em" /></IconButton>
+        <IconButton label="목록 보기" aria-pressed={view === "list"} selected={view === "list"} onClick={() => setView("list")}><List size="1em" /></IconButton>
+      </div>
+    </div>
+    {loading ? <p className="toolkit-page-state" role="status">발간물을 불러오는 중…</p> : error ? <div className="toolkit-page-state" role="alert">{error}<Button color="primary" variant="outline" onClick={() => { setLoading(true); setError(""); setRetry(value => value + 1); }}>다시 시도</Button></div> : <>
+      {(query || tag) && <p className="library-result-count" role="status">{visible.length}개의 발간물</p>}
+      {visible.length ? <section className={"publication-gallery is-" + view} aria-label="발간물">{visible.map((item, index) => <Publication key={item.id} item={item} mark={marks[item.id] || EMPTY_MARK} eager={index < 8} onToggleMark={toggleMark} onOpenTags={setTagItemId} />)}</section> : <div className="toolkit-page-state"><p>{items.length ? "조건에 맞는 발간물이 없습니다." : "아직 발간물이 없습니다."}</p>{(query || tag) && <Button variant="outline" color="primary" onClick={() => { setQuery(""); setTag(""); }}>검색 초기화</Button>}</div>}
+    </>}
+    {activeTagItem && <TagDialog item={activeTagItem} mark={marks[activeTagItem.id] || EMPTY_MARK} onAddTag={addTag} onClose={closeTags} onRemoveTag={removeTag} />}
+  </main>;
 }

@@ -1,0 +1,27 @@
+html[data-toolkit-reader]{
+  --paper:var(--su-paper)!important;--ink:var(--su-ink)!important;--soft:var(--su-muted)!important;--faint:var(--su-muted)!important;--line:var(--su-line)!important;
+  --accent:var(--su-ink)!important;--accent-ink:var(--su-paper)!important;--link:var(--su-ink)!important;--cobalt:var(--su-paper)!important;--cobalt-deep:var(--su-ink)!important;
+  --font-sans:var(--su-font)!important;--font-title:var(--su-font)!important;--font-label:var(--su-font)!important;
+  --text-display:32px!important;--page-max:760px!important;--measure:100%!important;--rail:0px!important;--rail-gap:0px!important;--gutter:24px!important;
+  background:var(--su-paper)!important;color:var(--su-ink)!important;color-scheme:light!important;
+}
+html[data-toolkit-reader][data-theme=dark]{color-scheme:dark!important}
+html[data-toolkit-reader] body{background:var(--su-paper)!important;color:var(--su-ink)!important;min-width:0!important;font-family:var(--su-font)!important}
+[data-toolkit-reader] [data-library-return],[data-toolkit-reader] .reader-tools,[data-toolkit-reader] .library-save-status{display:none!important}
+[data-toolkit-reader] .reader-document{padding:32px 0 64px!important;max-width:760px!important}
+[data-toolkit-reader] .reader-opening{display:flex!important;flex-direction:column!important;gap:16px!important;padding-bottom:24px!important}
+[data-toolkit-reader] .reader-meta{display:block!important;font:13px/1.5 var(--su-font)!important;width:100%!important}
+[data-toolkit-reader] .reader-meta:before{display:none!important}
+[data-toolkit-reader] .reader-meta .masthead{display:flex!important;flex-wrap:wrap!important;gap:12px!important}
+[data-toolkit-reader] .reader-header h1{font:600 32px/1.4 var(--su-font)!important;white-space:normal!important;letter-spacing:-.035em!important}
+[data-toolkit-reader] .reader-header .lead{font-size:17px!important;line-height:1.75!important;margin-top:16px!important}
+[data-toolkit-reader] .reader-content{width:100%!important;margin-left:0!important}
+[data-toolkit-reader] .reader-content>article{font-size:calc(16px * var(--reader-scale))!important;line-height:1.85!important;padding:28px 0!important}
+[data-toolkit-reader] .reader-content h2{display:block!important;font-size:24px!important}
+[data-toolkit-reader] .reader-content h2:before{display:none!important}
+[data-toolkit-reader] .library-draft-recovery{margin:24px auto 0!important;max-width:760px!important;border-radius:var(--su-radius)!important}
+[data-toolkit-reader] .library-draft-actions button{border-radius:var(--su-radius)!important}
+[data-toolkit-reader] body:not(.toolkit-reader-editing) [contenteditable=false]{cursor:auto!important}
+[data-toolkit-reader] .toolkit-reader-editing main :is(h1,article,.lead)[contenteditable]:focus{outline:2px solid var(--su-focus)!important;outline-offset:6px!important}
+@media(max-width:760px){html[data-toolkit-reader]{--gutter:16px!important;--text-display:26px!important}[data-toolkit-reader] .reader-document{padding-top:24px!important}[data-toolkit-reader] .reader-header h1{font-size:26px!important}[data-toolkit-reader] .reader-header .lead{font-size:16px!important}}
+@media print{[data-toolkit-reader] .reader-document{max-width:none!important;width:100%!important;padding:0!important}[data-toolkit-reader] .reader-content>article{font-size:11pt!important}}

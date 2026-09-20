@@ -1,5 +1,9 @@
 "use client";
 
+import "../../styles/design-workspace.css";
+import { DesignPreview } from "./design-preview";
+import { designPreviewPath } from "@/lib/design-preview";
+
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
 import { X } from "lucide-react";
@@ -73,6 +77,7 @@ type Recipe = {
   use_for: string[];
   avoid_for: string[];
   capabilities: Capabilities;
+  profiles?: Record<string, string[]>;
   templates: Record<string, string>;
   gallery?: Gallery;
   validation: { checked_on: string };
@@ -992,7 +997,7 @@ function RecipeCard({
           <button className="primary-action" type="button" onClick={onRequest}>
             요청 만들기 <span aria-hidden="true">→</span>
           </button>
-          <button className="preview-action" type="button" onClick={onPreview}>
+          <button className="preview-action" type="button" disabled={!designPreviewPath(recipe)} onClick={onPreview}>
             미리보기
           </button>
           <button
@@ -1598,150 +1603,77 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
 
   return (
     <main className={`gallery gallery--${theme}`} id="library">
-      <header className="topbar su-appbar">
-        <div className="topbar-inner su-appbar__inner">
-          <a
-            className="brand"
-            href="#library"
-            aria-label="디자인 참고 라이브러리 맨 위로"
-            onClick={(event) => {
-              event.preventDefault();
-              document
-                .getElementById("library")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-          >
-            Design Reference Library
-          </a>
-        </div>
+      <header className="design-workspace-header">
+        <h1>디자인 자료</h1>
+        <a href="/manage/design">자료 관리</a>
       </header>
 
-      <section className="finder su-workspace" aria-labelledby="finder-title">
-        <header className="finder-heading su-section">
-          <h1 id="finder-title">디자인 기준 찾기</h1>
-          <p>
-            하나의 정답 대신, 목적에 가까운 패턴과 레시피를 비교해 필요한 부분만
-            고릅니다.
-          </p>
-        </header>
-
-        <div className="finder-layout">
-          <div className="finder-controls">
-            <fieldset>
-              <legend>형식</legend>
-              <div className="format-options">
-                {formats.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={format === item.id}
-                    onClick={() => chooseFormat(item.id)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>내용</legend>
-              <div className="content-options">
-                {contents.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={content === item.id}
-                    onClick={() => {
-                      setContent(item.id);
-                      setReferenceLimit(3);
-                    }}
-                  >
-                    <strong>{item.label}</strong>
-                    <span>{item.description}</span>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>필요한 기능</legend>
-              <div className="need-options">
-                {visibleNeeds.map((need) => (
-                  <button
-                    key={need.id}
-                    type="button"
-                    aria-pressed={selectedNeeds.includes(need.id)}
-                    onClick={() => toggleNeed(need.id)}
-                  >
-                    <span aria-hidden="true">
-                      {selectedNeeds.includes(need.id) ? "✓" : "+"}
-                    </span>
-                    {need.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          </div>
-
-          <aside className="finder-result" aria-live="polite">
-            <p className="result-label">참고 방향 · 가까운 순서</p>
-            {rankedReferences.length === 0 ? (
-              <p className="result-empty">{emptyMessage}</p>
-            ) : null}
-            <div className="candidate-list">
-              {rankedReferences.map((reference, index) => {
-                const note = noteFor(runtime, reference.recipe);
-                return (
-                  <article className="candidate-item" key={reference.recipe.id}>
-                    <header>
-                      <span className="candidate-rank">후보 {index + 1}</span>
-                      <h2>{note.koreanName}</h2>
-                    </header>
-                    <p className="result-purpose">{note.purpose}</p>
-                    <ul className="candidate-reasons">
-                      {reference.reasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
-                    {reference.tensions.length ? (
-                      <div className="candidate-tensions">
-                        <strong>살펴볼 점</strong>
-                        <ul>
-                          {reference.tensions.map((tension) => (
-                            <li key={tension}>{tension}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    <div className="candidate-actions">
-                      <button
-                        type="button"
-                        onClick={() => openRequest(reference.recipe.id)}
-                      >
-                        요청 만들기
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => showReferenceCard(reference.recipe.id)}
-                      >
-                        자세히 보기
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+      <section className="finder" aria-labelledby="finder-title">
+        <h2 className="workspace-section-title" id="finder-title">
+          자료 찾기
+        </h2>
+        <div className="finder-controls">
+          <fieldset>
+            <legend>형식</legend>
+            <div className="format-options">
+              {formats.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={format === item.id}
+                  onClick={() => chooseFormat(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-          </aside>
+          </fieldset>
+
+          <fieldset>
+            <legend>내용</legend>
+            <div className="content-options">
+              {contents.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={content === item.id}
+                  onClick={() => {
+                    setContent(item.id);
+                    setReferenceLimit(3);
+                  }}
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>필요한 기능</legend>
+            <div className="need-options">
+              {visibleNeeds.map((need) => (
+                <button
+                  key={need.id}
+                  type="button"
+                  aria-pressed={selectedNeeds.includes(need.id)}
+                  onClick={() => toggleNeed(need.id)}
+                >
+                  <span aria-hidden="true">
+                    {selectedNeeds.includes(need.id) ? "✓" : "+"}
+                  </span>
+                  {need.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
         </div>
       </section>
 
       <section className="design-section su-workspace su-section" aria-labelledby="design-list-title">
-        <header className="section-heading su-toolbar">
-          <h2 id="design-list-title">레시피와 예시</h2>
-          <p>
-            이름은 출발점입니다. 연결된 패턴과 현재 프로젝트의 규칙을 함께 보고
-            선택해 주세요.
-          </p>
+        <header className="section-heading">
+          <h2 id="design-list-title">레시피</h2>
+          <span>{availableRecipes.length}개</span>
         </header>
         {availableRecipes.length > 0 ? (
           <div className="design-grid" aria-live="polite">
@@ -1781,6 +1713,62 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
           </section>
         ) : null}
       </section>
+
+      <details className="recommendation-details">
+        <summary>
+          <span>추천 기준</span>
+          <span>{rankedReferences.length}개</span>
+        </summary>
+        <div className="finder-result" aria-live="polite">
+          <p className="result-label">참고 방향 · 가까운 순서</p>
+          {rankedReferences.length === 0 ? (
+            <p className="result-empty">{emptyMessage}</p>
+          ) : null}
+          <div className="candidate-list">
+            {rankedReferences.map((reference, index) => {
+              const note = noteFor(runtime, reference.recipe);
+              return (
+                <article className="candidate-item" key={reference.recipe.id}>
+                  <header>
+                    <span className="candidate-rank">후보 {index + 1}</span>
+                    <h2>{note.koreanName}</h2>
+                  </header>
+                  <p className="result-purpose">{note.purpose}</p>
+                  <ul className="candidate-reasons">
+                    {reference.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                  {reference.tensions.length ? (
+                    <div className="candidate-tensions">
+                      <strong>살펴볼 점</strong>
+                      <ul>
+                        {reference.tensions.map((tension) => (
+                          <li key={tension}>{tension}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <div className="candidate-actions">
+                    <button
+                      type="button"
+                      onClick={() => openRequest(reference.recipe.id)}
+                    >
+                      요청 만들기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => showReferenceCard(reference.recipe.id)}
+                    >
+                      자세히 보기
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </details>
 
       {comparedIds.length > 0 && (
         <aside className="compare-tray" aria-label="비교할 참고 후보">
@@ -1834,7 +1822,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
               </h2>
               <div className="panel-actions">
                 <a
-                  href={`/api/design/files/${previewRecipe.id}/styleguide.html`}
+                  href={`/api/design/files/${encodeURIComponent(previewRecipe.id)}/${designPreviewPath(previewRecipe)?.split("/").map(encodeURIComponent).join("/")}`}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -1849,10 +1837,9 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
                 </button>
               </div>
             </header>
-            <iframe
-              src={`/api/design/files/${previewRecipe.id}/styleguide.html`}
+            <DesignPreview key={previewRecipe.id}
+              href={`/api/design/files/${encodeURIComponent(previewRecipe.id)}/${designPreviewPath(previewRecipe)?.split("/").map(encodeURIComponent).join("/")}`}
               title={`${noteFor(runtime, previewRecipe).koreanName} 디자인 미리보기`}
-              sandbox=""
             />
           </section>
         ) : null}

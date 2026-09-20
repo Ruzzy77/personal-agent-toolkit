@@ -81,6 +81,7 @@
     }
 
     const saveButton = actionButton("현재 수정 저장", () => saveEditing({ force: true }).catch(() => {}));
+    saveButton.dataset.librarySave = "true";
     const cancelButton = actionButton("현재 수정 취소", () => {
       if (window.confirm("현재 화면의 미저장 수정을 취소할까요? 보관된 다른 초안과 온라인 글은 바꾸지 않습니다.")) {
         discardDraft({ includeOwnerEdits: true });
@@ -326,6 +327,7 @@
         }
       }
       const active = dirty || isReviewing();
+      document.documentElement.toggleAttribute("data-library-unsaved", active || saving || storageFailed);
       recoveryPanel.hidden = !recoveryRecords.length && !isReviewing() && !versionConflict && !storageFailed;
       recoveryMessage.textContent = versionConflict
         ? "다른 편집이 먼저 저장되었습니다. 초안을 보관한 뒤 최신 글을 불러와 확인해 주세요."
@@ -587,7 +589,14 @@
     }
 
     function registerWebMcpTools() {
-      const context = document.modelContext;
+      let context = document.modelContext;
+      try {
+        if (document.documentElement.dataset.toolkitReader === "true" &&
+            window.parent !== window && window.parent.location.origin === window.location.origin &&
+            window.parent.location.pathname === "/library/read") {
+          context = window.parent.document.modelContext || context;
+        }
+      } catch { /* Keep the document-local registry outside the same-origin reader. */ }
       if (!context?.registerTool) return;
       const controller = new AbortController();
 
@@ -670,6 +679,7 @@
       });
 
       window.addEventListener("pagehide", () => controller.abort(), { once: true });
+      document.addEventListener("toolkit-reader-dispose", () => controller.abort(), { once: true });
     }
 
     makeAlwaysEditable();
@@ -696,6 +706,9 @@
     }, { capture: true });
     window.addEventListener("online", () => {
       if (dirty && !isReviewing() && !versionConflict) scheduleSave(0);
+    });
+    window.addEventListener("beforeunload", (event) => {
+      if (dirty || isReviewing() || saving) { storeDraft(); event.preventDefault(); event.returnValue = ""; }
     });
     window.addEventListener("pagehide", () => {
       if (dirty || isReviewing()) storeDraft();

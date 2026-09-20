@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 
 import { requireOwnerUser } from '@/lib/owner-service';
@@ -22,38 +22,6 @@ const PERIODS: Array<{ kind: PeriodKind; label: string }> = [
 ];
 
 export const dynamic = 'force-dynamic';
-
-function addDays(date: string, days: number): string {
-  const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + days);
-  return value.toISOString().slice(0, 10);
-}
-
-function weekNumber(weekId: string): number {
-  const date = new Date(`${weekId}T00:00:00Z`);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  return Math.ceil(
-    ((date.getTime() - yearStart.getTime()) / 86_400_000 +
-      yearStart.getUTCDay() +
-      1) /
-      7,
-  );
-}
-
-function headerDate(date: string): string {
-  return new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    month: 'long',
-    day: 'numeric',
-  }).format(new Date(`${date}T12:00:00+09:00`));
-}
-
-function weekday(date: string): string {
-  return new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    weekday: 'long',
-  }).format(new Date(`${date}T12:00:00+09:00`));
-}
 
 function periodLabel(period: PeriodResult): string {
   if (period.kind === 'week') return '선택한 주';
@@ -115,13 +83,6 @@ async function AuthenticatedHome({
     }
   }
 
-  const previousWeek = addDays(board.week.id, -7);
-  const nextWeek = addDays(board.week.id, 7);
-  const isCurrentWeek =
-    board.week.startsOn <= today && today <= board.week.endsOn;
-  const boardTitle = isCurrentWeek
-    ? `${headerDate(today)} 진행 보드`
-    : `${headerDate(board.week.startsOn)}–${headerDate(board.week.endsOn)} 기록`;
   const periodTotal = period
     ? Object.values(period.totals).reduce((sum, count) => sum + count, 0)
     : 0;
@@ -129,48 +90,18 @@ async function AuthenticatedHome({
   return (
     <main className="journal-shell su-workspace">
       <section className="journal-sheet" aria-labelledby="journal-title">
-        <header className="journal-header su-toolbar">
-          <div>
-            <p className="journal-kicker">
-              Journal · {weekNumber(board.week.id)}주
-            </p>
-            <h1 id="journal-title">{boardTitle}</h1>
-          </div>
-          <div className="week-navigation su-row">
-            <Link
-              href={`/journal?week=${previousWeek}&period=${selectedPeriod}`}
-              aria-label="이전 주"
-              title="이전 주"
-            >
-              <ChevronLeft aria-hidden="true" />
-            </Link>
-            <p className="journal-meta">
-              {isCurrentWeek ? weekday(today) : '주간 기록'}
-              <span>
-                {isCurrentWeek ? '이번 주' : '주간 기록'} ·{' '}
-                {Number(board.week.startsOn.slice(5, 7))}.
-                {Number(board.week.startsOn.slice(8, 10))}–
-                {Number(board.week.endsOn.slice(5, 7))}.
-                {Number(board.week.endsOn.slice(8, 10))}
-              </span>
-            </p>
-            <Link
-              href={`/journal?week=${nextWeek}&period=${selectedPeriod}`}
-              aria-label="다음 주"
-              title="다음 주"
-            >
-              <ChevronRight aria-hidden="true" />
-            </Link>
-          </div>
-        </header>
-
         {unavailable && (
           <p className="service-alert" role="alert">
             Journal에 연결하지 못했습니다.
           </p>
         )}
 
-        <JournalBoard key={board.week.id} initialBoard={board} today={today} />
+        <JournalBoard
+          key={board.week.id}
+          initialBoard={board}
+          today={today}
+          selectedPeriod={selectedPeriod}
+        />
 
         <details
           className="period-section secondary-details"
