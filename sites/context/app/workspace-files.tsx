@@ -68,10 +68,11 @@ export function WorkspaceFiles(){
     const value=draftRef.current;if(!value)return;setBusy(true);setError("");
     try{const result=await hostCall<{version:string}>("host_write",{root:value.root,path:value.path,content:value.body,expected_version:value.version});
       keepDraft({...value,base:value.body,version:result.version});setIncoming(null);setMessage("저장됨");void load();}
-    catch(error){setError(failure(error));if((error as {code?:string}).code==="version_conflict"){
+    catch(error){if((error as {code?:string}).code==="version_conflict"){
       const result=await hostCall<{files:Array<{content:string;version:string}>}>("host_read",{root:value.root,files:[{path:value.path}]}).catch(()=>null);
-      if(result)setIncoming({...value,body:result.files[0].content,base:result.files[0].content,version:result.files[0].version});
-    }}finally{setBusy(false);}
+      if(result){setError("");setIncoming({...value,body:result.files[0].content,base:result.files[0].content,version:result.files[0].version});}
+      else setError("다른 곳에서 파일이 변경되었습니다. 현재 수정안은 유지했습니다.");
+    }else setError(failure(error));}finally{setBusy(false);}
   }
   async function rename(entry:FileEntry){setModal({kind:"move",title:"이름 변경·이동",value:entry.path,entry});}
   async function remove(entry:FileEntry){

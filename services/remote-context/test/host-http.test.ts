@@ -81,4 +81,33 @@ describe("Worker Host file HTTP boundary", () => {
       }), env(),
     )).rejects.toMatchObject({ code: "request_too_large", status: 413 });
   });
+
+  it("preserves a wrapped Host error code for browser conflict handling", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({
+      jsonrpc: "2.0",
+      id: "test",
+      result: {
+        isError: true,
+        content: [{
+          type: "text",
+          text: "Error executing tool host_write: version_conflict: the file changed",
+        }],
+      },
+    }));
+    const response = await handleHostHttp(new Request(
+      "https://worker.example/site/host/v1/host_write", {
+        method: "POST",
+        headers: { ...siteHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          root: "workspace",
+          path: "notes.md",
+          content: "draft",
+          expected_version: "old",
+        }),
+      }), env(fetch));
+    expect(response?.status).toBe(409);
+    expect(await response?.json()).toMatchObject({
+      error: { code: "version_conflict" },
+    });
+  });
 });

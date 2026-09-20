@@ -27,7 +27,12 @@ export async function handleHostHttp(request: Request, env: Env): Promise<Respon
     if (result.isError) {
       const blocks = result.content as Array<{ text?: string }>;
       const message = blocks.find(block => typeof block.text === "string")?.text ?? "File operation failed";
-      const code = /\b([a-z_]+):/.exec(message)?.[1] ?? "host_error";
+      // Some MCP clients prefix a Host error with `Error executing tool host_*:`.
+      // Prefer the error code after that wrapper; otherwise accept a direct
+      // `code: message` response without mistaking a later URL scheme for it.
+      const wrapped = /\bhost_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
+      const direct = /^\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
+      const code = wrapped ?? direct ?? "host_error";
       const status = code === "version_conflict" ? 409 : code === "policy_denied" ? 403 : code === "not_found" ? 404 : 400;
       return json({ error: { code, message } }, status);
     }
