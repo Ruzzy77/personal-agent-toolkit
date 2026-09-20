@@ -26,7 +26,7 @@ test("Toolkit keeps all destinations in a responsive sidebar with an accessible 
   for (const href of ["/journal", "/library", "/design", "/settings"]) assert.ok(shell.includes(href));
   assert.match(shell, /aria-expanded={menuOpen}/);
   assert.match(shell, /aria-controls="toolkit-menu"/);
-  assert.match(css, /\.toolkit-menu\.is-open\{display:flex\}/);
+  assert.match(css, /\.toolkit-menu\.is-open\{display:flex(?:;|\})/);
   assert.match(css, /\.toolkit-content\{margin-left:0\}/);
   assert.ok(!css.includes(".file-detail{display:flex}"));
   assert.match(css, /\.file-detail\{[^}]*flex-direction:column/);
@@ -75,4 +75,11 @@ test("workspace popovers stay above sticky file headers and sidebar actions alig
   const css = read("../app/workspace.css");
   assert.match(css, /\.ui-document \[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
   assert.match(css, /\.toolkit-account-trigger>span\{justify-content:flex-start!important\}/);
+});
+
+test("mobile navigation opens as an opaque panel without mixing with workspace content", () => {
+  const css = read("../app/workspace.css");
+  assert.match(css, /\.toolkit-sidebar\{position:sticky;inset:auto;top:0;[^}]*background:var\(--su-paper\)/);
+  assert.match(css, /\.toolkit-menu\.is-open\{display:flex;position:fixed;inset:57px 0 0;[^}]*background:var\(--su-paper\);overflow:auto\}/);
+  assert.match(css, /body:has\(\.toolkit-menu\.is-open\)\{overflow:hidden\}/);
 });
