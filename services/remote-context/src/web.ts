@@ -205,6 +205,12 @@ export async function handleWeb(request: Request, env: Env): Promise<Response | 
       );
       return handleAdminSite(internal, env, principal);
     }
+    if (/^\/web\/library\/media\/.+/.test(url.pathname)) {
+      if (!["GET", "HEAD"].includes(request.method)) {
+        throw new ContextError("method_not_allowed", "Media is read-only", 405);
+      }
+      return productHttp(request, env, "library");
+    }
     const product = /^\/web\/(journal|library|design)(\/api\/v1(?:\/.*)?)$/.exec(url.pathname);
     if (product) return productHttp(request, env, product[1]! as WebProduct);
     const transfer = /^\/web\/site\/host\/v1\/transfers\/([A-Za-z0-9_-]{12,80})\/(status|chunk|commit|content)$/.exec(url.pathname);

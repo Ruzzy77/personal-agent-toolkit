@@ -77,6 +77,7 @@ describe("owner web product bridges", () => {
     for (const path of [
       "/web/journal/api/v1/board",
       "/web/library/api/v1/issues",
+      "/web/library/media/daily/2026-09-20/08/cover.jpg",
       "/web/design/api/v1/catalog",
     ]) {
       const missing = await handleHttp(webRequest(path), webEnv);
@@ -92,6 +93,38 @@ describe("owner web product bridges", () => {
         ok: false,
         error: { code: "insufficient_scope" },
       });
+    }
+  });
+
+  it("serves scoped Library media with GET and bodyless HEAD only", async () => {
+    const key = "daily/2026-09-20/08/cover.jpg";
+    await runtime.LIBRARY_MEDIA.put(key, "cover-bytes", {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    try {
+      const path = "/web/library/media/" + key;
+      const get = await handleHttp(webRequest(path, "read-token"), webEnv);
+      expect(get.status).toBe(200);
+      expect(get.headers.get("Content-Type")).toBe("image/jpeg");
+      expect(get.headers.get("Cache-Control")).toContain("private");
+      expect(get.headers.get("ETag")).toBeTruthy();
+      expect(get.headers.get("Set-Cookie")).toBeNull();
+      expect(new Uint8Array(await get.arrayBuffer())).toEqual(new TextEncoder().encode("cover-bytes"));
+      const head = await handleHttp(webRequest(path, "read-token", { method: "HEAD" }), webEnv);
+      expect(head.status).toBe(200);
+      expect(head.headers.get("ETag")).toBe(get.headers.get("ETag"));
+      expect((await head.arrayBuffer()).byteLength).toBe(0);
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const rejected = await handleHttp(webRequest(path, "owner-token", { method }), webEnv);
+        expect(rejected.status, method).toBe(405);
+      }
+      const missing = await handleHttp(webRequest("/web/library/media/missing.jpg", "read-token"), webEnv);
+      expect(missing.status).toBe(404);
+      const invalid = await handleHttp(webRequest("/web/library/media/bad%2F..%2Fkey.jpg", "read-token"), webEnv);
+      expect(invalid.status).toBe(400);
+      expect((await runtime.LIBRARY_MEDIA.get(key))?.size).toBe(11);
+    } finally {
+      await runtime.LIBRARY_MEDIA.delete(key);
     }
   });
 

@@ -10,12 +10,13 @@ import {
 const JSON_LIMIT = 16 * 1024 * 1024;
 const BINARY_LIMIT = 8 * 1024 * 1024;
 
-function webPath(path: string): string {
+function webPath(path: string, method = "GET"): string {
   if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
     throw new OwnerSessionError(403, "owner request path is invalid");
   }
   const product = /^(\/site\/v1\/|\/admin\/v1\/|\/site\/host\/v1\/|\/journal\/api\/v1\/|\/library\/api\/v1\/|\/design\/api\/v1\/)/;
-  if (!product.test(path)) {
+  const media = /^\/library\/media\/.+/.test(path) && ["GET", "HEAD"].includes(method.toUpperCase());
+  if (!product.test(path) && !media) {
     throw new OwnerSessionError(403, "owner request path is not available");
   }
   return "/web" + path;
@@ -76,7 +77,7 @@ async function send(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
-  return fetch(contextUrl() + webPath(path), {
+  return fetch(contextUrl() + webPath(path, init.method), {
     ...init,
     headers,
     cache: "no-store",
