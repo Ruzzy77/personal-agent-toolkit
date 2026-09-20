@@ -77,21 +77,24 @@ docker create -i --name pah-<job-id> --user <uid>:<gid>
   --mount …,dst=/workspace/<보호 경로>,readonly,bind-recursive=readonly …
   --mount …,dst=/sources/<id>,readonly,bind-recursive=readonly …
   -w /workspace/<cwd>  personal-agent-host-sandbox:1 <argv>
-docker start -ai pah-<job-id>      # 비동기 subprocess. stdin 전달 후 EOF, TTY 없음
+docker start pah-<job-id>          # 컨테이너 수명은 Host 서비스와 분리
+docker logs --follow pah-<job-id>  # 출력 감시
+docker wait pah-<job-id>           # 종료·timeout 감시
 ```
 
 - `shell`은 컨테이너 안에서 `sh -c`. profile 생략 시 base이며, 공개 IPv4 외부 송신은 기본으로 사용할 수 있다.
 - 작업공간 안의 보호 원본은 숨기지 않고 제자리에 읽기 전용으로 겹쳐 마운트한다. 보호 경로의 조상 디렉터리도 같은 위치에 마운트해 컨테이너에서 통째로 이름을 바꾸지 못하게 한다. 마운트 경계를 가로지르는 `rename()`은 `EXDEV`로 실패한다.
 - 보호 경로가 없거나 디렉터리가 아니거나 재귀 읽기 전용을 적용할 수 없으면 job을 거부한다. 보호 수준을 낮춰 재시도하지 않는다. 보호 원본의 파일이 다른 위치와 inode를 공유하면 그 구성도 거부한다.
 - `timeout_s`는 실행 시작부터, `wait_s`는 접수부터 센다. 클라이언트 연결 종료는 취소가 아니다.
-- 데몬이 출력을 `jobs/<id>/`에 스트림별 64 MiB까지 저장하고 초과분은 소비만 하며 `truncated=true`. 종료 후 exit code를 기록하고 컨테이너를 지운다. 재시작 시 `pah-*` 컨테이너를 실행 중·종료 모두 다시 읽어 출력 저장을 마친 뒤 최종 상태를 기록한다.
+- stdin이 있으면 시작 시 별도 attach로 원문 UTF-8을 전달한 뒤 EOF를 닫고, 출력과 종료는 분리된 감시기로 처리한다. 통합 MCP의 내부 전달은 JSON 모양 문자열의 자동 해석을 피하도록 원문을 base64로 감싸며 공개 `host_exec.stdin` 계약은 문자열 그대로다.
+- 데몬이 출력을 `jobs/<id>/`에 스트림별 64 MiB까지 저장하고 초과분은 소비만 하며 `truncated=true`. 종료 후 exit code를 기록하고 컨테이너를 지운다. systemd는 Host 주 프로세스만 종료하고 Host가 감시 subprocess를 직접 정리한다. 재시작 시 `pah-*` 컨테이너를 실행 중·종료 모두 다시 읽어 전체 출력과 남은 제한 시간을 복원한 뒤 최종 상태를 기록한다.
 - 동시 실행은 `max_concurrent_jobs`(기본 4)까지, 넘으면 `queued`. 종료된 job은 7일 보관.
 - 실행 프로필은 base, web, documents다. base는 Python·Git·uv·ripgrep, web은 고정 Node/npm, documents는 고정 Document Files 공급 계약과 DOCX·XLSX·PPTX·PDF 라이브러리를 제공한다. host_capabilities는 이미지 설치 여부·image_id와 이미지 label의 기능 목록을 보고한다.
 - 이미지 빌드는 `apps/host/scripts/build-sandbox.sh "$REPO" all`로 수행한다. 프로젝트 의존성은 각 잠금 파일을 사용한다. documents는 `scripts/document_files_release.py source`와 공급 lock을 따르며 migration_pending에서는 1.7.0 baseline을 유지한다.
 - 작업마다 직접 인터넷에 연결되는 전용 IPv4 bridge를 만든다. 목적지·포트 허용목록이나 HTTPS 프록시는 두지 않으며 TCP·UDP·ICMP를 사용할 수 있다.
 - root 소유 guard가 Host label과 정확한 작업망을 확인한 뒤 Spark 호스트·사설망·공유 주소대역·메타데이터·다른 작업망과 외부에서 시작된 연결을 차단한다. 포트를 공개하거나 host network·Docker socket·추가 capability를 제공하지 않는다.
 - guard 규칙의 설치와 확인이 끝난 뒤에만 작업 컨테이너를 만든다. 실패하면 실행을 거부한다. 취소·실패·timeout 때 컨테이너, 규칙과 작업망을 순서대로 정리하며 규칙 제거를 확인하지 못하면 재시도를 위해 label이 있는 작업망을 보존한다.
-- Host 재시작 때 실행 중 컨테이너를 잠시 멈추고 보호 규칙을 확인·복구한 뒤 재개한다. 복구할 수 없는 작업은 종료한다. IPv6 외부 경로는 열지 않는다.
+- Host 재시작 때 실행 중 컨테이너를 잠시 멈추고 보호 규칙을 확인·복구한 뒤 재개한다. 서비스 종료는 작업 컨테이너나 작업망을 제거하지 않으며, 새 Host가 종료된 작업까지 다시 수집한다. 복구할 수 없는 작업만 종료한다. IPv6 외부 경로는 열지 않는다.
 
 ## 6. 설정
 
