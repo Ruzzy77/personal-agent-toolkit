@@ -73,6 +73,6 @@ test("workspace root picker is wide enough for long registered root names", () =
 
 test("workspace popovers stay above sticky file headers and sidebar actions align", () => {
   const css = read("../app/workspace.css");
-  assert.match(css, /\.ui-document>\[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
+  assert.match(css, /\.ui-document \[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
   assert.match(css, /\.toolkit-account-trigger>span\{justify-content:flex-start!important\}/);
 });
