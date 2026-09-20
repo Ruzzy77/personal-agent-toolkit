@@ -53,3 +53,14 @@ test("clean checkouts build with the public worker configuration", () => {
   assert.match(config, /existsSync/);
   assert.match(config, /wrangler\.example\.jsonc/);
 });
+
+test("embedded products apply tokens at their scope root and share the Toolkit theme", () => {
+  const css = read("../styles/products.css"), gallery = read("../components/design/design-gallery.tsx");
+  for (const name of ["journal-shell", "library-app"]) {
+    assert.ok(css.includes(`@scope (.${name}) {\n:scope {`));
+  }
+  assert.ok(css.includes(":scope {\n  --bg: var(--su-paper);"));
+  assert.ok(css.includes(":scope.gallery--dark"));
+  assert.match(gallery, /useSyncExternalStore\(subscribeTheme, currentTheme, initialTheme\)/);
+  assert.ok(!gallery.includes('className="theme-button"'));
+});

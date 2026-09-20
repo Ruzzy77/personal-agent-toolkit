@@ -2,12 +2,13 @@
 
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { Textarea } from "@openai/apps-sdk-ui/components/Textarea";
-import { Moon, Sun, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -1305,6 +1306,14 @@ function UnselectedRecipe({ recipe }: { recipe: Recipe }) {
   );
 }
 
+const subscribeTheme = (notify: () => void) => {
+  const observer = new MutationObserver(notify);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+};
+const currentTheme = () => document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+const initialTheme = () => "light";
+
 export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   const runtime = useMemo(() => buildRuntime(catalog), [catalog]);
   const { availableRecipes, unselectedRecipes, recipeIds } = runtime;
@@ -1316,7 +1325,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
   const [content, setContent] = useState<ContentId>("interactive");
   const [selectedNeeds, setSelectedNeeds] = useState<NeedId[]>([]);
   const [referenceLimit, setReferenceLimit] = useState(3);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const theme = useSyncExternalStore(subscribeTheme, currentTheme, initialTheme);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [requestSubject, setRequestSubject] = useState<string | undefined>();
@@ -1604,19 +1613,6 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
           >
             Design Reference Library
           </a>
-          <Button
-            className="theme-button"
-            color="secondary"
-            variant="ghost"
-            size="md"
-            uniform
-            type="button"
-            aria-label={theme === "light" ? "어두운 테마" : "밝은 테마"}
-            title={theme === "light" ? "어둡게" : "밝게"}
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-          >
-            {theme === "light" ? <Moon aria-hidden="true" size="1em" /> : <Sun aria-hidden="true" size="1em" />}
-          </Button>
         </div>
       </header>
 

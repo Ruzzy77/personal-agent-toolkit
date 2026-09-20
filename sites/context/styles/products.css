@@ -48,7 +48,7 @@
 }
 
 @scope (.journal-shell) {
-:root {
+:scope {
   color-scheme: light dark;
   --paper: var(--su-paper);
   --sheet: var(--su-surface);
@@ -93,7 +93,7 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-.journal-shell {
+:scope {
   min-height: 100vh;
 }
 
@@ -1616,7 +1616,7 @@ a {
 }
 
 @scope (.library-app) {
-:root {
+:scope {
   color-scheme: light dark;
   font-family: "Noto Sans KR", "Helvetica Neue", Arial, sans-serif;
   color: var(--su-ink);
@@ -1676,7 +1676,7 @@ input:focus-visible {
   outline-offset: -3px;
 }
 
-.library-app {
+:scope {
   position: relative;
   min-height: 100svh;
   background: var(--cobalt);
@@ -2189,7 +2189,7 @@ button {
   color: inherit;
 }
 
-.gallery {
+:scope {
   --bg: var(--su-paper);
   --surface: var(--su-surface);
   --surface-muted: var(--su-soft);
@@ -2213,7 +2213,7 @@ button {
   overflow-wrap: anywhere;
 }
 
-.gallery--dark {
+:scope.gallery--dark {
   --hanji-paper: #211f19;
   --hanji-ink: #eee8dc;
   --hanji-rule: #4b473d;
@@ -2222,13 +2222,13 @@ button {
   color-scheme: dark;
 }
 
-.gallery a {
+:scope a {
   color: inherit;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;
 }
 
-.gallery :focus-visible {
+:scope :focus-visible {
   outline: 2px solid var(--su-focus);
   outline-offset: 2px;
 }
@@ -2844,7 +2844,7 @@ button {
   color: #15171b;
 }
 
-.gallery--dark .specimen--baekja .specimen-canvas {
+:scope.gallery--dark .specimen--baekja .specimen-canvas {
   background: #14161a;
   color: #f2f4f7;
 }
@@ -2900,7 +2900,7 @@ button {
   color: #141411;
 }
 
-.gallery--dark .specimen--yeobaek .specimen-canvas {
+:scope.gallery--dark .specimen--yeobaek .specimen-canvas {
   background: #10100f;
   color: #f3f3ef;
 }
@@ -2928,7 +2928,7 @@ button {
   font-weight: 700;
 }
 
-.gallery--dark .yeobaek-action {
+:scope.gallery--dark .yeobaek-action {
   background: #f3f3ef;
   color: #10100f;
 }
@@ -3019,7 +3019,7 @@ button {
   color: var(--sp-ink);
 }
 
-.gallery--dark .specimen--branded .specimen-canvas {
+:scope.gallery--dark .specimen--branded .specimen-canvas {
   background: var(--sp-canvas-dark);
   color: var(--sp-ink-dark);
 }
@@ -3030,7 +3030,7 @@ button {
   background: var(--sp-accent);
 }
 
-.gallery--dark .branded-marker {
+:scope.gallery--dark .branded-marker {
   background: var(--sp-accent-dark);
 }
 
