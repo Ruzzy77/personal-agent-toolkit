@@ -70,3 +70,9 @@ test("workspace root picker is wide enough for long registered root names", () =
   assert.match(view, /<FieldSelect aria-label="작업공간"/);
   assert.match(css, /\.file-workspace-heading \[aria-label="작업공간"\]\{width:min\(22rem,calc\(100vw - var\(--su-space-8\)\)\);max-width:100%\}/);
 });
+
+test("workspace popovers stay above sticky file headers and sidebar actions align", () => {
+  const css = read("../app/workspace.css");
+  assert.match(css, /\.ui-document>\[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
+  assert.match(css, /\.toolkit-account-trigger>span\{justify-content:flex-start!important\}/);
+});

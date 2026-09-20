@@ -11,10 +11,12 @@
 .toolkit-account{display:grid;gap:var(--su-space-2);margin-top:auto;padding-top:var(--su-space-8)}
 .toolkit-nav-action{cursor:pointer;width:100%}
 .toolkit-account-trigger{justify-content:flex-start!important;width:100%;min-height:48px;gap:var(--su-space-3)!important}
+.toolkit-account-trigger>span{justify-content:flex-start!important}
 .toolkit-account-trigger svg{width:20px;height:20px}
 .toolkit-mobile-toggle{display:none}
 .toolkit-content{margin-left:var(--toolkit-sidebar-width);min-width:0}
 .toolkit-navigation a:focus-visible,.toolkit-nav-action:focus-visible{outline:2px solid var(--su-focus);outline-offset:2px}
+.ui-document>[data-radix-popper-content-wrapper]{z-index:100!important}
 
 .file-workspace{height:100dvh;display:flex;flex-direction:column;min-width:0}
 .file-workspace-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--su-space-4);padding:var(--su-space-6) var(--su-space-6) var(--su-space-4)}
