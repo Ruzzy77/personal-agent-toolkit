@@ -23,8 +23,8 @@ test('management uses the authenticated, same-origin Workspace proxy without a n
 
 test("mobile Toolkit navigation wraps below the primary controls", () => {
   const css = read("../app/workspace.css");
-  assert.match(css, /@media\(max-width:760px\)\{\.toolkit-appbar\{height:auto\}/);
-  assert.match(css, /\.toolkit-navigation\{order:3;flex:0 0 100%;width:100%/);
+  assert.match(css, /@media\(max-width:760px\)\{\.su-appbar\.toolkit-appbar\{height:auto\}/);
+  assert.match(css, /\.toolkit-navigation\{order:3;flex:0 0 100%;width:100%;overflow-x:auto;gap:var\(--su-space-4\)/);
 });
 
 test("owner web worker may call public services in the same Cloudflare account", () => {
