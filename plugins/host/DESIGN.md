@@ -1,6 +1,6 @@
-# Host 설계 v1.1
+# Host 설계 v1.2
 
-Spark의 작업공간과 실행을 툴킷 MCP 도구 여덟 개로 제공한다. 플랫폼 하네스는 클라이언트에 남고 Spark에는 파일과 실행만 둔다. 클라이언트는 기존 Personal Agent Toolkit 앱·플러그인 그대로이며 새로 설치할 것이 없다.
+Spark의 작업공간과 실행을 툴킷 MCP 도구 열 개로 제공한다. 플랫폼 하네스는 클라이언트에 남고 Spark에는 파일과 실행만 둔다. 클라이언트는 기존 Personal Agent Toolkit 앱·플러그인 그대로이며 새로 설치할 것이 없다.
 
 ## 1. 구성
 
@@ -21,11 +21,11 @@ Spark로 들어오는 포트는 없다. 관리용 SSH는 그대로 두되 별도
 
 ## 2. Worker adapter
 
-- `services/remote-context/src/mcp.ts`에 `registerHostTools(server, env, principal)`을 추가한다. 도구 8개의 schema·annotation을 정적으로 등록하고, 핸들러는 도구 이름과 arguments만으로 내부 `tools/call` 요청을 만들어 `env.HOST_VPC.fetch("http://spark-host/mcp", …)`로 보낸다.
+- `services/remote-context/src/mcp.ts`에 `registerHostTools(server, env, principal)`을 추가한다. 도구 10개의 schema·annotation을 정적으로 등록하고, 핸들러는 도구 이름과 arguments만으로 내부 `tools/call` 요청을 만들어 `env.HOST_VPC.fetch("http://spark-host/mcp", …)`로 보낸다.
 - Worker–Host 구간은 MCP `2026-07-28` 무세션 호출로 고정한다. initialize·세션 저장소 없음. 헤더는 `Authorization: Bearer <host-upstream.token>`, `Content-Type: application/json`, `Accept: application/json, text/event-stream`, `MCP-Protocol-Version: 2026-07-28`, `Mcp-Method: tools/call`, `Mcp-Name: <도구명>`이며, 본문 `params._meta`에 `io.modelcontextprotocol/protocolVersion`, `io.modelcontextprotocol/clientInfo`, `io.modelcontextprotocol/clientCapabilities`를 넣는다. 헤더와 본문 값은 일치시킨다. 외부 클라이언트의 세션 ID·버전 헤더·Origin·OAuth bearer는 복사하지 않는다.
 - 응답은 JSON-RPC 봉투를 벗겨 `content`·`structuredContent`·`isError`를 그대로 도구 결과로 돌려준다. Host 미응답·upstream 인증 실패는 그 도구의 오류(`isError=true`)이며 다른 제품 도구에 영향이 없다. 자동 재전송 없음.
-- scope: `host_write`·`host_exec`·`host_job_cancel`은 `host.write`, 나머지 다섯은 `host.read`. `RESOURCE_SCOPES.toolkit`과 auth Worker의 scope 묶음에 둘을 추가한다. Host에는 principal·scope를 전달하지 않는다. Host는 단일 소유자다.
-- `products.json`에 제품 `host`(도구 8개)를 추가한다. `check_repository.py`는 `apps/host`의 Python 소스를 `ast`로 읽어 `@mcp.tool(name="host_…")` decorator의 이름을 추출하고, products.json ↔ `registerHostTools` 등록 이름 ↔ Python decorator 이름 세 곳이 같은 8개인지 대조한다.
+- scope: `host_write`·`host_exec`·`host_job_cancel`은 `host.write`, `host_capabilities`·`host_roots`·`host_search`·`host_read`·`host_job`은 `host.read`다. `host_files`는 변경 작업만, `host_transfer`는 업로드만 `host.write`를 요구하고 나머지는 `host.read`를 요구한다. `RESOURCE_SCOPES.toolkit`과 auth Worker의 scope 묶음에 둘을 추가한다. Host에는 principal·scope를 전달하지 않는다. Host는 단일 소유자다.
+- `products.json`에 제품 `host`(도구 10개)를 추가한다. `check_repository.py`는 `apps/host`의 Python 소스를 `ast`로 읽어 `@mcp.tool(name="host_…")` decorator의 이름을 추출하고, products.json ↔ `registerHostTools` 등록 이름 ↔ Python decorator 이름 세 곳이 같은 목록인지 대조한다.
 - wrangler: `vpc_services: [{ binding: "HOST_VPC", service_id: … }]`, secret `HOST_UPSTREAM_TOKEN`.
 
 ## 3. Host 서버
@@ -48,6 +48,8 @@ prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared),
 | `host_search` | `root`, `paths?[]`(기본 `["**/*"]`, ≤32), `pattern`(정규식 ≤4,096 B), `max_results?`(기본 100, ≤500), `context?`(기본 2, ≤5) | `matches[{path, line, text, before[], after[]}]`, `truncated` | 10초, 발췌 합계 256 KiB. 한도 도달 시 부분 결과 + truncated |
 | `host_read` | `root`, `files[{path, start_line?=1, end_line?}]`(1~32), `max_bytes?`(기본 65,536, ≤2 MiB) | `files[{path, content, version, start_line, end_line}]`, `truncated` | UTF-8 텍스트만. 행 번호 1부터 양 끝 포함. 행 단위로 자르고 한 행이 한도를 넘으면 오류. version은 파일 전체 기준 |
 | `host_write` | `root`, `path`, `content?` 또는 `replace?{start_marker, end_marker, content}` 또는 `delete?`, `expected_version?` | `path`, `version` | 셋 중 정확히 하나. 결과 파일 ≤2 MiB, marker 각 1~4,096 B, 각각 한 번만 등장, marker는 남기고 사이만 교체. 부모 폴더 자동 생성. `"absent"`는 신규 생성 전용, 생략하면 버전 비교 없이 적용(권한 검사는 그대로). 삭제 후 version은 `"absent"`. 디렉터리 삭제 없음 |
+| `host_files` | `root`, `operation`, 작업별 `path`·`destination`·`expected_version`·`trash_id` | 폴더 목록·파일 정보·생성·이동·휴지통·복원 결과 | `list`, `stat`은 읽기다. `mkdir`, `move`, `trash`, `restore`는 root 권한과 version을 검사한다. 삭제는 30일 휴지통이며 다른 root 이동은 허용하지 않음 |
+| `host_transfer` | `root`, `direction`, `path`, 업로드 시 `size`·`expected_version` | 인증된 전송 URL·토큰·offset·만료 | 파일 ≤1 GiB, chunk ≤8 MiB. 업로드는 중단·취소 시 원본을 바꾸지 않고 commit 때 version을 다시 대조함. 바이너리 본문은 MCP 응답에 넣지 않음 |
 | `host_exec` | `root`, `cwd?="."`, `argv?[]` 또는 `shell?`, `stdin?`, `profile?="base"`, `timeout_s?`(기본 1800, ≤21,600), `wait_s?`(기본 5, ≤50) | `job_id`, `status`, `exit_code`(null 가능), `stdout_tail`, `stderr_tail`, `truncated` | argv/shell 중 하나. argv ≤256개·각 ≤16 KiB·합계 ≤64 KiB, stdin ≤1 MiB 후 EOF. 꼬리 스트림별 32 KiB. 짧게 끝나도 job_id 반환. 대기 중이면 `queued` |
 | `host_job` | `job_id`, `stream?="stdout"`, `offset?=0`, `limit?=65,536`(≤262,144) | `job_id`, `status`, `exit_code`, `stream`, `output`, `next_offset`, `eof`, `truncated` | offset은 저장된 UTF-8 로그의 byte 위치. limit 0이면 상태만. 문자 경계에서 잘라 next_offset으로 이어 읽음. eof는 job 종료와 출력 끝을 모두 만족할 때 |
 | `host_job_cancel` | `job_id` | `job_id`, `status` | queued면 대기열 제거, running이면 컨테이너 종료 후 cancelled. 종료된 job은 기존 상태 |
@@ -68,7 +70,7 @@ root는 두 갈래다. `[[host.roots]]`는 Corpus 식별자 없이 파일 접근
 docker create -i --name pah-<job-id> --user <uid>:<gid>
   --cap-drop ALL --security-opt no-new-privileges --network pah-egress-<job-id>
   --memory 8g --cpus 4 --pids-limit 512
-  --read-only --tmpfs /tmp:rw,size=1g
+  --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g,mode=1777
   --log-opt max-size=64m --log-opt max-file=2
   --mount type=bind,src=<root>,dst=/workspace,bind-propagation=rprivate
   --mount …,dst=/workspace/<보호 경로의 조상>,bind-propagation=rprivate …
