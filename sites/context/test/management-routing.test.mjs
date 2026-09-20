@@ -31,3 +31,9 @@ test("owner web worker may call public services in the same Cloudflare account",
   const config = read("../wrangler.example.jsonc");
   assert.match(config, /global_fetch_strictly_public/);
 });
+
+test("clean checkouts build with the public worker configuration", () => {
+  const config = read("../vite.config.ts");
+  assert.match(config, /existsSync/);
+  assert.match(config, /wrangler\.example\.jsonc/);
+});
