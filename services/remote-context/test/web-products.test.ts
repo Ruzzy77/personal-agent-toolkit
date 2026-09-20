@@ -23,6 +23,7 @@ const tokenScopes: Record<string, string[]> = {
   "sense-token": ["sense.read"],
   "host-read-token": ["host.read"],
   "host-write-token": ["host.write"],
+  "host-owner-token": ["host.read", "host.write"],
 };
 
 const auth: AuthServiceBinding = {
@@ -309,6 +310,41 @@ describe("owner web product bridges", () => {
     const forwarded = new Headers(init.headers);
     expect(forwarded.get("Authorization")).toBe("Bearer server-host-secret");
     expect(forwarded.get("X-Toolkit-Transfer-Token")).toBe(transferToken);
+  });
+
+  it("preserves wrapped Host conflict codes on the OAuth web route", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({
+      jsonrpc: "2.0",
+      id: "test",
+      result: {
+        isError: true,
+        content: [{
+          type: "text",
+          text: "Error executing tool host_write: version_conflict: the file changed",
+        }],
+      },
+    }));
+    const response = await handleHttp(
+      webRequest("/web/site/host/v1/host_write", "host-owner-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          root: "workspace",
+          path: "notes.md",
+          content: "draft",
+          expected_version: "old",
+        }),
+      }),
+      {
+        ...webEnv,
+        HOST_VPC: { fetch } as unknown as Fetcher,
+        HOST_UPSTREAM_TOKEN: "server-host-secret",
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(await body(response)).toMatchObject({
+      error: { code: "version_conflict" },
+    });
   });
 
   it("keeps the legacy product site-token routes working", async () => {

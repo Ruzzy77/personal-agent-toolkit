@@ -241,6 +241,26 @@ interface HostCallResult {
   isError?: boolean;
 }
 
+export function hostFailureDetails(result: { content?: unknown[] }) {
+  const blocks = Array.isArray(result.content)
+    ? result.content as Array<{ text?: string }>
+    : [];
+  const message =
+    blocks.find((block) => typeof block.text === "string")?.text
+    ?? "File operation failed";
+  // A connector may prefix the Host's `code: message` with the tool name.
+  const wrapped =
+    /\bhost_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
+  const direct = /^\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
+  const code = wrapped ?? direct ?? "host_error";
+  const status =
+    code === "version_conflict" ? 409
+      : code === "policy_denied" ? 403
+        : code === "not_found" ? 404
+          : 400;
+  return { code, message, status };
+}
+
 export async function callHost(
   env: Env,
   name: string,

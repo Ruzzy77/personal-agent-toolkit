@@ -5,7 +5,7 @@ import { handlePreauthenticatedHttp as handleDesignHttp } from "personal-agent-d
 import { handleAdminSite } from "./admin-site";
 import { executeContextSiteOperation, readJson } from "./context-site";
 import { asContextError, ContextError } from "./errors";
-import { callHost, HOST_TOOLS, hostRequiredScope, transferReceipt } from "./host";
+import { callHost, hostFailureDetails, HOST_TOOLS, hostRequiredScope, transferReceipt } from "./host";
 import type { Env } from "./types";
 
 const TRANSFER_TOKEN = "X-Toolkit-Transfer-Token";
@@ -153,10 +153,7 @@ async function hostTool(request: Request, env: Env, name: string): Promise<Respo
   let result = await callHost(env, name, parsed.data);
   if (name === "host_transfer") result = transferReceipt(result, env);
   if (result.isError) {
-    const blocks = result.content as Array<{ text?: string }>;
-    const message = blocks.find((block) => typeof block.text === "string")?.text ?? "File operation failed";
-    const code = /\b([a-z_]+):/.exec(message)?.[1] ?? "host_error";
-    const status = code === "version_conflict" ? 409 : code === "policy_denied" ? 403 : code === "not_found" ? 404 : 400;
+    const { code, message, status } = hostFailureDetails(result);
     return json({ error: { code, message } }, status);
   }
   return json(result.structuredContent);
