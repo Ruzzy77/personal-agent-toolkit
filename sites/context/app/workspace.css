@@ -86,7 +86,7 @@
   .toolkit-menu.is-open{display:flex}
   .toolkit-account{padding-top:var(--su-space-4)}
   .toolkit-content{margin-left:0}
-  .file-workspace{height:calc(100dvh - 56px)}
+  .file-workspace{height:calc(100dvh - 57px)}
   .file-workspace-heading{padding:var(--su-space-6) var(--su-space-4) var(--su-space-3);flex-wrap:wrap}
   .file-workspace-heading h1{font-size:24px;line-height:32px}
   .file-project-link{font-size:13px;gap:var(--su-space-2)}
