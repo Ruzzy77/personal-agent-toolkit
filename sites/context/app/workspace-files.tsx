@@ -59,7 +59,7 @@ export function WorkspaceFiles(){
   async function open(entry:FileEntry){
     if(entry.type==="directory"){navigate(entry.path);return;}
     if(entry.type!=="file")return;
-    setSelected(entry);keepDraft(null);setIncoming(null);setError("");setSource(false);setMessage("");
+    setLoading(false);setSelected(entry);keepDraft(null);setIncoming(null);setError("");setSource(false);setMessage("");
     const id=++sequence.current;
     if((TEXT.test(entry.name)||entry.mime.startsWith("text/"))&&entry.bytes<=2*1024*1024){
       setLoading(true);

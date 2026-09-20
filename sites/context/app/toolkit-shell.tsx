@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
+import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BookOpen, FileText, Folder, Image, LogOut, Menu as MenuIcon, Moon, Settings, Sun, UserRound, X } from "lucide-react";
-import { IconButton, Menu, UiButton } from "./ui";
+import { IconButton, Menu } from "./ui";
 import { clearOwnerIdentity, ownerFetch } from "../lib/owner-client";
 
 const navigation = [
@@ -56,7 +57,7 @@ export function ToolkitShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="toolkit-account">
           <button className="toolkit-nav-action" onClick={theme}>{dark ? <Sun size={20} aria-hidden="true" /> : <Moon size={20} aria-hidden="true" />}<span>{dark ? "라이트 모드" : "다크 모드"}</span></button>
-          <Menu><Menu.Trigger><UiButton className="toolkit-account-trigger"><UserRound size="1em" aria-hidden="true" />계정</UiButton></Menu.Trigger><Menu.Content align="start"><Menu.Item onSelect={() => void logout()}><LogOut size="1em" aria-hidden="true" />로그아웃</Menu.Item></Menu.Content></Menu>
+          <Menu><Menu.Trigger><Button color="primary" variant="ghost" size="md" pill={false} className="toolkit-account-trigger"><UserRound size="1em" aria-hidden="true" />계정</Button></Menu.Trigger><Menu.Content align="start"><Menu.Item onSelect={() => void logout()}><LogOut size="1em" aria-hidden="true" />로그아웃</Menu.Item></Menu.Content></Menu>
         </div>
       </div>
     </header>
