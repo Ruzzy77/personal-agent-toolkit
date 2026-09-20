@@ -64,3 +64,9 @@ test("embedded products apply tokens at their scope root and share the Toolkit t
   assert.match(gallery, /useSyncExternalStore\(subscribeTheme, currentTheme, initialTheme\)/);
   assert.ok(!gallery.includes('className="theme-button"'));
 });
+
+test("workspace root picker is wide enough for long registered root names", () => {
+  const view = read("../app/workspace-files.tsx"), css = read("../app/workspace.css");
+  assert.match(view, /className="workspace-root-select"/);
+  assert.match(css, /\.workspace-root-select\{width:min\(22rem,calc\(100vw - var\(--su-space-8\)\)\);max-width:100%\}/);
+});

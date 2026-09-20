@@ -34,7 +34,7 @@ export function UiInput(props:InputProps) { const size=useControlSize(); return 
 export function UiTextarea(props:TextareaProps) { const size=useControlSize(); return <Textarea size={size} {...props}/>; }
 // The pinned SDK does not forward aria-label to its trigger. This is the
 // UI Kit NamedControl bridge; the SDK still owns its arrow, list and keyboard UX.
-export function FieldSelect({children,'aria-label':label,...props}:{children:ReactNode;'aria-label':string;value:string;onChange:(option:{value:string;label:string})=>void;disabled?:boolean;required?:boolean;id?:string;name?:string}) {
+export function FieldSelect({children,'aria-label':label,...props}:{children:ReactNode;'aria-label':string;value:string;onChange:(option:{value:string;label:string})=>void;disabled?:boolean;required?:boolean;id?:string;name?:string;className?:string}) {
   const size=useControlSize();
   const options=Children.toArray(children).filter(isValidElement).map(child=>{const p=(child.props as OptionHTMLAttributes<HTMLOptionElement>);return{value:String(p.value??textOf(p.children)),label:textOf(p.children),disabled:p.disabled};});
   return <KitSelect aria-label={label} restoreFocus {...props} size={size} pill={false} options={options} searchPlaceholder="검색" searchEmptyMessage="검색 결과 없음"/>;
