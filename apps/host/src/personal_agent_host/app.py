@@ -123,6 +123,7 @@ def build_app(config: HostConfig) -> Starlette:
             async with server.session_manager.run():
                 yield
         finally:
+            await jobs.stop()
             retention.cancel()
             await asyncio.gather(retention, return_exceptions=True)
             if sync is not None:

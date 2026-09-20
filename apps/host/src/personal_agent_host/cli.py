@@ -103,6 +103,7 @@ After=network-online.target docker.service
 
 [Service]
 ExecStart={launcher} run --config {config_path}
+KillMode=process
 Restart=on-failure
 RestartSec=3
 StandardOutput=append:{logs}/host.log

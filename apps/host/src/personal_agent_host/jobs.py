@@ -164,6 +164,14 @@ class JobManager:
         self.done: dict[str, asyncio.Event] = {}
         self.cancel_requested: set[str] = set()
 
+    async def stop(self) -> None:
+        """Stop Host-side monitors without stopping their Docker containers."""
+        tasks = list(self.tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def start(self) -> None:
         self.store.expire(time.time())
         resumed_ids: set[str] = set()
@@ -527,6 +535,14 @@ class JobManager:
         timed_out = False
         try:
             await asyncio.wait_for(waiter.wait(), timeout=remaining)
+        except asyncio.CancelledError:
+            await asyncio.gather(
+                self._stop_monitor(logs), self._stop_monitor(waiter),
+                return_exceptions=True,
+            )
+            pumps.cancel()
+            await asyncio.gather(pumps, return_exceptions=True)
+            raise
         except TimeoutError:
             timed_out = True
             await self._docker("kill", job.container)
@@ -534,9 +550,24 @@ class JobManager:
         finally:
             if waiter.stderr is not None:
                 await waiter.stderr.read()
+        if waiter.returncode != 0:
+            raise RuntimeError("docker wait monitor ended unexpectedly")
         await logs.wait()
         await pumps
         await self._finalize(job, timed_out=timed_out)
+
+    @staticmethod
+    async def _stop_monitor(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+        with contextlib.suppress(ProcessLookupError):
+            process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
 
     async def _finalize(self, job: Job, *, timed_out: bool) -> None:
         inspect = await self._docker(

@@ -203,6 +203,21 @@ class RestartRecoveryTests(unittest.TestCase):
         self.assertEqual(job.status, "running")
         cleanup.assert_not_awaited()
 
+    def test_manager_stop_cancels_monitors_without_changing_running_record(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        job = _job()
+        job.status = "running"
+        manager.store.save(job)
+
+        async def exercise() -> None:
+            task = asyncio.create_task(asyncio.sleep(60))
+            manager.tasks[job.id] = task  # type: ignore[assignment]
+            await manager.stop()
+            self.assertTrue(task.cancelled())
+
+        asyncio.run(exercise())
+        self.assertEqual(manager.store.load(job.id).status, "running")
+
     def test_restart_monitors_an_exited_running_record_without_marking_it_lost(self) -> None:
         manager = _FakeDockerManager(_config(self.path))
         job = _job()

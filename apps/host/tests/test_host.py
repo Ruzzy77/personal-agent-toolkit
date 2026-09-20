@@ -77,6 +77,15 @@ def test_roots_and_policies(config: HostConfig) -> None:
         config.root("demo/missing")
 
 
+def test_host_service_stops_only_the_main_process(config: HostConfig) -> None:
+    from personal_agent_host.cli import _unit_files
+
+    unit = _unit_files(config, config.prefix / "config" / "host.toml")[
+        "personal-agent-host.service"
+    ]
+    assert "KillMode=process" in unit
+
+
 def test_read_rejects_paths_outside_the_root(config: HostConfig) -> None:
     root = config.root("demo/main")
     for path in ("../secret", "/etc/passwd", "sub/../../x", "sub/./../../y"):
