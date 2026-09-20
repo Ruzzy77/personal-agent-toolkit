@@ -39,7 +39,7 @@ export function WorkspaceFiles(){
   const dirty=Boolean(draft&&draft.body!==draft.base);
 
   const keepDraft=useCallback((value:FileDraft|null)=>{
-    draftRef.current=value;setDraft(value);
+    draftRef.current=value;setDraft(value);if(value&&value.body!==value.base)setMessage("");
     if(value){try{if(value.body!==value.base)sessionStorage.setItem(draftKey(value.root,value.path),JSON.stringify(value));else sessionStorage.removeItem(draftKey(value.root,value.path));}
     catch{setError("브라우저에 수정안을 보관하지 못했습니다. 창을 닫기 전에 저장해 주세요.");}}
   },[]);
@@ -72,7 +72,7 @@ export function WorkspaceFiles(){
     }
   }
   async function save(){
-    const value=draftRef.current;if(!value)return;setBusy(true);setError("");
+    const value=draftRef.current;if(!value)return;setBusy(true);setError("");setMessage("");
     try{const result=await hostCall<{version:string}>("host_write",{root:value.root,path:value.path,content:value.body,expected_version:value.version});
       keepDraft({...value,base:value.body,version:result.version});setIncoming(null);setMessage("저장됨");void load();}
     catch(error){if((error as {code?:string}).code==="version_conflict"){
