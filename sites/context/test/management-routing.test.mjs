@@ -21,10 +21,26 @@ test('management uses the authenticated, same-origin Workspace proxy without a n
 });
 
 
-test("mobile Toolkit navigation wraps below the primary controls", () => {
-  const css = read("../app/workspace.css");
-  assert.match(css, /@media\(max-width:760px\)\{\.su-appbar\.toolkit-appbar\{height:auto\}/);
-  assert.match(css, /\.toolkit-navigation\{order:3;flex:0 0 100%;width:100%;overflow-x:auto;gap:var\(--su-space-4\)/);
+test("Toolkit keeps all destinations in a responsive sidebar with an accessible mobile toggle", () => {
+  const shell = read("../app/toolkit-shell.tsx"), css = read("../app/workspace.css");
+  for (const href of ["/journal", "/library", "/design", "/settings"]) assert.ok(shell.includes(href));
+  assert.match(shell, /aria-expanded={menuOpen}/);
+  assert.match(shell, /aria-controls="toolkit-menu"/);
+  assert.match(css, /\.toolkit-menu\.is-open\{display:flex\}/);
+  assert.match(css, /\.toolkit-content\{margin-left:0\}/);
+  assert.ok(!css.includes(".file-detail{display:flex}"));
+  assert.match(css, /\.file-detail\{[^}]*flex-direction:column/);
+});
+
+test("file workspace renders a conditional preview and preserves draft recovery controls", () => {
+  const view = read("../app/workspace-files.tsx");
+  assert.match(view, /selected&&<section className="file-detail"/);
+  assert.match(view, /restoredDraft/);
+  assert.match(view, /expected_version:value.version/);
+  assert.match(view, /Boolean\(incoming\)/);
+  assert.match(view, /file-list-more/);
+  assert.match(view, /파일 더 불러오기/);
+  assert.match(view, /role={error\?"alert":"status"}/);
 });
 
 test("owner web worker may call public services in the same Cloudflare account", () => {

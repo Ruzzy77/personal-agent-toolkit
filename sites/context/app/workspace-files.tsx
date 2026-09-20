@@ -1,11 +1,14 @@
 "use client";
 import Link from "next/link";
+import { Switch } from "@openai/apps-sdk-ui/components/Switch";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, File, Folder, FolderPlus, Pencil, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
-import { FieldSelect, IconButton, UiButton, UiInput, UiTextarea } from "./ui";
+import { ArrowDown, ArrowUp, ChevronDown, Download, File, FilePlus, FileText, Folder, FolderPlus, Pencil, Plus, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
+import { ActionMenu, FieldSelect, IconButton, Menu, UiButton, UiInput, UiTextarea } from "./ui";
 import { InlineDocument } from "./inline-document";
 import { ownerFetch } from "../lib/owner-client";
 import { draftKey, fileUrl, hostCall, joined, linkedCorpus, restoredDraft, uploadChunks, type FileDraft, type FileEntry, type HostRoot, type Transfer } from "../lib/host-files";
+
+import { displayedFiles, fileKind } from "../lib/file-list";
 
 type Listing={entries:FileEntry[];next_cursor:string|null};
 type Modal={kind:"folder"|"file"|"move"|"saveAs";title:string;value:string;entry?:FileEntry};
@@ -18,6 +21,8 @@ const failure=(error:unknown)=>error instanceof Error?error.message:"작업을 �
 export function WorkspaceFiles(){
   const [roots,setRoots]=useState<HostRoot[]>([]),[root,setRoot]=useState("workspace"),[path,setPath]=useState(".");
   const [entries,setEntries]=useState<FileEntry[]>([]),[cursor,setCursor]=useState<string|null>(null),[query,setQuery]=useState("");
+  const [showHidden,setShowHidden]=useState(false),[descending,setDescending]=useState(false);
+  const fileButtons=useRef(new Map<string,HTMLButtonElement>()),detailTitle=useRef<HTMLHeadingElement>(null);
   const [selected,setSelected]=useState<FileEntry|null>(null),[draft,setDraft]=useState<FileDraft|null>(null),[incoming,setIncoming]=useState<FileDraft|null>(null);
   const draftRef=useRef<FileDraft|null>(null),sequence=useRef(0);
   const [error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[source,setSource]=useState(false);
@@ -48,7 +53,9 @@ export function WorkspaceFiles(){
   useEffect(()=>{let active=true;queueMicrotask(()=>{if(active)void load();});return()=>{active=false;sequence.current++;};},[load]);
   useEffect(()=>{if(modal)dialog.current?.showModal();else dialog.current?.close();},[modal]);
   useEffect(()=>{const handler=(event:BeforeUnloadEvent)=>{if(draftRef.current&&draftRef.current.body!==draftRef.current.base)event.preventDefault();};window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[]);
-  function navigate(next:string,nextRoot=root){sequence.current++;setRoot(nextRoot);setPath(next);setQuery("");setSelected(null);keepDraft(null);setIncoming(null);setTrash(null);setMessage("");}
+  function navigate(next:string,nextRoot=root){sequence.current++;setRoot(nextRoot);setPath(next);setQuery("");setEntries([]);setCursor(null);setLoading(true);setSelected(null);keepDraft(null);setIncoming(null);setTrash(null);setMessage("");}
+  function closeFile(){const previous=selected?.path;sequence.current++;setSelected(null);keepDraft(null);setIncoming(null);setLoading(false);requestAnimationFrame(()=>{if(previous)fileButtons.current.get(previous)?.focus();});}
+  useEffect(()=>{if(selected)detailTitle.current?.focus();},[selected]);
   async function open(entry:FileEntry){
     if(entry.type==="directory"){navigate(entry.path);return;}
     if(entry.type!=="file")return;
@@ -117,33 +124,46 @@ export function WorkspaceFiles(){
     }catch(error){setError(failure(error));}finally{setBusy(false);}
   }
   async function cancelUpload(){if(!upload)return;uploadAbort.current?.abort();try{await ownerFetch("/api/transfers/"+upload.receipt.transfer_id+"/status",{method:"DELETE",headers:{"X-Toolkit-Transfer-Token":upload.receipt.token}});setUpload(null);}catch(error){setError(failure(error));}}
-  const visible=entries.filter(item=>item.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const visible=displayedFiles(entries,query,showHidden,descending);
   const parts=path==="."?[]:path.split("/");
-  return <main className="file-workspace su-workspace su-stack" id="main-content">
-    <div className="su-toolbar">
+  return <main className={"file-workspace"+(selected?" has-selection":"")} id="main-content">
+    <div className="file-workspace-heading">
       <div className="su-row"><h1>작업공간</h1><FieldSelect aria-label="작업공간" value={root} onChange={option=>navigate(".",option.value)}>{roots.map(item=><option key={item.id} value={item.id}>{item.id==="workspace"?"Spark":item.id}</option>)}</FieldSelect></div>
-      <div className="su-row"><Link href="/context">프로젝트 문서</Link><IconButton label="휴지통" onClick={()=>void showTrash()}><Trash2 size="1em"/></IconButton></div>
+      <div className="su-row"><Link className="file-project-link" href={linked?"/context?space="+encodeURIComponent(linked.space_id):"/context"}>프로젝트 문서<FileText size={18} aria-hidden="true"/></Link></div>
     </div>
-    <nav className="file-breadcrumbs su-row" aria-label="폴더 경로"><button onClick={()=>navigate(".")}>Spark</button>{parts.map((part,i)=><span className="su-row" key={i}><span aria-hidden="true">/</span><button aria-current={i===parts.length-1?"location":undefined} onClick={()=>navigate(parts.slice(0,i+1).join("/"))}>{part}</button></span>)}</nav>
-    {linked&&<div className="su-row file-linked"><Link href={"/context?space="+encodeURIComponent(linked.space_id)}>연결된 프로젝트 문서 열기</Link></div>}
-    <div className="file-status" role="status">{error||message||(permission==="read_only"?"읽기 전용":permission==="create_only"?"새 파일만 만들 수 있습니다.":"")}</div>
-    {upload&&<section className="su-panel su-stack" aria-label="파일 업로드"><div className="su-toolbar"><span>{upload.file.name} · {humanSize(upload.offset)} / {humanSize(upload.file.size)}</span><div className="su-row">{uploading?<UiButton onClick={()=>uploadAbort.current?.abort()}>일시정지</UiButton>:<UiButton onClick={()=>void runUpload(upload)}>이어 올리기</UiButton>}<UiButton onClick={()=>void cancelUpload()}>취소</UiButton></div></div><progress value={upload.offset} max={upload.file.size||1}/></section>}
-    {trash!==null?<section className="su-stack"><div className="su-toolbar"><h2>휴지통</h2><UiButton onClick={()=>setTrash(null)}>파일로 돌아가기</UiButton></div><p className="file-muted">30일 동안 복원할 수 있습니다. Finder에서 직접 삭제한 파일은 포함되지 않습니다.</p>{trash.length===0?<p>휴지통이 비어 있습니다.</p>:trash.map(item=><div key={item.id} className="su-toolbar file-trash-row"><span>{item.path}<small className="file-muted"> · {new Date(item.expires*1000).toLocaleDateString("ko-KR")}까지</small></span><UiButton disabled={busy||!mutable} onClick={()=>void restore(item.id)}>복원</UiButton></div>)}{trashCursor&&<UiButton disabled={busy} onClick={()=>void showTrash(trashCursor)}>더 보기</UiButton>}</section>:
+    <nav className="file-breadcrumbs su-row" aria-label="폴더 경로"><button onClick={()=>navigate(".")}>{root==="workspace"?"Spark":root}</button>{parts.map((part,i)=><span className="su-row" key={i}><span aria-hidden="true">/</span><button aria-current={i===parts.length-1?"location":undefined} onClick={()=>navigate(parts.slice(0,i+1).join("/"))}>{part}</button></span>)}</nav>
+    <div className="file-toolbar">
+      <div className="file-search"><UiInput type="search" placeholder={cursor?"불러온 파일에서 찾기":"이 폴더에서 찾기"} aria-label="파일 이름 검색" value={query} onChange={event=>setQuery(event.target.value)}/></div>
+      <UiButton className="primary" disabled={!writable||busy||Boolean(upload)} onClick={()=>uploadInput.current?.click()}><Upload size="1em" aria-hidden="true"/>업로드</UiButton>
+      <Menu><Menu.Trigger><UiButton disabled={!writable||busy}><Plus size="1em" aria-hidden="true"/><span className="file-create-label">새로 만들기</span><ChevronDown size="1em" aria-hidden="true"/></UiButton></Menu.Trigger><Menu.Content align="start"><Menu.Item onSelect={()=>setModal({kind:"folder",title:"새 폴더",value:""})}><FolderPlus size="1em" aria-hidden="true"/>새 폴더</Menu.Item><Menu.Item onSelect={()=>setModal({kind:"file",title:"새 파일",value:"새 문서.md"})}><FilePlus size="1em" aria-hidden="true"/>새 파일</Menu.Item></Menu.Content></Menu>
+      <ActionMenu label="파일 목록 도구"><Menu.Item disabled={loading} onSelect={()=>void load()}><RefreshCw size="1em" aria-hidden="true"/>새로고침</Menu.Item><Menu.Item disabled={busy} onSelect={()=>void showTrash()}><Trash2 size="1em" aria-hidden="true"/>휴지통</Menu.Item></ActionMenu>
+      <Switch className="file-hidden-control" checked={showHidden} onCheckedChange={setShowHidden} label="숨김 파일 보기"/>
+      <input ref={uploadInput} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void startUpload(file);event.target.value="";}}/>
+    </div>
+    {(error||message||roots.length>0&&permission!=="read_write")&&<div className={"file-status"+(error?" is-error":"")} role={error?"alert":"status"}>{error||message||(permission==="read_only"?"읽기 전용":permission==="create_only"?"새 파일만 만들 수 있습니다.":"")}</div>}
+    {upload&&<section className="file-upload su-stack" aria-label="파일 업로드"><div className="su-toolbar"><span>{upload.file.name} · {humanSize(upload.offset)} / {humanSize(upload.file.size)}</span><div className="su-row">{uploading?<UiButton onClick={()=>uploadAbort.current?.abort()}>일시정지</UiButton>:<UiButton onClick={()=>void runUpload(upload)}>이어 올리기</UiButton>}<UiButton onClick={()=>void cancelUpload()}>취소</UiButton></div></div><progress value={upload.offset} max={upload.file.size||1}/></section>}
+    {trash!==null?<section className="file-trash su-stack"><div className="su-toolbar"><h2>휴지통</h2><UiButton onClick={()=>setTrash(null)}>파일로 돌아가기</UiButton></div><p className="file-muted">30일 동안 복원할 수 있습니다. Finder에서 직접 삭제한 파일은 포함되지 않습니다.</p>{trash.length===0?<p>휴지통이 비어 있습니다.</p>:trash.map(item=><div key={item.id} className="su-toolbar file-trash-row"><span>{item.path}<small className="file-muted"> · {new Date(item.expires*1000).toLocaleDateString("ko-KR")}까지</small></span><UiButton disabled={busy||!mutable} onClick={()=>void restore(item.id)}>복원</UiButton></div>)}{trashCursor&&<UiButton disabled={busy} onClick={()=>void showTrash(trashCursor)}>더 보기</UiButton>}</section>:
     <div className={"file-columns"+(selected?" has-selection":"")}>
-      <section className="file-list-pane su-stack" aria-label="파일 목록">
-        <div className="su-toolbar"><UiInput type="search" placeholder="이 폴더에서 찾기" aria-label="파일 이름 검색" value={query} onChange={event=>setQuery(event.target.value)}/><IconButton label="새로고침" disabled={loading} onClick={()=>void load()}><RefreshCw size="1em"/></IconButton></div>
-        <div className="su-row"><UiButton disabled={!writable||busy||Boolean(upload)} onClick={()=>uploadInput.current?.click()}><Upload size="1em"/>업로드</UiButton><UiButton disabled={!writable||busy} onClick={()=>setModal({kind:"folder",title:"새 폴더",value:""})}><FolderPlus size="1em"/>새 폴더</UiButton><UiButton disabled={!writable||busy} onClick={()=>setModal({kind:"file",title:"새 파일",value:"새 문서.md"})}>새 파일</UiButton><input ref={uploadInput} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void startUpload(file);event.target.value="";}}/></div>
-        <ul className="file-list" aria-busy={loading}>{visible.map(entry=><li key={entry.path} className={selected?.path===entry.path?"selected":""}><button className="file-row" disabled={entry.type==="symlink"} onClick={()=>void open(entry)} aria-current={selected?.path===entry.path?"true":undefined}>{entry.type==="directory"?<Folder size="1.2em" aria-hidden/>:<File size="1.2em" aria-hidden/>}<span>{entry.name}<small>{entry.type==="directory"?"폴더":entry.type==="symlink"?"바로가기":humanSize(entry.bytes)}</small></span></button><div className="su-row file-row-actions"><IconButton label={entry.name+" 이름 변경·이동"} disabled={!mutable||busy||entry.type==="symlink"} onClick={()=>void rename(entry)}><Pencil size="1em"/></IconButton><IconButton label={entry.name+" 휴지통으로 이동"} disabled={!mutable||busy||entry.type==="symlink"} onClick={()=>void remove(entry)}><Trash2 size="1em"/></IconButton></div></li>)}</ul>
-        {!loading&&visible.length===0&&<p className="file-muted">{query?"검색 결과가 없습니다.":"폴더가 비어 있습니다."}</p>}{cursor&&<UiButton disabled={loading} onClick={()=>void load(cursor)}>더 보기</UiButton>}
+      <section className="file-list-pane" aria-label="파일 목록">
+        <table className="file-table" aria-busy={loading}>
+          <thead><tr><th scope="col" aria-sort={descending?"descending":"ascending"}><button className="file-sort" onClick={()=>setDescending(!descending)}>이름{descending?<ArrowUp size={14} aria-hidden="true"/>:<ArrowDown size={14} aria-hidden="true"/>}</button></th><th scope="col" className="file-kind">종류</th><th scope="col" className="file-size">크기</th><th scope="col" className="file-actions"><span className="visually-hidden">파일 작업</span></th></tr></thead>
+          <tbody>{visible.map(entry=><tr key={entry.path} className={selected?.path===entry.path?"selected":""}><td><button ref={node=>{if(node)fileButtons.current.set(entry.path,node);else fileButtons.current.delete(entry.path);}} className="file-row" disabled={entry.type==="symlink"} onClick={()=>void open(entry)} aria-current={selected?.path===entry.path?"true":undefined}>{entry.type==="directory"?<Folder size={20} aria-hidden="true"/>:<File size={20} aria-hidden="true"/>}<span title={entry.name}>{entry.name}</span></button></td><td className="file-kind">{fileKind(entry)}</td><td className="file-size">{entry.type==="file"?humanSize(entry.bytes):"—"}</td><td className="file-actions"><ActionMenu label={entry.name+" 파일 작업"}><Menu.Item disabled={!mutable||busy||entry.type==="symlink"} onSelect={()=>void rename(entry)}><Pencil size="1em" aria-hidden="true"/>이름 변경·이동</Menu.Item><Menu.Item disabled={!mutable||busy||entry.type==="symlink"} onSelect={()=>void remove(entry)}><Trash2 size="1em" aria-hidden="true"/>휴지통으로 이동</Menu.Item></ActionMenu></td></tr>)}</tbody>
+        </table>
+        {loading&&entries.length===0?<p className="file-list-message" role="status">파일을 불러오는 중입니다.</p>:!loading&&visible.length===0&&<p className="file-list-message">{query?"검색 결과가 없습니다.":entries.length>0?"숨김 파일만 있는 폴더입니다.":"폴더가 비어 있습니다."}</p>}
+        {cursor&&<div className="file-list-more"><UiButton disabled={loading} onClick={()=>void load(cursor)}>{loading?"불러오는 중…":"파일 더 불러오기"}</UiButton></div>}
       </section>
-      <section className="file-detail su-stack" aria-label="파일 내용">
-        {selected?<><div className="su-toolbar"><div className="su-row"><IconButton label="파일 목록으로" onClick={()=>{setSelected(null);keepDraft(null);}}><ArrowLeft size="1em"/></IconButton><h2>{selected.name}</h2></div><div className="su-row"><a className="su-btn" href={fileUrl(root,selected.path)} download><Download size="1em" aria-hidden/>다운로드</a>{draft&&<UiButton disabled={!dirty||busy||!mutable||Boolean(incoming)} className="primary" onClick={()=>void save()}><Save size="1em"/>저장</UiButton>}</div></div>
+      {selected&&<section className="file-detail" aria-label="파일 내용">
+        <div className="file-detail-header"><div className="file-detail-title"><File size={22} aria-hidden="true"/><h2 ref={detailTitle} tabIndex={-1}>{selected.name}</h2><IconButton label="미리보기 닫기" onClick={closeFile}><X size="1em" aria-hidden="true"/></IconButton></div>
+          <div className="file-detail-actions"><span className="file-muted" role="status">{dirty?"수정 중":""}</span><div className="su-row"><a className="su-btn" href={fileUrl(root,selected.path)} download><Download size="1em" aria-hidden="true"/>다운로드</a>{draft&&(MARKDOWN.test(selected.name)||/\.html?$/i.test(selected.name))&&<UiButton disabled={/\.html?$/i.test(selected.name)&&dirty&&source} aria-pressed={source} onClick={()=>setSource(!source)}><Pencil size="1em" aria-hidden="true"/>{source?"문서 보기":"원문 편집"}</UiButton>}{draft&&dirty&&<UiButton disabled={busy||!mutable||Boolean(incoming)} className="primary" onClick={()=>void save()}><Save size="1em" aria-hidden="true"/>저장</UiButton>}</div></div>
+        </div>
+        <div className="file-detail-body su-stack">
         {incoming&&<section className="su-panel su-stack" role="alert"><p>다른 곳에서 파일이 바뀌었습니다. 수정안은 그대로 보관했습니다.</p><div className="su-row"><UiButton onClick={()=>setModal({kind:"saveAs",title:"수정안을 다른 이름으로 저장",value:selected.name.replace(/(\.[^.]+)?$/, "-수정안$1")})}>다른 이름으로 저장</UiButton><UiButton onClick={()=>{if(confirm("현재 수정안을 닫고 최신 파일을 열까요?")){keepDraft(incoming);setIncoming(null);}}}>최신 파일로 열기</UiButton></div><details><summary>서버의 최신 내용</summary><pre className="file-source">{incoming.body}</pre></details></section>}
-        {loading&&!draft?<p>파일을 여는 중입니다.</p>:draft?<><div className="su-toolbar"><span className="file-muted">{dirty?"수정 중":""}</span>{(MARKDOWN.test(selected.name)||/\.html?$/i.test(selected.name))&&<UiButton disabled={/\.html?$/i.test(selected.name)&&dirty&&source} aria-pressed={source} onClick={()=>setSource(!source)}>{source?"문서 보기":"원문 편집"}</UiButton>}</div>{/\.html?$/i.test(selected.name)&&!source?<iframe className="file-preview" title={selected.name+" 미리보기"} src={fileUrl(root,selected.path,true)} sandbox=""/>:MARKDOWN.test(selected.name)&&!source?<article className="workspace-prose file-markdown"><InlineDocument body={draft.body} editable={mutable&&!busy} onChange={(body,expected)=>{const current=draftRef.current;if(!current||current.body!==expected)return false;keepDraft({...current,body});return true;}}/></article>:<UiTextarea className="file-source-editor" aria-label={selected.name+" 내용"} value={draft.body} disabled={!mutable||busy} onChange={event=>keepDraft({...draft,body:event.target.value})}/>}</>:
+        {loading&&!draft?<p role="status">파일을 여는 중입니다.</p>:draft?<>{/\.html?$/i.test(selected.name)&&!source?<iframe className="file-preview" title={selected.name+" 미리보기"} src={fileUrl(root,selected.path,true)} sandbox=""/>:MARKDOWN.test(selected.name)&&!source?<article className="workspace-prose file-markdown"><InlineDocument body={draft.body} editable={mutable&&!busy} onChange={(body,expected)=>{const current=draftRef.current;if(!current||current.body!==expected)return false;keepDraft({...current,body});return true;}}/></article>:<UiTextarea className="file-source-editor" aria-label={selected.name+" 내용"} value={draft.body} disabled={!mutable||busy} onChange={event=>keepDraft({...draft,body:event.target.value})}/>}</>:
         RASTER.test(selected.mime)?<img className="file-image" src={fileUrl(root,selected.path,true)} alt={selected.name}/>:
         selected.mime==="application/pdf"||/\.html?$/i.test(selected.name)?<iframe className="file-preview" title={selected.name+" 미리보기"} src={fileUrl(root,selected.path,true)} sandbox=""/>:
-        <div className="su-stack file-empty"><p>원본을 다운로드해 열 수 있습니다.</p>{/\.(docx?|xlsx?|pptx?|hwpx?)$/i.test(selected.name)&&<p className="file-muted">PDF 미리보기가 필요하면 에이전트에게 변환을 요청해 주세요.</p>}</div>}</>:<div className="file-empty file-muted"><File size={32} aria-hidden/><p>파일을 선택해 열어 보세요.</p></div>}
-      </section>
+        <div className="su-stack file-empty"><p>원본을 다운로드해 열 수 있습니다.</p>{/\.(docx?|xlsx?|pptx?|hwpx?)$/i.test(selected.name)&&<p className="file-muted">PDF 미리보기가 필요하면 에이전트에게 변환을 요청해 주세요.</p>}</div>}
+        </div>
+      </section>}
     </div>}
     <dialog ref={dialog} className="su-dialog file-dialog" onCancel={()=>setModal(null)}><form className="su-stack" onSubmit={event=>{event.preventDefault();void submitModal();}}><div className="su-toolbar"><h2>{modal?.title}</h2><IconButton label="닫기" type="button" onClick={()=>setModal(null)}><X size="1em"/></IconButton></div><UiInput autoFocus aria-label={modal?.kind==="move"?"작업공간 기준 새 경로":"이름"} value={modal?.value??""} onChange={event=>setModal(old=>old?{...old,value:event.target.value}:null)}/>{modal?.kind==="move"&&<p className="file-muted">현재 작업공간 안의 경로를 입력해 주세요.</p>}<div className="su-row"><UiButton type="button" onClick={()=>setModal(null)}>취소</UiButton><UiButton type="submit" className="primary" disabled={busy||!modal?.value.trim()}>저장</UiButton></div></form></dialog>
   </main>;
