@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import shutil
 import sys
@@ -12,9 +13,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from personal_agent_host.config import HostConfig, load_host_config
 from personal_agent_host.files import ToolError, read_files, search, write_file
+from personal_agent_host.server import decode_exec_stdin
 from personal_agent_sync.errors import SyncError
 
 TOKEN = "test-token-0123456789abcdef0123456789abcdef"
+
+
+def test_exec_stdin_base64_preserves_json_text_exactly() -> None:
+    source = '{\n  "probe": "toolkit-validation"\n}\n'
+    encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
+    assert decode_exec_stdin(None, encoded) == source
+    with pytest.raises(ToolError):
+        decode_exec_stdin(source, encoded)
 
 
 @pytest.fixture

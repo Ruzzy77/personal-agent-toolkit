@@ -154,6 +154,84 @@ class EgressTests(unittest.TestCase):
             ("network", "rm", "pah-egress-abcdef123456"), manager.calls
         )
 
+class RestartRecoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.path = Path(self.tempdir.name)
+
+    def tearDown(self) -> None:
+        self.tempdir.cleanup()
+
+    def test_job_starts_detached_before_monitoring(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        job = _job()
+
+        async def finish(current: Job, *, append: bool) -> None:
+            assert append is True
+            current.status = "succeeded"
+            current.finished = 1
+            manager.store.save(current)
+
+        manager._prepare_egress = AsyncMock()  # type: ignore[method-assign]
+        manager._finish_existing = finish  # type: ignore[method-assign]
+        manager._cleanup_egress = AsyncMock()  # type: ignore[method-assign]
+        asyncio.run(manager._execute(
+            job, manager.config.root("workspace"), None,
+            manager.config.execution_profile("documents"), DirectEgress(job.id),
+        ))
+
+        assert ("start", job.container) in manager.calls
+        assert not any(call[:2] == ("start", "-a") for call in manager.calls)
+
+    def test_interrupted_host_does_not_remove_running_job_egress(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        job = _job()
+
+        async def interrupted(_: Job, *, append: bool) -> None:
+            raise asyncio.CancelledError
+
+        manager._prepare_egress = AsyncMock()  # type: ignore[method-assign]
+        manager._finish_existing = interrupted  # type: ignore[method-assign]
+        cleanup = AsyncMock()
+        manager._cleanup_egress = cleanup  # type: ignore[method-assign]
+        with self.assertRaises(asyncio.CancelledError):
+            asyncio.run(manager._execute(
+                job, manager.config.root("workspace"), None,
+                manager.config.execution_profile("documents"), DirectEgress(job.id),
+            ))
+
+        self.assertEqual(job.status, "running")
+        cleanup.assert_not_awaited()
+
+    def test_restart_monitors_an_exited_running_record_without_marking_it_lost(self) -> None:
+        manager = _FakeDockerManager(_config(self.path))
+        job = _job()
+        job.status = "running"
+        job.started = 0
+        manager.store.save(job)
+        release = asyncio.Event()
+
+        async def finish(current: Job, *, append: bool) -> None:
+            assert append is False
+            await release.wait()
+            current.status = "succeeded"
+            current.finished = 1
+            manager.store.save(current)
+
+        async def exercise() -> None:
+            manager._container_state = AsyncMock(return_value="exited")  # type: ignore[method-assign]
+            manager._labeled_job_ids = AsyncMock(return_value={job.id})  # type: ignore[method-assign]
+            manager._finish_existing = finish  # type: ignore[method-assign]
+            manager._cleanup_egress = AsyncMock()  # type: ignore[method-assign]
+            await manager.start()
+            task = manager.tasks[job.id]
+            self.assertNotIn(("pause", job.container), manager.calls)
+            release.set()
+            await task
+
+        asyncio.run(exercise())
+        self.assertEqual(manager.store.load(job.id).status, "succeeded")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -168,31 +168,36 @@ class JobManager:
         self.store.expire(time.time())
         resumed_ids: set[str] = set()
         for job in self.store.active():
-            if job.status == "running" and await self._container_exists(job):
-                paused = await self._docker("pause", job.container)
-                try:
-                    if paused.returncode != 0:
-                        raise ToolError(
-                            "egress_unavailable", "running job could not be paused for guard verification"
-                        )
-                    await guard.invoke("attach", DirectEgress(job.id).network)
-                    await guard.invoke("check", DirectEgress(job.id).network)
-                    resumed = await self._docker("unpause", job.container)
-                    if resumed.returncode != 0:
-                        raise ToolError(
-                            "egress_unavailable", "running job could not resume after guard verification"
-                        )
-                except (ToolError, OSError):
-                    await self._docker("rm", "-f", job.container)
-                    job.status = "lost"
-                    job.finished = time.time()
-                    self.store.save(job)
-                    with contextlib.suppress(Exception):
-                        await self._cleanup_egress(job)
-                    continue
+            state = await self._container_state(job) if job.status == "running" else None
+            if job.status == "running" and state in {"running", "paused", "exited", "dead"}:
+                if state in {"running", "paused"}:
+                    try:
+                        if state == "running":
+                            paused = await self._docker("pause", job.container)
+                            if paused.returncode != 0:
+                                raise ToolError(
+                                    "egress_unavailable",
+                                    "running job could not be paused for guard verification",
+                                )
+                        await guard.invoke("attach", DirectEgress(job.id).network)
+                        await guard.invoke("check", DirectEgress(job.id).network)
+                        resumed = await self._docker("unpause", job.container)
+                        if resumed.returncode != 0:
+                            raise ToolError(
+                                "egress_unavailable",
+                                "running job could not resume after guard verification",
+                            )
+                    except (ToolError, OSError):
+                        await self._docker("rm", "-f", job.container)
+                        job.status = "lost"
+                        job.finished = time.time()
+                        self.store.save(job)
+                        with contextlib.suppress(Exception):
+                            await self._cleanup_egress(job)
+                        continue
                 resumed_ids.add(job.id)
                 self.done[job.id] = asyncio.Event()
-                self.tasks[job.id] = asyncio.create_task(self._finish_existing(job))
+                self.tasks[job.id] = asyncio.create_task(self._resume(job))
             else:
                 job.status = "lost"
                 job.finished = time.time()
@@ -405,30 +410,31 @@ class JobManager:
             job.status = "running"
             job.started = time.time()
             self.store.save(job)
-            process = await asyncio.create_subprocess_exec(
-                "docker", "start", "-a", "-i", job.container,
-                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            assert process.stdin is not None
-            if stdin:
-                process.stdin.write(stdin.encode("utf-8"))
-                with contextlib.suppress(Exception):
-                    await process.stdin.drain()
-            process.stdin.close()
-            pump = asyncio.gather(
-                self._pump(job, "stdout", process.stdout),
-                self._pump(job, "stderr", process.stderr),
-            )
-            timed_out = False
-            try:
-                await asyncio.wait_for(process.wait(), timeout=job.timeout_s)
-            except TimeoutError:
-                timed_out = True
-                await self._docker("kill", job.container)
-                await process.wait()
-            await pump
-            await self._finalize(job, timed_out=timed_out)
+            # Do not attach the Host service to the container's lifecycle.  An
+            # attached `docker start -a` client is killed with the service on a
+            # systemd restart; starting detached lets the next Host instance
+            # reconnect to logs and wait for the already-running container.
+            if stdin is None:
+                started = await self._docker("start", job.container)
+                start_error = started.stderr
+                start_returncode = started.returncode
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    "docker", "start", "-i", job.container,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await process.communicate(stdin.encode("utf-8"))
+                start_error = stderr.decode("utf-8", errors="replace")
+                start_returncode = process.returncode
+            if start_returncode != 0:
+                job.status = "failed"
+                job.finished = time.time()
+                self.store.save(job)
+                self._write(job, "stderr", start_error)
+                return
+            await self._finish_existing(job, append=True)
         except Exception as exc:
             log.exception("Host sandbox job failed")
             if job.status not in TERMINAL:
@@ -438,9 +444,13 @@ class JobManager:
                 self.store.save(job)
                 self._write(job, "stderr", str(exc))
         finally:
+            # A service restart cancels this coroutine, not the Docker
+            # container.  Keep its network and guard state intact until the
+            # replacement Host has reattached.  Explicit cancellation and
+            # terminal jobs still release those resources here.
             if job.id in self.cancel_requested:
                 await self._remove_labeled("container", job.container, "rm", "-f")
-            if egress is not None:
+            if job.status in TERMINAL or job.id in self.cancel_requested:
                 try:
                     await self._cleanup_egress(job)
                 except (ToolError, OSError) as exc:
@@ -471,27 +481,62 @@ class JobManager:
             )
             raise
 
-    async def _finish_existing(self, job: Job) -> None:
-        process = await asyncio.create_subprocess_exec(
-            "docker", "logs", "--follow", job.container,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.gather(
-            self._pump(job, "stdout", process.stdout, append=False),
-            self._pump(job, "stderr", process.stderr, append=False),
-        )
-        await process.wait()
-        await self._finalize(job, timed_out=False)
+    async def _resume(self, job: Job) -> None:
         try:
-            await self._cleanup_egress(job)
-        except (ToolError, OSError) as exc:
-            if job.status == "succeeded":
+            # Docker logs includes the complete container history, replacing a
+            # partial pre-restart stream if the old Host was interrupted.
+            await self._finish_existing(job, append=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("Recovered Host sandbox job failed")
+            if job.status not in TERMINAL:
+                await self._docker("rm", "-f", job.container)
                 job.status = "failed"
                 job.finished = time.time()
                 self.store.save(job)
-                self._write(job, "stderr", f"egress cleanup failed: {exc}")
-        self.done[job.id].set()
-        self.tasks.pop(job.id, None)
+                self._write(job, "stderr", str(exc))
+        finally:
+            if job.status in TERMINAL:
+                try:
+                    await self._cleanup_egress(job)
+                except (ToolError, OSError) as exc:
+                    if job.status == "succeeded":
+                        job.status = "failed"
+                        job.finished = time.time()
+                        self.store.save(job)
+                        self._write(job, "stderr", f"egress cleanup failed: {exc}")
+            self.done[job.id].set()
+            self.tasks.pop(job.id, None)
+
+    async def _finish_existing(self, job: Job, *, append: bool) -> None:
+        logs = await asyncio.create_subprocess_exec(
+            "docker", "logs", "--follow", job.container,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        waiter = await asyncio.create_subprocess_exec(
+            "docker", "wait", job.container,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        pumps = asyncio.gather(
+            self._pump(job, "stdout", logs.stdout, append=append),
+            self._pump(job, "stderr", logs.stderr, append=append),
+        )
+        elapsed = time.time() - job.started if job.started is not None else 0
+        remaining = max(0, job.timeout_s - elapsed)
+        timed_out = False
+        try:
+            await asyncio.wait_for(waiter.wait(), timeout=remaining)
+        except TimeoutError:
+            timed_out = True
+            await self._docker("kill", job.container)
+            await waiter.wait()
+        finally:
+            if waiter.stderr is not None:
+                await waiter.stderr.read()
+        await logs.wait()
+        await pumps
+        await self._finalize(job, timed_out=timed_out)
 
     async def _finalize(self, job: Job, *, timed_out: bool) -> None:
         inspect = await self._docker(
@@ -598,9 +643,12 @@ class JobManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    async def _container_exists(self, job: Job) -> bool:
-        result = await self._docker("inspect", "--format", "{{.Id}}", job.container)
-        return result.returncode == 0
+    async def _container_state(self, job: Job) -> str | None:
+        result = await self._docker("inspect", "--format", "{{.State.Status}}", job.container)
+        if result.returncode != 0:
+            return None
+        state = result.stdout.strip()
+        return state if state in {"created", "running", "paused", "exited", "dead"} else None
 
     @staticmethod
     async def _docker(*args: str) -> Any:

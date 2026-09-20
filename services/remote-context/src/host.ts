@@ -240,6 +240,23 @@ interface HostCallResult {
   isError?: boolean;
 }
 
+function utf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+export function hostForwardArguments(name: string, args: Record<string, unknown>) {
+  if (name !== "host_exec" || typeof args.stdin !== "string") return args;
+  const forwarded: Record<string, unknown> = {
+    ...args, stdin_base64: utf8Base64(args.stdin),
+  };
+  delete forwarded.stdin;
+  return forwarded;
+}
+
 export function hostFailureDetails(result: { content?: unknown[] }) {
   const blocks = Array.isArray(result.content)
     ? result.content as Array<{ text?: string }>
@@ -274,7 +291,7 @@ export async function callHost(
     method: "tools/call",
     params: {
       name,
-      arguments: args,
+      arguments: hostForwardArguments(name, args),
       _meta: {
         "io.modelcontextprotocol/protocolVersion": HOST_PROTOCOL_VERSION,
         "io.modelcontextprotocol/clientInfo": WORKER_CLIENT,

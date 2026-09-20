@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
@@ -54,6 +56,24 @@ class Replacement(BaseModel):
     start_marker: Annotated[str, Field(min_length=1, max_length=4096)]
     end_marker: Annotated[str, Field(min_length=1, max_length=4096)]
     content: str
+
+
+def decode_exec_stdin(stdin: str | None, stdin_base64: str | None) -> str | None:
+    """Preserve exact UTF-8 stdin when an MCP intermediary parses JSON-looking strings."""
+    if stdin is not None and stdin_base64 is not None:
+        raise ToolError("invalid_request", "give only one stdin representation")
+    if stdin_base64 is None:
+        return stdin
+    try:
+        raw = base64.b64decode(stdin_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ToolError("invalid_request", "stdin_base64 is invalid") from exc
+    if len(raw) > 1_048_576:
+        raise ToolError("invalid_request", "stdin is too large")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError("invalid_request", "stdin must be UTF-8 text") from exc
 
 
 def root_descriptors(config: HostConfig) -> list[dict[str, Any]]:
@@ -248,6 +268,7 @@ def create_server(
         argv: Annotated[list[str] | None, Field(min_length=1, max_length=256)] = None,
         shell: Annotated[str | None, Field(min_length=1, max_length=65_536)] = None,
         stdin: Annotated[str | None, Field(max_length=1_048_576)] = None,
+        stdin_base64: Annotated[str | None, Field(max_length=1_398_104)] = None,
         timeout_s: Annotated[int, Field(ge=1, le=LIMITS["timeout_s"])] = 1800,
         wait_s: Annotated[int, Field(ge=0, le=LIMITS["wait_s"])] = 5,
         profile: Annotated[str | None, Field(min_length=1, max_length=64)] = None,
@@ -257,7 +278,7 @@ def create_server(
             cwd=cwd,
             argv=argv,
             shell=shell,
-            stdin=stdin,
+            stdin=decode_exec_stdin(stdin, stdin_base64),
             timeout_s=clamp_timeout(timeout_s),
             profile=profile,
         )

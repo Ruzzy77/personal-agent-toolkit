@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOST_TOOLS, hostRequiredScope } from "../src/host";
+import { HOST_TOOLS, hostForwardArguments, hostRequiredScope } from "../src/host";
 
 const execution = HOST_TOOLS.find((tool) => tool.name === "host_exec")!;
 
@@ -16,6 +16,15 @@ describe("Host execution profiles and egress contract", () => {
     expect(execution.schema.parse({
       root: "workspace", argv: ["npm", "ci"], profile: "web",
     })).toMatchObject({ profile: "web" });
+  });
+
+  it("preserves JSON-shaped stdin across the internal MCP hop", () => {
+    const stdin = '{\n  "probe": "toolkit-validation"\n}\n';
+    const forwarded = hostForwardArguments("host_exec", {
+      root: "workspace", argv: ["cat"], stdin,
+    });
+    expect(forwarded).not.toHaveProperty("stdin");
+    expect(atob(String(forwarded.stdin_base64))).toBe(stdin);
   });
 
   it("explicitly rejects the retired allowlist input and ad hoc network flags", () => {

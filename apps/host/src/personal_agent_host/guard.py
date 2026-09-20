@@ -7,6 +7,7 @@ import re
 
 from personal_agent_host.files import ToolError
 
+SUDO = "/usr/bin/sudo"
 GUARD = "/usr/local/libexec/personal-agent-host-egress-guard"
 NETWORK = re.compile(r"pah-egress-[0-9a-f]{12}")
 
@@ -18,7 +19,7 @@ async def invoke(action: str, network: str) -> None:
         raise ToolError("egress_unavailable", "egress guard request is invalid")
     try:
         process = await asyncio.create_subprocess_exec(
-            "sudo", "-n", GUARD, action, network,
+            SUDO, "-n", GUARD, action, network,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
