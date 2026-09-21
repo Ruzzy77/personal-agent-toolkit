@@ -12,8 +12,10 @@ Document Files는 문서·스프레드시트·발표 자료의 읽기·제작·�
 
 plugin 안의 Python package가 형식 판별, parser adapter, 공통 분석 contract와 HWPX artifact 작업을
 구현하는 단일 정본이다. CLI와 Claude local MCP는 같은 application 함수를 사용하고, Sync는 같은
-package를 자기 환경에 설치한다. OpenAI 통합 plugin과 개인 ChatGPT용 Personal Skills는 이 소스에서
-만든 host 실행 번들과 `document-files` Skill 하나를 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
+package를 자기 환경에 설치한다. 소유자의 Claude·Aside를 포함한 원격 작업 클라이언트는 Spark Host의
+`documents` 실행 프로필을 기본으로 사용하며, local MCP는 Spark로 옮길 수 없는 클라이언트 로컬 파일의
+호환 경로로만 남긴다. OpenAI 통합 plugin과 개인 ChatGPT용 Personal Skills는 이 소스에서 만든 host
+실행 번들과 `document-files` Skill 하나를 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
 실행 위치에서 동일하다.
 
 DOCX·XLSX/CSV·PPTX·PDF의 제작·편집 조건과 Google 문서 경로는 단일 Skill의 `references/`에
@@ -32,10 +34,11 @@ Sync는 immutable capture를 로컬에서 분석하고 projection만 Corpus에 �
 
 ## 공개 표면
 
-Claude의 공개 local MCP는 capability 확인, 검사, 텍스트·구조 추출, 변환, HWPX 생성·편집·검증과
-보조 렌더링을 제공한다. 모든 도구는 구체적인 Pydantic `outputSchema`와 `{ok, result, error}` 응답을
-사용한다. OpenAI에서는 별도 Document Files MCP나 Codex plugin 없이 통합 plugin의 Skill과 host
-runtime을 쓴다. 개인 ChatGPT에서는 같은 정본에서 만든 Personal Skill archive를 쓴다. 정확한 도구
+Claude의 공개 local MCP는 클라이언트 로컬 파일을 위한 capability 확인, 검사, 텍스트·구조 추출, 변환,
+HWPX 생성·편집·검증과 보조 렌더링을 제공한다. 모든 도구는 구체적인 Pydantic `outputSchema`와
+`{ok, result, error}` 응답을 사용한다. Spark 작업공간을 사용하는 Claude·Aside와 OpenAI에서는 별도
+Document Files MCP 없이 통합 Toolkit의 Skill과 Host `documents` 프로필을 쓴다. 개인 ChatGPT에서는
+같은 정본에서 만든 Personal Skill archive를 쓴다. 정확한 도구
 목록과 version은 루트 [`products.json`](../../products.json)이 정본이다.
 
 ## 버전과 검증

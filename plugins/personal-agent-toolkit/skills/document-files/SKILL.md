@@ -18,14 +18,14 @@ description: 문서·스프레드시트·발표 자료를 읽고 만들거나 �
 - PDF 제작·페이지 조작·양식 편집: [PDF](references/pdf.md)
 - Google Docs·Sheets·Slides 읽기·제작·편집: [Google 문서](references/google-workspace.md)
 
-로컬 파일은 원본을 보존하고 별도 출력에 쓴다. 일반 문서 제작에는 현재 호스트의 라이브러리를 사용하며, 사용자 요청 없이 Library에 발행하거나 외부 서비스에 업로드하지 않는다. Google 문서 요청에서는 연결된 해당 문서와 원래 ID를 유지한다.
+원본을 보존하고 별도 출력에 쓴다. Spark 작업공간의 파일은 Toolkit Host에서 처리하고, 클라이언트 로컬 파일은 사용자가 그 위치를 명시했거나 Spark로 옮길 수 없는 경우에만 로컬 실행기를 사용한다. 일반 문서 제작에는 현재 호스트의 라이브러리를 사용하며, 사용자 요청 없이 Library에 발행하거나 외부 서비스에 업로드하지 않는다. Google 문서 요청에서는 연결된 해당 문서와 원래 ID를 유지한다.
 
 ## 실행 경계
 
-- 파일 분석과 지원되는 HWP/HWPX 작업에는 Claude의 로컬 MCP 도구가 있으면 그 도구를 사용한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 도구로 대신하지 않는다.
-- Codex local/worktree와 Sync에서는 설치된 로컬 `document-files` 실행기를 사용한다. 저장소 checkout에서는 제품 루트의 `launchers/document-files`를 사용한다.
-- ChatGPT 또는 원격 Codex에서는 이 Skill과 함께 배포된
-  `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. 호스트가 제공하는 실행 환경은 사용 가능한 의존성 안내 도구에서 확인한다.
+- Toolkit의 `host_*` 도구가 있고 파일이 Spark 작업공간에 있으면 `host_exec`의 `documents` 프로필을 기본으로 사용한다. 실행 파일은 `/opt/document-files/.venv/bin/document-files`이며 경로는 `/workspace` 기준으로 전달한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 명령으로 대신하지 않는다.
+- Claude·Aside의 로컬 Document Files MCP는 클라이언트 로컬 파일을 불가피하게 처리하는 호환 경로일 뿐 기본 실행환경이 아니다. Spark에 있는 파일을 로컬 MCP로 내려받아 처리하지 않는다.
+- Sync와 실제 로컬 저장소 checkout에서는 설치된 로컬 `document-files` 실행기를 사용한다. 저장소 checkout에서는 제품 루트의 `launchers/document-files`를 사용한다.
+- `host_*` 도구가 없는 ChatGPT·Codex 실행환경에서 그 환경에 전달된 파일을 처리할 때에만 이 Skill과 함께 배포된 `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. Spark 작업공간 파일에 이 경로를 사용하지 않는다.
 - 파일 작업에 필요한 실행 기능이나 라이브러리가 없으면 `runtime_unavailable`을 알리고 해당 작업을 중단한다. 원문을 다른 서버나 Cloudflare 분석기로 보내지 않는다. Google 문서의 연결·권한 조건은 해당 안내를 따른다.
 - 경로는 CLI·MCP 입력 어댑터에서만 받는다. 분석 계약은 `AnalysisJob v1`과 별도 byte stream이며 결과는 `AnalysisResult v1`이다.
 - 경로는 그 실행기가 도는 환경에서 해석한다. 맥의 로컬 파일, Spark의 작업공간 파일, ChatGPT 실행 환경의 파일은 서로 다른 경로 공간이다. 다른 환경의 파일을 다루려면 먼저 그 환경으로 파일을 옮긴다. 경로가 없다고 다른 환경의 실행기로 바꿔 부르지 않는다.

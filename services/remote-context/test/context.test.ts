@@ -1328,6 +1328,35 @@ describe("remote personal context service", () => {
       read.structuredContent.result.files.map((file) => file.path),
     ).toContain("SKILL.md");
 
+    const documentSkills = (
+      (await call("toolkit_skills_list", { product: "document-files" }))
+        .result as {
+        structuredContent: {
+          result: { skills: Array<{ name: string; uri: string }> };
+        };
+      }
+    ).structuredContent.result.skills;
+    expect(documentSkills.map((skill) => skill.name)).toEqual([
+      "document-files",
+    ]);
+
+    const documentSkill = (
+      await call("toolkit_skill_read", {
+        uri: "skill://pat/document-files/SKILL.md",
+      })
+    ).result as {
+      structuredContent: { result: { text: string; product: string } };
+    };
+    expect(documentSkill.structuredContent.result.product).toBe(
+      "document-files",
+    );
+    expect(documentSkill.structuredContent.result.text).toContain(
+      "host_exec",
+    );
+    expect(documentSkill.structuredContent.result.text).toContain(
+      "documents",
+    );
+
     const missing = (
       await call("toolkit_skill_read", { uri: "skill://pat/nope/SKILL.md" })
     ).result as { isError: boolean };

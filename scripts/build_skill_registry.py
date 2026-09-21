@@ -12,6 +12,8 @@ import json
 import sys
 from pathlib import Path
 
+from document_files_release import document_source
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skills"
 TARGET = ROOT / "services" / "remote-context" / "src" / "skill-registry.json"
@@ -46,12 +48,18 @@ def front_matter(text: str) -> dict[str, str]:
 
 def build() -> dict:
     skills = []
-    for directory in sorted(SOURCE.iterdir()):
+    directories = list(sorted(SOURCE.iterdir()))
+    directories.extend(sorted((document_source() / "skills").iterdir()))
+    seen: set[str] = set()
+    for directory in directories:
         if not directory.is_dir():
             continue
         document = directory / "SKILL.md"
         if not document.is_file():
             continue
+        if directory.name in seen:
+            raise ValueError(f"duplicate Skill name: {directory.name}")
+        seen.add(directory.name)
         meta = front_matter(document.read_text(encoding="utf-8"))
         files = []
         for path in sorted(directory.rglob("*")):
