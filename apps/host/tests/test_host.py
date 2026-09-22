@@ -53,7 +53,7 @@ root = "{root}"
 roles = ["work"]
 access_scope = "remote_allowed"
 permission = "read_write"
-execute = "sandbox"
+execute = "host"
 
 [[connections]]
 space_id = "demo"
@@ -71,7 +71,7 @@ corpus_id = "demo"
 
 def test_roots_and_policies(config: HostConfig) -> None:
     assert [root.id for root in config.roots] == ["demo/main", "demo/frozen"]
-    assert config.root("demo/main").execute == "sandbox"
+    assert config.root("demo/main").execute == "host"
     assert config.root("demo/frozen").permission == "read_only"
     with pytest.raises(SyncError):
         config.root("demo/missing")
@@ -200,7 +200,7 @@ read_only_paths = [{json.dumps(guard)}]
 id = "workspace"
 path = "{root}"
 permission = "{permission}"
-execute = "sandbox"
+execute = "host"
 """,
         encoding="utf-8",
     )
@@ -213,7 +213,7 @@ def test_host_root_works_without_a_corpus_connection(tmp_path: Path) -> None:
     )
     root = config.root("workspace")
     assert root.connection is None
-    assert (root.permission, root.execute) == ("read_write", "sandbox")
+    assert (root.permission, root.execute) == ("read_write", "host")
     written = write_file(config, root, "new-project/notes.md", content="one\n")
     assert written["path"] == "new-project/notes.md"
 
@@ -245,24 +245,6 @@ def test_root_inside_a_protected_source_is_read_only(tmp_path: Path) -> None:
     config = _workspace_config(tmp_path, guard=str(tmp_path / "workspace"))
     root = config.root("workspace")
     assert (root.permission, root.execute) == ("read_only", "none")
-
-
-def test_protection_mounts_pin_the_path_to_the_source(tmp_path: Path) -> None:
-    from personal_agent_host.jobs import JobManager
-
-    guard = tmp_path / "workspace" / "work" / "regulations" / "current"
-    config = _workspace_config(tmp_path, guard=str(guard))
-    mounts = JobManager(config)._protection_mounts(config.root("workspace"))
-    destinations = [
-        item.split("dst=")[1].split(",")[0] for item in mounts if item != "--mount"
-    ]
-    assert destinations == [
-        "/workspace/work",
-        "/workspace/work/regulations",
-        "/workspace/work/regulations/current",
-    ]
-    assert "readonly,bind-recursive=readonly" in mounts[-1]
-    assert "readonly" not in mounts[1]
 
 
 def test_writable_connection_cannot_contain_a_protected_source(

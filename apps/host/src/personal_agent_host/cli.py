@@ -98,12 +98,13 @@ def _unit_files(config: HostConfig, config_path: Path) -> dict[str, str]:
     logs = prefix / "logs"
     units = {
         "personal-agent-host.service": f"""[Unit]
-Description=Personal Agent Host (workspace files and sandboxed execution)
-After=network-online.target docker.service
+Description=Personal Agent Host (workspace files and direct execution)
+After=network-online.target
 
 [Service]
 ExecStart={launcher} run --config {config_path}
 KillMode=process
+Environment="PATH={Path.home() / ".local/bin"}:{prefix / "bin"}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Restart=on-failure
 RestartSec=3
 StandardOutput=append:{logs}/host.log

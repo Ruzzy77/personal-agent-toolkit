@@ -396,7 +396,7 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 `plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
 Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/document-files`는 단일 Python 정본과 Claude
 local MCP와 단일 `document-files` Skill을 소유합니다. `plugins/personal-agent-toolkit`은 일곱 제품의
-현재 Skill, Document Files의 형식별 내부 참고 자료·host 실행 번들과 통합 등록 app을 담는 OpenAI
+현재 Skill, Document Files의 형식별 내부 참고 자료·Spark Host 파일/직접 실행 도구와 통합 등록 app을 담는 OpenAI
 배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only

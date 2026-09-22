@@ -22,7 +22,7 @@ description: 문서·스프레드시트·발표 자료를 읽고 만들거나 �
 
 ## 실행 경계
 
-- Toolkit의 `host_*` 도구가 있고 파일이 Spark 작업공간에 있으면 `host_exec`의 `documents` 프로필을 기본으로 사용한다. 실행 파일은 `/opt/document-files/.venv/bin/document-files`이며 경로는 `/workspace` 기준으로 전달한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 명령으로 대신하지 않는다.
+- Toolkit의 `host_*` 도구가 있고 파일이 Spark 작업공간에 있으면 `host_exec`으로 Spark에서 직접 실행한다. `host_capabilities` 또는 일반 호스트 명령으로 설치된 `document-files` 실행 파일과 환경을 확인하고, 실제 Spark 경로를 사용한다. 고정된 컨테이너 경로나 `documents` 프로필을 가정하지 않는다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 명령으로 대신하지 않는다.
 - Claude·Aside의 로컬 Document Files MCP는 클라이언트 로컬 파일을 불가피하게 처리하는 호환 경로일 뿐 기본 실행환경이 아니다. Spark에 있는 파일을 로컬 MCP로 내려받아 처리하지 않는다.
 - Sync와 실제 로컬 저장소 checkout에서는 설치된 로컬 `document-files` 실행기를 사용한다. 저장소 checkout에서는 제품 루트의 `launchers/document-files`를 사용한다.
 - `host_*` 도구가 없는 ChatGPT·Codex 실행환경에서 그 환경에 전달된 파일을 처리할 때에만 이 Skill과 함께 배포된 `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. Spark 작업공간 파일에 이 경로를 사용하지 않는다.

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "personal-agent-host"
-version = "0.4.2"
-description = "Self-hosted storage/compute for agents: workspace files and sandboxed execution as MCP tools"
+version = "0.5.0"
+description = "Self-hosted storage/compute for agents: workspace files and direct execution as MCP tools"
 requires-python = ">=3.12"
 dependencies = [
   "personal-agent-sync",

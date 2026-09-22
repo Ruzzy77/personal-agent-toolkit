@@ -5,16 +5,14 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Literal
 
 from personal_agent_sync.config import ConnectionConfig, SyncConfig, load_config
 from personal_agent_sync.errors import SyncError
 
-Execute = Literal["none", "sandbox"]
+Execute = Literal["none", "host"]
 
 DEFAULT_PREFIX = Path("~/.local/share/personal-agent-host").expanduser()
 LIMITS = {
@@ -26,7 +24,6 @@ LIMITS = {
 }
 
 ROOT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
-PROFILE_NAME = re.compile(r"[a-z][a-z0-9_-]*")
 PERMISSIONS = ("read_only", "create_only", "read_write")
 
 
@@ -55,8 +52,6 @@ class HostConfig:
     listen_host: str
     listen_port: int
     allowed_hosts: tuple[str, ...]
-    sandbox_image: str
-    execution_profiles: Mapping[str, str]
     max_concurrent_jobs: int
     token_path: Path
     backup: BackupConfig | None
@@ -89,14 +84,6 @@ class HostConfig:
                 return item
         raise SyncError("root_not_found", "root is not registered on this host")
 
-    def execution_profile(self, name: str | None) -> str:
-        profile = name or "base"
-        try:
-            return self.execution_profiles[profile]
-        except KeyError as exc:
-            raise SyncError(
-                "invalid_configuration", f"unknown execution profile: {profile}"
-            ) from exc
 
 
 def default_config_path() -> Path:
@@ -109,8 +96,13 @@ def default_config_path() -> Path:
 def _execute(value: object, *, field: str) -> Execute:
     if value is None:
         return "none"
-    if value not in ("none", "sandbox"):
-        raise SyncError("invalid_configuration", f"{field} must be none or sandbox")
+    if value == "sandbox":
+        raise SyncError(
+            "invalid_configuration",
+            f"{field}=sandbox was retired; explicitly migrate this root to execute=host",
+        )
+    if value not in ("none", "host"):
+        raise SyncError("invalid_configuration", f"{field} must be none or host")
     return value  # type: ignore[return-value]
 
 
@@ -132,31 +124,6 @@ def _protected(root: Path, guards: tuple[Path, ...]) -> bool:
     return any(root == guard or guard in root.parents for guard in guards)
 
 
-def _image(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise SyncError("invalid_configuration", f"{field} is invalid")
-    return value
-
-
-def _execution_profiles(value: object, *, sandbox_image: str) -> Mapping[str, str]:
-    profiles = {
-        "base": sandbox_image,
-        "web": "personal-agent-host-web:1",
-        "documents": "personal-agent-host-documents:1",
-    }
-    if value is None:
-        return MappingProxyType(profiles)
-    if not isinstance(value, dict):
-        raise SyncError(
-            "invalid_configuration", "[host.execution_profiles] must be a table"
-        )
-    for name, image in value.items():
-        if not isinstance(name, str) or not PROFILE_NAME.fullmatch(name):
-            raise SyncError(
-                "invalid_configuration", "host.execution_profiles name is invalid"
-            )
-        profiles[name] = _image(image, field=f"host.execution_profiles.{name}")
-    return MappingProxyType(profiles)
 
 
 def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
@@ -194,10 +161,10 @@ def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
             raise SyncError("invalid_configuration", f"{identifier}: sources are invalid")
         if _protected(root, guards):
             permission, execute = "read_only", "none"
-        if execute == "sandbox" and permission != "read_write":
+        if execute == "host" and permission != "read_write":
             raise SyncError(
                 "invalid_configuration",
-                f"{identifier}: execute=sandbox requires a read_write root",
+                f"{identifier}: execute=host requires a read_write root",
             )
         roots.append(
             RootPolicy(
@@ -245,11 +212,11 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     host = raw.get("host", {})
     if not isinstance(host, dict):
         raise SyncError("invalid_configuration", "[host] must be a table")
-    retired = {"https_host_allowlist", "egress_proxy_image"} & set(host)
+    retired = {"https_host_allowlist", "egress_proxy_image", "sandbox_image", "execution_profiles"} & set(host)
     if retired:
         raise SyncError(
             "invalid_configuration",
-            f"host.{min(retired)} was removed; public egress is guarded per job",
+            f"host.{min(retired)} was retired; migrate to direct host execution configuration",
         )
     listen = host.get("listen", "127.0.0.1:18790")
     if not isinstance(listen, str) or ":" not in listen:
@@ -264,13 +231,6 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     allowed = host.get("allowed_hosts", [])
     if not isinstance(allowed, list) or not all(isinstance(v, str) for v in allowed):
         raise SyncError("invalid_configuration", "host.allowed_hosts must be strings")
-    sandbox_image = _image(
-        host.get("sandbox_image", "personal-agent-host-sandbox:1"),
-        field="host.sandbox_image",
-    )
-    profiles = _execution_profiles(
-        host.get("execution_profiles"), sandbox_image=sandbox_image
-    )
     max_jobs = host.get("max_concurrent_jobs", 4)
     if (
         isinstance(max_jobs, bool)
@@ -315,12 +275,12 @@ def load_host_config(path: Path | None = None) -> HostConfig:
                 "invalid_configuration",
                 f"{connection.key}: a writable Connection cannot contain a protected source",
             )
-        if execute == "sandbox" and (
+        if execute == "host" and (
             "work" not in connection.roles or permission != "read_write"
         ):
             raise SyncError(
                 "invalid_configuration",
-                f"{connection.key}: execute=sandbox requires a read_write work root",
+                f"{connection.key}: execute=host requires a read_write work root",
             )
         roots.append(
             RootPolicy(
@@ -347,8 +307,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
 
     return HostConfig(
         sync=sync, listen_host=listen_host, listen_port=listen_port,
-        allowed_hosts=tuple(allowed), sandbox_image=sandbox_image,
-        execution_profiles=profiles, max_concurrent_jobs=max_jobs,
+        allowed_hosts=tuple(allowed), max_concurrent_jobs=max_jobs,
         token_path=Path(token_value).expanduser(), backup=backup,
         roots=tuple(roots), read_only_paths=guards,
     )

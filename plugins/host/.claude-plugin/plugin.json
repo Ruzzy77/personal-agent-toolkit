@@ -1,7 +1,7 @@
 {
   "name": "host",
-  "version": "0.4.2",
-  "description": "Workspace files and sandboxed execution on the owner's always-on host through the Personal Agent Toolkit MCP.",
+  "version": "0.5.0",
+  "description": "Workspace files and direct Spark-owner execution on the always-on host through the Personal Agent Toolkit MCP.",
   "author": {
     "name": "Ruzzy77"
   },

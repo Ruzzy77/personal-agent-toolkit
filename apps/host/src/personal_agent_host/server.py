@@ -111,7 +111,7 @@ def create_server(
     @server.tool(
         name="host_capabilities",
         title="Host capabilities",
-        description="Return limits, installed execution profiles and the guarded public IPv4 network policy.",
+        description="Return direct host execution details, installed tools, actual paths and network policy.",
         annotations=READ_ONLY,
     )
     async def host_capabilities() -> dict[str, Any]:
@@ -254,11 +254,10 @@ def create_server(
         name="host_exec",
         title="Run a command",
         description=(
-            "Run a command in a sandbox container with the root mounted at /workspace. "
-            "Give argv (preferred) or shell. Waits up to wait_s; if the job is still "
-            "queued or running, poll host_job with the returned job_id. "
-            "profile selects an installed runtime. Jobs use direct guarded public IPv4 "
-            "egress by default; inbound traffic and private destinations are blocked."
+            "Run argv or shell directly as the Host user at the root's real host path. "
+            "Uses the owner's installed tools, HOME and network; not an OS sandbox. "
+            "Use keep_stdin_open for later host_job_input calls; otherwise stdin closes. "
+            "Poll host_job when queued or running. profile and https_hosts are retired and rejected."
         ),
         annotations=EXECUTE,
     )
@@ -272,6 +271,8 @@ def create_server(
         timeout_s: Annotated[int, Field(ge=1, le=LIMITS["timeout_s"])] = 1800,
         wait_s: Annotated[int, Field(ge=0, le=LIMITS["wait_s"])] = 5,
         profile: Annotated[str | None, Field(min_length=1, max_length=64)] = None,
+        https_hosts: list[str] | None = None,
+        keep_stdin_open: bool = False,
     ) -> dict[str, Any]:
         job = await jobs.submit(
             config.root(root),
@@ -281,6 +282,8 @@ def create_server(
             stdin=decode_exec_stdin(stdin, stdin_base64),
             timeout_s=clamp_timeout(timeout_s),
             profile=profile,
+            https_hosts=https_hosts,
+            keep_stdin_open=keep_stdin_open,
         )
         job = await jobs.wait(job.id, wait_s)
         return {
@@ -312,6 +315,25 @@ def create_server(
         if job is None:
             raise ToolError("not_found", "unknown job")
         return {**JobManager.public(job), **jobs.output(job, stream, offset, limit)}
+
+    @server.tool(
+        name="host_job_input",
+        title="Send job input",
+        description=(
+            "Send UTF-8 stdin to a running job created with keep_stdin_open=true. "
+            "Set eof=true to close input. Programs may echo received input in their output."
+        ),
+        annotations=WRITE,
+    )
+    async def host_job_input(
+        job_id: JobId,
+        stdin: Annotated[str | None, Field(max_length=1_048_576)] = None,
+        stdin_base64: Annotated[str | None, Field(max_length=1_398_104)] = None,
+        eof: bool = False,
+    ) -> dict[str, Any]:
+        data = decode_exec_stdin(stdin, stdin_base64) or ""
+        job = await jobs.write_stdin(job_id, data=data, eof=eof)
+        return JobManager.public(job)
 
     @server.tool(
         name="host_job_cancel",

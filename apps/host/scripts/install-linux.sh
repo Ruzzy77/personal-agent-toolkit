@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Bootstrap the Personal Agent Host prefix on a Linux host (arm64 or x86_64):
-# uv, the host and corpus runtimes, cloudflared, the launcher, and the sandbox image.
+# uv, the host and corpus runtimes, cloudflared, and the launcher.
 # Re-running upgrades in place. Run `personal-agent-host install` afterwards.
 #
 # --runtime-only reinstalls selected packages into the existing runtimes and
-# leaves uv, Python, cloudflared, the sandbox image, systemd units, the config
+# leaves uv, Python, cloudflared, systemd units, the config
 # and the state alone. Stop the Host service first: the branch refuses to touch
 # a running installation.
 #
 #   install-linux.sh <repo> --runtime-only [--packages host,sync,corpus,document-files] [--no-deps]
 #
 # --packages defaults to host,sync. Add --no-deps for a code-only update whose
-# dependencies are unchanged. Use --build-images to explicitly build all profiles;
-# use --test-runtime to run checks in a removable pytest/ruff environment.
+# dependencies are unchanged. Use --test-runtime to run checks in a removable pytest/ruff environment.
 set -euo pipefail
 
 PREFIX="${PERSONAL_AGENT_HOST_PREFIX:-$HOME/.local/share/personal-agent-host}"
@@ -22,7 +21,6 @@ UV_VERSION="${UV_VERSION:-0.12.8}"
 RUNTIME_ONLY=0
 PACKAGES="host,sync"
 NO_DEPS=0
-BUILD_IMAGES=0
 TEST_RUNTIME=0
 TEST_RUFF_VERSION="${TEST_RUFF_VERSION:-0.16.5}"
 REPO=""
@@ -33,7 +31,6 @@ while [ $# -gt 0 ]; do
     --packages) PACKAGES="${2:-}"; shift ;;
     --packages=*) PACKAGES="${1#*=}" ;;
     --no-deps) NO_DEPS=1 ;;
-    --build-images) BUILD_IMAGES=1 ;;
     --test-runtime) TEST_RUNTIME=1 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) REPO="$1" ;;
@@ -41,14 +38,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 REPO="${REPO:-$(cd "$(dirname "$0")/../../.." && pwd)}"
-
-if [ "$BUILD_IMAGES" = 1 ]; then
-  if [ "$RUNTIME_ONLY" = 1 ] || [ "$TEST_RUNTIME" = 1 ]; then
-    echo "--build-images cannot be combined with runtime installation options" >&2
-    exit 2
-  fi
-  exec "$REPO/apps/host/scripts/build-sandbox.sh" "$REPO" all
-fi
 
 if [ "$TEST_RUNTIME" = 1 ]; then
   if [ "$RUNTIME_ONLY" = 1 ] || [ "$PACKAGES" != "host,sync" ] || [ "$NO_DEPS" = 1 ]; then
@@ -165,11 +154,6 @@ if [ ! -x "$PREFIX/bin/cloudflared" ] || ! "$PREFIX/bin/cloudflared" --version |
   mv "$PREFIX/bin/cloudflared.new" "$PREFIX/bin/cloudflared"
 fi
 
-provision_test_runtime
-
-if command -v docker >/dev/null 2>&1; then
-  "$REPO/apps/host/scripts/build-sandbox.sh" "$REPO" base >/dev/null
-fi
 
 if [ ! -s "$PREFIX/config/host-upstream.token" ]; then
   umask 077

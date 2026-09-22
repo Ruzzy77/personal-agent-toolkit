@@ -8,27 +8,16 @@ corpus_python = "~/.local/share/personal-agent-host/runtimes/corpus/bin/python"
 [host]
 listen = "127.0.0.1:18790"
 allowed_hosts = ["spark-host"]
-sandbox_image = "personal-agent-host-sandbox:1"
 max_concurrent_jobs = 4
-# Public IPv4 egress is direct and per-job. A root-owned guard must be installed
-# before this Host accepts execution; it has no destination allowlist.
-# Protected sources stay read-only through every root that reaches them.
-read_only_paths = [
-  "~/Agent-Workspace/work/research-regulations/sources/tukorea/current",
-  "/mnt/nas/works",
-]
-
-[host.execution_profiles]
-base = "personal-agent-host-sandbox:1"
-web = "personal-agent-host-web:1"
-documents = "personal-agent-host-documents:1"
+# Commands run directly as the configured Spark owner. File-tool permissions do
+# not create an OS sandbox for direct commands.
 
 # A Host-only root needs no Corpus Space, Connection or generation.
 [[host.roots]]
 id = "workspace"
 path = "~/Agent-Workspace"
 permission = "read_write"
-execute = "sandbox"
+execute = "host"
 
 [[connections]]
 space_id = "research-note"
@@ -38,5 +27,5 @@ roles = ["source", "work"]
 access_scope = "remote_allowed"
 permission = "read_write"
 corpus_id = "research-note"
-execute = "sandbox"
+execute = "host"
 sources = []

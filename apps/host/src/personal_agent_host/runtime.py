@@ -1,59 +1,56 @@
-"""Report installed sandbox profiles without executing user work."""
+"""Describe the actual direct-execution Host environment without container probing."""
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import TYPE_CHECKING, Any
+import contextlib
+import os
+import platform
+import shutil
+import sys
+from pathlib import Path
+from typing import Any
 
-if TYPE_CHECKING:
-    from personal_agent_host.config import HostConfig
+from personal_agent_host.config import HostConfig
 
 
-async def inspect_profile(name: str, image: str) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "name": name, "image": image, "available": False, "features": [],
-    }
+async def _passwordless_sudo() -> bool:
+    process = None
     try:
         process = await asyncio.create_subprocess_exec(
-            "docker", "image", "inspect", "--format",
-            "{{.Id}}\n{{json .Config.Labels}}", image,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            "sudo", "-n", "true",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
         )
-        try:
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-            result["reason"] = "image_inspection_timed_out"
-            return result
-        if process.returncode:
-            result["reason"] = "image_not_installed"
-            return result
-        identifier, labels_json = stdout.decode("utf-8").strip().split("\n", 1)
-        labels = json.loads(labels_json) or {}
-        features = json.loads(labels.get("org.personal-agent.features", "[]"))
-        if not isinstance(features, list) or not all(
-            isinstance(item, str) for item in features
-        ):
-            raise ValueError("invalid feature manifest")
-        result.update(available=True, image_id=identifier, features=features)
-    except (OSError, UnicodeError, ValueError, TypeError, AttributeError):
-        result["reason"] = "image_inspection_failed"
-    return result
+        await asyncio.wait_for(process.wait(), timeout=2)
+        return process.returncode == 0
+    except (OSError, TimeoutError):
+        if process is not None:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+        return False
 
 
 async def execution_capabilities(config: HostConfig) -> dict[str, Any]:
-    profiles = config.execution_profiles or {"base": config.sandbox_image}
-    values = await asyncio.gather(
-        *(inspect_profile(name, image) for name, image in sorted(profiles.items()))
-    )
+    executables = {
+        name: value
+        for name in ("python3", "python", "node", "npm", "uv", "git", "rg", "document-files")
+        if (value := shutil.which(name))
+    }
     return {
-        "default_profile": "base",
-        "profiles": values,
+        "execution": {
+            "mode": "direct_host",
+            "user": os.environ.get("USER") or os.environ.get("LOGNAME"),
+            "home": str(Path.home()),
+            "roots": [{"id": root.id, "path": str(root.root)} for root in getattr(config, "roots", ())],
+            "python": sys.executable,
+            "platform": platform.platform(),
+            "executables": executables,
+            "sudo_passwordless": await _passwordless_sudo(),
+            "isolation": "none",
+            "source_protection": "logical_root_policy_only",
+        },
         "network": {
-            "default": "public_ipv4",
-            "policy": "direct_public_only_guarded",
-            "protocols": ["tcp", "udp", "icmp"],
-            "inbound": "blocked",
+            "policy": "host_network",
+            "inbound": "host_configuration",
+            "egress": "host_configuration",
         },
     }

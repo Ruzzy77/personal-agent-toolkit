@@ -66,7 +66,7 @@ export const HOST_TOOLS: readonly HostTool[] = [
   {
     name: "host_capabilities",
     title: "Host capabilities",
-    description: "Return limits, installed execution profiles and the guarded public IPv4 network policy.",
+    description: "Return limits, root execution policies, and installed tools available on the configured Spark host.",
     scope: "host.read",
     annotations: READ_ONLY,
     schema: z.object({}).strict(),
@@ -160,7 +160,7 @@ export const HOST_TOOLS: readonly HostTool[] = [
     name: "host_exec",
     title: "Run a command",
     description:
-      "Run a command in a sandbox container with the root at /workspace. Give argv or shell. Optional profile selects an installed runtime. Public IPv4 egress is available by default while host, private, metadata and other job networks remain blocked. Poll host_job when still running.",
+      "Run argv or shell directly as the configured Spark owner. cwd is relative to the selected root and resolves to its actual host path; the owner's HOME and installed software are available. Retired profile and https_hosts inputs are rejected. Poll host_job when still running.",
     scope: "host.write",
     annotations: EXECUTE,
     schema: z
@@ -170,9 +170,12 @@ export const HOST_TOOLS: readonly HostTool[] = [
         argv: z.array(z.string()).min(1).max(256).optional(),
         shell: z.string().min(1).max(65_536).optional(),
         stdin: z.string().max(1_048_576).optional(),
+        keep_stdin_open: z.boolean().optional(),
         timeout_s: z.number().int().min(1).max(21_600).optional(),
         wait_s: z.number().int().min(0).max(50).optional(),
+        // Accepted only so the Host can return a clear retired-input error.
         profile: z.string().min(1).max(64).optional(),
+        https_hosts: z.array(z.string().min(1).max(253)).min(1).max(256).optional(),
       })
       .strict(),
   },
@@ -189,6 +192,21 @@ export const HOST_TOOLS: readonly HostTool[] = [
         stream: z.enum(["stdout", "stderr"]).optional(),
         offset: z.number().int().min(0).optional(),
         limit: z.number().int().min(0).max(262_144).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "host_job_input",
+    title: "Write job input",
+    description:
+      "Write UTF-8 input to a running job whose host_exec request set keep_stdin_open=true. Set eof=true to close standard input.",
+    scope: "host.write",
+    annotations: WRITE,
+    schema: z
+      .object({
+        job_id: jobId,
+        stdin: z.string().max(1_048_576),
+        eof: z.boolean().optional(),
       })
       .strict(),
   },
@@ -249,7 +267,7 @@ function utf8Base64(value: string): string {
 }
 
 export function hostForwardArguments(name: string, args: Record<string, unknown>) {
-  if (name !== "host_exec" || typeof args.stdin !== "string") return args;
+  if (!["host_exec", "host_job_input"].includes(name) || typeof args.stdin !== "string") return args;
   const forwarded: Record<string, unknown> = {
     ...args, stdin_base64: utf8Base64(args.stdin),
   };

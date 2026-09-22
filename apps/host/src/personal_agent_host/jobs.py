@@ -1,22 +1,24 @@
-"""Sandboxed command execution: one Docker container per job, tracked in SQLite."""
+"""Direct host command execution, with detached per-job workers and SQLite history.
 
+Jobs run as the Host owner on the real configured root.  File-root permissions
+remain logical API policy only: this mode is deliberately not a sandbox and a
+command with the owner's sudo access can reach outside a root or alter sources.
+"""
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import json
-import logging
 import os
-import re
+import signal
 import sqlite3
-import stat
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from personal_agent_host import guard
 from personal_agent_host.config import LIMITS, HostConfig, RootPolicy
 from personal_agent_host.files import ToolError, relative_path
 
@@ -24,8 +26,11 @@ OUTPUT_CAP = 64 * 1024 * 1024
 TAIL_BYTES = 32 * 1024
 RETENTION_S = 7 * 24 * 3600
 TERMINAL = {"succeeded", "failed", "cancelled", "timed_out", "lost"}
-RESOURCE_LABEL = "personal-agent-host.job"
-log = logging.getLogger(__name__)
+GRACE_S = 5.0
+
+
+def clamp_timeout(value: int) -> int:
+    return min(max(1, value), LIMITS["timeout_s"])
 
 
 @dataclass
@@ -41,57 +46,38 @@ class Job:
     finished: float | None
     timeout_s: int
     truncated: bool
-
-    @property
-    def container(self) -> str:
-        return f"pah-{self.id}"
-
-
-@dataclass(frozen=True)
-class DirectEgress:
-    job_id: str
-
-    @property
-    def network(self) -> str:
-        return "pah-egress-" + self.job_id
+    pid: int | None = None
+    pid_start: str | None = None
+    boot_id: str | None = None
+    worker_pid: int | None = None
+    worker_start: str | None = None
+    input_open: bool = False
+    runtime: str | None = None
 
 
-def _inner(base: Path, target: Path) -> str:
-    return "/workspace/" + target.relative_to(base).as_posix()
+def _boot_id() -> str | None:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
 
 
-def _mount(source: Path, destination: str, *, readonly: bool = False) -> list[str]:
-    text = str(source)
-    if '"' in text:
-        raise ToolError("invalid_path", "a mounted path cannot contain a quote")
-    field = f'"{text}"' if "," in text else text
-    spec = f"type=bind,src={field},dst={destination},bind-propagation=rprivate"
-    if readonly:
-        spec += ",readonly,bind-recursive=readonly"
-    return ["--mount", spec]
-
-
-def _refuse_shared_inodes(guard: Path, label: str, limit: int = 20_000) -> None:
-    seen = 0
-    for item in guard.rglob("*"):
-        seen += 1
-        if seen > limit:
-            raise ToolError(
-                "protected_source_unavailable",
-                f"{label} is too large to verify before execution",
-            )
-        try:
-            status = item.lstat()
-        except OSError:
-            continue
-        if stat.S_ISREG(status.st_mode) and status.st_nlink > 1:
-            raise ToolError(
-                "protected_source_shared",
-                f"{label} shares a file with a writable location",
-            )
+def _start_time(pid: int) -> str | None:
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return text[text.rfind(")") + 2 :].split()[19]
+    except (OSError, IndexError):
+        return None
 
 
 class JobStore:
+    """SQLite store which keeps pre-direct-execution rows readable."""
+
+    _columns = (
+        "id, root, cwd, command, status, exit_code, created, started, finished, "
+        "timeout_s, truncated, pid, pid_start, boot_id, worker_pid, worker_start, input_open, runtime"
+    )
+
     def __init__(self, directory: Path) -> None:
         self.directory = directory
         directory.mkdir(parents=True, exist_ok=True)
@@ -101,26 +87,36 @@ class JobStore:
             "command TEXT, status TEXT, exit_code INTEGER, created REAL, started REAL, "
             "finished REAL, timeout_s INTEGER, truncated INTEGER)"
         )
+        present = {row[1] for row in self.db.execute("PRAGMA table_info(jobs)")}
+        for name, definition in (
+            ("pid", "INTEGER"), ("pid_start", "TEXT"), ("boot_id", "TEXT"),
+            ("worker_pid", "INTEGER"), ("worker_start", "TEXT"), ("input_open", "INTEGER DEFAULT 0"),
+            ("runtime", "TEXT"),
+        ):
+            if name not in present:
+                self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
         self.db.commit()
 
     def save(self, job: Job) -> None:
+        values = (
+            job.id, job.root, job.cwd, json.dumps(job.command), job.status,
+            job.exit_code, job.created, job.started, job.finished, job.timeout_s,
+            int(job.truncated), job.pid, job.pid_start, job.boot_id, job.worker_pid, job.worker_start,
+            int(job.input_open), job.runtime,
+        )
         self.db.execute(
-            "INSERT OR REPLACE INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                job.id, job.root, job.cwd, json.dumps(job.command), job.status,
-                job.exit_code, job.created, job.started, job.finished,
-                job.timeout_s, int(job.truncated),
-            ),
+            f"INSERT OR REPLACE INTO jobs ({self._columns}) VALUES ({','.join('?' for _ in values)})",
+            values,
         )
         self.db.commit()
 
     def load(self, job_id: str) -> Job | None:
-        row = self.db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = self.db.execute(f"SELECT {self._columns} FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._job(row) if row else None
 
     def active(self) -> list[Job]:
         rows = self.db.execute(
-            "SELECT * FROM jobs WHERE status IN ('queued','running')"
+            f"SELECT {self._columns} FROM jobs WHERE status IN ('queued','running')"
         ).fetchall()
         return [self._job(row) for row in rows]
 
@@ -130,28 +126,26 @@ class JobStore:
             (now - RETENTION_S,),
         ).fetchall()
         for (job_id,) in rows:
-            for name in ("stdout", "stderr"):
-                (self.directory / job_id / name).unlink(missing_ok=True)
+            directory = self.directory / job_id
+            for name in ("stdout", "stderr", "stdin.initial", "stdin.fifo", "stdin.close",
+                         "run.json", "result.json", "deadline", "cancel"):
+                (directory / name).unlink(missing_ok=True)
             with contextlib.suppress(OSError):
-                (self.directory / job_id).rmdir()
+                directory.rmdir()
             self.db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         self.db.commit()
-
-    def terminal(self) -> list[Job]:
-        rows = self.db.execute(
-            "SELECT * FROM jobs WHERE status IN ('succeeded','failed','cancelled','timed_out','lost')"
-        ).fetchall()
-        return [self._job(row) for row in rows]
 
     def stream_path(self, job_id: str, stream: str) -> Path:
         return self.directory / job_id / stream
 
     @staticmethod
-    def _job(row: tuple) -> Job:
+    def _job(row: tuple[Any, ...]) -> Job:
         return Job(
             id=row[0], root=row[1], cwd=row[2], command=json.loads(row[3]),
             status=row[4], exit_code=row[5], created=row[6], started=row[7],
             finished=row[8], timeout_s=row[9], truncated=bool(row[10]),
+            pid=row[11], pid_start=row[12], boot_id=row[13], worker_pid=row[14],
+            worker_start=row[15], input_open=bool(row[16]), runtime=row[17],
         )
 
 
@@ -162,59 +156,41 @@ class JobManager:
         self.slots = asyncio.Semaphore(config.max_concurrent_jobs)
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.done: dict[str, asyncio.Event] = {}
-        self.cancel_requested: set[str] = set()
+
+    async def start(self) -> None:
+        self.store.expire(time.time())
+        recovered: list[Job] = []
+        for job in self.store.active():
+            self.done[job.id] = asyncio.Event()
+            self._sync_result(job)
+            if job.status in TERMINAL:
+                self.done[job.id].set()
+            elif self._owns_live_process(job) or self._owns_live_worker(job):
+                recovered.append(job)
+            else:
+                self._lost(job, "job worker or process is no longer present")
+                self.done[job.id].set()
+        # Running workers already consume capacity; only released recovered slots
+        # permit new launches after they finish.
+        self.slots = asyncio.Semaphore(max(0, self.config.max_concurrent_jobs - len(recovered)))
+        for job in recovered:
+            self.tasks[job.id] = asyncio.create_task(self._resume(job))
+
+    async def _resume(self, job: Job) -> None:
+        try:
+            await self._monitor(job)
+        finally:
+            self.done[job.id].set()
+            self.tasks.pop(job.id, None)
+            self.slots.release()
 
     async def stop(self) -> None:
-        """Stop Host-side monitors without stopping their Docker containers."""
+        """Stop monitors only; workers retain ownership of direct commands."""
         tasks = list(self.tasks.values())
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def start(self) -> None:
-        self.store.expire(time.time())
-        resumed_ids: set[str] = set()
-        for job in self.store.active():
-            state = await self._container_state(job) if job.status == "running" else None
-            if job.status == "running" and state in {"running", "paused", "exited", "dead"}:
-                if state in {"running", "paused"}:
-                    try:
-                        if state == "running":
-                            paused = await self._docker("pause", job.container)
-                            if paused.returncode != 0:
-                                raise ToolError(
-                                    "egress_unavailable",
-                                    "running job could not be paused for guard verification",
-                                )
-                        await guard.invoke("attach", DirectEgress(job.id).network)
-                        await guard.invoke("check", DirectEgress(job.id).network)
-                        resumed = await self._docker("unpause", job.container)
-                        if resumed.returncode != 0:
-                            raise ToolError(
-                                "egress_unavailable",
-                                "running job could not resume after guard verification",
-                            )
-                    except (ToolError, OSError):
-                        await self._docker("rm", "-f", job.container)
-                        job.status = "lost"
-                        job.finished = time.time()
-                        self.store.save(job)
-                        with contextlib.suppress(Exception):
-                            await self._cleanup_egress(job)
-                        continue
-                resumed_ids.add(job.id)
-                self.done[job.id] = asyncio.Event()
-                self.tasks[job.id] = asyncio.create_task(self._resume(job))
-            else:
-                job.status = "lost"
-                job.finished = time.time()
-                self.store.save(job)
-                await self._cleanup_egress(job)
-
-        for job_id in await self._labeled_job_ids():
-            if job_id not in resumed_ids:
-                await self._cleanup_egress(job_id)
 
     async def submit(
         self,
@@ -227,38 +203,33 @@ class JobManager:
         timeout_s: int,
         profile: str | None = None,
         https_hosts: list[str] | None = None,
+        keep_stdin_open: bool = False,
     ) -> Job:
-        if policy.execute != "sandbox" or policy.permission != "read_write":
-            raise ToolError("policy_denied", f"{policy.id} does not allow execution")
-        self._verify_protection(policy)
+        if policy.execute != "host" or policy.permission != "read_write":
+            raise ToolError("policy_denied", f"{policy.id} does not allow direct host execution")
+        if profile is not None:
+            raise ToolError("invalid_request", "profile was retired; jobs use the Host runtime")
+        if https_hosts is not None:
+            raise ToolError("invalid_request", "https_hosts was retired; direct host jobs use host networking")
         if (argv is None) == (shell is None):
             raise ToolError("invalid_request", "give exactly one of argv or shell")
-        try:
-            image = self.config.execution_profile(profile)
-        except Exception as exc:
-            raise ToolError("invalid_request", "unknown execution profile") from exc
-        if https_hosts is not None:
-            raise ToolError(
-                "invalid_request",
-                "https_hosts was removed; public egress is direct and guarded per job",
-            )
         workdir = relative_path(policy.root, cwd or ".")
         if not workdir.is_dir():
             raise ToolError("invalid_path", "cwd is not a directory")
-        inner_cwd = "/workspace/" + workdir.relative_to(policy.root.resolve()).as_posix()
         command = argv if argv is not None else ["/bin/sh", "-c", shell or ""]
         job = Job(
-            id=uuid.uuid4().hex[:12], root=policy.id, cwd=inner_cwd,
+            id=uuid.uuid4().hex[:12], root=policy.id, cwd=str(workdir.resolve()),
             command=command, status="queued", exit_code=None, created=time.time(),
             started=None, finished=None, timeout_s=timeout_s, truncated=False,
+            input_open=keep_stdin_open, runtime=sys.executable,
         )
-        egress = DirectEgress(job.id)
-        (self.store.directory / job.id).mkdir(parents=True, exist_ok=True)
+        directory = self._directory(job)
+        directory.mkdir(parents=True, exist_ok=True)
+        if stdin is not None:
+            (directory / "stdin.initial").write_bytes(stdin.encode("utf-8"))
         self.store.save(job)
         self.done[job.id] = asyncio.Event()
-        self.tasks[job.id] = asyncio.create_task(
-            self._run(job, policy, stdin, image, egress)
-        )
+        self.tasks[job.id] = asyncio.create_task(self._launch(job))
         return job
 
     async def wait(self, job_id: str, seconds: float) -> Job:
@@ -274,20 +245,57 @@ class JobManager:
         job = self.store.load(job_id)
         if job is None:
             raise ToolError("not_found", "unknown job")
+        self._sync_result(job)
         if job.status in TERMINAL:
             return job
-        self.cancel_requested.add(job_id)
-        if job.status == "running":
-            await self._docker("kill", job.container)
-        elif job.status == "queued":
-            task = self.tasks.get(job_id)
-            if task is not None:
-                task.cancel()
-            job.status = "cancelled"
-            job.finished = time.time()
+        if job.status == "queued":
+            # Do not cancel an in-flight spawn: asyncio cancellation can arrive
+            # after the OS child exists but before its identity was persisted.
+            (self._directory(job) / "cancel").touch()
+            return await self.wait(job.id, GRACE_S + 2)
+        (self._directory(job) / "cancel").touch()
+        await asyncio.sleep(0.2)
+        self._sync_result(job)
+        if job.status not in TERMINAL and self._owns_live_process(job):
+            self._signal_group(job.pid, signal.SIGTERM)
+            await asyncio.sleep(GRACE_S)
+            if self._owns_live_process(job):
+                self._signal_group(job.pid, signal.SIGKILL)
+        return await self.wait(job.id, GRACE_S + 1)
+
+    async def write_stdin(self, job_id: str, data: str, *, eof: bool = False) -> Job:
+        job = self.store.load(job_id)
+        if job is None:
+            raise ToolError("not_found", "unknown job")
+        self._sync_result(job)
+        if job.status != "running" or not job.input_open:
+            raise ToolError("invalid_request", "job was not started with keep_stdin_open")
+        directory = self._directory(job)
+        fifo = directory / "stdin.fifo"
+        if data:
+            try:
+                descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+            except OSError as exc:
+                raise ToolError("input_unavailable", "job input is no longer available") from exc
+            try:
+                encoded = data.encode("utf-8")
+                while encoded:
+                    try:
+                        written = os.write(descriptor, encoded)
+                    except BlockingIOError:
+                        await asyncio.sleep(0.02)
+                        self._sync_result(job)
+                        if job.status != "running":
+                            raise ToolError("input_unavailable", "job input is no longer available")
+                        continue
+                    encoded = encoded[written:]
+            finally:
+                os.close(descriptor)
+        if eof:
+            (directory / "stdin.close").touch()
+            job.input_open = False
             self.store.save(job)
-            self.done[job_id].set()
-        return await self.wait(job_id, 10)
+        return job
 
     def output(self, job: Job, stream: str, offset: int, limit: int) -> dict[str, Any]:
         path = self.store.stream_path(job.id, stream)
@@ -299,8 +307,6 @@ class JobManager:
             with path.open("rb") as handle:
                 handle.seek(offset)
                 chunk = handle.read(limit)
-            if next_offset_cut := _incomplete_tail(chunk):
-                chunk = chunk[:next_offset_cut]
         return {
             "stream": stream, "output": chunk.decode("utf-8", errors="replace"),
             "next_offset": offset + len(chunk),
@@ -324,392 +330,154 @@ class JobManager:
             "truncated": job.truncated,
         }
 
-    def _docker_create_args(
-        self, job: Job, policy: RootPolicy, image: str, egress: DirectEgress
-    ) -> list[str]:
-        uid, gid = os.getuid(), os.getgid()
-        args = [
-            "docker", "create", "-i", "--name", job.container,
-            "--label", f"{RESOURCE_LABEL}={job.id}",
-            "--user", f"{uid}:{gid}", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
-        ]
-        args += ["--network", egress.network]
-        args += [
-            "--memory", "8g", "--cpus", "4", "--pids-limit", "512",
-            "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g,mode=1777",
-            "--log-opt", "max-size=64m", "--log-opt", "max-file=2",
-            "-e", "HOME=/tmp", "-w", job.cwd,
-        ]
-        args += _mount(policy.root.resolve(), "/workspace")
-        args += self._protection_mounts(policy)
-        for source_id in policy.sources:
-            source = self.config.root(source_id)
-            args += _mount(source.root.resolve(), f"/sources/{source_id}", readonly=True)
-        args.append(image)
-        args += job.command
-        return args
-
-    def _verify_protection(self, policy: RootPolicy) -> None:
-        base = policy.root.resolve()
-        for protected in self.config.protected_within(base):
-            try:
-                resolved = protected.resolve(strict=True)
-            except OSError as exc:
-                raise ToolError(
-                    "protected_source_unavailable", f"{_inner(base, protected)} cannot be resolved"
-                ) from exc
-            if resolved != protected or not resolved.is_dir():
-                raise ToolError(
-                    "protected_source_unavailable", f"{_inner(base, protected)} is not the expected directory"
-                )
-            _refuse_shared_inodes(protected, _inner(base, protected))
-        for source_id in policy.sources:
-            source = self.config.root(source_id).root.resolve()
-            if not source.is_dir():
-                raise ToolError("source_unavailable", f"{source_id} is currently unavailable")
-            if base in source.parents and not self.config.protects(source):
-                raise ToolError("policy_denied", f"{source_id} is also writable inside {policy.id}")
-
-    def _protection_mounts(self, policy: RootPolicy) -> list[str]:
-        base = policy.root.resolve()
-        args: list[str] = []
-        pinned: set[Path] = set()
-        for protected in self.config.protected_within(base):
-            for ancestor in reversed(protected.parents):
-                if base not in ancestor.parents or ancestor in pinned:
-                    continue
-                pinned.add(ancestor)
-                args += _mount(ancestor, _inner(base, ancestor))
-            args += _mount(protected, _inner(base, protected), readonly=True)
-        return args
-
-    async def _run(
-        self, job: Job, policy: RootPolicy, stdin: str | None,
-        image: str, egress: DirectEgress,
-    ) -> None:
+    async def _launch(self, job: Job) -> None:
         try:
             async with self.slots:
-                if job.id not in self.cancel_requested:
-                    await self._execute(job, policy, stdin, image, egress)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            if job.status not in TERMINAL and job.id in self.cancel_requested:
-                job.status = "cancelled"
-                job.finished = time.time()
-                self.store.save(job)
-            self.done[job.id].set()
-            self.tasks.pop(job.id, None)
-
-    async def _execute(
-        self, job: Job, policy: RootPolicy, stdin: str | None,
-        image: str, egress: DirectEgress,
-    ) -> None:
-        try:
-            await self._prepare_egress(egress)
-            created = await self._docker(*self._docker_create_args(job, policy, image, egress)[1:])
-            if created.returncode != 0:
-                job.status = "failed"
-                job.finished = time.time()
-                self.store.save(job)
-                self._write(job, "stderr", created.stderr)
-                return
-            job.status = "running"
-            job.started = time.time()
-            self.store.save(job)
-            # Do not attach the Host service to the container's lifecycle.  An
-            # attached `docker start -a` client is killed with the service on a
-            # systemd restart; starting detached lets the next Host instance
-            # reconnect to logs and wait for the already-running container.
-            if stdin is None:
-                started = await self._docker("start", job.container)
-                start_error = started.stderr
-                start_returncode = started.returncode
-            else:
-                process = await asyncio.create_subprocess_exec(
-                    "docker", "start", "-i", job.container,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await process.communicate(stdin.encode("utf-8"))
-                start_error = stderr.decode("utf-8", errors="replace")
-                start_returncode = process.returncode
-            if start_returncode != 0:
-                job.status = "failed"
-                job.finished = time.time()
-                self.store.save(job)
-                self._write(job, "stderr", start_error)
-                return
-            await self._finish_existing(job, append=True)
-        except Exception as exc:
-            log.exception("Host sandbox job failed")
-            if job.status not in TERMINAL:
-                await self._docker("rm", "-f", job.container)
-                job.status = "failed"
-                job.finished = time.time()
-                self.store.save(job)
-                self._write(job, "stderr", str(exc))
-        finally:
-            # A service restart cancels this coroutine, not the Docker
-            # container.  Keep its network and guard state intact until the
-            # replacement Host has reattached.  Explicit cancellation and
-            # terminal jobs still release those resources here.
-            if job.id in self.cancel_requested:
-                await self._remove_labeled("container", job.container, "rm", "-f")
-            if job.status in TERMINAL or job.id in self.cancel_requested:
-                try:
-                    await self._cleanup_egress(job)
-                except (ToolError, OSError) as exc:
-                    if job.status == "succeeded":
-                        job.status = "failed"
-                        job.finished = time.time()
-                        self.store.save(job)
-                        self._write(job, "stderr", f"egress cleanup failed: {exc}")
-
-    async def _prepare_egress(self, egress: DirectEgress) -> None:
-        labels = ["--label", f"{RESOURCE_LABEL}={egress.job_id}"]
-        created = await self._docker(
-            "network", "create", "--driver", "bridge", "--ipv6=false",
-            "-o", "com.docker.network.bridge.enable_icc=false",
-            *labels, egress.network,
-        )
-        if created.returncode != 0:
-            raise ToolError("egress_unavailable", "job egress network could not be created")
-        try:
-            await guard.invoke("attach", egress.network)
-            await guard.invoke("check", egress.network)
-        except ToolError:
-            # Preserve the labeled network when detach cannot be confirmed so a
-            # later startup can identify and remove any partial guard rules.
-            await guard.invoke("detach", egress.network)
-            await self._remove_labeled(
-                "network", egress.network, "network", "rm"
-            )
-            raise
-
-    async def _resume(self, job: Job) -> None:
-        try:
-            # Docker logs includes the complete container history, replacing a
-            # partial pre-restart stream if the old Host was interrupted.
-            await self._finish_existing(job, append=False)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            log.exception("Recovered Host sandbox job failed")
-            if job.status not in TERMINAL:
-                await self._docker("rm", "-f", job.container)
-                job.status = "failed"
-                job.finished = time.time()
-                self.store.save(job)
-                self._write(job, "stderr", str(exc))
-        finally:
-            if job.status in TERMINAL:
-                try:
-                    await self._cleanup_egress(job)
-                except (ToolError, OSError) as exc:
-                    if job.status == "succeeded":
-                        job.status = "failed"
-                        job.finished = time.time()
-                        self.store.save(job)
-                        self._write(job, "stderr", f"egress cleanup failed: {exc}")
-            self.done[job.id].set()
-            self.tasks.pop(job.id, None)
-
-    async def _finish_existing(self, job: Job, *, append: bool) -> None:
-        logs = await asyncio.create_subprocess_exec(
-            "docker", "logs", "--follow", job.container,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        waiter = await asyncio.create_subprocess_exec(
-            "docker", "wait", job.container,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        )
-        pumps = asyncio.gather(
-            self._pump(job, "stdout", logs.stdout, append=append),
-            self._pump(job, "stderr", logs.stderr, append=append),
-        )
-        elapsed = time.time() - job.started if job.started is not None else 0
-        remaining = max(0, job.timeout_s - elapsed)
-        timed_out = False
-        try:
-            await asyncio.wait_for(waiter.wait(), timeout=remaining)
-        except asyncio.CancelledError:
-            await asyncio.gather(
-                self._stop_monitor(logs), self._stop_monitor(waiter),
-                return_exceptions=True,
-            )
-            pumps.cancel()
-            await asyncio.gather(pumps, return_exceptions=True)
-            raise
-        except TimeoutError:
-            timed_out = True
-            await self._docker("kill", job.container)
-            await waiter.wait()
-        finally:
-            if waiter.stderr is not None:
-                await waiter.stderr.read()
-        if waiter.returncode != 0:
-            raise RuntimeError("docker wait monitor ended unexpectedly")
-        await logs.wait()
-        await pumps
-        await self._finalize(job, timed_out=timed_out)
-
-    @staticmethod
-    async def _stop_monitor(process: asyncio.subprocess.Process) -> None:
-        if process.returncode is not None:
-            return
-        with contextlib.suppress(ProcessLookupError):
-            process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
-            await process.wait()
-
-    async def _finalize(self, job: Job, *, timed_out: bool) -> None:
-        inspect = await self._docker(
-            "inspect", "--format", "{{.State.ExitCode}}", job.container
-        )
-        exit_code = None
-        with contextlib.suppress(ValueError):
-            exit_code = int(inspect.stdout.strip())
-        await self._docker("rm", "-f", job.container)
-        job.exit_code = exit_code
-        if job.id in self.cancel_requested:
-            job.status = "cancelled"
-        elif timed_out:
-            job.status = "timed_out"
-        else:
-            job.status = "succeeded" if exit_code == 0 else "failed"
-        job.finished = time.time()
-        self.store.save(job)
-
-    async def _labeled_job_ids(self) -> set[str]:
-        result: set[str] = set()
-        template = '{{.Label "' + RESOURCE_LABEL + '"}}'
-        for args in (
-            ("ps", "-a", "--filter", f"label={RESOURCE_LABEL}", "--format", template),
-            ("network", "ls", "--filter", f"label={RESOURCE_LABEL}", "--format", template),
-        ):
-            listed = await self._docker(*args)
-            if listed.returncode != 0:
-                raise ToolError(
-                    "egress_cleanup_failed", "labeled egress resources could not be listed"
-                )
-            for job_id in listed.stdout.splitlines():
-                if re.fullmatch(r"[0-9a-f]{12}", job_id):
-                    result.add(job_id)
-        return result
-
-    async def _cleanup_egress(self, job: Job | str) -> None:
-        job_id = job.id if isinstance(job, Job) else job
-        egress = DirectEgress(job_id)
-        # Remove pre-0.4 proxy resources if a Host restart interrupted migration.
-        await self._remove_labeled("container", egress.network, "rm", "-f")
-        await self._remove_labeled(
-            "network", "pah-private-" + job_id, "network", "rm"
-        )
-        await self._remove_labeled(
-            "network", "pah-uplink-" + job_id, "network", "rm"
-        )
-        # Keep the labeled network if rule removal cannot be confirmed; deleting
-        # it first would discard the bridge identity needed for a safe retry.
-        await guard.invoke("detach", egress.network)
-        await self._remove_labeled("network", egress.network, "network", "rm")
-
-    async def _remove_labeled(self, kind: str, name: str, *remove: str) -> None:
-        template = (
-            '{{index .Config.Labels "' + RESOURCE_LABEL + '"}}'
-            if kind == "container"
-            else '{{index .Labels "' + RESOURCE_LABEL + '"}}'
-        )
-        inspected = await self._docker(
-            "inspect", "--type", kind, "--format", template, name
-        )
-        if inspected.returncode != 0:
-            detail = (inspected.stderr or inspected.stdout).strip()
-            lowered = detail.lower()
-            if any(marker in lowered for marker in ("no such", "not found", "does not exist")):
-                return
-            raise ToolError(
-                "egress_cleanup_failed",
-                f"{kind} {name} could not be inspected{': ' + detail if detail else ''}",
-            )
-        if inspected.stdout.strip() != name.rsplit("-", 1)[-1]:
-            raise ToolError("egress_cleanup_failed", "egress resource label does not match")
-        removed = await self._docker(*remove, name)
-        if removed.returncode != 0:
-            raise ToolError("egress_cleanup_failed", "egress resource could not be removed")
-
-    async def _pump(self, job: Job, stream: str, reader: asyncio.StreamReader | None, append: bool = True) -> None:
-        if reader is None:
-            return
-        path = self.store.stream_path(job.id, stream)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        written = path.stat().st_size if append and path.exists() else 0
-        with path.open("ab" if append else "wb") as handle:
-            while True:
-                chunk = await reader.read(65536)
-                if not chunk:
-                    break
-                room = OUTPUT_CAP - written
-                if room <= 0:
-                    if not job.truncated:
-                        job.truncated = True
-                        self.store.save(job)
-                    continue
-                piece = chunk[:room]
-                handle.write(piece)
-                handle.flush()
-                written += len(piece)
-                if len(piece) < len(chunk) and not job.truncated:
-                    job.truncated = True
+                directory = self._directory(job)
+                if (directory / "cancel").exists() or job.status != "queued":
+                    job.status, job.finished = "cancelled", time.time()
                     self.store.save(job)
+                    return
+                # The deadline starts when the direct worker is handed off, not
+                # while this job waits for a concurrency slot.
+                (directory / "deadline").write_text(
+                    str(time.monotonic() + job.timeout_s), encoding="utf-8"
+                )
+                spawn = asyncio.create_task(asyncio.create_subprocess_exec(
+                    job.runtime or sys.executable, "-m", "personal_agent_host.worker",
+                    "--job-dir", str(directory), "--cwd", job.cwd,
+                    "--command-json", json.dumps(job.command),
+                    *(["--keep-stdin-open"] if job.input_open else []),
+                    start_new_session=True,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                ))
+                try:
+                    process = await asyncio.shield(spawn)
+                except asyncio.CancelledError:
+                    # Service shutdown stops monitoring, not an already-created
+                    # direct worker.  Persist its identity before propagating.
+                    process = await asyncio.shield(spawn)
+                    job.worker_pid = process.pid
+                    job.status, job.started = "running", time.time()
+                    self.store.save(job)
+                    raise
+                job.worker_pid = process.pid
+                job.status, job.started = "running", time.time()
+                self.store.save(job)
+                # Let the worker publish the child identity before callers can cancel.
+                for _ in range(20):
+                    self._sync_run(job)
+                    if job.pid is not None or (self._directory(job) / "result.json").exists():
+                        break
+                    await asyncio.sleep(0.05)
+                if job.pid is None:
+                    self._sync_result(job)
+                    if job.status not in TERMINAL:
+                        self._lost(job, "direct worker did not publish process identity")
+                    return
+                await self._monitor(job)
+        except asyncio.CancelledError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            if job.status not in TERMINAL:
+                self._fail(job, f"direct job could not start: {exc}")
+        finally:
+            self.done[job.id].set()
+            self.tasks.pop(job.id, None)
 
-    def _write(self, job: Job, stream: str, text: str) -> None:
-        path = self.store.stream_path(job.id, stream)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+    async def _monitor(self, job: Job) -> None:
+        missing_since: float | None = None
+        while True:
+            self._sync_result(job)
+            if job.status in TERMINAL:
+                return
+            if self._owns_live_process(job) or self._owns_live_worker(job):
+                missing_since = None
+            else:
+                # The child can exit just before its worker atomically publishes
+                # result.json.  Never turn that short handoff into a false loss.
+                missing_since = missing_since or time.monotonic()
+                if time.monotonic() - missing_since >= 1:
+                    self._sync_result(job)
+                    if job.status not in TERMINAL:
+                        self._lost(job, "direct worker disappeared without a final result")
+                    return
+            await asyncio.sleep(0.1)
 
-    async def _container_state(self, job: Job) -> str | None:
-        result = await self._docker("inspect", "--format", "{{.State.Status}}", job.container)
-        if result.returncode != 0:
-            return None
-        state = result.stdout.strip()
-        return state if state in {"created", "running", "paused", "exited", "dead"} else None
+    def _sync_run(self, job: Job) -> None:
+        try:
+            value = json.loads((self._directory(job) / "run.json").read_text(encoding="utf-8"))
+            fresh = self.store.load(job.id) or job
+            fresh.pid = int(value["pid"])
+            fresh.pid_start = value.get("pid_start")
+            fresh.boot_id = value.get("boot_id")
+            fresh.worker_pid = int(value.get("worker_pid") or fresh.worker_pid or 0) or None
+            fresh.worker_start = value.get("worker_start")
+            fresh.started = float(value.get("started") or fresh.started or time.time())
+            if fresh.status == "queued":
+                fresh.status = "running"
+            self.store.save(fresh)
+            job.__dict__.update(fresh.__dict__)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            pass
+
+    def _sync_result(self, job: Job) -> None:
+        self._sync_run(job)
+        try:
+            value = json.loads((self._directory(job) / "result.json").read_text(encoding="utf-8"))
+            status = value["status"]
+            if status not in TERMINAL:
+                raise ValueError("invalid terminal status")
+            job.status = status
+            job.exit_code = value.get("exit_code")
+            job.finished = float(value["finished"])
+            job.truncated = bool(value.get("truncated", False))
+            job.input_open = False
+            self.store.save(job)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            pass
+
+    def _owns_live_process(self, job: Job) -> bool:
+        if job.pid is None or job.pid_start is None or job.boot_id is None:
+            return False
+        return job.boot_id == _boot_id() and job.pid_start == _start_time(job.pid)
+
+    def _owns_live_worker(self, job: Job) -> bool:
+        if job.worker_pid is None or job.worker_start is None or job.boot_id is None:
+            return False
+        return job.boot_id == _boot_id() and job.worker_start == _start_time(job.worker_pid)
 
     @staticmethod
-    async def _docker(*args: str) -> Any:
-        process = await asyncio.create_subprocess_exec(
-            "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        communicate = asyncio.create_task(process.communicate())
-        try:
-            out, err = await asyncio.shield(communicate)
-        except asyncio.CancelledError:
-            out, err = await communicate
-            raise
+    def _signal_group(pid: int | None, signal_value: signal.Signals) -> None:
+        if pid is None:
+            return
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signal_value)
 
-        class Result:
-            returncode = process.returncode
-            stdout = out.decode("utf-8", errors="replace")
-            stderr = err.decode("utf-8", errors="replace")
+    def _lost(self, job: Job, message: str) -> None:
+        job.status, job.finished = "lost", time.time()
+        self.store.save(job)
+        self._append(job, "stderr", message + "\n")
 
-        return Result()
+    def _fail(self, job: Job, message: str) -> None:
+        job.status, job.finished = "failed", time.time()
+        self.store.save(job)
+        self._append(job, "stderr", message + "\n")
 
+    def _append(self, job: Job, stream: str, text: str) -> None:
+        path = self.store.stream_path(job.id, stream)
+        existing = path.stat().st_size if path.exists() else 0
+        if existing >= OUTPUT_CAP:
+            job.truncated = True
+            self.store.save(job)
+            return
+        value = text.encode("utf-8")[: OUTPUT_CAP - existing]
+        with path.open("ab") as handle:
+            handle.write(value)
+        if len(value) != len(text.encode("utf-8")):
+            job.truncated = True
+            self.store.save(job)
 
-def _incomplete_tail(chunk: bytes) -> int | None:
-    try:
-        chunk.decode("utf-8")
-        return None
-    except UnicodeDecodeError as exc:
-        return exc.start if exc.start >= len(chunk) - 3 else None
-
-
-def clamp_timeout(value: int | None) -> int:
-    if value is None:
-        return 1800
-    return max(1, min(int(value), LIMITS["timeout_s"]))
+    def _directory(self, job: Job) -> Path:
+        return self.store.directory / job.id

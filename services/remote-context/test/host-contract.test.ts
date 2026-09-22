@@ -3,19 +3,27 @@ import { HOST_TOOLS, hostForwardArguments, hostRequiredScope } from "../src/host
 
 const execution = HOST_TOOLS.find((tool) => tool.name === "host_exec")!;
 
-describe("Host execution profiles and egress contract", () => {
-  it("keeps the existing no-profile request and public egress default", () => {
+describe("Spark direct execution contract", () => {
+  it("runs directly as the Spark owner without a container profile or network claim", () => {
     const parsed = execution.schema.parse({ root: "workspace", argv: ["python3", "-V"] });
     expect(parsed).not.toHaveProperty("profile");
     expect(parsed).not.toHaveProperty("https_hosts");
-    expect(execution.description).toContain("Public IPv4 egress is available by default");
+    expect(execution.description).toContain("directly as the configured Spark owner");
+    expect(execution.description).toContain("actual host path");
+    expect(execution.description).not.toContain("sandbox");
     expect(execution.annotations.openWorldHint).toBe(true);
   });
 
-  it("passes an explicit execution profile without a network selector", () => {
+  it("passes stdin state and leaves retired selectors for the Host to reject clearly", () => {
     expect(execution.schema.parse({
-      root: "workspace", argv: ["npm", "ci"], profile: "web",
+      root: "workspace", argv: ["cat"], stdin: "first", keep_stdin_open: true,
+    })).toMatchObject({ stdin: "first", keep_stdin_open: true });
+    expect(execution.schema.parse({
+      root: "workspace", argv: ["true"], profile: "web",
     })).toMatchObject({ profile: "web" });
+    expect(execution.schema.parse({
+      root: "workspace", argv: ["true"], https_hosts: ["registry.npmjs.org"],
+    })).toMatchObject({ https_hosts: ["registry.npmjs.org"] });
   });
 
   it("preserves JSON-shaped stdin across the internal MCP hop", () => {
@@ -27,13 +35,26 @@ describe("Host execution profiles and egress contract", () => {
     expect(atob(String(forwarded.stdin_base64))).toBe(stdin);
   });
 
-  it("explicitly rejects the retired allowlist input and ad hoc network flags", () => {
-    expect(execution.schema.safeParse({
-      root: "workspace", argv: ["true"], https_hosts: ["registry.npmjs.org"],
-    }).success).toBe(false);
+  it("rejects unsupported ad hoc execution flags", () => {
     expect(execution.schema.safeParse({ root: "workspace", internet: true }).success).toBe(false);
     expect(execution.schema.safeParse({ root: "workspace", network: "host" }).success).toBe(false);
     expect(execution.schema.safeParse({ root: "workspace", profile: "" }).success).toBe(false);
+  });
+
+  it("base64-wraps later job input over the internal MCP hop", () => {
+    const forwarded = hostForwardArguments("host_job_input", {
+      job_id: "job-1", stdin: "next", eof: true,
+    });
+    expect(forwarded).not.toHaveProperty("stdin");
+    expect(atob(String(forwarded.stdin_base64))).toBe("next");
+    expect(forwarded).toMatchObject({ job_id: "job-1", eof: true });
+  });
+
+  it("declares write-scoped streaming job input", () => {
+    const input = HOST_TOOLS.find(tool => tool.name === "host_job_input")!;
+    expect(input.schema.parse({ job_id: "job-1", stdin: "next", eof: true }))
+      .toMatchObject({ job_id: "job-1", stdin: "next", eof: true });
+    expect(hostRequiredScope("host_job_input", {})).toBe("host.write");
   });
 });
 
