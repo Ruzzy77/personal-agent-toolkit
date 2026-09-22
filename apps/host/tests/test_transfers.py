@@ -56,9 +56,7 @@ class TransferTests(unittest.TestCase):
         started = first.begin_upload(
             self.policy, "결과.bin", len(payload), ABSENT, digest
         )
-        first.write_chunk(
-            started["transfer_id"], started["token"], 0, payload[:5]
-        )
+        first.write_chunk(started["transfer_id"], started["token"], 0, payload[:5])
 
         state_path = self.config.sync.data_root / "host-transfers" / "transfers.json"
         state = state_path.read_text()
@@ -69,12 +67,8 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(
             resumed.status(started["transfer_id"], started["token"])["offset"], 5
         )
-        resumed.write_chunk(
-            started["transfer_id"], started["token"], 0, payload[:5]
-        )
-        resumed.write_chunk(
-            started["transfer_id"], started["token"], 5, payload[5:]
-        )
+        resumed.write_chunk(started["transfer_id"], started["token"], 0, payload[:5])
+        resumed.write_chunk(started["transfer_id"], started["token"], 5, payload[5:])
         result = resumed.commit(started["transfer_id"], started["token"])
 
         self.assertEqual((self.root / "결과.bin").read_bytes(), payload)

@@ -85,7 +85,6 @@ class HostConfig:
         raise SyncError("root_not_found", "root is not registered on this host")
 
 
-
 def default_config_path() -> Path:
     override = os.environ.get("PERSONAL_AGENT_HOST_CONFIG")
     if override:
@@ -124,8 +123,6 @@ def _protected(root: Path, guards: tuple[Path, ...]) -> bool:
     return any(root == guard or guard in root.parents for guard in guards)
 
 
-
-
 def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
     if value is None:
         return []
@@ -158,7 +155,9 @@ def _host_roots(value: object, guards: tuple[Path, ...]) -> list[RootPolicy]:
         if not isinstance(sources, list) or not all(
             isinstance(item, str) for item in sources
         ):
-            raise SyncError("invalid_configuration", f"{identifier}: sources are invalid")
+            raise SyncError(
+                "invalid_configuration", f"{identifier}: sources are invalid"
+            )
         if _protected(root, guards):
             permission, execute = "read_only", "none"
         if execute == "host" and permission != "read_write":
@@ -212,7 +211,12 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     host = raw.get("host", {})
     if not isinstance(host, dict):
         raise SyncError("invalid_configuration", "[host] must be a table")
-    retired = {"https_host_allowlist", "egress_proxy_image", "sandbox_image", "execution_profiles"} & set(host)
+    retired = {
+        "https_host_allowlist",
+        "egress_proxy_image",
+        "sandbox_image",
+        "execution_profiles",
+    } & set(host)
     if retired:
         raise SyncError(
             "invalid_configuration",
@@ -306,10 +310,15 @@ def load_host_config(path: Path | None = None) -> HostConfig:
                 )
 
     return HostConfig(
-        sync=sync, listen_host=listen_host, listen_port=listen_port,
-        allowed_hosts=tuple(allowed), max_concurrent_jobs=max_jobs,
-        token_path=Path(token_value).expanduser(), backup=backup,
-        roots=tuple(roots), read_only_paths=guards,
+        sync=sync,
+        listen_host=listen_host,
+        listen_port=listen_port,
+        allowed_hosts=tuple(allowed),
+        max_concurrent_jobs=max_jobs,
+        token_path=Path(token_value).expanduser(),
+        backup=backup,
+        roots=tuple(roots),
+        read_only_paths=guards,
     )
 
 

@@ -34,14 +34,23 @@ class WorkspaceFiles:
         self.config = config
 
     def dispatch(
-        self, root: str, operation: str, *, path: str = ".", destination: str | None = None,
-        expected_version: str | None = None, trash_id: str | None = None,
-        limit: int = _MAX_LIST, cursor: str | None = None,
+        self,
+        root: str,
+        operation: str,
+        *,
+        path: str = ".",
+        destination: str | None = None,
+        expected_version: str | None = None,
+        trash_id: str | None = None,
+        limit: int = _MAX_LIST,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
         try:
             policy = self.config.root(root)
         except Exception as exc:
-            raise ToolError("root_not_found", "root is not registered on this host") from exc
+            raise ToolError(
+                "root_not_found", "root is not registered on this host"
+            ) from exc
         if operation == "list":
             return self._list(policy, path, limit, cursor)
         if operation == "stat":
@@ -73,14 +82,19 @@ class WorkspaceFiles:
                 raise ToolError("invalid_path", "symlink paths are not supported")
         return relative_path(policy.root, path)
 
-    def _write_allowed(self, policy: RootPolicy, target: Path, *, create: bool = False) -> None:
+    def _write_allowed(
+        self, policy: RootPolicy, target: Path, *, create: bool = False
+    ) -> None:
         if policy.permission == "read_only":
             raise ToolError("policy_denied", f"{policy.id} is read-only")
         if policy.permission == "create_only" and not create:
             raise ToolError("policy_denied", f"{policy.id} only allows new directories")
         if target == policy.root.resolve():
             raise ToolError("policy_denied", "the registered root cannot be changed")
-        if any(part.startswith(".host-transfer-") for part in target.relative_to(policy.root.resolve()).parts):
+        if any(
+            part.startswith(".host-transfer-")
+            for part in target.relative_to(policy.root.resolve()).parts
+        ):
             raise ToolError("policy_denied", "transfer staging paths cannot be changed")
         if self.config.protects(target):
             raise ToolError("policy_denied", "path is inside a protected source")
@@ -109,14 +123,22 @@ class WorkspaceFiles:
         if target.is_dir():
             for child in target.rglob("*"):
                 if child.name.startswith(".host-transfer-"):
-                    raise ToolError("policy_denied", "directory contains an active upload")
+                    raise ToolError(
+                        "policy_denied", "directory contains an active upload"
+                    )
                 if child.is_symlink():
-                    raise ToolError("invalid_path", "directories containing symlinks cannot change")
+                    raise ToolError(
+                        "invalid_path", "directories containing symlinks cannot change"
+                    )
                 if self.config.protects(child):
-                    raise ToolError("policy_denied", "directory contains a protected source")
+                    raise ToolError(
+                        "policy_denied", "directory contains a protected source"
+                    )
                 for registered in self.config.roots:
                     if child == registered.root.resolve(strict=False):
-                        raise ToolError("policy_denied", "directory contains a registered root")
+                        raise ToolError(
+                            "policy_denied", "directory contains a registered root"
+                        )
 
     @staticmethod
     def _require(target: Path, path: str) -> None:
@@ -142,14 +164,20 @@ class WorkspaceFiles:
             stat = item.stat()
             relative = item.relative_to(target).as_posix()
             kind = "d" if item.is_dir() else "f"
-            digest.update(f"{relative}\0{kind}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode())
+            digest.update(
+                f"{relative}\0{kind}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode()
+            )
         return "sha256:" + digest.hexdigest()
 
-    def _info(self, policy: RootPolicy, target: Path, *, full_version: bool = True) -> dict[str, Any]:
+    def _info(
+        self, policy: RootPolicy, target: Path, *, full_version: bool = True
+    ) -> dict[str, Any]:
         self._require(target, display_path(policy.root, target) or ".")
         self._reject_symlinks(policy.root.resolve(), target)
         stat = target.stat()
-        kind = "directory" if target.is_dir() else "file" if target.is_file() else "other"
+        kind = (
+            "directory" if target.is_dir() else "file" if target.is_file() else "other"
+        )
         if kind == "other":
             raise ToolError("invalid_path", "path is not a regular file or directory")
         return {
@@ -163,7 +191,9 @@ class WorkspaceFiles:
     def _stat(self, policy: RootPolicy, path: str) -> dict[str, Any]:
         return self._info(policy, self._target(policy, path))
 
-    def _list(self, policy: RootPolicy, path: str, limit: int, cursor: str | None) -> dict[str, Any]:
+    def _list(
+        self, policy: RootPolicy, path: str, limit: int, cursor: str | None
+    ) -> dict[str, Any]:
         target = self._target(policy, path)
         self._require(target, path)
         if not target.is_dir():
@@ -172,12 +202,20 @@ class WorkspaceFiles:
             raise ToolError("invalid_request", f"limit must be 1..{_MAX_LIST}")
         self._reject_symlinks(policy.root.resolve(), target)
         names = sorted(
-            (item for item in target.iterdir() if not item.name.startswith(".host-transfer-")),
+            (
+                item
+                for item in target.iterdir()
+                if not item.name.startswith(".host-transfer-")
+            ),
             key=lambda item: unicodedata.normalize("NFC", item.name),
         )
         if cursor is not None:
             cursor = unicodedata.normalize("NFC", cursor)
-            names = [item for item in names if unicodedata.normalize("NFC", item.name) > cursor]
+            names = [
+                item
+                for item in names
+                if unicodedata.normalize("NFC", item.name) > cursor
+            ]
         page = names[: int(limit)]
         entries: list[dict[str, Any]] = []
         for item in page:
@@ -193,11 +231,23 @@ class WorkspaceFiles:
                 kind = "file"
             else:
                 continue
-            entries.append({"name": name, "path": display_path(policy.root, item), "type": kind,
-                            "mime": mimetypes.guess_type(item.name)[0] or "application/octet-stream",
-                            "bytes": stat.st_size})
-        return {"path": display_path(policy.root, target) or ".", "entries": entries,
-                "next_cursor": unicodedata.normalize("NFC", page[-1].name) if len(names) > len(page) and page else None}
+            entries.append(
+                {
+                    "name": name,
+                    "path": display_path(policy.root, item),
+                    "type": kind,
+                    "mime": mimetypes.guess_type(item.name)[0]
+                    or "application/octet-stream",
+                    "bytes": stat.st_size,
+                }
+            )
+        return {
+            "path": display_path(policy.root, target) or ".",
+            "entries": entries,
+            "next_cursor": unicodedata.normalize("NFC", page[-1].name)
+            if len(names) > len(page) and page
+            else None,
+        }
 
     def _mkdir(self, policy: RootPolicy, path: str) -> dict[str, Any]:
         target = self._target(policy, path)
@@ -206,11 +256,15 @@ class WorkspaceFiles:
             if target.exists():
                 raise ToolError("version_conflict", "directory already exists")
             if not target.parent.is_dir() or self.config.protects(target.parent):
-                raise ToolError("invalid_path", "parent directory is unavailable or protected")
+                raise ToolError(
+                    "invalid_path", "parent directory is unavailable or protected"
+                )
             target.mkdir()
             return self._info(policy, target)
 
-    def _mutate_target(self, policy: RootPolicy, path: str, expected_version: str | None) -> Path:
+    def _mutate_target(
+        self, policy: RootPolicy, path: str, expected_version: str | None
+    ) -> Path:
         if expected_version is None:
             raise ToolError("invalid_request", "expected_version is required")
         target = self._target(policy, path)
@@ -219,10 +273,18 @@ class WorkspaceFiles:
         self._reject_tree(policy, target)
         current = self._version(target)
         if current != expected_version:
-            raise ToolError("version_conflict", f"{path} is {current}, not {expected_version}")
+            raise ToolError(
+                "version_conflict", f"{path} is {current}, not {expected_version}"
+            )
         return target
 
-    def _move(self, policy: RootPolicy, path: str, destination: str, expected_version: str | None) -> dict[str, Any]:
+    def _move(
+        self,
+        policy: RootPolicy,
+        path: str,
+        destination: str,
+        expected_version: str | None,
+    ) -> dict[str, Any]:
         with root_lock(policy.root):
             target = self._mutate_target(policy, path, expected_version)
             output = self._target(policy, destination)
@@ -230,7 +292,9 @@ class WorkspaceFiles:
             if output.exists():
                 raise ToolError("version_conflict", "destination already exists")
             if not output.parent.is_dir() or self.config.protects(output.parent):
-                raise ToolError("invalid_path", "destination parent is unavailable or protected")
+                raise ToolError(
+                    "invalid_path", "destination parent is unavailable or protected"
+                )
             if target.is_dir() and (output == target or target in output.parents):
                 raise ToolError("invalid_path", "cannot move a directory into itself")
             os.replace(target, output)
@@ -239,7 +303,9 @@ class WorkspaceFiles:
     def _trash_root(self, policy: RootPolicy) -> Path:
         return self.config.sync.data_root / "host-trash" / policy.id.replace("/", "__")
 
-    def _trash(self, policy: RootPolicy, path: str, expected_version: str | None) -> dict[str, Any]:
+    def _trash(
+        self, policy: RootPolicy, path: str, expected_version: str | None
+    ) -> dict[str, Any]:
         with root_lock(policy.root):
             target = self._mutate_target(policy, path, expected_version)
             trash_id = uuid.uuid4().hex
@@ -248,19 +314,35 @@ class WorkspaceFiles:
             container.mkdir(parents=True)
             try:
                 if target.stat().st_dev != container.stat().st_dev:
-                    raise ToolError("trash_unavailable", "trash is on another filesystem")
+                    raise ToolError(
+                        "trash_unavailable", "trash is on another filesystem"
+                    )
                 original = display_path(policy.root, target)
-                meta = {"id": trash_id, "root": policy.id, "path": original,
-                        "created": time.time(), "expires": time.time() + _TRASH_SECONDS}
-                _atomic_write(container / "metadata.json", json.dumps(meta).encode("utf-8"))
+                meta = {
+                    "id": trash_id,
+                    "root": policy.id,
+                    "path": original,
+                    "created": time.time(),
+                    "expires": time.time() + _TRASH_SECONDS,
+                }
+                _atomic_write(
+                    container / "metadata.json", json.dumps(meta).encode("utf-8")
+                )
                 os.replace(target, payload)
             except BaseException:
                 if container.exists() and not payload.exists():
                     shutil.rmtree(container, ignore_errors=True)
                 raise
-            return {"trash_id": trash_id, "path": original, "version": ABSENT, "expires": meta["expires"]}
+            return {
+                "trash_id": trash_id,
+                "path": original,
+                "version": ABSENT,
+                "expires": meta["expires"],
+            }
 
-    def _trash_list(self, policy: RootPolicy, limit: int, cursor: str | None) -> dict[str, Any]:
+    def _trash_list(
+        self, policy: RootPolicy, limit: int, cursor: str | None
+    ) -> dict[str, Any]:
         if not 1 <= int(limit) <= _MAX_LIST:
             raise ToolError("invalid_request", f"limit must be 1..{_MAX_LIST}")
         root = self._trash_root(policy)
@@ -274,10 +356,15 @@ class WorkspaceFiles:
                     value = json.loads(meta.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     continue
-                if value.get("root") == policy.id and (cursor is None or container.name > cursor):
+                if value.get("root") == policy.id and (
+                    cursor is None or container.name > cursor
+                ):
                     items.append(value)
-        page = items[:int(limit)]
-        return {"items": page, "next_cursor": page[-1]["id"] if len(items) > len(page) and page else None}
+        page = items[: int(limit)]
+        return {
+            "items": page,
+            "next_cursor": page[-1]["id"] if len(items) > len(page) and page else None,
+        }
 
     def expire(self) -> dict[str, int]:
         """Remove only this backend's expired, metadata-validated trash records."""
@@ -291,15 +378,28 @@ class WorkspaceFiles:
                 for container in root.iterdir():
                     metadata = container / "metadata.json"
                     payload = container / "payload"
-                    if not container.is_dir() or not metadata.is_file() or not payload.exists():
+                    if (
+                        not container.is_dir()
+                        or not metadata.is_file()
+                        or not payload.exists()
+                    ):
                         continue
                     try:
                         value = json.loads(metadata.read_text(encoding="utf-8"))
                         expires = float(value["expires"])
-                    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+                    except (
+                        KeyError,
+                        TypeError,
+                        ValueError,
+                        OSError,
+                        json.JSONDecodeError,
+                    ):
                         continue
-                    if (value.get("id") == container.name and value.get("root") == policy.id
-                            and expires <= now):
+                    if (
+                        value.get("id") == container.name
+                        and value.get("root") == policy.id
+                        and expires <= now
+                    ):
                         shutil.rmtree(container)
                         removed += 1
         return {"expired": removed}
@@ -315,15 +415,21 @@ class WorkspaceFiles:
             try:
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
-                raise ToolError("trash_unavailable", "trash metadata is invalid") from exc
+                raise ToolError(
+                    "trash_unavailable", "trash metadata is invalid"
+                ) from exc
             if meta.get("root") != policy.id:
                 raise ToolError("policy_denied", "trash item belongs to another root")
             target = self._target(policy, str(meta.get("path", "")))
             self._write_allowed(policy, target)
             if target.exists():
-                raise ToolError("version_conflict", "restore destination already exists")
+                raise ToolError(
+                    "version_conflict", "restore destination already exists"
+                )
             if not target.parent.is_dir() or self.config.protects(target.parent):
-                raise ToolError("invalid_path", "restore parent is unavailable or protected")
+                raise ToolError(
+                    "invalid_path", "restore parent is unavailable or protected"
+                )
             if payload.stat().st_dev != target.parent.stat().st_dev:
                 raise ToolError("trash_unavailable", "restore crosses filesystems")
             os.replace(payload, target)

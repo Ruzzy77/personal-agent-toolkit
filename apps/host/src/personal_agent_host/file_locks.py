@@ -1,4 +1,5 @@
 """Serialize file mutations across roots, including overlapping root aliases."""
+
 from __future__ import annotations
 
 from pathlib import Path

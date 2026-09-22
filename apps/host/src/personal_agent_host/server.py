@@ -38,7 +38,10 @@ WRITE = ToolAnnotations(
 )
 
 EXECUTE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True,
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
+    openWorldHint=True,
 )
 
 RootId = Annotated[str, Field(min_length=1, max_length=256)]
@@ -80,8 +83,11 @@ def root_descriptors(config: HostConfig) -> list[dict[str, Any]]:
     def connection(root):
         if root.connection is None:
             return None
-        return {"space_id": root.connection.space_id,
-                "connection_id": root.connection.connection_id}
+        return {
+            "space_id": root.connection.space_id,
+            "connection_id": root.connection.connection_id,
+        }
+
     result = []
     for root in config.roots:
         locations = []
@@ -89,20 +95,37 @@ def root_descriptors(config: HostConfig) -> list[dict[str, Any]]:
             if other.id == root.id or other.connection is None:
                 continue
             try:
-                relative = other.root.resolve().relative_to(root.root.resolve()).as_posix()
+                relative = (
+                    other.root.resolve().relative_to(root.root.resolve()).as_posix()
+                )
             except ValueError:
                 continue
-            locations.append({"root": other.id, "path": relative,
-                              "permission": other.permission, "corpus": connection(other)})
-        result.append({"id": root.id, "permission": root.permission, "execute": root.execute,
-                       "sources": list(root.sources), "corpus": connection(root),
-                       "locations": locations})
+            locations.append(
+                {
+                    "root": other.id,
+                    "path": relative,
+                    "permission": other.permission,
+                    "corpus": connection(other),
+                }
+            )
+        result.append(
+            {
+                "id": root.id,
+                "permission": root.permission,
+                "execute": root.execute,
+                "sources": list(root.sources),
+                "corpus": connection(root),
+                "locations": locations,
+            }
+        )
     return result
 
 
 def create_server(
-    config: HostConfig, jobs: JobManager,
-    transfers: Transfers | None = None, workspace: WorkspaceFiles | None = None,
+    config: HostConfig,
+    jobs: JobManager,
+    transfers: Transfers | None = None,
+    workspace: WorkspaceFiles | None = None,
 ) -> MCPServer:
     transfers = transfers or Transfers(config)
     workspace = workspace or WorkspaceFiles(config)
@@ -115,8 +138,16 @@ def create_server(
         annotations=READ_ONLY,
     )
     async def host_capabilities() -> dict[str, Any]:
-        return {"version": __version__, "limits": {**LIMITS, "file_bytes": MAX_FILE_BYTES, "chunk_bytes": CHUNK_BYTES, "trash_days": 30},
-                **await execution_capabilities(config)}
+        return {
+            "version": __version__,
+            "limits": {
+                **LIMITS,
+                "file_bytes": MAX_FILE_BYTES,
+                "chunk_bytes": CHUNK_BYTES,
+                "trash_days": 30,
+            },
+            **await execution_capabilities(config),
+        }
 
     @server.tool(
         name="host_roots",
@@ -205,16 +236,20 @@ def create_server(
         )
 
     @server.tool(
-        name="host_files", title="Workspace files",
+        name="host_files",
+        title="Workspace files",
         description=(
             "List folders, stat a file, create a folder, move or rename, trash, list "
             "trash, or restore. All paths stay within one registered root. Move and "
             "trash require expected_version from stat; restore never overwrites."
-        ), annotations=WRITE,
+        ),
+        annotations=WRITE,
     )
     def host_files(
         root: RootId,
-        operation: Literal["list", "stat", "mkdir", "move", "trash", "trash_list", "restore"],
+        operation: Literal[
+            "list", "stat", "mkdir", "move", "trash", "trash_list", "restore"
+        ],
         path: RelPath = ".",
         destination: RelPath | None = None,
         expected_version: Annotated[str | None, Field(max_length=256)] = None,
@@ -223,30 +258,46 @@ def create_server(
         cursor: Annotated[str | None, Field(max_length=4096)] = None,
     ) -> dict[str, Any]:
         return workspace.dispatch(
-            root, operation, path=path, destination=destination,
-            expected_version=expected_version, trash_id=trash_id, limit=limit, cursor=cursor,
+            root,
+            operation,
+            path=path,
+            destination=destination,
+            expected_version=expected_version,
+            trash_id=trash_id,
+            limit=limit,
+            cursor=cursor,
         )
 
     @server.tool(
-        name="host_transfer", title="Start a file transfer",
+        name="host_transfer",
+        title="Start a file transfer",
         description=(
             "Prepare an authenticated upload or download without returning binary "
             "bytes in MCP. Uploads require size and expected_version (absent for new "
             "files); chunks are at most 8 MiB and total size at most 1 GiB. Use the "
             "returned transfer credential only in HTTP headers, never in URLs or logs."
-        ), annotations=WRITE,
+        ),
+        annotations=WRITE,
     )
     def host_transfer(
-        root: RootId, path: RelPath, direction: Literal["upload", "download"],
+        root: RootId,
+        path: RelPath,
+        direction: Literal["upload", "download"],
         size: Annotated[int | None, Field(ge=0, le=MAX_FILE_BYTES)] = None,
         expected_version: Annotated[str | None, Field(max_length=256)] = None,
         sha256: Annotated[str | None, Field(pattern="^[0-9a-fA-F]{64}$")] = None,
     ) -> dict[str, Any]:
         if direction == "upload":
             if size is None or expected_version is None:
-                raise ToolError("invalid_request", "upload requires size and expected_version")
+                raise ToolError(
+                    "invalid_request", "upload requires size and expected_version"
+                )
             return transfers.begin_upload(
-                config.root(root), path, size, expected_version, sha256,
+                config.root(root),
+                path,
+                size,
+                expected_version,
+                sha256,
             )
         return transfers.begin_download(config.root(root), path, expected_version)
 

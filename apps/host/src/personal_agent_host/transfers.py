@@ -42,9 +42,7 @@ def _serialized(
     method: Callable[Concatenate[Transfers, P], R],
 ) -> Callable[Concatenate[Transfers, P], R]:
     @wraps(method)
-    def guarded(
-        self: Transfers, /, *args: P.args, **kwargs: P.kwargs
-    ) -> R:
+    def guarded(self: Transfers, /, *args: P.args, **kwargs: P.kwargs) -> R:
         with self._lock:
             return method(self, *args, **kwargs)
 
@@ -237,9 +235,13 @@ class Transfers:
 
     @staticmethod
     def _identity(value: object, *, width: int) -> tuple[int, ...]:
-        if not isinstance(value, list) or len(value) != width or not all(
-            isinstance(number, int) and not isinstance(number, bool) and number >= 0
-            for number in value
+        if (
+            not isinstance(value, list)
+            or len(value) != width
+            or not all(
+                isinstance(number, int) and not isinstance(number, bool) and number >= 0
+                for number in value
+            )
         ):
             raise ValueError("invalid transfer identity")
         return tuple(value)
@@ -297,10 +299,14 @@ class Transfers:
                 observed = staging.lstat()
             except FileNotFoundError as exc:
                 raise ValueError("upload staging is missing") from exc
-            if not stat.S_ISREG(observed.st_mode) or (
-                observed.st_dev,
-                observed.st_ino,
-            ) != staging_identity:
+            if (
+                not stat.S_ISREG(observed.st_mode)
+                or (
+                    observed.st_dev,
+                    observed.st_ino,
+                )
+                != staging_identity
+            ):
                 raise ValueError("upload staging identity changed")
             if observed.st_size != offset:
                 raise ValueError("upload offset does not match staging")
@@ -334,10 +340,14 @@ class Transfers:
             observed = item.staging.lstat()
         except FileNotFoundError as exc:
             raise ToolError("not_found", "upload staging is unavailable") from exc
-        if not stat.S_ISREG(observed.st_mode) or (
-            observed.st_dev,
-            observed.st_ino,
-        ) != item.staging_identity:
+        if (
+            not stat.S_ISREG(observed.st_mode)
+            or (
+                observed.st_dev,
+                observed.st_ino,
+            )
+            != item.staging_identity
+        ):
             raise ToolError("version_conflict", "upload staging changed")
         return item.staging
 
@@ -375,10 +385,14 @@ class Transfers:
             observed = item.staging.lstat()
         except FileNotFoundError:
             return
-        if stat.S_ISREG(observed.st_mode) and (
-            observed.st_dev,
-            observed.st_ino,
-        ) == item.staging_identity:
+        if (
+            stat.S_ISREG(observed.st_mode)
+            and (
+                observed.st_dev,
+                observed.st_ino,
+            )
+            == item.staging_identity
+        ):
             item.staging.unlink()
 
     @_serialized
@@ -578,9 +592,7 @@ class Transfers:
     def _download_target(self, item: Transfer) -> Path:
         if item.download_fingerprint is None:
             raise ToolError("invalid_request", "transfer is not a download")
-        target = self._target(
-            item.policy, item.path
-        )
+        target = self._target(item.policy, item.path)
         if target != item.target or not self._regular_or_absent(target):
             raise ToolError("version_conflict", "download source changed")
         try:

@@ -4,6 +4,7 @@ Jobs run as the Host owner on the real configured root.  File-root permissions
 remain logical API policy only: this mode is deliberately not a sandbox and a
 command with the owner's sudo access can reach outside a root or alter sources.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,9 @@ class Job:
 
 def _boot_id() -> str | None:
     try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        return (
+            Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        )
     except OSError:
         return None
 
@@ -90,8 +93,12 @@ class JobStore:
         )
         present = {row[1] for row in self.db.execute("PRAGMA table_info(jobs)")}
         for name, definition in (
-            ("pid", "INTEGER"), ("pid_start", "TEXT"), ("boot_id", "TEXT"),
-            ("worker_pid", "INTEGER"), ("worker_start", "TEXT"), ("input_open", "INTEGER DEFAULT 0"),
+            ("pid", "INTEGER"),
+            ("pid_start", "TEXT"),
+            ("boot_id", "TEXT"),
+            ("worker_pid", "INTEGER"),
+            ("worker_start", "TEXT"),
+            ("input_open", "INTEGER DEFAULT 0"),
             ("runtime", "TEXT"),
         ):
             if name not in present:
@@ -100,10 +107,24 @@ class JobStore:
 
     def save(self, job: Job) -> None:
         values = (
-            job.id, job.root, job.cwd, json.dumps(job.command), job.status,
-            job.exit_code, job.created, job.started, job.finished, job.timeout_s,
-            int(job.truncated), job.pid, job.pid_start, job.boot_id, job.worker_pid, job.worker_start,
-            int(job.input_open), job.runtime,
+            job.id,
+            job.root,
+            job.cwd,
+            json.dumps(job.command),
+            job.status,
+            job.exit_code,
+            job.created,
+            job.started,
+            job.finished,
+            job.timeout_s,
+            int(job.truncated),
+            job.pid,
+            job.pid_start,
+            job.boot_id,
+            job.worker_pid,
+            job.worker_start,
+            int(job.input_open),
+            job.runtime,
         )
         self.db.execute(
             f"INSERT OR REPLACE INTO jobs ({self._columns}) VALUES ({','.join('?' for _ in values)})",
@@ -112,7 +133,9 @@ class JobStore:
         self.db.commit()
 
     def load(self, job_id: str) -> Job | None:
-        row = self.db.execute(f"SELECT {self._columns} FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = self.db.execute(
+            f"SELECT {self._columns} FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
         return self._job(row) if row else None
 
     def active(self) -> list[Job]:
@@ -128,8 +151,17 @@ class JobStore:
         ).fetchall()
         for (job_id,) in rows:
             directory = self.directory / job_id
-            for name in ("stdout", "stderr", "stdin.initial", "stdin.fifo", "stdin.close",
-                         "run.json", "result.json", "deadline", "cancel"):
+            for name in (
+                "stdout",
+                "stderr",
+                "stdin.initial",
+                "stdin.fifo",
+                "stdin.close",
+                "run.json",
+                "result.json",
+                "deadline",
+                "cancel",
+            ):
                 (directory / name).unlink(missing_ok=True)
             with contextlib.suppress(OSError):
                 directory.rmdir()
@@ -143,11 +175,24 @@ class JobStore:
     @staticmethod
     def _job(row: tuple[Any, ...]) -> Job:
         return Job(
-            id=row[0], root=row[1], cwd=row[2], command=json.loads(row[3]),
-            status=row[4], exit_code=row[5], created=row[6], started=row[7],
-            finished=row[8], timeout_s=row[9], truncated=bool(row[10]),
-            pid=row[11], pid_start=row[12], boot_id=row[13], worker_pid=row[14],
-            worker_start=row[15], input_open=bool(row[16]), runtime=row[17],
+            id=row[0],
+            root=row[1],
+            cwd=row[2],
+            command=json.loads(row[3]),
+            status=row[4],
+            exit_code=row[5],
+            created=row[6],
+            started=row[7],
+            finished=row[8],
+            timeout_s=row[9],
+            truncated=bool(row[10]),
+            pid=row[11],
+            pid_start=row[12],
+            boot_id=row[13],
+            worker_pid=row[14],
+            worker_start=row[15],
+            input_open=bool(row[16]),
+            runtime=row[17],
         )
 
 
@@ -175,7 +220,9 @@ class JobManager:
                 self.done[job.id].set()
         # Running workers already consume capacity; only released recovered slots
         # permit new launches after they finish.
-        self.slots = asyncio.Semaphore(max(0, self.config.max_concurrent_jobs - len(recovered)))
+        self.slots = asyncio.Semaphore(
+            max(0, self.config.max_concurrent_jobs - len(recovered))
+        )
         for job in recovered:
             self.tasks[job.id] = asyncio.create_task(self._resume(job))
 
@@ -213,11 +260,18 @@ class JobManager:
         keep_stdin_open: bool = False,
     ) -> Job:
         if policy.execute != "host" or policy.permission != "read_write":
-            raise ToolError("policy_denied", f"{policy.id} does not allow direct host execution")
+            raise ToolError(
+                "policy_denied", f"{policy.id} does not allow direct host execution"
+            )
         if profile is not None:
-            raise ToolError("invalid_request", "profile was retired; jobs use the Host runtime")
+            raise ToolError(
+                "invalid_request", "profile was retired; jobs use the Host runtime"
+            )
         if https_hosts is not None:
-            raise ToolError("invalid_request", "https_hosts was retired; direct host jobs use host networking")
+            raise ToolError(
+                "invalid_request",
+                "https_hosts was retired; direct host jobs use host networking",
+            )
         if (argv is None) == (shell is None):
             raise ToolError("invalid_request", "give exactly one of argv or shell")
         workdir = relative_path(policy.root, cwd or ".")
@@ -225,10 +279,19 @@ class JobManager:
             raise ToolError("invalid_path", "cwd is not a directory")
         command = argv if argv is not None else ["/bin/sh", "-c", shell or ""]
         job = Job(
-            id=uuid.uuid4().hex[:12], root=policy.id, cwd=str(workdir.resolve()),
-            command=command, status="queued", exit_code=None, created=time.time(),
-            started=None, finished=None, timeout_s=timeout_s, truncated=False,
-            input_open=keep_stdin_open, runtime=sys.executable,
+            id=uuid.uuid4().hex[:12],
+            root=policy.id,
+            cwd=str(workdir.resolve()),
+            command=command,
+            status="queued",
+            exit_code=None,
+            created=time.time(),
+            started=None,
+            finished=None,
+            timeout_s=timeout_s,
+            truncated=False,
+            input_open=keep_stdin_open,
+            runtime=sys.executable,
         )
         directory = self._directory(job)
         directory.mkdir(parents=True, exist_ok=True)
@@ -288,14 +351,18 @@ class JobManager:
             raise ToolError("not_found", "unknown job")
         self._sync_result(job)
         if job.status != "running" or not job.input_open:
-            raise ToolError("invalid_request", "job was not started with keep_stdin_open")
+            raise ToolError(
+                "invalid_request", "job was not started with keep_stdin_open"
+            )
         directory = self._directory(job)
         fifo = directory / "stdin.fifo"
         if data:
             try:
                 descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
             except OSError as exc:
-                raise ToolError("input_unavailable", "job input is no longer available") from exc
+                raise ToolError(
+                    "input_unavailable", "job input is no longer available"
+                ) from exc
             try:
                 encoded = data.encode("utf-8")
                 while encoded:
@@ -305,7 +372,9 @@ class JobManager:
                         await asyncio.sleep(0.02)
                         self._sync_result(job)
                         if job.status != "running":
-                            raise ToolError("input_unavailable", "job input is no longer available")
+                            raise ToolError(
+                                "input_unavailable", "job input is no longer available"
+                            )
                         continue
                     encoded = encoded[written:]
             finally:
@@ -336,7 +405,8 @@ class JobManager:
                 "limit is too small for the next UTF-8 character; use at least 4 bytes",
             )
         return {
-            "stream": stream, "output": output,
+            "stream": stream,
+            "output": output,
             "next_offset": offset + consumed,
             "eof": job.status in TERMINAL and offset + consumed >= size,
         }
@@ -361,9 +431,15 @@ class JobManager:
     @staticmethod
     def public(job: Job) -> dict[str, Any]:
         return {
-            "job_id": job.id, "status": job.status, "exit_code": job.exit_code,
-            "root": job.root, "cwd": job.cwd, "command": job.command,
-            "created": job.created, "started": job.started, "finished": job.finished,
+            "job_id": job.id,
+            "status": job.status,
+            "exit_code": job.exit_code,
+            "root": job.root,
+            "cwd": job.cwd,
+            "command": job.command,
+            "created": job.created,
+            "started": job.started,
+            "finished": job.finished,
             "truncated": job.truncated,
         }
 
@@ -381,15 +457,23 @@ class JobManager:
                 (directory / "deadline").write_text(
                     str(time.monotonic() + job.timeout_s), encoding="utf-8"
                 )
-                spawn = asyncio.create_task(asyncio.create_subprocess_exec(
-                    job.runtime or sys.executable, "-m", "personal_agent_host.worker",
-                    "--job-dir", str(directory), "--cwd", job.cwd,
-                    "--command-json", json.dumps(job.command),
-                    *(["--keep-stdin-open"] if job.input_open else []),
-                    start_new_session=True,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                ))
+                spawn = asyncio.create_task(
+                    asyncio.create_subprocess_exec(
+                        job.runtime or sys.executable,
+                        "-m",
+                        "personal_agent_host.worker",
+                        "--job-dir",
+                        str(directory),
+                        "--cwd",
+                        job.cwd,
+                        "--command-json",
+                        json.dumps(job.command),
+                        *(["--keep-stdin-open"] if job.input_open else []),
+                        start_new_session=True,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                )
                 try:
                     process = await asyncio.shield(spawn)
                 except asyncio.CancelledError:
@@ -406,13 +490,18 @@ class JobManager:
                 # Let the worker publish the child identity before callers can cancel.
                 for _ in range(20):
                     self._sync_run(job)
-                    if job.pid is not None or (self._directory(job) / "result.json").exists():
+                    if (
+                        job.pid is not None
+                        or (self._directory(job) / "result.json").exists()
+                    ):
                         break
                     await asyncio.sleep(0.05)
                 if job.pid is None:
                     self._sync_result(job)
                     if job.status not in TERMINAL:
-                        self._lost(job, "direct worker did not publish process identity")
+                        self._lost(
+                            job, "direct worker did not publish process identity"
+                        )
                     return
                 await self._monitor(job)
         except asyncio.CancelledError:
@@ -440,18 +529,24 @@ class JobManager:
                 if time.monotonic() - missing_since >= 1:
                     self._sync_result(job)
                     if job.status not in TERMINAL:
-                        self._lost(job, "direct worker disappeared without a final result")
+                        self._lost(
+                            job, "direct worker disappeared without a final result"
+                        )
                     return
             await asyncio.sleep(0.1)
 
     def _sync_run(self, job: Job) -> None:
         try:
-            value = json.loads((self._directory(job) / "run.json").read_text(encoding="utf-8"))
+            value = json.loads(
+                (self._directory(job) / "run.json").read_text(encoding="utf-8")
+            )
             fresh = self.store.load(job.id) or job
             fresh.pid = int(value["pid"])
             fresh.pid_start = value.get("pid_start")
             fresh.boot_id = value.get("boot_id")
-            fresh.worker_pid = int(value.get("worker_pid") or fresh.worker_pid or 0) or None
+            fresh.worker_pid = (
+                int(value.get("worker_pid") or fresh.worker_pid or 0) or None
+            )
             fresh.worker_start = value.get("worker_start")
             fresh.started = float(value.get("started") or fresh.started or time.time())
             if fresh.status == "queued":
@@ -464,7 +559,9 @@ class JobManager:
     def _sync_result(self, job: Job) -> None:
         self._sync_run(job)
         try:
-            value = json.loads((self._directory(job) / "result.json").read_text(encoding="utf-8"))
+            value = json.loads(
+                (self._directory(job) / "result.json").read_text(encoding="utf-8")
+            )
             status = value["status"]
             if status not in TERMINAL:
                 raise ValueError("invalid terminal status")
@@ -485,7 +582,9 @@ class JobManager:
     def _owns_live_worker(self, job: Job) -> bool:
         if job.worker_pid is None or job.worker_start is None or job.boot_id is None:
             return False
-        return job.boot_id == _boot_id() and job.worker_start == _start_time(job.worker_pid)
+        return job.boot_id == _boot_id() and job.worker_start == _start_time(
+            job.worker_pid
+        )
 
     @staticmethod
     def _signal_group(pid: int | None, signal_value: signal.Signals) -> None:

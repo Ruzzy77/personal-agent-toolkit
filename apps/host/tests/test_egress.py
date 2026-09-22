@@ -1,4 +1,5 @@
 """Regression checks for retired container-network configuration."""
+
 from __future__ import annotations
 
 import json
@@ -41,12 +42,17 @@ def _config(tmp_path: Path, host_lines: str = "", execute: str = "host"):
     return load_host_config(_config_path(tmp_path, host_lines, execute))
 
 
-@pytest.mark.parametrize("host_lines", [
-    'sandbox_image = "old:1"',
-    '[host.execution_profiles]\nbase = "old:1"',
-    'https_host_allowlist = ["pypi.org"]',
-])
-def test_retired_container_configuration_is_rejected(tmp_path: Path, host_lines: str) -> None:
+@pytest.mark.parametrize(
+    "host_lines",
+    [
+        'sandbox_image = "old:1"',
+        '[host.execution_profiles]\nbase = "old:1"',
+        'https_host_allowlist = ["pypi.org"]',
+    ],
+)
+def test_retired_container_configuration_is_rejected(
+    tmp_path: Path, host_lines: str
+) -> None:
     with pytest.raises(SyncError, match="retired"):
         load_host_config(_config_path(tmp_path, host_lines))
 

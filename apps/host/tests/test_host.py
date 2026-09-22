@@ -99,13 +99,15 @@ def test_empty_file_read(config: HostConfig) -> None:
     created = write_file(config, root, "empty.md", content="")
     read = read_files(root, [{"path": "empty.md"}], 1024)
     assert read == {
-        "files": [{
-            "path": "empty.md",
-            "content": "",
-            "version": created["version"],
-            "start_line": 1,
-            "end_line": 0,
-        }],
+        "files": [
+            {
+                "path": "empty.md",
+                "content": "",
+                "version": created["version"],
+                "start_line": 1,
+                "end_line": 0,
+            }
+        ],
         "truncated": False,
     }
 
@@ -177,7 +179,9 @@ def test_marker_replacement_and_delete(config: HostConfig) -> None:
     assert not (root.root / "doc.md").exists()
 
 
-def _workspace_config(tmp_path: Path, *, guard: str, permission: str = "read_write") -> HostConfig:
+def _workspace_config(
+    tmp_path: Path, *, guard: str, permission: str = "read_write"
+) -> HostConfig:
     root = tmp_path / "workspace"
     (root / "work" / "regulations" / "current").mkdir(parents=True)
     (root / "work" / "regulations" / "current" / "rule.txt").write_text("fixed\n")
@@ -224,17 +228,18 @@ def test_protected_source_stays_read_only_inside_a_writable_root(
     guard = tmp_path / "workspace" / "work" / "regulations" / "current"
     config = _workspace_config(tmp_path, guard=str(guard))
     root = config.root("workspace")
-    assert read_files(root, [{"path": "work/regulations/current/rule.txt"}], 1024)[
-        "files"
-    ][0]["content"] == "fixed\n"
+    assert (
+        read_files(root, [{"path": "work/regulations/current/rule.txt"}], 1024)[
+            "files"
+        ][0]["content"]
+        == "fixed\n"
+    )
     for attempt in (
         {"content": "changed\n"},
         {"delete": True},
     ):
         with pytest.raises(ToolError) as failure:
-            write_file(
-                config, root, "work/regulations/current/rule.txt", **attempt
-            )
+            write_file(config, root, "work/regulations/current/rule.txt", **attempt)
         assert failure.value.code == "policy_denied"
     with pytest.raises(ToolError) as created:
         write_file(config, root, "work/regulations/current/added.txt", content="x")
@@ -292,9 +297,10 @@ def test_bearer_guard(config: HostConfig) -> None:
     from personal_agent_host.app import build_app
     from starlette.testclient import TestClient
 
-    with patch(
-        "personal_agent_host.jobs.JobManager.start", new=AsyncMock()
-    ), TestClient(build_app(config)) as client:
+    with (
+        patch("personal_agent_host.jobs.JobManager.start", new=AsyncMock()),
+        TestClient(build_app(config)) as client,
+    ):
         assert client.post("/mcp", headers={"Host": "spark-host"}).status_code == 401
         denied = client.post(
             "/mcp",
@@ -311,6 +317,7 @@ def test_bearer_guard(config: HostConfig) -> None:
 
 def test_root_descriptors_only_use_explicit_connections(config: HostConfig) -> None:
     from personal_agent_host.server import root_descriptors
+
     roots = root_descriptors(config)
     assert roots[0]["corpus"] == {"space_id": "demo", "connection_id": "main"}
     assert roots[1]["corpus"] == {"space_id": "demo", "connection_id": "frozen"}

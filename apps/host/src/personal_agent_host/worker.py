@@ -4,6 +4,7 @@ The Host launches this module from its installed interpreter. It owns the comman
 process and persists enough identity information for a later Host process to
 attach without guessing about PID reuse.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,9 @@ def _atomic_json(path: Path, value: dict) -> None:
 
 def _boot_id() -> str | None:
     try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        return (
+            Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        )
     except OSError:
         return None
 
@@ -113,18 +116,38 @@ def run(directory: Path, cwd: str, command: list[str], keep_stdin_open: bool) ->
 
     output = Output(directory)
     child = subprocess.Popen(
-        command, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, start_new_session=True, bufsize=0,
+        command,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        bufsize=0,
     )
-    assert child.stdin is not None and child.stdout is not None and child.stderr is not None
-    _atomic_json(directory / "run.json", {
-        "pid": child.pid, "pid_start": _start_time(child.pid), "boot_id": _boot_id(),
-        "worker_pid": os.getpid(), "worker_start": _start_time(os.getpid()),
-        "started": time.time(), "keep_stdin_open": keep_stdin_open,
-    })
+    assert (
+        child.stdin is not None
+        and child.stdout is not None
+        and child.stderr is not None
+    )
+    _atomic_json(
+        directory / "run.json",
+        {
+            "pid": child.pid,
+            "pid_start": _start_time(child.pid),
+            "boot_id": _boot_id(),
+            "worker_pid": os.getpid(),
+            "worker_start": _start_time(os.getpid()),
+            "started": time.time(),
+            "keep_stdin_open": keep_stdin_open,
+        },
+    )
 
-    stdout = threading.Thread(target=output.pump, args=("stdout", child.stdout), daemon=True)
-    stderr = threading.Thread(target=output.pump, args=("stderr", child.stderr), daemon=True)
+    stdout = threading.Thread(
+        target=output.pump, args=("stdout", child.stdout), daemon=True
+    )
+    stderr = threading.Thread(
+        target=output.pump, args=("stderr", child.stderr), daemon=True
+    )
     stdout.start()
     stderr.start()
 
@@ -132,7 +155,9 @@ def run(directory: Path, cwd: str, command: list[str], keep_stdin_open: bool) ->
     initial.unlink(missing_ok=True)
     stdin_fd = child.stdin.fileno()
     os.set_blocking(stdin_fd, False)
-    reader_fd: int | None = os.open(fifo, os.O_RDWR | os.O_NONBLOCK) if keep_stdin_open else None
+    reader_fd: int | None = (
+        os.open(fifo, os.O_RDWR | os.O_NONBLOCK) if keep_stdin_open else None
+    )
     eof_requested = not keep_stdin_open
     cancelled = False
     timed_out = False
@@ -152,7 +177,11 @@ def run(directory: Path, cwd: str, command: list[str], keep_stdin_open: bool) ->
                 _terminate_group(child.pid)
                 break
 
-            read_fds = [reader_fd] if reader_fd is not None and len(pending) < INPUT_CAP else []
+            read_fds = (
+                [reader_fd]
+                if reader_fd is not None and len(pending) < INPUT_CAP
+                else []
+            )
             write_fds = [stdin_fd] if pending else []
             readable, writable, _ = select.select(read_fds, write_fds, [], 0.1)
             if reader_fd is not None and reader_fd in readable:
@@ -198,13 +227,22 @@ def run(directory: Path, cwd: str, command: list[str], keep_stdin_open: bool) ->
         output.close()
 
     cancelled = cancelled or (directory / "cancel").exists()
-    status = "cancelled" if cancelled else "timed_out" if timed_out else (
-        "succeeded" if returncode == 0 else "failed"
+    status = (
+        "cancelled"
+        if cancelled
+        else "timed_out"
+        if timed_out
+        else ("succeeded" if returncode == 0 else "failed")
     )
-    _atomic_json(directory / "result.json", {
-        "status": status, "exit_code": returncode, "finished": time.time(),
-        "truncated": output.truncated,
-    })
+    _atomic_json(
+        directory / "result.json",
+        {
+            "status": status,
+            "exit_code": returncode,
+            "finished": time.time(),
+            "truncated": output.truncated,
+        },
+    )
     return returncode
 
 
@@ -221,10 +259,18 @@ def main() -> None:
     except Exception as exc:
         directory.mkdir(parents=True, exist_ok=True)
         with (directory / "stderr").open("ab") as handle:
-            handle.write(f"direct worker failed: {exc}\n".encode("utf-8", errors="replace"))
-        _atomic_json(directory / "result.json", {
-            "status": "failed", "exit_code": None, "finished": time.time(), "truncated": False,
-        })
+            handle.write(
+                f"direct worker failed: {exc}\n".encode("utf-8", errors="replace")
+            )
+        _atomic_json(
+            directory / "result.json",
+            {
+                "status": "failed",
+                "exit_code": None,
+                "finished": time.time(),
+                "truncated": False,
+            },
+        )
         raise
 
 

@@ -53,6 +53,7 @@ if [ "$TEST_RUNTIME" = 1 ]; then
   "$UV" pip install --quiet --no-cache --python "$test_python" "$REPO/apps/sync" "$REPO/apps/host[test]" "ruff==$TEST_RUFF_VERSION"
   "$UV" pip check --python "$test_python"
   "$test_python" -m pytest "$REPO/apps/host/tests"
+  "$test_root/venv/bin/ruff" format --check "$REPO/apps/host"
   "$test_root/venv/bin/ruff" check "$REPO/apps/host/src" "$REPO/apps/host/tests"
   echo "test checks passed; removed temporary test environment"
   exit 0

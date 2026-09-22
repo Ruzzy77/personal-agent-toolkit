@@ -166,7 +166,9 @@ def write_file(
 ) -> dict[str, Any]:
     with root_lock(policy.root):
         if (
-            sum(1 for flag in (content is not None, replace is not None, delete) if flag)
+            sum(
+                1 for flag in (content is not None, replace is not None, delete) if flag
+            )
             != 1
         ):
             raise ToolError(
@@ -233,7 +235,10 @@ def write_file(
             raise ToolError("too_large", "the resulting file exceeds write_bytes")
         _keep_previous(config, policy, target)
         _atomic_write(target, payload)
-        return {"path": display_path(policy.root, target), "version": file_version(payload)}
+        return {
+            "path": display_path(policy.root, target),
+            "version": file_version(payload),
+        }
 
 
 async def search(
