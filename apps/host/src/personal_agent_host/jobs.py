@@ -7,6 +7,7 @@ command with the owner's sudo access can reach outside a root or alter sources.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import contextlib
 import json
 import os
@@ -120,7 +121,7 @@ class JobStore:
         ).fetchall()
         return [self._job(row) for row in rows]
 
-    def expire(self, now: float) -> None:
+    def expire(self, now: float) -> list[str]:
         rows = self.db.execute(
             "SELECT id FROM jobs WHERE finished IS NOT NULL AND finished < ?",
             (now - RETENTION_S,),
@@ -134,6 +135,7 @@ class JobStore:
                 directory.rmdir()
             self.db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         self.db.commit()
+        return [job_id for (job_id,) in rows]
 
     def stream_path(self, job_id: str, stream: str) -> Path:
         return self.directory / job_id / stream
@@ -156,9 +158,10 @@ class JobManager:
         self.slots = asyncio.Semaphore(config.max_concurrent_jobs)
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.done: dict[str, asyncio.Event] = {}
+        self.starting: set[str] = set()
 
     async def start(self) -> None:
-        self.store.expire(time.time())
+        self.expire()
         recovered: list[Job] = []
         for job in self.store.active():
             self.done[job.id] = asyncio.Event()
@@ -183,6 +186,10 @@ class JobManager:
             self.done[job.id].set()
             self.tasks.pop(job.id, None)
             self.slots.release()
+
+    def expire(self) -> None:
+        for job_id in self.store.expire(time.time()):
+            self.done.pop(job_id, None)
 
     async def stop(self) -> None:
         """Stop monitors only; workers retain ownership of direct commands."""
@@ -249,9 +256,21 @@ class JobManager:
         if job.status in TERMINAL:
             return job
         if job.status == "queued":
-            # Do not cancel an in-flight spawn: asyncio cancellation can arrive
-            # after the OS child exists but before its identity was persisted.
             (self._directory(job) / "cancel").touch()
+            if job.id not in self.starting:
+                # Waiting for a slot cannot have created an OS child. Finalize
+                # now instead of waiting for an unrelated running job to end.
+                job.status, job.finished = "cancelled", time.time()
+                job.input_open = False
+                self.store.save(job)
+                task = self.tasks.pop(job.id, None)
+                if task is not None:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                self.done[job.id].set()
+                return job
+            # A spawn may already own a child before its identity is persisted.
+            # Leave that handoff alive so the worker observes the cancel marker.
             return await self.wait(job.id, GRACE_S + 2)
         (self._directory(job) / "cancel").touch()
         await asyncio.sleep(0.2)
@@ -307,19 +326,37 @@ class JobManager:
             with path.open("rb") as handle:
                 handle.seek(offset)
                 chunk = handle.read(limit)
+        final = job.status in TERMINAL and offset + len(chunk) >= size
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        output = decoder.decode(chunk, final=final)
+        consumed = len(chunk) - len(decoder.getstate()[0])
+        if chunk and not consumed and offset + len(chunk) < size:
+            raise ToolError(
+                "invalid_request",
+                "limit is too small for the next UTF-8 character; use at least 4 bytes",
+            )
         return {
-            "stream": stream, "output": chunk.decode("utf-8", errors="replace"),
-            "next_offset": offset + len(chunk),
-            "eof": job.status in TERMINAL and offset + len(chunk) >= size,
+            "stream": stream, "output": output,
+            "next_offset": offset + consumed,
+            "eof": job.status in TERMINAL and offset + consumed >= size,
         }
 
     def tail(self, job: Job, stream: str) -> str:
         path = self.store.stream_path(job.id, stream)
         if not path.exists():
             return ""
+        start = max(0, path.stat().st_size - TAIL_BYTES)
         with path.open("rb") as handle:
-            handle.seek(max(0, path.stat().st_size - TAIL_BYTES))
-            return handle.read().decode("utf-8", errors="replace")
+            handle.seek(start)
+            chunk = handle.read()
+        if start:
+            # The tail may begin inside a character; omit only its partial prefix.
+            for _ in range(3):
+                if not chunk or chunk[0] & 0xC0 != 0x80:
+                    break
+                chunk = chunk[1:]
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        return decoder.decode(chunk, final=job.status in TERMINAL)
 
     @staticmethod
     def public(job: Job) -> dict[str, Any]:
@@ -333,6 +370,7 @@ class JobManager:
     async def _launch(self, job: Job) -> None:
         try:
             async with self.slots:
+                self.starting.add(job.id)
                 directory = self._directory(job)
                 if (directory / "cancel").exists() or job.status != "queued":
                     job.status, job.finished = "cancelled", time.time()
@@ -383,6 +421,7 @@ class JobManager:
             if job.status not in TERMINAL:
                 self._fail(job, f"direct job could not start: {exc}")
         finally:
+            self.starting.discard(job.id)
             self.done[job.id].set()
             self.tasks.pop(job.id, None)
 

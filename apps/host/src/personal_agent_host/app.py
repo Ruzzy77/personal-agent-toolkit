@@ -81,6 +81,20 @@ def start_sync(config: HostConfig) -> tuple[SyncDaemon, asyncio.Task[None]] | No
     return daemon, task
 
 
+async def expire_files(
+    jobs: JobManager, transfers: Transfers, workspace: WorkspaceFiles
+) -> None:
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            # SQLite job updates remain on the event-loop thread.
+            jobs.expire()
+            await asyncio.to_thread(transfers.expire)
+            await asyncio.to_thread(workspace.expire)
+        except Exception:
+            log.exception("Host retention cleanup failed")
+
+
 def build_app(config: HostConfig) -> Starlette:
     jobs = JobManager(config)
     transfers = Transfers(config)
@@ -104,20 +118,13 @@ def build_app(config: HostConfig) -> Starlette:
         host=config.listen_host,
     )
 
-    async def expire_files() -> None:
-        while True:
-            await asyncio.sleep(3600)
-            try:
-                await asyncio.to_thread(transfers.expire)
-                await asyncio.to_thread(workspace.expire)
-            except Exception:
-                log.exception("File retention cleanup failed")
-
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         await jobs.start()
         await asyncio.to_thread(workspace.expire)
-        retention = asyncio.create_task(expire_files(), name="file-retention")
+        retention = asyncio.create_task(
+            expire_files(jobs, transfers, workspace), name="file-retention"
+        )
         sync = start_sync(config)
         try:
             async with server.session_manager.run():

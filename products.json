@@ -444,7 +444,7 @@
       "display_name": "Host",
       "plugin": {
         "path": "plugins/host",
-        "base_version": "0.5.0"
+        "base_version": "0.5.1"
       },
       "delivery": {
         "openai": {
@@ -484,7 +484,7 @@
           "host_job_input",
           "host_job_cancel"
         ],
-        "surface_version": "0.5.0-remote.1"
+        "surface_version": "0.5.1-remote.1"
       },
       "skills": [
         "use-host"

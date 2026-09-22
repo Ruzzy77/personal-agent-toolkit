@@ -50,9 +50,9 @@ prefix `~/.local/share/personal-agent-host/`: `bin/`(launcher, uv, cloudflared),
 | `host_files` | `root`, `operation`, 작업별 `path`·`destination`·`expected_version`·`trash_id` | 폴더 목록·파일 정보·생성·이동·휴지통·복원 결과 | `list`, `stat`은 읽기다. `mkdir`, `move`, `trash`, `restore`는 root 권한과 version을 검사한다. 삭제는 30일 휴지통이며 다른 root 이동은 허용하지 않음 |
 | `host_transfer` | `root`, `direction`, `path`, 업로드 시 `size`·`expected_version` | 인증된 전송 URL·토큰·offset·만료 | 파일 ≤1 GiB, chunk ≤8 MiB. 업로드는 중단·취소 시 원본을 바꾸지 않고 commit 때 version을 다시 대조함. 바이너리 본문은 MCP 응답에 넣지 않음 |
 | `host_exec` | `root`, `cwd?="."`, `argv?[]` 또는 `shell?`, `stdin?`, `keep_stdin_open?=false`, `timeout_s?`(기본 1800, ≤21,600), `wait_s?`(기본 5, ≤50) | `job_id`, `status`, `exit_code`(null 가능), `stdout_tail`, `stderr_tail`, `truncated` | argv/shell 중 하나. argv ≤256개·각 ≤16 KiB·합계 ≤64 KiB, stdin ≤1 MiB, 기본 EOF. keep_stdin_open이면 후속 입력. 꼬리 스트림별 32 KiB. 짧게 끝나도 job_id 반환. 대기 중이면 `queued` |
-| `host_job` | `job_id`, `stream?="stdout"`, `offset?=0`, `limit?=65,536`(≤262,144) | `job_id`, `status`, `exit_code`, `stream`, `output`, `next_offset`, `eof`, `truncated` | offset은 저장된 UTF-8 로그의 byte 위치. limit 0이면 상태만. 문자 경계에서 잘라 next_offset으로 이어 읽음. eof는 job 종료와 출력 끝을 모두 만족할 때 |
+| `host_job` | `job_id`, `stream?="stdout"`, `offset?=0`, `limit?=65,536`(≤262,144) | `job_id`, `status`, `exit_code`, `stream`, `output`, `next_offset`, `eof`, `truncated` | offset은 저장된 UTF-8 로그의 byte 위치. limit 0이면 상태만. 문자 경계에서 잘라 next_offset으로 이어 읽음. limit이 다음 한 문자를 담지 못하면 오류이며 최소 4 byte로 다시 요청. eof는 job 종료와 출력 끝을 모두 만족할 때 |
 | `host_job_input` | `job_id`, `stdin?`, `eof?=false` | job 상태 | keep_stdin_open으로 시작한 실행 중 작업에 UTF-8 표준입력 전달. eof는 남은 입력을 전달한 뒤 닫음 |
-| `host_job_cancel` | `job_id` | `job_id`, `status` | queued면 대기열 제거, running이면 해당 작업 프로세스 그룹 종료 후 cancelled. 종료된 job은 기존 상태 |
+| `host_job_cancel` | `job_id` | `job_id`, `status` | queued면 실행 슬롯을 기다리지 않고 취소 확정, running이면 해당 작업 프로세스 그룹 종료 후 cancelled. 종료된 job은 기존 상태 |
 
 - 읽기 도구 다섯은 `readOnlyHint`. 응답이 돌려준 경로는 다음 입력에 그대로 쓴다.
 - `host_write`는 Corpus Work 계약과 같은 규칙(권한 검사, 임시 파일 후 원자 교환, 직전본 1개를 `state/host-recovery/`에 보관, sha256 version 비교)을 Host가 직접 적용한다. Corpus의 Work 등록 DB는 Sync가 소유하므로 helper를 거치지 않는다. `expected_version` 생략은 버전 비교만 건너뛴다. 사전 읽기·capabilities 호출을 쓰기의 필수 단계로 두지 않는다. 일반적인 쓰기는 `root, path, content` 세 필드로 끝난다.
@@ -74,7 +74,7 @@ host_exec는 등록된 root 안에서 Spark 소유자 계정으로 argv 또는 s
 - timeout_s는 실행 시작부터, wait_s는 접수부터 센다. 클라이언트 연결 종료는 취소가 아니다.
 - stdin은 기본으로 시작 시 전달한 뒤 EOF를 닫는다. keep_stdin_open=true이면 host_job_input으로 후속 UTF-8 입력을 전달하고 eof=true로 닫는다. 내부 MCP 전달은 JSON 모양 문자열의 자동 해석을 피하도록 stdin을 base64로 감싼다.
 - 데몬은 출력을 jobs/id 아래에 stdout·stderr 합계 64 MiB까지 저장하고 초과분은 소비만 하며 truncated=true로 표시한다. 종료 후 exit code를 기록하고, 재시작 시 실행 중인 소유 프로세스를 다시 연결해 상태와 남은 제한 시간을 복원한다.
-- 동시 실행은 max_concurrent_jobs(기본 4)까지이며, 넘으면 queued다. 종료된 job은 7일 보관한다.
+- 동시 실행은 max_concurrent_jobs(기본 4)까지이며, 넘으면 queued다. 종료된 job은 7일 보관하며 서비스 시작 시와 운영 중 매시간 만료 기록·출력·완료 이벤트를 정리한다.
 - 명령은 Spark의 일반 호스트 네트워크와 권한으로 실행한다. Docker 이미지·실행 프로필·작업별 egress guard는 제공하지 않는다. profile과 https_hosts는 호환을 위해 받되 명시적으로 거부한다.
 
 ## 6. 설정
