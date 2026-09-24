@@ -10,8 +10,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from document_files_release import document_source
-
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = ROOT / "plugins"
 TARGET = PLUGIN_ROOT / "personal-agent-toolkit"
@@ -24,17 +22,12 @@ PRODUCTS = tuple(
 
 
 def copy_skills(target: Path) -> None:
-    """Skills come from the shared `skills/` source; only the pinned
-    document-files package keeps its own copy."""
+    """Copy the selected Toolkit Skills; Document Files is installed separately."""
 
     target.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
     for product in PRODUCTS:
-        skill_root = (
-            document_source() / "skills"
-            if product == "document-files"
-            else ROOT / "skills"
-        )
+        skill_root = ROOT / "skills"
         names = set(REGISTRY["products"][product].get("skills", []))
         for source in sorted(skill_root.iterdir()):
             if source.name not in names:
@@ -49,25 +42,6 @@ def copy_skills(target: Path) -> None:
                 target / source.name,
                 ignore=shutil.ignore_patterns("agents", "__pycache__", "*.pyc"),
             )
-
-
-def copy_document_runtime(target: Path) -> None:
-    """Copy the canonical Python source without provisioning during document work."""
-
-    source = document_source()
-    shutil.copytree(
-        source / "openai-runtime",
-        target,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    shutil.copytree(
-        source / "src" / "document_files",
-        target / "src" / "document_files",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    shutil.copy2(source / "pyproject.toml", target / "pyproject.toml")
-    for name in ("LICENSE", "NOTICE"):
-        shutil.copy2(source / name, target / name)
 
 
 def same_tree(left: Path, right: Path) -> bool:
@@ -98,13 +72,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as directory:
         built = Path(directory) / "bundle"
         copy_skills(built / "skills")
-        copy_document_runtime(built / "runtime" / "document-files")
         if args.check:
             if (
                 (target / "skills").is_dir()
-                and (target / "runtime").is_dir()
+                and not (target / "runtime/document-files").exists()
                 and same_tree(built / "skills", target / "skills")
-                and same_tree(built / "runtime", target / "runtime")
             ):
                 print("OpenAI plugin bundle is current.")
                 return 0
@@ -112,11 +84,10 @@ def main() -> int:
             return 1
 
         shutil.rmtree(target / "skills", ignore_errors=True)
-        shutil.rmtree(target / "runtime", ignore_errors=True)
+        shutil.rmtree(target / "runtime/document-files", ignore_errors=True)
         shutil.copytree(built / "skills", target / "skills")
-        shutil.copytree(built / "runtime", target / "runtime")
         skill_count = len(list((target / "skills").iterdir()))
-        print(f"Built {skill_count} Skills and the hosted runtime in {target}")
+        print(f"Built {skill_count} Toolkit Skills in {target}")
         return 0
 
 
