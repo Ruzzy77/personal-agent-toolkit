@@ -1,6 +1,7 @@
 "use client";
 
 import "../../styles/design-workspace.css";
+import { FlowResourceLink } from "@/components/flow/flow-resource-link";
 import { DesignPreview } from "./design-preview";
 import { designPreviewPath } from "@/lib/design-preview";
 
@@ -1821,6 +1822,7 @@ export default function DesignGallery({ catalog }: { catalog: Catalog }) {
                 {noteFor(runtime, previewRecipe).koreanName} 미리보기
               </h2>
               <div className="panel-actions">
+                <FlowResourceLink reference={{kind:"design-recipe",id:previewRecipe.id}} variant="text"/>
                 <a
                   href={`/api/design/files/${encodeURIComponent(previewRecipe.id)}/${designPreviewPath(previewRecipe)?.split("/").map(encodeURIComponent).join("/")}`}
                   target="_blank"
