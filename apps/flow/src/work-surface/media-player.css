@@ -1,0 +1,4 @@
+.ws-media-player{display:grid;gap:var(--su-space-2);max-width:100%}
+.ws-media-player video{display:block;width:100%;max-height:70vh;aspect-ratio:16/9;object-fit:contain;background:var(--su-soft);border-radius:var(--su-radius-sm)}
+.ws-media-player audio{display:block;width:100%;max-width:600px}
+.ws-media-player>p{margin:0;color:var(--su-muted);font-size:var(--control-font-size-md)}

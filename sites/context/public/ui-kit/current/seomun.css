@@ -97,8 +97,7 @@ svg.su-icon { width: var(--su-icon-size); height: var(--su-icon-size); display: 
 .su-btn.su-icon-btn { width:var(--su-control-md); height:var(--su-control-md); min-width:var(--su-control-md); padding:0; flex-shrink:0; }
 .su-btn.su-icon-btn[data-size="sm"] { width:var(--su-control-sm); height:var(--su-control-sm); min-width:var(--su-control-sm); min-height:var(--su-control-sm); padding:0; }
 .su-btn.su-icon-btn[data-size="lg"] { width:var(--su-control-lg); height:var(--su-control-lg); min-width:var(--su-control-lg); min-height:var(--su-control-lg); padding:0; }
-.su-btn:disabled { opacity:.5; }
-.su-btn[aria-busy="true"] { opacity:1; cursor:wait; }
+.su-btn[aria-busy="true"] { cursor:wait; }
 /* UI Kit base app bar. Pages supply content and placement, not geometry.
  * Legacy selectors keep linked adapters compatible with the same base rules. */
 .su-appbar,.catalog-topbar,.ui-document .appbar,.example-header { position:relative; height:var(--su-bar-height); background:var(--su-paper); border-bottom:1px solid var(--su-line); }
@@ -264,6 +263,6 @@ svg.su-icon { width: var(--su-icon-size); height: var(--su-icon-size); display: 
   .su-switch input::after { display:none; }
 }
 
-.su-btn:disabled:not([aria-busy="true"]) { opacity:1; color:var(--color-text-disabled); background:var(--color-background-disabled); border-color:transparent; }
+.su-btn:disabled:not([aria-busy="true"]) { color:var(--color-text-disabled); background:var(--color-background-disabled); border-color:transparent; }
 .su-btn[data-variant="outline"]:disabled:not([aria-busy="true"]) { background:transparent; border-color:var(--color-border-disabled); }
 .su-btn[data-variant="ghost"]:disabled:not([aria-busy="true"]) { background:transparent; }

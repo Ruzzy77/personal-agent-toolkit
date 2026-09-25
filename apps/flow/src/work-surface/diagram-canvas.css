@@ -1,0 +1,14 @@
+.ws-diagram-canvas{display:block;width:100%;min-width:900px;height:auto}
+.ws-diagram-canvas[data-fit]{min-width:0}
+.ws-diagram-node{cursor:grab;touch-action:none}
+.ws-diagram-node[data-disabled]{cursor:default}
+.ws-diagram-node rect{fill:var(--su-paper);stroke:var(--su-line);stroke-width:1.5}
+.ws-diagram-node text{fill:var(--su-ink);font:18px var(--su-font);pointer-events:none}
+.ws-diagram-node[data-selected] rect{stroke:var(--color-ring);stroke-width:2}
+.ws-diagram-node:focus-visible,.ws-diagram-edge:focus-visible{outline:2px solid var(--color-ring);outline-offset:4px}
+.ws-diagram-edge{cursor:pointer}
+.ws-diagram-edge[data-disabled]{cursor:default}
+.ws-diagram-edge-hit{stroke:transparent;stroke-width:18}
+.ws-diagram-edge-line{stroke:var(--su-muted);stroke-width:1.5;pointer-events:none}
+.ws-diagram-edge[data-selected] .ws-diagram-edge-line{stroke:var(--color-ring);stroke-width:2.5}
+.ws-diagram-edge-label{font:15px var(--su-font);fill:var(--su-muted);paint-order:stroke;stroke:var(--su-paper);stroke-width:5px;pointer-events:none}

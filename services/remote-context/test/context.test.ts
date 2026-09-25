@@ -1249,10 +1249,11 @@ describe("remote personal context service", () => {
     };
 
     const before = await listTools();
-    expect(before).toContain("design_capabilities");
+    expect(before.some((name) => name.startsWith("design_"))).toBe(false);
+    expect(before).toContain("library_capabilities");
 
     const off = await call("toolkit_products_set", {
-      product: "design",
+      product: "library",
       enabled: false,
     });
     expect(
@@ -1261,7 +1262,7 @@ describe("remote personal context service", () => {
     ).toBe(true);
 
     const narrowed = await listTools();
-    expect(narrowed).not.toContain("design_capabilities");
+    expect(narrowed).not.toContain("library_capabilities");
     expect(narrowed).toContain("corpus_capabilities");
     expect(narrowed).toContain("toolkit_products");
 
@@ -1273,11 +1274,11 @@ describe("remote personal context service", () => {
         };
       }
     ).structuredContent.result.products;
-    expect(products.find((item) => item.product === "design")?.enabled).toBe(
+    expect(products.find((item) => item.product === "library")?.enabled).toBe(
       false,
     );
 
-    await call("toolkit_products_set", { product: "design", enabled: true });
+    await call("toolkit_products_set", { product: "library", enabled: true });
     expect(await listTools()).toEqual(MCP_SURFACES.toolkit.tools);
   });
 

@@ -1,0 +1,5 @@
+.ws-text-content{min-width:0}
+.ws-text-content-actions{display:flex;justify-content:flex-end;margin-bottom:var(--su-space-2)}
+.ws-text-content>.su-code{max-width:100%;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
+.ws-text-content>.ws-markdown{max-width:none;padding:var(--su-space-4) 0;border-top:1px solid var(--su-line)}
+.ws-text-content>p{margin:0;font-size:var(--control-font-size-md);color:var(--su-muted)}

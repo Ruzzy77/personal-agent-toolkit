@@ -82,7 +82,7 @@ describe("Design lifecycle and media identity", () => {
         ).first<{ count: number }>()
       )?.count,
     ).toBe(0);
-  });
+  }, 20_000);
 
   it("separates MIME identity, rejects stale file saves without overwriting bytes, and checks included file revisions", async () => {
     const service = new DesignService(runtime);

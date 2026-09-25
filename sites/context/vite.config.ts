@@ -8,5 +8,5 @@ export default defineConfig(async()=>{
  process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
  const {cloudflare}=await import("@cloudflare/vite-plugin");
  const configPath=existsSync(new URL("./wrangler.jsonc",import.meta.url))?"wrangler.jsonc":"wrangler.example.jsonc";
- return {css:{postcss:{plugins:[tailwindcss()]}},plugins:[vinext(),cloudflare({viteEnvironment:{name:"rsc",childEnvironments:["ssr"]},configPath})]};
+ return {resolve:{dedupe:["react","react-dom","@openai/apps-sdk-ui","@personal-agent/ui-kit","lucide-react"]},css:{postcss:{plugins:[tailwindcss()]}},plugins:[vinext(),cloudflare({viteEnvironment:{name:"rsc",childEnvironments:["ssr"]},configPath})]};
 });

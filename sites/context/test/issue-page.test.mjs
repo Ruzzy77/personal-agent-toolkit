@@ -10,12 +10,22 @@ test("reader injects shared presentation without changing article markup or iden
   const rendered = renderIssuePage(issue);
   assert.ok(rendered.includes('<article><p>보존할 원문 <strong>강조</strong></p></article>'));
   assert.ok(rendered.includes('data-library-version="8"'));
+  assert.ok(rendered.includes('data-library-issue-id="daily:2026-09-21"'));
   assert.ok(rendered.includes('data-toolkit-reader="true"'));
   assert.ok(rendered.includes('/toolkit-reader.css'));
   assert.ok(rendered.includes('/library-editor.js'));
   assert.ok(rendered.includes("font-src 'self'"));
   assert.ok(rendered.includes("connect-src 'self'"));
   assert.equal(issue.sourceHtml.includes('toolkit-reader'), false);
+});
+test("Flow reader keeps the article and shared styles but does not load the editor", async () => {
+  const rendered = renderIssuePage(issue, true);
+  assert.ok(rendered.includes('<article><p>보존할 원문 <strong>강조</strong></p></article>'));
+  assert.ok(rendered.includes('/toolkit-reader.css'));
+  assert.ok(!rendered.includes('/library-editor.js'));
+  assert.ok(!rendered.includes('/library-editor.css'));
+  const response = issueHtmlResponse(issue, false, true);
+  assert.ok(!(await response.text()).includes('/library-editor.js'));
 });
 test("reader response allows only same-origin framing and never caches private articles", async () => {
   const response = issueHtmlResponse(issue);

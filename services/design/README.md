@@ -1,25 +1,15 @@
-# Design Service
+# Legacy Design Service
 
-Design Service는 개인 디자인 레시피의 메타데이터와 파일을 보관하는 원격 정본입니다. D1에는
-레시피, 패턴, 버전과 파일 해시를 두고 R2에는 HTML, CSS, 이미지와 템플릿 파일을 둡니다.
-통합 Toolkit의 디자인 자료 화면과 MCP는 이 서비스를 함께 사용하며 plugin이나 웹 배포본에는
-개인 자산을 넣지 않습니다.
+구 디자인 레시피의 복구와 기존 파일 참조를 위한 서비스입니다. 새 디자인 스킬·테마·애셋·템플릿은 UIKit에서 관리합니다. D1에는 기존 레시피·패턴·버전·파일 해시를, 비공개 R2에는 해당 파일을 보관합니다. 개인 자료는 플러그인이나 웹 배포본에 넣지 않습니다.
 
-## 공개 표면
+## 접근 경로
 
-- `/mcp`: 소유자 OAuth가 필요한 Design MCP
-- `/api/v1/*`: 통합 Toolkit 서버 경로만 사용하는 비공개 API
-- `/health`: 배포 상태 확인
+- `/mcp`와 OAuth discovery: `410 Gone`. 일반 디자인 도구는 제공하지 않습니다.
+- `/api/v1/*`: 기존 소유자 인증을 거치는 호환·관리 API
+- `/health`: 서비스 상태 확인
+- Toolkit의 `/manage/design`: 기존 자료의 삭제·복구 관리
+- UIKit 갤러리와 `uikit_search`, `uikit_read`, `uikit_read_file`: 새 자료 조회
 
-레시피 메타데이터는 `revision`, 파일은 `file_revision`을 대조해 오래된 편집이 새 내용을
-덮어쓰지 않게 합니다. R2 객체는 내용 해시가 포함된 키에 저장하고 D1이 현재 파일을 가리킵니다.
+레시피 메타데이터는 `revision`, 파일은 `file_revision`으로 오래된 변경을 차단합니다. 휴지통 자료는 기존 30일 복구 절차를 따릅니다. 공유 파일과 다른 제품 자료는 레시피 하나를 삭제했다는 이유로 삭제하지 않습니다.
 
-기존 폴더형 라이브러리를 처음 옮길 때에는 서비스 배포 후 다음 가져오기 도구를 사용합니다.
-원본 폴더는 저장소 밖의 개인 작업 위치일 수 있으며, 가져온 레시피의 공개 표시는 `private`로
-바뀝니다.
-
-```bash
-DESIGN_SITE_TOKEN=... npm run import:library -- \
-  --source <개인 디자인 라이브러리 폴더> \
-  --service-url https://personal-agent-design.example.workers.dev
-```
+`npm run check`는 타입·비공개 API·복구 수명주기를 확인합니다. 운영 바인딩·인증정보는 기존 비공개 구성에 유지하며 저장소에 기록하지 않습니다.

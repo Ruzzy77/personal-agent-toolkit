@@ -1,10 +1,16 @@
-# Workspace — Sense · Corpus
+# Toolkit Web
 
-Sense 기준·연결 스킬과 Corpus 프로젝트의 정본문서를 읽고 편집하는 비공개 화면입니다. 소스 정본은 Toolkit의 `sites/context/`이며, 기존 Site의 배포 대상과 접근 범위를 유지합니다. 화면에 별도 지침 DB나 사용자 인증 정보를 저장하지 않습니다.
+Flow 작업물을 중심으로 파일·Sense·Corpus·Journal·Library와 UIKit 자료를 이용하는 비공개 화면입니다. 소스는 `sites/context/`, 배포 대상은 소유자의 Cloudflare Worker입니다. 인증 토큰은 서버의 세션 저장소에 두며 브라우저에 전달하지 않습니다.
 
 ## UI Kit
 
-공통 자산은 `@personal-agent/ui-kit@1.3.0`입니다. `vendor/personal-agent-ui-kit-1.3.0.tgz`와 잠금 파일로 버전을 고정하고 `react.css`, `document.css`, `react` 진입점을 사용합니다. 공통 CSS 복사본을 별도로 수정·관리하지 않습니다. 상단바는 `.su-appbar > .su-appbar__inner`, 읽기 본문은 문서 프로필을 사용합니다. 작업·관리 화면의 부모 배치는 `su-workspace`, `su-section`, `su-toolbar`, `su-row`, `su-stack`, `su-grid`로 구성합니다.
+공통 자산은 `@personal-agent/ui-kit@1.4.1`입니다. `vendor/personal-agent-ui-kit-1.4.1.tgz`와 잠금 파일로 버전을 고정하고 `react.css`, `document.css`, `react` 진입점을 사용합니다. 공통 CSS 복사본을 별도로 수정·관리하지 않습니다. 상단바는 `.su-appbar > .su-appbar__inner`, 읽기 본문은 문서 프로필을 사용합니다. 작업·관리 화면의 부모 배치는 `su-workspace`, `su-section`, `su-toolbar`, `su-row`, `su-stack`, `su-grid`로 구성합니다.
+
+Flow는 작업공간, 라이브러리, 파일을 하나의 상단바에서 제공합니다. apps/flow/src/work-surface의 버전 고정 패키지로 로컬판과 AppHeader, WorkCanvas, LibraryBrowser 및 읽기 화면을 공유합니다. 주 화면에는 에이전트가 만든 HTML이나 기존 작업물 하나를 표시합니다. 블록 편집 폼, 배치 선택기와 유형별 생성 메뉴는 기본 화면에 두지 않습니다.
+
+라이브러리는 기존 보관본과 범위가 지정된 재사용 자료를 검색하고 읽습니다. Sense, Hypes, Corpus, Journal, 발간물과 UIKit 자료는 원본 식별자로 연결하며 정본 서비스의 읽기 및 권한 절차를 유지합니다. 자료를 열거나 연결하는 것만으로 본문에 넣지 않습니다. 원본 변경, 기준 채택과 발행은 각각 기존 확인 절차를 따릅니다. 파일은 등록된 Host 폴더를 사용하며 자동 복사나 이동은 하지 않습니다.
+
+HTML 작업물은 버전 고정 자산과 함께 별도 샌드박스에서 실행합니다. 앱의 인증 정보와 외부 통신 권한은 넘기지 않습니다. 수정은 기준 버전이 일치할 때 즉시 반영하며 충돌과 되돌리기를 지원합니다. 웹 배포와 Host 연결 갱신은 소스 수정과 별개입니다.
 
 입력·선택·버튼·툴팁·메뉴는 고정 버전의 공식 Apps SDK UI를 `app/ui.tsx`에서 연결합니다. 아이콘은 Lucide 원본입니다. 화면별 스타일은 내용 배치만 담당하며 공통 상단바의 높이·좌우 여백을 덮어쓰지 않습니다. 상단바의 보조 동작은 더 보기 안에 둡니다. 목록과 본문 안의 도구는 기능·빈도·대상에 맞게 배치하며 일괄 메뉴화하지 않습니다. 저장·복구·삭제 확인은 기존 기능과 권한을 유지합니다.
 
@@ -46,24 +52,29 @@ WebMCP가 없어도 화면의 직접 조회·저장과 JSON 가져오기·수정
 
 ## 서비스 연결
 
-`app/api/context/[operation]/route.ts`는 Sites의 인증된 사용자 헤더를 서버에서 읽고 허용한 작업만 기존 Context 서비스에 전달합니다. 같은 출처의 요청만 받으며 브라우저에 내부 토큰을 전달하지 않습니다.
+`app/api/context/[operation]/route.ts`는 소유자 세션과 요청 출처를 검증하고 허용된 작업만 기존 Context 서비스로 전달합니다. 변경 요청에는 CSRF 검사를 적용합니다. 브라우저에는 세션 쿠키만 전달하고 서비스 접근·갱신 토큰은 서버에 둡니다.
 
-Site runtime 설정: `CONTEXT_SERVICE_URL`, 비밀 `CONTEXT_SITE_TOKEN`.
-기존 Context service 설정: 비밀 `CONTEXT_SITE_TOKEN`, `CONTEXT_SITE_USER_ID`, `CONTEXT_SITE_OWNER_ID`. Site별 검증된 사용자 식별자를 소유자에 명시적으로 연결합니다. 다른 Site의 사용자 ID나 이메일에서 추측하지 않습니다. `/api/identity`는 현재 인증된 방문자 자신의 Site ID만 반환합니다.
+`wrangler.example.jsonc`의 `APP_ORIGIN`, `AUTH_ISSUER`, `CONTEXT_SERVICE_URL`, `TOOLKIT_RESOURCE`, `OAUTH_CLIENT_ID`를 소유자 환경에 맞추고 `WEB_SESSION_KV`를 연결합니다. 실제 `wrangler.jsonc`와 비밀 값은 저장소에 포함하지 않습니다.
 
-MCP와 Site는 같은 서비스·소유자·범위·버전 검사 경로를 사용합니다. 서비스가 없으면 정본 조회·저장이 실패하며 탭의 초안은 유지됩니다. 일반 파일 도구의 OS 권한을 격리하는 기능은 아닙니다.
+UIKit 조회는 `UIKIT` 서비스 바인딩의 `ArchiveReader`를 사용합니다. UIKit의 `READ_CONSUMERS`에 Toolkit의 정확한 resource audience와 읽기 scope를 등록해야 합니다. `/api/uikit/search`, `read`, `preview`는 인증 후 같은 발행본을 읽으며, 미리보기는 네트워크·상위 화면 접근이 차단된 프레임에서 실행합니다. 발행본을 고정한 참조는 원본 파일을 Flow에 복사하지 않습니다.
+
+MCP와 웹은 같은 소유자·범위·버전 검사 경로를 사용합니다. 서비스가 없으면 정본 조회·저장이 실패하며 탭의 초안은 유지됩니다. 일반 파일 도구의 OS 권한을 격리하는 기능은 아닙니다.
 
 ## 통합 관리
 
 Workspace의 **더 보기 → 관리**에서 Corpus, Sense, Library와 Design을 전환합니다.
 `/manage`는 Corpus, `/manage/sense`, `/manage/library`, `/manage/design`은 각 제품의 관리 화면입니다.
-개별 Library·Design Site에는 관리 메뉴나 관리 페이지를 두지 않습니다. 읽기·편집 화면과 저장 방식은 유지합니다.
+Library의 읽기·편집 화면과 저장 방식은 유지합니다. Design 관리는 기존 자료의 복구 절차를 위한 경로이며 새 디자인 자료는 UIKit에서 다룹니다. `/design`의 이전 북마크는 소유자 인증 후 UIKit 갤러리로 이동합니다.
 
-관리 요청은 `/api/management/<operation>`에서 기존 Workspace의 검증된 사용자 ID와 서버 전용 Context 토큰으로 통합 Worker의 `/admin/v1/<operation>`을 호출합니다. 소유자 연결과 제품별 작업 정의를 재사용하며, 별도 Site·저장소·인증 토큰을 만들지 않습니다. 이 경로는 관리 화면에 필요한 작업만 허용하고 본문 개정·원본 파일 쓰기·Hypes·Journal 작업은 노출하지 않습니다.
+관리 요청은 `/api/management/<operation>`에서 기존 Workspace의 소유자 세션과 서버 보관 접근 토큰으로 통합 Worker의 `/admin/v1/<operation>`을 호출합니다. 소유자 연결과 제품별 작업 정의를 재사용하며, 별도 Site·저장소·인증 토큰을 만들지 않습니다. 이 경로는 관리 화면에 필요한 작업만 허용하고 본문 개정·원본 파일 쓰기·Hypes·Journal 작업은 노출하지 않습니다.
 
 ## 소스와 배포
 
-- `app/page.tsx`: 읽기·목차·편집·비교 화면
+- `app/page.tsx`: Flow로 이동
+- `app/flow/page.tsx`, `components/flow`: 공통 상단바와 단일 주 작업물, 라이브러리 및 파일 탐색, HTML 실행과 수정안 비교
+- `app/files/page.tsx`: 기존 작업공간 파일 탐색. 보고 있는 파일을 Flow의 참고 자료로 연결할 수 있습니다.
+- `components/flow/flow-resource-link.tsx`: 원본 화면에서 Flow로 여는 공통 링크. 자료 식별자 검사는 `@personal-agent/flow-surface/resource-reference`를 사용합니다.
+- `app/context/page.tsx`: Sense·Corpus 읽기·편집·비교 화면
 - 화면 아이콘: 고정 버전 `lucide-react`의 개별 아이콘을 사용하며, 버튼의 접근성 이름과 공통 크기·선 굵기를 유지합니다. 배포 라이선스는 `public/lucide-license.txt`에 포함합니다.
 - `lib/context.ts`: 목록·선택 조회와 정본 저장 어댑터
 - `lib/guidance.ts`: 탭 초안·원본 충돌·저장 확인
@@ -71,4 +82,4 @@ Workspace의 **더 보기 → 관리**에서 Corpus, Sense, Library와 Design을
 - `lib/webmcp.ts`, `contracts/webmcp-contract.json`: 기존 페이지 계약
 - `fixtures`, `schemas`, `contracts/mcp-contract.json`, `lib/prototype-data.ts`: 실행하지 않는 과거 Resolver 예시. 기존 변경은 보존합니다.
 
-`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`로 확인합니다. Toolkit의 기존 Site export 도구로 별도 배포 checkout을 만들며, Toolkit 저장소 전체를 Site 저장소에 올리지 않습니다. `.env`, `.dev.vars`, 개인 정본·복구본은 export에 포함하지 않습니다. 같은 `.openai/hosting.json`의 Site에만 비공개 배포합니다.
+`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`로 확인한 뒤 기존 Worker에 `npx wrangler deploy`로 배포합니다. Vite가 생성한 `dist/server/wrangler.json`을 사용하므로 `UIKIT` 등 원본 구성의 바인딩을 유지해야 합니다. `.env`, `.dev.vars`, 개인 정본·복구본은 배포 자산에 포함하지 않습니다. Flow 저장 계약이 바뀐 경우 공통 패키지·Host·Context 서비스를 맞춰 배포합니다.

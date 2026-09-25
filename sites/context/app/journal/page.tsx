@@ -39,6 +39,13 @@ function safePeriod(value: string | string[] | undefined): PeriodKind {
     : 'week';
 }
 
+function safeItem(value: string | string[] | undefined): string | undefined {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(candidate)
+    ? candidate
+    : undefined;
+}
+
 function safeWeek(value: string | string[] | undefined): string | undefined {
   const candidate = Array.isArray(value) ? value[0] : value;
   return candidate && /^\d{4}-\d{2}-\d{2}$/.test(candidate)
@@ -60,9 +67,11 @@ async function AuthenticatedHome({
   const params = await searchParams;
   const today = currentKstDate();
   const selectedWeek = safeWeek(params.week);
+  const selectedItem = safeItem(params.item);
   const selectedPeriod = safePeriod(params.period);
   const returnTo = new URLSearchParams();
   if (selectedWeek) returnTo.set('week', selectedWeek);
+  if (selectedItem) returnTo.set('item', selectedItem);
   if (params.period !== undefined) returnTo.set('period', selectedPeriod);
   await requireOwnerUser(returnTo.size > 0 ? `/journal?${returnTo}` : '/journal');
   let unavailable = false;
@@ -99,6 +108,7 @@ async function AuthenticatedHome({
         <JournalBoard
           key={board.week.id}
           initialBoard={board}
+          initialItemId={selectedItem}
           today={today}
           selectedPeriod={selectedPeriod}
         />

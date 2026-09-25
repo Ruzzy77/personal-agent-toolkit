@@ -21,15 +21,34 @@ test('management uses the authenticated, same-origin Workspace proxy without a n
 });
 
 
-test("Toolkit keeps all destinations in a responsive sidebar with an accessible mobile toggle", () => {
+test("Toolkit links into Flow without duplicating its navigation", () => {
   const shell = read("../app/toolkit-shell.tsx"), css = read("../app/workspace.css");
-  for (const href of ["/journal", "/library", "/design", "/settings"]) assert.ok(shell.includes(href));
+  for (const href of ["/flow", "/flow?screen=library", "/flow?screen=files", "/settings"]) assert.ok(shell.includes(href));
   assert.match(shell, /aria-expanded={menuOpen}/);
   assert.match(shell, /aria-controls="toolkit-menu"/);
   assert.match(css, /\.toolkit-menu\.is-open\{display:flex(?:;|\})/);
   assert.match(css, /\.toolkit-content\{margin-left:0\}/);
   assert.ok(!css.includes(".file-detail{display:flex}"));
   assert.match(css, /\.file-detail\{[^}]*flex-direction:column/);
+});
+
+test("Flow is the main destination while files keep their own view", () => {
+  assert.match(read("../app/page.tsx"), /redirect\("\/flow"\)/);
+  assert.match(read("../app/flow/page.tsx"), /<FlowWorkspace \/>/);
+  assert.match(read("../app/files/page.tsx"), /<WorkspaceFiles\/>/);
+  const view=read("../components/flow/flow-workspace.tsx");
+  assert.match(view, /flow_work_read/);
+  assert.match(view, /ArtifactPreview/);
+  assert.match(view, /flowContentForWeb/);
+  assert.match(view, /<WorkCanvas /);
+  assert.match(view, /<AppHeader /);
+  assert.match(view, /<LibraryBrowser /);
+  assert.match(view, /flow_library_upsert/);
+  assert.match(view, /flow_snapshot_create/);
+  assert.match(view, /baseline.current/);
+  assert.doesNotMatch(view, /<ContentEditor|<BlankEditor|<ImageEditor|<DiagramEditor|setArtifactSpan|moveArtifact|addBlankArtifact/);
+  assert.doesNotMatch(view, /resourceContentArtifact|beginBlankContent|renderArtifactEditor/);
+  assert.match(read("../app/toolkit-shell.tsx"), /pathname === "\/flow"\) return children/);
 });
 
 test("file workspace renders a conditional preview and preserves draft recovery controls", () => {
@@ -41,6 +60,10 @@ test("file workspace renders a conditional preview and preserves draft recovery 
   assert.match(view, /file-list-more/);
   assert.match(view, /파일 더 불러오기/);
   assert.match(view, /role={error\?"alert":"status"}/);
+  assert.match(view, /<HtmlContentView[^>]*body={draft.body}[^>]*showSourceToggle={false}/);
+  assert.doesNotMatch(view, /dirty&&source/);
+  assert.match(read("../components/flow/flow-host-file.tsx"), /<HtmlContentView body={body\?\?undefined}/);
+
 });
 
 test("owner web worker may call public services in the same Cloudflare account", () => {
@@ -55,14 +78,17 @@ test("clean checkouts build with the public worker configuration", () => {
 });
 
 test("embedded products apply tokens at their scope root and share the Toolkit theme", () => {
-  const css = read("../styles/products.css"), gallery = read("../components/design/design-gallery.tsx");
+  const css = read("../styles/products.css");
   for (const name of ["journal-shell", "library-app"]) {
     assert.ok(css.includes(`@scope (.${name}) {\n:scope {`));
   }
-  assert.ok(css.includes(":scope {\n  --bg: var(--su-paper);"));
-  assert.ok(css.includes(":scope.gallery--dark"));
-  assert.match(gallery, /useSyncExternalStore\(subscribeTheme, currentTheme, initialTheme\)/);
-  assert.ok(!gallery.includes('className="theme-button"'));
+  assert.match(css, /@scope \(\.journal-shell\) \{\n:scope \{[^}]*--paper: var\(--su-paper\);/);
+  assert.ok(/@scope \(\.library-app\) \{\n:scope \{[^}]*background: var\(--su-paper\);/.test(css), "Library scope uses the shared background token");
+  assert.doesNotMatch(css, /@scope \(\.gallery\)/);
+  const legacy = read("../app/design/page.tsx");
+  assert.match(legacy, /requireOwnerUser/);
+  assert.ok(legacy.includes("https://personal-uikit.hiyaq77.workers.dev/"));
+  assert.ok(!legacy.includes("DesignGallery"));
 });
 
 test("workspace root picker is wide enough for long registered root names", () => {

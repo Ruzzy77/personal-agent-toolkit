@@ -1,0 +1,27 @@
+.ws-markdown{min-width:0;max-width:var(--su-measure);font-size:15px;line-height:1.75;color:var(--su-ink);overflow-wrap:anywhere}
+.ws-markdown>:first-child{margin-top:0}
+.ws-markdown>:last-child{margin-bottom:0}
+.ws-markdown :is(h1,h2,h3,h4,h5,h6){font-weight:600;line-height:1.4;letter-spacing:-.02em;margin:var(--su-space-8) 0 var(--su-space-3)}
+.ws-markdown :is(h1,h2){font-size:1.35rem}
+.ws-markdown h3{font-size:1.2rem}
+.ws-markdown :is(h4,h5,h6){font-size:1.05rem}
+.ws-markdown p,.ws-markdown ul,.ws-markdown ol,.ws-markdown blockquote,.ws-markdown pre,.ws-markdown .ws-markdown-table{margin:0 0 var(--su-space-4)}
+.ws-markdown ul,.ws-markdown ol{padding-left:var(--su-space-6)}
+.ws-markdown ul{list-style:disc}
+.ws-markdown ol{list-style:decimal}
+.ws-markdown img{display:block;max-width:100%;max-height:24rem;object-fit:contain;border-radius:var(--su-radius-sm)}
+.ws-markdown li+li{margin-top:var(--su-space-1)}
+.ws-markdown li>p{margin:0}
+.ws-markdown blockquote{border-left:2px solid var(--su-line);padding-left:var(--su-space-4);color:var(--su-muted)}
+.ws-markdown blockquote>:last-child{margin-bottom:0}
+.ws-markdown a{color:var(--su-ink);text-decoration:underline;text-underline-offset:.18em}
+.ws-markdown a:focus-visible{outline:2px solid var(--su-focus);outline-offset:2px}
+.ws-markdown :not(pre)>code{font-family:var(--font-mono);font-size:.9em;background:var(--su-soft);padding:0 .2em;border-radius:var(--su-radius-sm)}
+.ws-markdown pre{max-width:100%;overflow:auto;white-space:pre;font-size:13px;line-height:1.6}
+.ws-markdown pre code{font:inherit}
+.ws-markdown .ws-markdown-table{max-width:100%;overflow:auto}
+.ws-markdown table{width:max-content;min-width:100%;border-collapse:collapse;font-size:14px}
+.ws-markdown th,.ws-markdown td{border-bottom:1px solid var(--su-line);padding:var(--su-space-2) var(--su-space-3);text-align:left;vertical-align:top}
+.ws-markdown th{font-weight:600;background:var(--su-soft)}
+.ws-markdown hr{border:0;border-top:1px solid var(--su-line);margin:var(--su-space-6) 0}
+.ws-markdown input[type=checkbox]{margin-right:var(--su-space-2)}

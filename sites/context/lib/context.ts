@@ -40,7 +40,7 @@ export async function contextCall(name: string, input: unknown, surface: "contex
   return row(data.result);
 }
 export type Locator =
-  | { product: "sense"; sectionId: string; skill?: boolean }
+  | { product: "sense"; sectionId: string; skill?: true }
   | { product: "corpus"; spaceId: string; documentId: string }
   | { product: "context-item"; spaceId: string; itemId: string }
   | { product: "context-skill"; spaceId: string }
@@ -129,7 +129,7 @@ export async function candidates(
                   locator: {
                     product: "sense" as const,
                     sectionId,
-                    skill: true,
+                    skill: true as const,
                   },
                 },
               ]

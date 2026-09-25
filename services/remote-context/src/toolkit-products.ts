@@ -19,7 +19,6 @@ export const TOOLKIT_PRODUCTS = [
   "hypes",
   "journal",
   "library",
-  "design",
   "host",
 ] as const;
 

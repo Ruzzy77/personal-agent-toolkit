@@ -39,8 +39,8 @@ export function FieldSelect({children,'aria-label':label,...props}:{children:Rea
   const options=Children.toArray(children).filter(isValidElement).map(child=>{const p=(child.props as OptionHTMLAttributes<HTMLOptionElement>);return{value:String(p.value??textOf(p.children)),label:textOf(p.children),disabled:p.disabled};});
   return <KitSelect aria-label={label} restoreFocus {...props} size={size} pill={false} options={options} searchPlaceholder="검색" searchEmptyMessage="검색 결과 없음"/>;
 }
-export function ActionMenu({children,label='도구'}:{children:ReactNode;label?:string}) {
-  return <Menu><Menu.Trigger><IconButton label={label}><Ellipsis size="1em" aria-hidden="true"/></IconButton></Menu.Trigger><Menu.Content align="end" minWidth={180}>{children}</Menu.Content></Menu>;
+export function ActionMenu({children,label='도구',disabled=false}:{children:ReactNode;label?:string;disabled?:boolean}) {
+  return <Menu><Menu.Trigger><IconButton label={label} disabled={disabled}><Ellipsis size="1em" aria-hidden="true"/></IconButton></Menu.Trigger><Menu.Content align="end" minWidth={180}>{children}</Menu.Content></Menu>;
 }
 
 export function IconLink({href,label,children}:{href:string;label:string;children:ReactNode}) { return <Tooltip content={label} compact><Link href={href} className="su-btn su-icon-btn" data-variant="ghost" aria-label={label}>{children}</Link></Tooltip>; }

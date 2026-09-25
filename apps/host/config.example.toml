@@ -19,6 +19,13 @@ path = "~/Agent-Workspace"
 permission = "read_write"
 execute = "host"
 
+# Flow runs as a separate app; this only allows the authenticated Host to
+# forward work operations to an explicitly registered local Flow service.
+[[host.flows]]
+id = "workspace"
+root_id = "workspace"
+service_url = "http://127.0.0.1:4176"
+
 [[connections]]
 space_id = "research-note"
 connection_id = "main"

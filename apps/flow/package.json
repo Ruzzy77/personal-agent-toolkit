@@ -1,0 +1,27 @@
+{
+  "name": "toolkit-flow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/prepare-sites-build.mjs && node scripts/export-standalone.mjs",
+    "preview": "vite preview",
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "test:workspace": "node --test tests/workspace.test.mjs tests/flow.test.mjs tests/work-surface.test.mjs tests/markdown.test.mjs",
+    "serve": "node server/main.mjs"
+  },
+  "dependencies": {
+    "@openai/apps-sdk-ui": "0.2.2",
+    "@personal-agent/ui-kit": "file:vendor/personal-agent-ui-kit-1.4.1.tgz",
+    "@tailwindcss/postcss": "4.2.1",
+    "@vitejs/plugin-react": "5.0.4",
+    "lucide-react": "1.44.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "4.2.1",
+    "vite": "6.4.2",
+    "react-markdown": "9.1.0",
+    "remark-gfm": "4.0.1"
+  }
+}

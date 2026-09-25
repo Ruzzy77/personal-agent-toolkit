@@ -5,15 +5,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Download, File, FilePlus, FileText, Folder, FolderPlus, Pencil, Plus, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
 import { ActionMenu, FieldSelect, IconButton, Menu, UiButton, UiInput, UiTextarea } from "./ui";
 import { InlineDocument } from "./inline-document";
+import { HtmlContentView, TextContentView } from "@personal-agent/flow-surface";
 import { ownerFetch } from "../lib/owner-client";
 import { draftKey, fileUrl, hostCall, joined, linkedCorpus, restoredDraft, uploadChunks, type FileDraft, type FileEntry, type HostRoot, type Transfer } from "../lib/host-files";
 
 import { displayedFiles, fileKind } from "../lib/file-list";
+import { fileMediaKind } from "../lib/file-media";
+import { FlowResourceLink } from "../components/flow/flow-resource-link";
+import { FileMediaPreview } from "../components/file-media-preview";
+import { HostImagePreview } from "../components/host-image-preview";
 
 type Listing={entries:FileEntry[];next_cursor:string|null};
 type Modal={kind:"folder"|"file"|"move"|"saveAs";title:string;value:string;entry?:FileEntry};
 const TEXT=/\.(md|markdown|txt|json|jsonc|csv|tsv|ya?ml|toml|ini|py|js|jsx|ts|tsx|css|html?|sh|xml|svg|log|sql)$/i;
 const MARKDOWN=/\.(md|markdown)$/i;
+const DELIMITED=/\.(csv|tsv)$/i;
 const RASTER=/^image\/(png|jpeg|gif|webp|avif)$/;
 const humanSize=(n:number)=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":n<1073741824?(n/1048576).toFixed(1)+" MB":(n/1073741824).toFixed(1)+" GB";
 const failure=(error:unknown)=>error instanceof Error?error.message:"작업을 완료하지 못했습니다.";
@@ -154,12 +160,13 @@ export function WorkspaceFiles(){
       </section>
       {selected&&<section className="file-detail" aria-label="파일 내용">
         <div className="file-detail-header"><div className="file-detail-title"><File size={22} aria-hidden="true"/><h2 ref={detailTitle} tabIndex={-1}>{selected.name}</h2><IconButton label="미리보기 닫기" onClick={closeFile}><X size="1em" aria-hidden="true"/></IconButton></div>
-          <div className="file-detail-actions"><span className="file-muted" role="status">{dirty?"수정 중":""}</span><div className="su-row"><a className="su-btn" href={fileUrl(root,selected.path)} download><Download size="1em" aria-hidden="true"/>다운로드</a>{draft&&(MARKDOWN.test(selected.name)||/\.html?$/i.test(selected.name))&&<UiButton disabled={/\.html?$/i.test(selected.name)&&dirty&&source} aria-pressed={source} onClick={()=>setSource(!source)}><Pencil size="1em" aria-hidden="true"/>{source?"문서 보기":"원문 편집"}</UiButton>}{draft&&dirty&&<UiButton disabled={busy||!mutable||Boolean(incoming)} className="primary" onClick={()=>void save()}><Save size="1em" aria-hidden="true"/>저장</UiButton>}</div></div>
+          <div className="file-detail-actions">{dirty&&<span className="file-muted" role="status">수정 중</span>}<div className="su-row"><a className="su-btn" href={fileUrl(root,selected.path)} download><Download size="1em" aria-hidden="true"/>다운로드</a>{!dirty&&<FlowResourceLink reference={{kind:"host-file",root,path:selected.path}}/>}{draft&&(MARKDOWN.test(selected.name)||/\.html?$/i.test(selected.name)||(DELIMITED.test(selected.name)&&mutable))&&<UiButton aria-pressed={source} onClick={()=>setSource(!source)}><Pencil size="1em" aria-hidden="true"/>{source?(DELIMITED.test(selected.name)?"표 보기":"문서 보기"):"원문 편집"}</UiButton>}{draft&&dirty&&<UiButton disabled={busy||!mutable||Boolean(incoming)} className="primary" onClick={()=>void save()}><Save size="1em" aria-hidden="true"/>저장</UiButton>}</div></div>
         </div>
         <div className="file-detail-body su-stack">
         {incoming&&<section className="su-panel su-stack" role="alert"><p>다른 곳에서 파일이 바뀌었습니다. 수정안은 그대로 보관했습니다.</p><div className="su-row"><UiButton onClick={()=>setModal({kind:"saveAs",title:"수정안을 다른 이름으로 저장",value:selected.name.replace(/(\.[^.]+)?$/, "-수정안$1")})}>다른 이름으로 저장</UiButton><UiButton onClick={()=>{if(confirm("현재 수정안을 닫고 최신 파일을 열까요?")){keepDraft(incoming);setIncoming(null);}}}>최신 파일로 열기</UiButton></div><details><summary>서버의 최신 내용</summary><pre className="file-source">{incoming.body}</pre></details></section>}
-        {loading&&!draft?<p role="status">파일을 여는 중입니다.</p>:draft?<>{/\.html?$/i.test(selected.name)&&!source?<iframe className="file-preview" title={selected.name+" 미리보기"} src={fileUrl(root,selected.path,true)} sandbox=""/>:MARKDOWN.test(selected.name)&&!source?<article className="workspace-prose file-markdown"><InlineDocument body={draft.body} editable={mutable&&!busy} onChange={(body,expected)=>{const current=draftRef.current;if(!current||current.body!==expected)return false;keepDraft({...current,body});return true;}}/></article>:<UiTextarea className="file-source-editor" aria-label={selected.name+" 내용"} value={draft.body} disabled={!mutable||busy} onChange={event=>keepDraft({...draft,body:event.target.value})}/>}</>:
-        RASTER.test(selected.mime)?<img className="file-image" src={fileUrl(root,selected.path,true)} alt={selected.name}/>:
+        {loading&&!draft?<p role="status">파일을 여는 중입니다.</p>:draft?<>{/\.html?$/i.test(selected.name)&&!source?<HtmlContentView key={root+":"+selected.path} body={draft.body} name={selected.name} showSourceToggle={false}/>:MARKDOWN.test(selected.name)&&!source?<article className="workspace-prose file-markdown"><InlineDocument body={draft.body} editable={mutable&&!busy} onChange={(body,expected)=>{const current=draftRef.current;if(!current||current.body!==expected)return false;keepDraft({...current,body});return true;}}/></article>:DELIMITED.test(selected.name)&&!source?<TextContentView key={selected.path} body={draft.body} path={selected.path} title={selected.name} headingLevel={3}/>:<UiTextarea className="file-source-editor" aria-label={selected.name+" 내용"} value={draft.body} disabled={!mutable||busy} onChange={event=>keepDraft({...draft,body:event.target.value})}/>}</>:
+        RASTER.test(selected.mime)?<HostImagePreview key={root+":"+selected.path} root={root} path={selected.path} name={selected.name}/>:
+        fileMediaKind(selected.mime)?<FileMediaPreview root={root} path={selected.path} mime={selected.mime} label={selected.name}/>:
         selected.mime==="application/pdf"||/\.html?$/i.test(selected.name)?<iframe className="file-preview" title={selected.name+" 미리보기"} src={fileUrl(root,selected.path,true)} sandbox=""/>:
         <div className="su-stack file-empty"><p>원본을 다운로드해 열 수 있습니다.</p>{/\.(docx?|xlsx?|pptx?|hwpx?)$/i.test(selected.name)&&<p className="file-muted">PDF 미리보기가 필요하면 에이전트에게 변환을 요청해 주세요.</p>}</div>}
         </div>

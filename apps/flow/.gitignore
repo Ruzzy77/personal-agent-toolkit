@@ -1,0 +1,5 @@
+dist/
+.data/
+.agent-runtime/
+.visual-check/
+*.tmp

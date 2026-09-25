@@ -1,0 +1,8 @@
+.ws-data-table{overflow:auto;max-width:100%}
+.ws-data-row-number{width:1%;white-space:nowrap;color:var(--su-muted);font-variant-numeric:tabular-nums}
+.ws-delimited .ws-data-table{max-height:min(60dvh,32rem)}
+.ws-delimited .ws-data-table td{white-space:pre-wrap;min-width:7ch;max-width:28ch;overflow-wrap:anywhere}
+.ws-delimited>p{margin:var(--su-space-2) 0 0;color:var(--su-muted);font-size:var(--control-font-size-md)}
+.ws-delimited-options{display:flex;justify-content:flex-end;margin:0 0 var(--su-space-2)}
+.ws-delimited-options button[aria-pressed=true]{background:var(--su-soft)}
+.ws-delimited .ws-data-table th{max-width:28ch;overflow-wrap:anywhere}

@@ -1,7 +1,11 @@
 'use client';
 
+import { FlowResourceLink } from '@/components/flow/flow-resource-link';
+import { flowResourceHref } from '@/lib/flow-handoff';
 import { ownerFetch } from '@/lib/owner-client';
 import '../../styles/journal-workspace.css';
+import { JournalItemContent } from './journal-item-content';
+import { laneLabels, resolutionLabels } from '@/lib/journal-labels';
 
 import { Button } from '@openai/apps-sdk-ui/components/Button';
 import { Input } from '@openai/apps-sdk-ui/components/Input';
@@ -38,26 +42,6 @@ import type {
   Resolution,
   Responsibility,
 } from '@/lib/journal';
-
-const laneLabels = {
-  today: '오늘',
-  direct: '직접 처리',
-  waiting: '대기',
-  attention: '주의',
-} as const;
-
-const resolutionLabels = {
-  active: '진행 중',
-  held: '보류',
-  completed: '완료',
-  canceled: '취소',
-} as const;
-
-const responsibilityLabels = {
-  user: '나',
-  counterparty: '상대방',
-  system: '시스템',
-} as const;
 
 type ApiEnvelope<T> =
   | { ok: true; result: T }
@@ -135,17 +119,6 @@ function dueTime(value: string | null): string | null {
     minute: '2-digit',
     hour12: false,
   }).format(date);
-}
-
-function eventTime(value: string): string {
-  return new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(value));
 }
 
 function asResolutionToolInput(input: unknown): {
@@ -369,10 +342,12 @@ function BoardRow({
 
 export function JournalBoard({
   initialBoard,
+  initialItemId,
   today,
   selectedPeriod,
 }: {
   initialBoard: BoardResult;
+  initialItemId?: string;
   today: string;
   selectedPeriod: string;
 }) {
@@ -390,6 +365,7 @@ export function JournalBoard({
   );
   const [searching, setSearching] = useState(false);
   const boardRef = useRef(board);
+  const correctionForm = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     boardRef.current = board;
@@ -535,7 +511,7 @@ export function JournalBoard({
     };
   }, []);
 
-  async function openItemDetail(itemId: string) {
+  const openItemDetail = useCallback(async (itemId: string) => {
     setDetailOpen(true);
     setDetail(null);
     setDetailError('');
@@ -553,7 +529,13 @@ export function JournalBoard({
         error instanceof Error ? error.message : '항목을 불러오지 못했습니다.',
       );
     }
-  }
+  }, []);
+  const openedFromLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialItemId || openedFromLink.current === initialItemId) return;
+    openedFromLink.current = initialItemId;
+    queueMicrotask(() => { void openItemDetail(initialItemId); });
+  }, [initialItemId, openItemDetail]);
 
   const actionRef = useRef(setResolution);
   const addRef = useRef(addItem);
@@ -810,6 +792,7 @@ export function JournalBoard({
 
   const previousWeek = addDays(board.week.id, -7);
   const nextWeek = addDays(board.week.id, 7);
+  const detailFlowHref = detail ? flowResourceHref({kind:"journal-item",id:detail.item.id}) : null;
 
   return (
     <>
@@ -1135,57 +1118,9 @@ export function JournalBoard({
         )}
         {detail && (
           <>
-            <p className="detail-summary">{detail.item.summary}</p>
-            <dl className="detail-facts">
-              <div>
-                <dt>상태</dt>
-                <dd>{resolutionLabels[detail.item.resolution]}</dd>
-              </div>
-              <div>
-                <dt>구분</dt>
-                <dd>{laneLabels[detail.item.lane]}</dd>
-              </div>
-              <div>
-                <dt>담당</dt>
-                <dd>{responsibilityLabels[detail.item.responsibility]}</dd>
-              </div>
-              <div>
-                <dt>프로젝트</dt>
-                <dd>{detail.item.projectKey ?? '미분류'}</dd>
-              </div>
-              {detail.item.sourceRef && (
-                <div className="detail-source">
-                  <dt>Source</dt>
-                  <dd>{detail.item.sourceRef}</dd>
-                </div>
-              )}
-            </dl>
-            <section className="detail-section">
-              <h3>관련 주차</h3>
-              <ol className="related-weeks">
-                {detail.relatedItems.map((item) => (
-                  <li key={item.id}>
-                    <span>{item.weekId}</span>
-                    <span>{resolutionLabels[item.resolution]}</span>
-                  </li>
-                ))}
-              </ol>
-            </section>
-            <section className="detail-section">
-              <h3>이력</h3>
-              <ol className="history-list">
-                {detail.history.map((event) => (
-                  <li key={event.id}>
-                    <time dateTime={event.occurredAt}>
-                      {eventTime(event.occurredAt)}
-                    </time>
-                    <span>{event.label}</span>
-                  </li>
-                ))}
-              </ol>
-            </section>
+            <JournalItemContent detail={detail} />
             {detail.item.weekId === board.week.id && isClosed && (
-              <form className="correction-form" onSubmit={handleCorrection}>
+              <form ref={correctionForm} className="correction-form" onSubmit={handleCorrection}>
                 <label htmlFor="item-correction-note-input">
                   정정
                   <Textarea id="item-correction-note-input" name="note" required maxLength={2000} rows={2} />
@@ -1193,6 +1128,7 @@ export function JournalBoard({
                 <Button color="primary" variant="solid" type="submit">기록</Button>
               </form>
             )}
+            {detailFlowHref && <div className="dialog-actions"><FlowResourceLink reference={{kind:"journal-item",id:detail.item.id}} onClick={event=>{if(correctionForm.current?.querySelector<HTMLTextAreaElement>('textarea[name="note"]')?.value.trim()&&!confirm("작성 중인 정정 내용이 사라집니다. 계속할까요?"))event.preventDefault();}}/></div>}
           </>
         )}
       </Modal>

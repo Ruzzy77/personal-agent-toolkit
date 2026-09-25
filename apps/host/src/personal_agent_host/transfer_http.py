@@ -17,6 +17,15 @@ from personal_agent_host.transfers import CHUNK_BYTES, Transfers
 
 TOKEN_HEADER = "X-Toolkit-Transfer-Token"
 PREVIEW_TEXT_BYTES = 2 * 1024 * 1024
+INLINE_MEDIA_MIMES = frozenset({
+    "video/mp4", "video/webm",
+    "audio/mpeg", "audio/mp4", "audio/aac", "audio/ogg",
+    "audio/wav", "audio/x-wav", "audio/webm",
+})
+INLINE_PREVIEW_MIMES = INLINE_MEDIA_MIMES | frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "image/avif", "application/pdf",
+})
 PREVIEW_CSP = (
     "sandbox; default-src 'none'; script-src 'none'; connect-src 'none'; "
     "img-src data:; media-src 'none'; font-src data:; style-src 'unsafe-inline'; "
@@ -288,16 +297,7 @@ class TransferHTTP:
                 headers=headers,
             )
         if preview and not (
-            mime
-            in {
-                "image/png",
-                "image/jpeg",
-                "image/gif",
-                "image/webp",
-                "image/avif",
-                "application/pdf",
-            }
-            or mime.startswith("text/")
+            mime in INLINE_PREVIEW_MIMES or mime.startswith("text/")
         ):
             mime = "application/octet-stream"
             headers["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(

@@ -1,0 +1,27 @@
+.fa-preview{min-width:0}
+.fa-document{max-width:var(--su-measure);font-size:16px;line-height:1.8}
+.fa-document section+section{margin-top:var(--su-space-8)}
+.fa-document h2,.fa-document h3,.fa-document h4,.fa-document h5,.fa-document h6{font-size:19px;font-weight:600;line-height:1.5;margin:0 0 var(--su-space-3)}
+.fa-document p{margin:0;white-space:pre-wrap}
+.fa-presentation{max-width:none}
+.fa-presentation-page{box-sizing:border-box;min-width:0;width:100%;display:flex;align-items:center;aspect-ratio:16/9;min-height:16rem;padding:clamp(var(--su-space-4),4vw,var(--su-space-8));border:1px solid var(--su-line);border-radius:var(--su-radius);background:var(--su-paper)}
+.fa-presentation-page section{width:100%;margin:0}
+.fa-presentation-page :is(h2,h3,h4,h5,h6){font-size:clamp(1.5rem,2.5vw,2rem);line-height:1.35;margin-bottom:var(--su-space-4)}
+.fa-presentation-page p{font-size:clamp(1rem,1.7vw,1.25rem);line-height:1.65}
+.fa-slide-navigation{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:var(--su-space-2);margin-top:var(--su-space-3)}
+.fa-slide-navigation span{min-width:5ch;text-align:center;color:var(--su-muted);font-size:14px;font-variant-numeric:tabular-nums}
+.fa-image{margin:0;max-width:100%}
+.fa-image img{display:block;max-width:100%;height:auto;border-radius:var(--su-radius)}
+.fa-image-actions{display:flex;justify-content:flex-end;margin-top:var(--su-space-2)}
+.fa-image-crop{position:relative;overflow:hidden;max-width:100%;background:var(--su-soft);border-radius:var(--su-radius)}
+.fa-image-crop img{position:absolute;height:auto}
+.fa-diagram{border:1px solid var(--su-line);border-radius:var(--su-radius);overflow:auto;background:var(--su-soft)}
+.fa-diagram .ws-diagram-canvas{min-width:480px}
+.fa-unavailable{font-size:14px;line-height:1.6;color:var(--su-muted)}
+.fa-preview[data-compact] .fa-document{font-size:14px;line-height:1.7}
+.fa-preview[data-compact] .fa-document section+section{margin-top:var(--su-space-4)}
+.fa-preview[data-compact] .fa-presentation-page{min-height:14rem;padding:var(--su-space-4)}
+.fa-preview[data-compact] .fa-presentation-page :is(h2,h3,h4,h5,h6){font-size:19px}
+.fa-preview[data-compact] .fa-presentation-page p{font-size:14px}
+.fa-preview[data-compact] .fa-image > img{max-height:20rem;object-fit:contain}
+.fa-preview[data-compact] .fa-diagram{max-height:20rem}

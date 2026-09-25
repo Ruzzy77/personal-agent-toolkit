@@ -1,0 +1,3 @@
+.ws-text-preview{min-width:0}
+.ws-text-preview .ws-text-content>.su-code,.ws-text-preview .ws-markdown{max-height:min(60dvh,32rem);overflow:auto}
+.ws-text-preview>p{margin:0;font-size:var(--control-font-size-md);color:var(--su-muted)}

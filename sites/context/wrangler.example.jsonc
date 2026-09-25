@@ -22,5 +22,12 @@
   },
   "observability": {
     "enabled": false
-  }
+  },
+  "services": [
+    {
+      "binding": "UIKIT",
+      "service": "personal-uikit",
+      "entrypoint": "ArchiveReader"
+    }
+  ]
 }

@@ -44,3 +44,8 @@
 .toolkit-reader-frame{border:0;width:100%;flex:1;min-height:0;background:var(--su-paper)}
 .toolkit-reader-loading{padding:var(--su-space-4) var(--su-space-6);font-size:14px;color:var(--su-muted)}
 @media(max-width:760px){.toolkit-reader-page{height:calc(100dvh - 57px)}.toolkit-reader-toolbar{padding:var(--su-space-3) var(--su-space-4);gap:var(--su-space-2)}.toolkit-reader-status{order:3;width:100%}.toolkit-reader-status:empty{display:none}.toolkit-reader-toolbar>.toolkit-page-tools{gap:var(--su-space-1)}}
+
+.toolkit-reader-inline{height:min(70dvh,48rem);border:1px solid var(--su-line);border-radius:var(--su-radius);overflow:hidden}
+.toolkit-reader-inline .toolkit-reader-toolbar{padding:var(--su-space-3) var(--su-space-4)}
+.toolkit-reader-inline .toolkit-reader-toolbar>.toolkit-page-tools{margin-left:auto}
+@media(max-width:760px){.toolkit-reader-inline{height:65dvh}.toolkit-reader-inline .toolkit-reader-toolbar{padding:var(--su-space-2) var(--su-space-3)}}

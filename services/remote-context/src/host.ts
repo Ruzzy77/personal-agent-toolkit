@@ -34,6 +34,30 @@ const hostToolOutputSchema = z.looseObject({});
 const rootId = z.string().min(1).max(256);
 const relativePath = z.string().min(1).max(4096);
 
+const flowSpaceId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const flowDocumentId = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:@-]*$/);
+const flowSectionId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+const flowContextLocator = z.discriminatedUnion("product", [
+  z.object({product:z.literal("sense"),sectionId:flowSectionId,skill:z.literal(true).optional()}).strict(),
+  z.object({product:z.literal("corpus"),spaceId:flowSpaceId,documentId:flowDocumentId}).strict(),
+  z.object({product:z.literal("context-item"),spaceId:flowSpaceId,itemId:flowDocumentId}).strict(),
+  z.object({product:z.literal("context-skill"),spaceId:flowSpaceId}).strict(),
+  z.object({product:z.literal("source"),spaceId:flowSpaceId,readRef:z.string().min(7).max(8192).regex(/^read1\.[A-Za-z0-9_-]+$/)}).strict(),
+]);
+const flowSurfaceLayout = z.object({order:z.array(rootId).max(256),spans:z.record(rootId,z.union([z.literal(4),z.literal(6),z.literal(8),z.literal(12)]))}).strict();
+const flowLinkedResource = z.union([
+  z.object({kind:z.literal("user-context"),id:z.string().regex(/^(node|pred)_[a-f0-9]{32}$/)}).strict(),
+  z.object({kind:z.literal("journal-item"),id:z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i)}).strict(),
+  z.object({kind:z.literal("library-issue"),id:z.string().regex(/^(daily|digest|research):\d{4}-\d{2}-\d{2}(?::(?:[01]\d|2[0-3]))?$/)}).strict(),
+  z.object({kind:z.literal("design-recipe"),id:z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)}).strict(),
+  z.object({kind:z.literal("host-file"),root:z.string().min(1).max(256).regex(/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/),path:z.string().min(1).max(4096).refine(value=>
+    new TextEncoder().encode(value).length<=4096&&!value.startsWith("/")&&!value.startsWith("~")&&
+    !value.includes("\\")&&!/[\x00-\x1f\x7f]/.test(value)&&
+    value.split("/").every(part=>part!==""&&part!=="."&&part!=="..")
+  )}).strict(),
+  z.object({kind:z.literal("context"),locator:flowContextLocator}).strict(),
+]);
+
 const jobId = z.string().min(1).max(256);
 
 const readFile = z
@@ -155,6 +179,76 @@ export const HOST_TOOLS: readonly HostTool[] = [
       expected_version: z.string().max(256).optional(),
       sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
     }).strict(),
+  },
+  {
+    name: "flow_workspace_list", title: "Flow workspaces",
+    description: "List registered Flow workspaces and permissions.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({}).strict(),
+  },
+  {
+    name: "flow_work_list", title: "Find Flow work",
+    description: "List work in a registered Flow workspace.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id: rootId, query: z.string().max(200).optional()}).strict(),
+  },
+  {
+    name: "flow_work_read", title: "Read Flow work",
+    description: "Read current work, artifacts, context and change proposals.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id: rootId, work_id: rootId}).strict(),
+  },
+  {
+    name: "flow_work_create", title: "Create Flow work",
+    description: "Create work with a first artifact or an exact saved Flow source, using an idempotency key.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, name: z.string().min(1).max(160), artifact: z.record(z.string(),z.unknown()).optional(), source_id: z.string().min(1).max(160).optional(), linked_resources: z.array(flowLinkedResource).max(24).optional(), idempotency_key: z.string().min(8).max(160)}).strict().refine(value => !(value.artifact && value.source_id)),
+  },
+  {
+    name: "flow_work_update", title: "Update Flow work",
+    description: "Update explicitly supplied work details, linked records, or artifact layout using expected_revision.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, work_id: rootId, expected_revision: z.number().int().nonnegative(), idempotency_key: z.string().min(8).max(160), name: z.string().min(1).max(160).optional(), purpose: z.string().max(10000).optional(), source_ids: z.array(z.string()).optional(), linked_resources: z.array(flowLinkedResource).max(24).optional(), surface_layout: flowSurfaceLayout.optional(), active_artifact_id:rootId.optional()}).strict(),
+  },
+  {
+    name: "flow_library_list", title: "Find reusable material",
+    description: "Search curated material with explicit work scope.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id:rootId,query:z.string().max(200).optional(),work_id:rootId.optional(),offset:z.number().int().nonnegative().optional(),limit:z.number().int().min(1).max(100).optional()}).strict(),
+  },
+  {
+    name: "flow_library_read", title: "Read reusable material",
+    description: "Read curated content and its original reference.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id:rootId,entry_id:rootId}).strict(),
+  },
+  {
+    name: "flow_library_upsert", title: "Curate reusable material",
+    description: "Create or revise scoped material, not canonical criteria or originals. Zero revision creates a new entry.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id:rootId,entry:z.record(z.string(),z.unknown()),expected_revision:z.number().int().nonnegative(),idempotency_key:z.string().min(8).max(160)}).strict(),
+  },
+  {
+    name: "flow_snapshot_list", title: "Find saved Flow work",
+    description: "Search exact saved Flow artifact versions without selecting a work.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id: rootId, query: z.string().max(200).optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional()}).strict(),
+  },
+  {
+    name: "flow_snapshot_read", title: "Read saved Flow work",
+    description: "Read one saved Flow artifact version by its source ID.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id: rootId, source_id: rootId}).strict(),
+  },
+  {
+    name: "flow_snapshot_create", title: "Save Flow artifact",
+    description: "Save the current artifact version to the Flow Library using its revision and an idempotency key.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, work_id: rootId, artifact_id: rootId, expected_revision: z.number().int().nonnegative(), idempotency_key: z.string().min(8).max(160)}).strict(),
+  },
+  {
+    name: "flow_asset_import", title: "Import Flow asset",
+    description: "Copy a registered workspace image, media or PDF into Flow using its current file version.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, root: rootId, path: z.string().min(1).max(2048), expected_version: z.string().regex(/^sha256:[a-f0-9]{64}$/)}).strict(),
+  },
+  {
+    name: "flow_change_submit", title: "Submit Flow change",
+    description: "Add an artifact, initialize a blank artifact, apply a requested replacement or explicit selection edit, or submit a proposal for comparison.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, work_id: rootId, mode: z.enum(["add","initialize","selection","proposal","replace"]), idempotency_key: z.string().min(8).max(160), artifact_id: rootId.optional(), base_revision: z.number().int().nonnegative().optional(), artifact: z.record(z.string(),z.unknown()).optional(), selection: z.record(z.string(),z.unknown()).optional(), replacement: z.string().max(20000).optional(), changes: z.record(z.string(),z.unknown()).optional()}).strict(),
+  },
+  {
+    name: "flow_change_action", title: "Review Flow change",
+    description: "Apply or undo an existing Flow change after the user chooses that action.", scope: "host.write", annotations: WRITE,
+    schema: z.object({workspace_id: rootId, change_id: rootId, action: z.enum(["apply","undo"])}).strict(),
   },
   {
     name: "host_exec",
@@ -284,7 +378,7 @@ export function hostFailureDetails(result: { content?: unknown[] }) {
     ?? "File operation failed";
   // A connector may prefix the Host's `code: message` with the tool name.
   const wrapped =
-    /\bhost_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
+    /\b(?:host|flow)_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
   const direct = /^\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
   const code = wrapped ?? direct ?? "host_error";
   const status =

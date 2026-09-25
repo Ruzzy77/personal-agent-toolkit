@@ -1,6 +1,6 @@
 # Privacy boundary
 
-Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, Journal, Library, and Design use owner-operated remote services. Personal Agent Sync alone keeps Finder access under the owner’s local policy, and Document Files analyzers do not become document stores.
+Personal Agent Toolkit ships with no user data. Sense, Corpus, Hypes, Journal, and Library use owner-operated remote services. Personal Agent Sync alone keeps Finder access under the owner’s local policy, and Document Files analyzers do not become document stores.
 
 ## Sense
 
@@ -123,22 +123,20 @@ project source material and reusable project context.
 - D1 exports are operational backups controlled by the owner. They are not shipped in the plugin
   or public repository.
 
-## Design
+## UIKit and legacy Design data
 
-Design is an owner-operated private asset and template service used by its MCP and owner-only Site.
+UIKit is an independent private archive. Toolkit reads the selected published revision through an
+owner-authorized service binding; search, item details, and files use the same revision. The browser
+receives neither GitHub credentials nor the service authorization token. HTML previews run inside
+isolated frames without network, parent-frame, form, or worker access.
 
-- Recipe, pattern, revision, and file metadata is stored in the Design service's owner-scoped D1
-  database. Template, stylesheet, image, and example bytes are stored in its private R2 bucket.
-- The plugin, public repository, and Site source contain no personal recipe records or asset copies.
-  They contain only Skills, service and UI source, migrations, and connection metadata.
-- The remote MCP accepts tokens only for the exact Design resource. Reading requires
-  `design.read`; creating or updating recipes and assets requires `design.write` and the expected
-  current revision where applicable.
-- The owner-only Site requires authenticated identity and calls the same Design service with a
-  separate internal credential. It has no Design data binding of its own. HTML and SVG assets are
-  served through a private, sandboxed preview boundary.
-- Design can read or edit project files only through the host agent's current tools and project
-  permissions. The Design service does not retain project files or task history.
+The former Design MCP and gallery no longer provide design authoring or lookup. Existing recipe,
+pattern, revision, and shared-file data remains in the legacy owner-scoped D1 database and private R2
+bucket under its existing recovery lifecycle. Authenticated compatibility endpoints remain available
+for existing references and recovery. Retiring a recipe does not delete unrelated shared files.
+
+Neither repository nor plugin distributions contain personal records, uploaded files, private
+service credentials, or client authentication tokens.
 
 ## Document Files analysis
 
@@ -192,7 +190,7 @@ does not delete remote records or local Source files.
 ## Optional remote authentication template
 
 The `auth` directory is a self-deploy template for one owner to authorize the remote context,
-Journal, Library, and Design services.
+Journal, Library, and legacy Design services.
 
 - The public repository contains no Google client secret, Cloudflare credential, owner identifier,
   production token, grant, or session.
@@ -222,9 +220,8 @@ The release repository must not contain:
   files.
 
 The product directories under `plugins/` are marketplace installation targets. They contain no
-build-time copy of runtime data or maintainer credentials. The Design plugin contains only its
-Skills and connection metadata. Local Sense, Corpus, and Hypes development or migration
-implementations live under `engines/` and are not part of their remote plugin bundles.
+build-time copy of runtime data or maintainer credentials. UIKit Skills and connection metadata
+are distributed separately. Local Sense, Corpus, and Hypes development or migration implementations live under `engines/` and are not part of their remote plugin bundles.
 `services/journal`, `services/library`, and `services/design` contain deployable service source;
 `sites/context` contains the owner-only unified Toolkit frontend and its public UI assets. Runtime
 values and secrets stay in ignored configuration or the hosting environment. Public resource and

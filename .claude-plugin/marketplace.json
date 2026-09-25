@@ -36,13 +36,6 @@
       "category": "productivity"
     },
     {
-      "name": "design",
-      "source": "./plugins/design",
-      "description": "Design, review, and research product interfaces with an owner-private asset library.",
-      "category": "design",
-      "displayName": "Personal Design"
-    },
-    {
       "name": "library",
       "source": "./plugins/library",
       "description": "Read, edit, and publish an owner-authenticated Personal Library.",
@@ -52,8 +45,7 @@
       "name": "host",
       "source": "./plugins/host",
       "description": "Workspace files and sandboxed execution on the owner's always-on host.",
-      "category": "design",
-      "displayName": "Personal Design"
+      "category": "productivity"
     }
   ]
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -47,6 +48,13 @@ class BackupConfig:
 
 
 @dataclass(frozen=True)
+class FlowPolicy:
+    id: str
+    root_id: str
+    service_url: str
+
+
+@dataclass(frozen=True)
 class HostConfig:
     sync: SyncConfig
     listen_host: str
@@ -57,6 +65,7 @@ class HostConfig:
     backup: BackupConfig | None
     roots: tuple[RootPolicy, ...]
     read_only_paths: tuple[Path, ...]
+    flows: tuple[FlowPolicy, ...] = ()
 
     @property
     def prefix(self) -> Path:
@@ -309,6 +318,29 @@ def load_host_config(path: Path | None = None) -> HostConfig:
                     f"{root.id}: unknown source {source_id}",
                 )
 
+    raw_flows = host.get("flows", [])
+    if not isinstance(raw_flows, list):
+        raise SyncError("invalid_configuration", "[[host.flows]] must be a list")
+    flows = []
+    for entry in raw_flows:
+        if not isinstance(entry, dict):
+            raise SyncError("invalid_configuration", "host.flows entry is invalid")
+        flow_id, root_id, service_url = entry.get("id"), entry.get("root_id"), entry.get("service_url")
+        if not isinstance(flow_id, str) or not ROOT_ID.fullmatch(flow_id) or flow_id in {v.id for v in flows}:
+            raise SyncError("invalid_configuration", "host.flows.id is invalid or duplicated")
+        if root_id not in ids:
+            raise SyncError("invalid_configuration", "host.flows.root_id is not registered")
+        if not isinstance(service_url, str):
+            raise SyncError("invalid_configuration", "host.flows.service_url is required")
+        try:
+            parsed = urlsplit(service_url)
+            port = parsed.port
+        except ValueError as exc:
+            raise SyncError("invalid_configuration", "host.flows.service_url is invalid") from exc
+        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or not port or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise SyncError("invalid_configuration", "host.flows.service_url must be a loopback HTTP origin")
+        flows.append(FlowPolicy(flow_id, root_id, service_url.rstrip("/")))
+
     return HostConfig(
         sync=sync,
         listen_host=listen_host,
@@ -319,6 +351,7 @@ def load_host_config(path: Path | None = None) -> HostConfig:
         backup=backup,
         roots=tuple(roots),
         read_only_paths=guards,
+        flows=tuple(flows),
     )
 
 

@@ -25,7 +25,7 @@ async function issue(
         'Cache-Control': 'private, no-store',
       }});
     }
-    return issueHtmlResponse(value, request.method === 'HEAD');
+    return issueHtmlResponse(value, request.method === 'HEAD', new URL(request.url).searchParams.get('readonly') === '1');
   } catch (error) {
     return libraryApiError(error);
   }

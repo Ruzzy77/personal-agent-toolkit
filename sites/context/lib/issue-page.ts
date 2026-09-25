@@ -44,7 +44,7 @@ function addIssueIdentity(html: string, issue: LibraryIssue): string {
   });
 }
 
-export function renderIssuePage(issue: LibraryIssue): string {
+export function renderIssuePage(issue: LibraryIssue, readOnly = false): string {
   let html = addIssueIdentity(issue.sourceHtml, issue).replace(
     /<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i,
     (tag) =>
@@ -57,13 +57,14 @@ export function renderIssuePage(issue: LibraryIssue): string {
   const sharedStyles = html.includes('/ui-kit/current/tokens.css')
     ? ''
     : `\n  <link rel="stylesheet" href="/ui-kit/current/tokens.css">\n  <link rel="stylesheet" href="/ui-kit/current/seomun.css">`;
-  const editor = `\n  <link rel="stylesheet" href="/library-editor.css">\n  <link rel="stylesheet" href="/toolkit-reader.css">\n  <script src="/library-editor.js" data-library-issue-id="${escapeAttribute(issue.id)}" data-library-version="${escapeAttribute(issue.version)}" defer></script>`;
-  html = html.replace(/<\/head>/i, `${sharedStyles}${editor}\n</head>`);
+  const readerStyle = `\n  <link rel="stylesheet" href="/toolkit-reader.css">`;
+  const editor = readOnly ? '' : `\n  <link rel="stylesheet" href="/library-editor.css">\n  <script src="/library-editor.js" data-library-issue-id="${escapeAttribute(issue.id)}" data-library-version="${escapeAttribute(issue.version)}" defer></script>`;
+  html = html.replace(/<\/head>/i, `${sharedStyles}${readerStyle}${editor}\n</head>`);
   return html;
 }
 
-export function issueHtmlResponse(issue: LibraryIssue, head = false): Response {
-  return new Response(head ? null : renderIssuePage(issue), {
+export function issueHtmlResponse(issue: LibraryIssue, head = false, readOnly = false): Response {
+  return new Response(head ? null : renderIssuePage(issue, readOnly), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'private, no-store',

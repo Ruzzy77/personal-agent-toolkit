@@ -6,8 +6,8 @@ export type FileDraft = { root: string; path: string; base: string; body: string
 export type Transfer = { transfer_id: string; token: string; offset: number; chunk_bytes: number };
 type ResultData = {ok?:boolean;error?:{code?:string;message?:string};offset?:number};
 export class FileFailure extends Error { constructor(public code: string, message: string) { super(message); } }
-export async function hostCall<T>(name: string, input: unknown = {}): Promise<T> {
-  const response = await ownerFetch("/api/host/" + name, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(input) });
+export async function hostCall<T>(name: string, input: unknown = {}, signal?: AbortSignal): Promise<T> {
+  const response = await ownerFetch("/api/host/" + name, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(input), signal });
   const data = await response.json() as ResultData;
   if (!response.ok || data.ok === false || data.error) throw new FileFailure(data.error?.code ?? "failed", data.error?.message ?? "파일 작업을 완료하지 못했습니다.");
   return data as T;

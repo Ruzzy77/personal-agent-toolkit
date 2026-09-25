@@ -1,0 +1,3 @@
+.ws-image-dialog{--dialog-max-width:72rem}
+.ws-image-dialog .kit-dialog__body{display:grid;place-items:center}
+.ws-image-dialog img{display:block;max-width:100%;max-height:calc(100dvh - 9rem);object-fit:contain}

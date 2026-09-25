@@ -364,11 +364,12 @@
 
 .journal-shell .dialog-header,
 .journal-shell .item-form,
-.journal-shell .detail-summary,
-.journal-shell .detail-facts,
-.journal-shell .detail-section,
 .journal-shell .correction-form {
-  padding-inline: 24px;
+  padding-inline: var(--su-space-6);
+}
+
+.journal-shell .journal-item-content {
+  padding: var(--su-space-4) var(--su-space-6) var(--su-space-6);
 }
 
 .journal-shell .period-section {

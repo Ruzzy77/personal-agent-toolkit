@@ -175,10 +175,6 @@ def check_marketplaces(errors: list[str]) -> None:
             "Codex Personal Agent Toolkit source must match the OpenAI distribution"
         )
 
-    if claude_entries["design"].get("displayName") != "Personal Design":
-        errors.append(
-            "Claude Design listing must remain distinct from Anthropic Design"
-        )
 
 
 def check_plugin(name: str, errors: list[str]) -> None:
@@ -231,10 +227,7 @@ def check_plugin(name: str, errors: list[str]) -> None:
                 f"{name}: Codex defaultPrompt contains an empty or non-string value"
             )
 
-    if name == "design" and claude.get("displayName") != "Personal Design":
-        errors.append(
-            "design: Claude display name must avoid the generic Design collision"
-        )
+
 
     skill_path = "./skills/"
     if skill_path and not (root / str(skill_path)).is_dir():
@@ -322,8 +315,9 @@ def check_openai_distribution(errors: list[str]) -> None:
     }:
         errors.append("ChatGPT personal Skills must contain only document-files")
     bundled_products = distribution.get("products", [])
-    if set(bundled_products) != REQUIRED_PLUGINS or len(bundled_products) != len(
-        REQUIRED_PLUGINS
+    expected_bundled = REQUIRED_PLUGINS - {"document-files"}
+    if set(bundled_products) != expected_bundled or len(bundled_products) != len(
+        expected_bundled
     ):
         errors.append(
             "OpenAI distribution products must contain each bundled product once"
@@ -341,10 +335,12 @@ def check_openai_distribution(errors: list[str]) -> None:
         root / "NOTICE",
         root / "assets" / "icon.png",
         root / "skills",
-        root / "runtime" / "document-files" / "document-files",
     ):
         if not required.exists():
             errors.append(f"{relative(required)} is required")
+
+    if (root / "runtime" / "document-files").exists():
+        errors.append("Document Files must be installed independently, not bundled in Toolkit")
 
     if not manifest_path.is_file() or not app_path.is_file():
         return

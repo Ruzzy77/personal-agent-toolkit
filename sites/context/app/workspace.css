@@ -70,7 +70,6 @@
 .file-source-editor{min-height:60vh;font-family:var(--font-mono);font-size:14px;tab-size:2}
 .file-source{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-mono);font-size:14px;max-height:50vh;overflow:auto}
 .file-preview{width:100%;height:65vh;border:1px solid var(--su-line);background:white}
-.file-image{max-width:100%;height:auto;object-fit:contain;max-height:70vh}
 .file-empty{display:grid;place-content:center;text-align:center;min-height:30vh;justify-items:center;gap:var(--su-space-4)}
 .file-dialog{width:min(90vw,32rem);padding:var(--su-space-6)}
 .file-upload,.file-trash{padding:var(--su-space-4) var(--su-space-6)}
@@ -110,6 +109,7 @@
   .file-detail-title h2{font-size:17px}
   .file-detail-body{padding:var(--su-space-6) var(--su-space-4) var(--su-space-8)}
   .file-detail-actions{padding-top:var(--su-space-2)}
+  .file-detail-actions>.su-row{justify-content:flex-start}
   .file-status{padding-inline:var(--su-space-4)}
 }
 @media print{.toolkit-sidebar,.file-workspace-heading,.file-toolbar,.file-list-pane,.file-detail-header{display:none!important}.toolkit-content{margin-left:0}.file-workspace,.file-detail-body{height:auto;overflow:visible}.file-columns.has-selection{display:block}.file-detail{border:0}}

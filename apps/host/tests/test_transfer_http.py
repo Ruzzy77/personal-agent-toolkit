@@ -40,6 +40,48 @@ def test_http_auth_ranges_and_safe_preview(tmp_path):
     assert client.get(path, headers=headers).content == b"hello world"
 
 
+def test_media_preview_keeps_playable_types_and_byte_ranges(tmp_path):
+    config = _config(tmp_path)
+    root = config.root("workspace")
+    transfers = Transfers(config)
+    client = TestClient(
+        BearerGuard(Starlette(routes=TransferHTTP(transfers).routes()), UPSTREAM)
+    )
+    for name, mime in [
+        ("clip.mp4", "video/mp4"),
+        ("clip.webm", "video/webm"),
+        ("voice.mp3", "audio/mpeg"),
+        ("voice.wav", "audio/x-wav"),
+    ]:
+        (root.root / name).write_bytes(b"0123456789")
+        receipt = transfers.begin_download(root, name)
+        path = f"/transfers/{receipt['transfer_id']}/content?preview=1"
+        headers = {
+            "Authorization": f"Bearer {UPSTREAM}",
+            "X-Toolkit-Transfer-Token": receipt["token"],
+            "Range": "bytes=2-5",
+        }
+        result = client.get(path, headers=headers)
+        assert result.status_code == 206
+        assert result.content == b"2345"
+        assert result.headers["Content-Range"] == "bytes 2-5/10"
+        assert result.headers["Content-Type"] == mime
+        assert result.headers["Content-Disposition"].startswith("inline;")
+        assert result.headers["X-Content-Type-Options"] == "nosniff"
+        assert "no-store" in result.headers["Cache-Control"]
+
+    (root.root / "vector.svg").write_text("<svg onload='alert(1)'></svg>")
+    receipt = transfers.begin_download(root, "vector.svg")
+    result = client.get(
+        f"/transfers/{receipt['transfer_id']}/content?preview=1",
+        headers={
+            "Authorization": f"Bearer {UPSTREAM}",
+            "X-Toolkit-Transfer-Token": receipt["token"],
+        },
+    )
+    assert result.headers["Content-Disposition"].startswith("attachment;")
+
+
 def test_upload_chunk_http_limit_and_commit(tmp_path):
     config = _config(tmp_path)
     transfers = Transfers(config)

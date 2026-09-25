@@ -6,12 +6,16 @@ import { handleAdminSite } from "./admin-site";
 import { executeContextSiteOperation, readJson } from "./context-site";
 import { asContextError, ContextError } from "./errors";
 import { callHost, hostFailureDetails, HOST_TOOLS, hostRequiredScope, transferReceipt } from "./host";
+import { forwardFlowMedia } from "./host-http";
 import type { Env } from "./types";
 
 const TRANSFER_TOKEN = "X-Toolkit-Transfer-Token";
 const WEB_HOST_TOOLS = new Set([
   "host_capabilities", "host_roots", "host_read", "host_write",
   "host_files", "host_transfer",
+  "flow_workspace_list", "flow_work_list", "flow_work_read",
+  "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read",
+  "flow_snapshot_create", "flow_asset_import", "flow_change_submit", "flow_change_action",
 ]);
 
 function json(body: unknown, status = 200): Response {
@@ -213,9 +217,15 @@ export async function handleWeb(request: Request, env: Env): Promise<Response | 
     }
     const product = /^\/web\/(journal|library|design)(\/api\/v1(?:\/.*)?)$/.exec(url.pathname);
     if (product) return productHttp(request, env, product[1]! as WebProduct);
+    const flowMedia = /^\/web(\/site\/host\/v1\/flow-media\/([a-z0-9][a-z0-9._-]*)\/(assets|examples|files)\/([A-Za-z0-9._-]+))$/.exec(url.pathname);
+    if (flowMedia) {
+      await authenticateMcp(request, env, "toolkit", ["host.read"]);
+      const internal = /^\/site\/host\/v1\/flow-media\/([a-z0-9][a-z0-9._-]*)\/(assets|examples|files)\/([A-Za-z0-9._-]+)$/.exec(flowMedia[1]!);
+      return forwardFlowMedia(request, env, internal!);
+    }
     const transfer = /^\/web\/site\/host\/v1\/transfers\/([A-Za-z0-9_-]{12,80})\/(status|chunk|commit|content)$/.exec(url.pathname);
     if (transfer) return hostTransfer(request, env, transfer);
-    const host = /^\/web\/site\/host\/v1\/(host_[a-z_]+)$/.exec(url.pathname);
+    const host = /^\/web\/site\/host\/v1\/((?:host|flow)_[a-z_]+)$/.exec(url.pathname);
     if (host && request.method === "POST") return hostTool(request, env, host[1]!);
     const context = /^\/web\/site\/v1\/([a-z][a-z0-9_]{0,95})$/.exec(url.pathname);
     if (!context || request.method !== "POST") throw new ContextError("not_found", "Web operation was not found", 404);

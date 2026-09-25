@@ -1,6 +1,6 @@
 # Personal Agent Toolkit
 
-Sense, Corpus, Hypes, Journal, Library, Design과 문서 작업을 연결하는 OpenAI 배포 plugin입니다.
+Sense, Corpus, Hypes, Journal, Library와 문서 작업을 연결하는 OpenAI 배포 plugin입니다.
 Codex에서는 하나의 **Personal Agent Toolkit** marketplace 항목으로 설치합니다. 비공개 개인
 ChatGPT에서는 같은 이름의 등록 app을 설치하고 문서 기능은 같은 정본에서 만든 `Document Files`
 Personal Skill 하나로 올립니다. 내부 제품과 Skill은 짧은 고유 이름을 유지합니다. DOCX, PDF,
@@ -35,3 +35,5 @@ archive를 올리고 같은 이름의 **기존 항목 교체**를 선택합니�
 
 제품별 구현은 각 제품의 `DESIGN.md`, Claude 배포 방식은 저장소 루트의
 [설치](../../README.md#설치)와 [버전 갱신](../../README.md#버전-갱신) 안내를 따릅니다.
+
+디자인 방법과 자료는 별도 UIKit 플러그인·갤러리에서 제공합니다. 이 배포본은 Design 스킬이나 디자인 자료 원본을 포함하지 않습니다.

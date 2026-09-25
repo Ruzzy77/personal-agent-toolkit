@@ -26,6 +26,16 @@ const recipe = {
 };
 
 describe("Design private library", () => {
+  it("retires MCP discovery without exposing private data", async () => {
+    for (const path of ["/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+      const response = await SELF.fetch(`${ORIGIN}${path}`);
+      expect(response.status).toBe(410);
+      expect(await body(response)).toMatchObject({ error: "design_mcp_retired" });
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }
+    expect((await SELF.fetch(`${ORIGIN}/mcp`, { method: "POST", body: "{}" })).status).toBe(410);
+  });
+
   beforeAll(async () => {
     const imported = await SELF.fetch(`${ORIGIN}/api/v1/import/recipes`, {
       method: "POST",

@@ -254,6 +254,29 @@ describe("owner web product bridges", () => {
 
 
 
+  it("serves Flow media only to owner sessions with Host read scope", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(new Uint8Array([1,2,3]), {
+      headers: { "Content-Type": "image/png", "Set-Cookie": "private=1" },
+    }));
+    const hostEnv: Env = {
+      ...webEnv,
+      HOST_VPC: { fetch } as unknown as Fetcher,
+      HOST_UPSTREAM_TOKEN: "server-host-secret",
+    };
+    const path = "/web/site/host/v1/flow-media/workspace/examples/metal.png";
+    expect((await handleHttp(webRequest(path), hostEnv)).status).toBe(401);
+    expect((await handleHttp(webRequest(path, "host-write-token"), hostEnv)).status).toBe(403);
+    const response=await handleHttp(webRequest(path, "host-read-token"), hostEnv);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1,2,3]));
+    expect(new Headers((fetch.mock.calls[0] as [string, RequestInit])[1].headers).get("Authorization"))
+      .toBe("Bearer server-host-secret");
+    const rejected=await handleHttp(webRequest(path, "host-owner-token", {method:"POST"}), hostEnv);
+    expect(rejected.status).toBe(405);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("keeps Web Host operations scope-exact, bounded, and server-credentialed", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("ok"));
     const hostEnv: Env = {
@@ -295,6 +318,23 @@ describe("owner web product bridges", () => {
     expect((await toolCall("host_files", "host-write-token", {
       root: "workspace",
       operation: "list",
+    })).status).toBe(403);
+    expect((await toolCall("flow_work_list", "host-write-token", {
+      workspace_id: "workspace",
+    })).status).toBe(403);
+    expect((await toolCall("flow_snapshot_create", "host-read-token", {
+      workspace_id: "workspace", work_id: "work", artifact_id: "artifact",
+      expected_revision: 0, idempotency_key: "save-attempt-1",
+    })).status).toBe(403);
+    expect((await toolCall("flow_asset_import", "host-read-token", {
+      workspace_id: "workspace", root: "workspace", path: "photos/part.png", expected_version: "sha256:" + "a".repeat(64),
+    })).status).toBe(403);
+    expect((await toolCall("flow_change_submit", "host-read-token", {
+      workspace_id: "workspace", work_id: "work", mode: "add",
+      artifact: {}, idempotency_key: "flow-attempt-1",
+    })).status).toBe(403);
+    expect((await toolCall("flow_change_action", "host-read-token", {
+      workspace_id: "workspace", change_id: "change", action: "apply",
     })).status).toBe(403);
     expect((await toolCall("host_exec", "host-write-token", {
       root: "workspace",
@@ -343,6 +383,47 @@ describe("owner web product bridges", () => {
     const forwarded = new Headers(init.headers);
     expect(forwarded.get("Authorization")).toBe("Bearer server-host-secret");
     expect(forwarded.get("X-Toolkit-Transfer-Token")).toBe(transferToken);
+  });
+
+  it("lets the owner find and open saved Flow work through scoped Web operations", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: "saved-list", result: {
+        content: [], structuredContent: { sources: [{ id: "snapshot:one", title: "작업물" }], nextOffset: null },
+      } }))
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", id: "saved-read", result: {
+        content: [], structuredContent: { source: { id: "snapshot:one", artifact: { kind: "content" } } },
+      } }));
+    const hostEnv: Env = {
+      ...webEnv,
+      HOST_VPC: { fetch } as unknown as Fetcher,
+      HOST_UPSTREAM_TOKEN: "server-host-secret",
+    };
+    const call = (name: string, token: string, args: unknown) => handleHttp(
+      webRequest(`/web/site/host/v1/${name}`, token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+      }), hostEnv,
+    );
+    expect((await call("flow_snapshot_list", "host-write-token", { workspace_id: "workspace" })).status).toBe(403);
+    expect((await call("flow_snapshot_list", "host-read-token", { workspace_id: "workspace", limit: 0 })).status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+
+    const listed = await call("flow_snapshot_list", "host-read-token", {
+      workspace_id: "workspace", query: "작업", limit: 50,
+    });
+    expect(listed.status).toBe(200);
+    expect(await body(listed)).toMatchObject({ sources: [{ id: "snapshot:one" }] });
+    const opened = await call("flow_snapshot_read", "host-read-token", {
+      workspace_id: "workspace", source_id: "snapshot:one",
+    });
+    expect(opened.status).toBe(200);
+    expect(await body(opened)).toMatchObject({ source: { artifact: { kind: "content" } } });
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init.body)).params.name))
+      .toEqual(["flow_snapshot_list", "flow_snapshot_read"]);
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(new Headers(init.headers).get("Authorization")).toBe("Bearer server-host-secret");
+    }
   });
 
   it("preserves wrapped Host conflict codes on the OAuth web route", async () => {

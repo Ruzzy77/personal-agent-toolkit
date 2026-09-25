@@ -1,0 +1,5 @@
+.ws-html-content{min-width:0}
+.ws-html-content-actions{display:flex;justify-content:flex-end;margin-bottom:var(--su-space-2)}
+.ws-html-content-frame{display:block;width:100%;height:clamp(20rem,60dvh,42rem);border:1px solid var(--su-line);border-radius:var(--su-radius);background:var(--su-paper)}
+.ws-html-content>.su-code{max-height:min(60dvh,32rem);max-width:100%;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
+.ws-html-content>p{margin:0;font-size:var(--control-font-size-md);color:var(--su-muted)}

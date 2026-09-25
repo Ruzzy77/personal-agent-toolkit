@@ -1,0 +1,59 @@
+{
+  "name": "@personal-agent/flow-surface",
+  "version": "0.1.58",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./artifact-layout": "./artifact-layout.js",
+    "./image-region": {
+      "types": "./image-region.d.ts",
+      "default": "./image-region.js"
+    },
+    "./composition": {
+      "types": "./composition.d.ts",
+      "default": "./composition.js"
+    },
+    "./blank-content": {
+      "types": "./blank-content.d.ts",
+      "default": "./blank-content.js"
+    },
+    "./artifact-conversion": {
+      "types": "./artifact-conversion.d.ts",
+      "default": "./artifact-conversion.js"
+    },
+    "./validation": "./validation.js",
+    "./content-assets": {
+      "types": "./content-assets.d.ts",
+      "default": "./content-assets.js"
+    },
+    "./composition-editor": {
+      "types": "./composition-editor.d.ts",
+      "default": "./composition-editor.js"
+    },
+    "./resource-reference": {
+      "types": "./resource-reference.d.ts",
+      "default": "./resource-reference.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.jsx",
+    "*.css",
+    "*.d.ts",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "react": "^19.2.8",
+    "lucide-react": "^1.44.0",
+    "@openai/apps-sdk-ui": "0.2.2",
+    "@personal-agent/ui-kit": "1.4.1"
+  },
+  "dependencies": {
+    "react-markdown": "9.1.0",
+    "remark-gfm": "4.0.1"
+  }
+}

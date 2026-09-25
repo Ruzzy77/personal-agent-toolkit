@@ -1,0 +1,3 @@
+.ws-review-comparison{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:var(--su-space-6)}
+.ws-review-comparison>section{min-width:0;overflow-wrap:anywhere;border-top:1px solid var(--su-line);padding-top:var(--su-space-3)}
+.ws-review-label{display:block;margin-bottom:var(--su-space-4);color:var(--su-muted);font-size:13px;line-height:1.5}

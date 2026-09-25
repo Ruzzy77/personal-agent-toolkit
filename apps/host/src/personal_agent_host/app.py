@@ -18,6 +18,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from personal_agent_host.config import HostConfig, read_token
+from personal_agent_host.flow_media import FlowMediaHTTP
 from personal_agent_host.jobs import JobManager
 from personal_agent_host.server import create_server
 from personal_agent_host.transfer_http import TransferHTTP
@@ -139,7 +140,7 @@ def build_app(config: HostConfig) -> Starlette:
                 await asyncio.gather(sync[1], return_exceptions=True)
 
     outer = Starlette(
-        routes=[*TransferHTTP(transfers).routes(), Mount("/", app=mcp_app)],
+        routes=[*TransferHTTP(transfers).routes(), *FlowMediaHTTP(config).routes(), Mount("/", app=mcp_app)],
         lifespan=lifespan,
     )
     return BearerGuard(outer, read_token(config))  # type: ignore[return-value]

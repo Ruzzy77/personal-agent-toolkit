@@ -4,6 +4,8 @@ import { UiButton, UiInput, UiTextarea, IconButton, Menu } from '../ui';
 import { ArrowLeft, Check, ChevronDown, Circle, Columns2, Copy, Ellipsis, Eye, FileUp, History, Info, Menu as MenuIcon, Pencil, RefreshCw, Search, X } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { candidates, groups, readCanonical, saveCanonical, saveGroups, locatorOf, contextCall, type Candidate, type Group } from '../../lib/context';
+import { contextLocatorFromSearch } from '../../lib/context-links';
+import { FlowResourceLink } from '../../components/flow/flow-resource-link';
 import { registerGuidanceTools } from '../../lib/webmcp';
 import { InlineDocument } from '../inline-document';
 import { replaceBodyIfCurrent } from '../../lib/inline-markdown';
@@ -133,6 +135,8 @@ export default function Home() {
   const sections = useMemo(() => sectionsOf(entry?.draft.body ?? ''), [entry?.draft.body]);
   const previous = historyResult && historyResult.source.id === entry?.source.id && historyResult.baseVersion === entry?.source.version ? historyResult.source : null;
   const selectedLocator = entry && locatorOf(entry.source);
+  const flowReference = entry && selectedLocator && !isDirty(entry) && !entry.incoming
+    ? {kind:'context' as const,locator:selectedLocator} : null;
   const selectedGroupId = selectedLocator && 'spaceId' in selectedLocator ? selectedLocator.spaceId : selectedLocator?.product === 'sense' ? 'sense' : null;
   const browseGroup = catalog.find(g => g.id === groupId);
   const documentTitle = entry ? readingTitle(entry.source, entry.draft) : undefined;
@@ -229,16 +233,38 @@ export default function Home() {
   }, [catalog, groupId, query]);
   useEffect(() => {
     if (!ready || !catalog.length || openedLink.current) return;
-    const id = new URLSearchParams(location.search).get("space");
-    if (!id || !catalog.some(group => group.id === id)) return;
+    const params = new URLSearchParams(location.search);
+    const spaceId = params.get('space');
+    const knownSpace = spaceId && catalog.some(group => group.id === spaceId);
+    const locator = contextLocatorFromSearch(location.search, catalog.map(group => group.id));
+    if (locator) {
+      let active = true;
+      queueMicrotask(() => {
+        if (!active || openedLink.current) return;
+        openedLink.current = true;
+        setGroupId(locator.product === 'sense' ? 'sense' : locator.spaceId);
+        const sequence = ++requestSequence.current;
+        setBusy(true);
+        void readCanonical(locator).then(source => {
+          if (!active || sequence !== requestSequence.current) return;
+          commit(loadSources(stateRef.current, [source]));
+          commit({ ...stateRef.current, selectedId: source.id });
+          setEditing(false); setCompare(false); setNavigationOpen(false);
+          focusReadingTarget('document-title');
+        }).catch(() => { if (active && sequence === requestSequence.current) setMessage('자료 조회 실패'); })
+          .finally(() => { if (active && sequence === requestSequence.current) setBusy(false); });
+      });
+      return () => { active = false; };
+    }
+    if (!knownSpace || !spaceId) return;
     let active = true;
     queueMicrotask(() => {
       if (!active || openedLink.current) return;
       openedLink.current = true;
-      setGroupId(id); setNavigationOpen(true); setNavigationTab("sources");
+      setGroupId(spaceId); setNavigationOpen(true); setNavigationTab('sources');
     });
     return () => { active = false; };
-  }, [ready, catalog]);
+  }, [ready, catalog, commit]);
   async function openCandidate(candidate: Candidate) {
     const sequence = ++requestSequence.current;
     setBusy(true); setMessage('');
@@ -405,6 +431,7 @@ export default function Home() {
     <header className="toolkit-page-header context-page-header">
       <div className="workspace-home su-row"><h1>프로젝트 문서</h1><IconButton className="context-mobile-picker" label="문서 탐색" onClick={() => openNavigation()} aria-haspopup="dialog" aria-expanded={navigationOpen}><MenuIcon size="1em" aria-hidden="true" /></IconButton></div>
       <div className="document-actions su-row">
+        <FlowResourceLink reference={flowReference}/>
         {entry && <UiButton type="button" disabled={!canEdit} onClick={() => switchView(editing ? 'read' : 'edit')}>{editing ? '읽기' : '편집'}</UiButton>}
         {entry && changes.length > 0 && <UiButton type="button" disabled={busy || !saveGroups(workspace.entries.filter(e => isDirty(e) && !contentIssue(e.draft))).length} onClick={() => void save()}>저장</UiButton>}
         <Menu forceOpen={moreOpen} onOpen={()=>setMoreOpen(true)} onClose={()=>setMoreOpen(false)}>

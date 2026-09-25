@@ -34,7 +34,6 @@ export const MCP_SURFACES = {
         "hypes",
         "journal",
         "library",
-        "design",
         "host",
       ].flatMap((name) => registry.products[name as "sense"].mcp.tools),
     ],

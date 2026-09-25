@@ -1,0 +1,3 @@
+.ws-resource{display:grid;gap:var(--su-space-2);padding:var(--su-space-4);min-width:0}
+.ws-resource-detail{color:var(--su-muted);font-size:12px;line-height:1.5}
+.ws-resource .ws-block-title{margin:0}

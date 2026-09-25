@@ -43,6 +43,7 @@
   --alpha-base: light-dark(#0d0d0d, #ffffff);
   --alpha-02: color-mix(in oklab, var(--alpha-base) 2%, transparent);
   --alpha-04: color-mix(in oklab, var(--alpha-base) 4%, transparent);
+  --alpha-05: color-mix(in oklab, var(--alpha-base) 5%, transparent);
   --alpha-06: color-mix(in oklab, var(--alpha-base) 6%, transparent);
   --alpha-08: color-mix(in oklab, var(--alpha-base) 8%, transparent);
   --alpha-10: color-mix(in oklab, var(--alpha-base) 10%, transparent);

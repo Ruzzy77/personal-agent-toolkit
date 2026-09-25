@@ -1,0 +1,10 @@
+import type {ContentComposition} from './index.js';
+export function contentImageSlot(blockId:string,itemId?:string):string;
+export type ContentSourceTarget={kind:"image"|"video"|"audio"|"file";blockId:string;field:"src"|"poster"|"href";itemId?:string};
+export function contentImageTargetSlot(target:ContentSourceTarget):string;
+export function setContentSource(composition:ContentComposition,target:ContentSourceTarget,src:string,size?:{width:number;height:number},path?:string):ContentComposition;
+export function activeContentSources<T>(composition:ContentComposition|undefined,sources:Record<string,T>):Record<string,T>;
+export function replaceContentImages<T>(composition:ContentComposition,sources:Record<string,T>,resolve:(source:T)=>string):ContentComposition;
+export function validContentDraft<T>(composition:ContentComposition,sources:Record<string,T>):boolean;
+export function previewableContentDraft<T>(composition:ContentComposition,sources:Record<string,T>):ContentComposition|null;
+export function materializeContentImages<T>(composition:ContentComposition,sources:Record<string,T>,importImage:(source:T)=>Promise<string>,keyOf?:(source:T)=>unknown):Promise<ContentComposition>;

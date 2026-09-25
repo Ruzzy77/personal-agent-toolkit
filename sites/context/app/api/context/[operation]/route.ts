@@ -2,6 +2,7 @@ import { proxyOwnerRequest } from "../../../../lib/owner-service";
 export const dynamic="force-dynamic";
 const operations = new Set([
   "sense_read",
+  "hypes_read",
   "sense_revise",
   "sense_skill_revise",
   "corpus_space_list",

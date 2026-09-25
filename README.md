@@ -3,7 +3,7 @@
 ![Personal Agent Toolkit](./assets/personal-agent-toolkit-banner.png)
 
 Personal Agent Toolkit은 업무 맥락과 문서 작업을 연결하는 개인용 에이전트 도구 모음입니다.
-Sense, Corpus, Hypes, Journal, Library와 Design은 소유자 인증형 상시 원격 MCP로 공유합니다.
+Sense, Corpus, Hypes, Journal과 Library는 소유자 인증형 상시 원격 MCP로 공유합니다.
 Document Files는 단일 문서 Skill과 호스트 실행 환경으로 문서를 처리하며, Personal Agent Sync는
 허용된 Finder 자료와 원격 서비스를 연결합니다.
 
@@ -12,8 +12,8 @@ Document Files는 단일 문서 Skill과 호스트 실행 환경으로 문서를
 - **Document Files**: PDF·Office·HWP/HWPX 읽기, 지원 형식의 작성·편집·변환·렌더링과 Google Docs·Sheets·Slides 작업
 - **Hypes**: 에이전트가 유지하는 수정 가능한 사용자 관계 모델
 - **Journal**: 일간 확인, 사용자 확정 상태, 주간 마감과 기간별 흐름을 잇는 개인 불릿저널
-- **Design**: 제품 화면의 설계·구현·검토, 사용자 조사와 개인 디자인 자산·템플릿 라이브러리
 - **Library**: Daily·Digest·Research 발간호의 읽기, 편집, 이미지 업로드와 발행
+- **Toolkit Flow**: 문서·이미지·도식과 표·영상·파일을 조합한 작업물을 열고 수정·비교·보관하는 웹 작업 화면. 에이전트는 인증된 Flow 도구로 결과를 제출합니다.
 - **Personal Agent Sync**: Finder 자료의 이동·변경 감지, 로컬 추출 결과 반영과 원격 Work 요청 수행
 - **Personal Agent Auth**: 여러 원격 서비스가 함께 쓰는 소유자 운영형 OAuth 구성
 
@@ -21,11 +21,12 @@ Document Files는 단일 문서 Skill과 호스트 실행 환경으로 문서를
 
 ## 선택 기준
 
+- 작업물의 현재 상태를 보고 수정안을 비교하거나 보관할 때에는 Toolkit Flow를 사용합니다. 에이전트 실행은 연결된 AI 플랫폼에서 수행합니다.
 - 중요한 선택에 장기적인 목적·책임·판단 방향이나 연결된 범용 작업 방법이 필요하면 Sense를 사용합니다.
 - 이어지는 업무의 파일, 이메일, 이전 작업이나 원문이 필요하면 Corpus를 사용합니다.
 - 저장된 사용자 관계가 현재 해석·설명·선택을 바꿀 때에는 Hypes를 사용합니다.
 - 오늘과 이번 주의 진행 상태, 사용자 확정 처리와 기간별 기록이 필요하면 Journal을 사용합니다.
-- 제품 화면을 만들거나 고치고, 디자인·접근성을 검토하거나 사용자 조사를 다룰 때에는 Design을 사용합니다.
+- 제품 화면·HTML 설계, 디자인 검토와 사용자 조사는 별도 [UIKit](https://github.com/Ruzzy77/ui-kit)의 스킬과 자료를 사용합니다.
 - 기존 Library 발간호를 읽거나 고치고 새 호를 발행할 때에는 Library를 사용합니다.
 - 문서 파일을 읽고 구조·값을 추출하거나 DOCX·PDF·XLSX·CSV·PPTX·HWPX 또는 Google
   Docs·Sheets·Slides를 만들고 고칠 때에는 Document Files를 사용합니다. 형식별 안내는 이 Skill
@@ -104,7 +105,6 @@ claude plugin install corpus@personal-agent-toolkit --scope user
 claude plugin install document-files@personal-agent-toolkit --scope user
 claude plugin install hypes@personal-agent-toolkit --scope user
 claude plugin install journal@personal-agent-toolkit --scope user
-claude plugin install design@personal-agent-toolkit --scope user
 claude plugin install library@personal-agent-toolkit --scope user
 ```
 
@@ -132,14 +132,13 @@ OpenAI 통합 app과 Claude의 제품별 plugin은 다음 상시 HTTPS endpoint�
 | Hypes | `https://personal-agent-context.hiyaq77.workers.dev/hypes/mcp` |
 | Journal | `https://personal-agent-journal.hiyaq77.workers.dev/mcp` |
 | Library | `https://personal-library-mcp.hiyaq77.workers.dev/api/mcp` |
-| Design | `https://personal-agent-design.hiyaq77.workers.dev/mcp` |
 
 OpenAI plugin은 등록 app을 통해 통합 endpoint를 사용하고, Claude plugin은 제품별 endpoint를 직접
 내장합니다. ChatGPT와 Codex는 같은 등록 app과 소유자 인증을 사용합니다. claude.ai에서는 제품별
 주소를 사용자 계정의 MCP 연결로 등록합니다. 어느 경우에도 Mac의 loopback server나 공개 터널은
 필요하지 않습니다.
 
-Journal, Library와 Design의 기능은 각각 Journal·Library·Design 원격 MCP와 Toolkit Skill을 사용합니다.
+Journal과 Library는 각각 원격 MCP와 Toolkit Skill을 사용합니다. 디자인은 별도 UIKit 연결을 사용합니다.
 
 원격 서비스는 [`auth`](./auth/README.md)의 Google 소유자 인증을 공유합니다. 인증 Worker와 같은
 Cloudflare 계정에 둔 MCP Worker는 비공개 Service Binding으로 토큰을 검사합니다. Sites 화면과
@@ -344,16 +343,11 @@ Hypes는 Node, Predicate와 Edge로 사용자 관계를 표현합니다. 공개 
 
 Hypes는 대화나 프로젝트 자료를 저장하지 않습니다. 현재 요청이 저장된 관계보다 우선하며, 모델은 이후 상호작용에서 수정될 수 있습니다.
 
-## Design 시작
+## UIKit 연결
 
-Design은 화면 설계·구현을 다루는 `design`, 근거가 있는 검토를 다루는 `design-review`, 사용자
-조사 설계와 종합을 다루는 `design-research`의 세 Skill과 개인 디자인 자산 서비스를 함께
-제공합니다. 레시피·패턴 메타데이터는 Design D1, 템플릿과 예시 파일은 Design R2가 정본입니다.
-현재 프로젝트의 디자인 시스템을 우선하며, 시각 방향 탐색에 실제로 필요할 때만 후보 1–3개를
-골라 씁니다.
+화면 설계·제작·검토·사용자 조사와 디자인 자료는 별도 UIKit의 Skill·Kit·Asset을 사용합니다. [비공개 갤러리](https://personal-uikit.hiyaq77.workers.dev/)와 읽기 전용 MCP가 같은 발행본을 제공합니다. 원본 추가·수정은 UIKit GitHub 저장소에서 수행합니다.
 
-시각적 탐색과 비교는 Design 원격 MCP와 `design` 도구를 사용하며, 저장과 MCP는 `services/design`에서 관리합니다. 개인 자산은 공개 저장소나
-plugin 묶음에 복사하지 않습니다.
+Flow는 자료 ID와 발행 revision을 연결하며 원본 본문을 자동 복사하지 않습니다. 기존 Design 주소는 UIKit으로 연결합니다. 구 레시피는 기존 삭제·복구 절차로 처리하고 공유 파일과 다른 제품 자료는 유지합니다.
 
 ## Journal 시작
 
@@ -381,7 +375,7 @@ Library plugin을 설치하고 원격 MCP의 소유자 인증을 마치면 Daily
 | 원격 Sense·Corpus·Hypes | 소유자 인증형 원격 저장층 |
 | 원격 Journal | 소유자 운영형 D1 |
 | Library 문서·이미지 | Library service D1·R2 |
-| Design 레시피·템플릿 | Design service D1·R2 |
+| 구 Design 삭제 항목·공유 파일 | 기존 Design service D1·R2; 복구 기한과 공유 참조를 유지 |
 | Document Files 입력 | 호출자와 현재 실행 호스트 소유; 원격 서비스에 보관하지 않음 |
 | Sync 상태·정책·runtime | `~/Library/Application Support/Personal Agent Sync/` |
 | 선택적인 이관 입력 | 기존 로컬 Sense·Corpus·Hypes의 `Application Support` 폴더 |
@@ -393,20 +387,18 @@ Provider 자료는 원래 서비스에 남습니다. 자세한 범위는 [PRIVAC
 현재 제품·version·공개 MCP와 client 배포 묶음은 [`products.json`](./products.json)을 기준으로 합니다.
 제품 내부 동작은 각 plugin의 `DESIGN.md`에 둡니다.
 
-`plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`, `plugins/design`은 제품 계약과
+`plugins/sense`, `plugins/corpus`, `plugins/hypes`, `plugins/journal`, `plugins/library`는 제품 계약과
 Claude용 원격 MCP 연결 및 Skill을 배포합니다. `plugins/document-files`는 단일 Python 정본과 Claude
-local MCP와 단일 `document-files` Skill을 소유합니다. `plugins/personal-agent-toolkit`은 일곱 제품의
+local MCP와 단일 `document-files` Skill을 소유합니다. `plugins/personal-agent-toolkit`은 선택한 제품의
 현재 Skill, Document Files의 형식별 내부 참고 자료·Spark Host 파일/직접 실행 도구와 통합 등록 app을 담는 OpenAI
 배포 묶음입니다.
 `engines/sense`, `engines/corpus`, `engines/hypes`의 Python 구현은 로컬 개발·이관 및 Sync에만
 사용합니다. `apps/sync`는 Finder 권한을 가진 outbound-only
 bridge, `services/remote-context`는 세 제품의 원격 저장·MCP·Sync broker와 여섯 상태형 제품의 OpenAI
 통합 MCP를 제공합니다. 문서 분석용 Cloudflare Worker나 Service Binding은 두지 않습니다.
-Design은 `plugins/design`과 `services/design`으로 구성하며 개인 데이터는 service의
-D1·R2에만 둡니다. `services/journal`은 Journal 서비스이고, `services/library`는 Library의 서비스
-소유 저장·MCP를 담당합니다. 저장층 이전과 복구 범위는
-[Library](./plugins/library/DESIGN.md#저장-변경과-이전)와
-[Design](./plugins/design/DESIGN.md#현행-저장층의-복구-확인)의 제품 설계에 둡니다. `auth`는 원격 제품이
+`services/design`은 구 레시피의 복구와 공유 파일을 보존하는 호환 서비스입니다. 신규 디자인 자료는 UIKit에서 관리하며 PAT에 Design 스킬·MCP 도구·갤러리를 중복 배포하지 않습니다.
+`services/journal`은 Journal 서비스이고, `services/library`는 Library의 서비스 소유 저장·MCP를 담당합니다.
+저장층 이전과 복구 범위는 [Library](./plugins/library/DESIGN.md#저장-변경과-이전)와 [구 Design 서비스](./services/design/README.md)에 있습니다. `auth`는 원격 제품이
 함께 쓰는 소유자 인증 구성입니다. 실제 계정 자원과 자격 증명은 배포 환경에서만 만듭니다.
 
 plugin base version을 바꿀 때에는 해당 client manifest와 `products.json`을 맞춥니다. OpenAI 통합

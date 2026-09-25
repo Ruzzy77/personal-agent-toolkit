@@ -16,8 +16,6 @@ import {
 } from "./toolkit-products";
 import { registerToolkitSkillTools } from "./toolkit-skills";
 import type { Env, Principal, ResourceKind } from "./types";
-import { registerDesignTools } from "personal-agent-design-service/mcp";
-import { DesignService } from "personal-agent-design-service/service";
 import { registerJournalTools } from "personal-agent-journal-service/mcp";
 import { JournalService } from "personal-agent-journal-service/service";
 import type { Principal as JournalPrincipal } from "personal-agent-journal-service/types";
@@ -27,36 +25,6 @@ import { LibraryService } from "personal-agent-library-service/service";
 function success(value: unknown) {
   const wrapped = { ok: true as const, result: value };
   return mcpTextResult(wrapped);
-}
-
-const LEGACY_TOOLKIT_READ_SCOPES = [
-  "sense.read",
-  "corpus.read",
-  "hypes.read",
-  "journal.read",
-  "library.read",
-] as const;
-
-const LEGACY_TOOLKIT_WRITE_SCOPES = [
-  "sense.write",
-  "corpus.write",
-  "hypes.write",
-  "journal.write",
-  "library.write",
-] as const;
-
-function designOwner(principal: Principal) {
-  const owner = principal.owner!;
-  const scopes = new Set(owner.scopes);
-  // The single-owner toolkit predates Design. Preserve that installed bundle's
-  // entitlement while new grants use the explicit Design scopes.
-  if (LEGACY_TOOLKIT_READ_SCOPES.every((scope) => scopes.has(scope))) {
-    scopes.add("design.read");
-  }
-  if (LEGACY_TOOLKIT_WRITE_SCOPES.every((scope) => scopes.has(scope))) {
-    scopes.add("design.write");
-  }
-  return { ...owner, scopes: [...scopes] };
 }
 
 async function toolkitServer(
@@ -78,8 +46,8 @@ async function toolkitServer(
     {
       instructions:
         "Personal Agent Toolkit combines Sense guidance, Corpus knowledge and Work files, " +
-        "the Hypes relationship model, Journal progress, Library publishing, private " +
-        "Design assets, and the owner's Host workspace in one " +
+        "the Hypes relationship model, Journal progress, Library publishing, " +
+        "and the owner's Host workspace in one " +
         "owner-authenticated connection. Use only the product tools relevant to the request. " +
         "toolkit_products shows which products this connection exposes, and " +
         "toolkit_skills_list finds the toolkit's own working methods when the method matters.",
@@ -106,16 +74,6 @@ async function toolkitServer(
         DB: env.LIBRARY_DB,
         MEDIA: env.LIBRARY_MEDIA,
         MANAGEMENT_WRITE_ENABLED: env.LIBRARY_MANAGEMENT_WRITE_ENABLED,
-      }),
-    );
-  if (!disabled.has("design"))
-    registerDesignTools(
-      server,
-      designOwner(principal),
-      new DesignService({
-        DB: env.DESIGN_DB,
-        ASSETS: env.DESIGN_ASSETS,
-        MANAGEMENT_WRITE_ENABLED: env.DESIGN_MANAGEMENT_WRITE_ENABLED,
       }),
     );
   if (!disabled.has("host")) registerHostTools(server, env, principal);
