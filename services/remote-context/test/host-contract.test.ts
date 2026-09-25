@@ -153,3 +153,15 @@ describe("Flow HTML and library contracts",()=>{
   expect(submit.schema.safeParse({workspace_id:"workspace",work_id:"work",artifact_id:"artifact",base_revision:1,mode:"replace",artifact:{kind:"html",title:"보고서",html:"<h1>보고서</h1>",assets:[]},idempotency_key:"html-replace-key"}).success).toBe(true);
  });
 });
+
+
+describe("UIKit publication references",()=>{
+ it("preserves an exact asset and revision without accepting copied files or arbitrary URLs",()=>{
+  const update=HOST_TOOLS.find(tool=>tool.name==="flow_work_update")!;
+  const base={workspace_id:"workspace",work_id:"work",expected_revision:1,idempotency_key:"uikit-reference-1"};
+  const reference={kind:"uikit-asset",id:"continuous-report",revision:"a".repeat(64)};
+  expect(update.schema.safeParse({...base,linked_resources:[reference]}).success).toBe(true);
+  for(const invalid of [{...reference,revision:"latest"},{...reference,id:"../secret"},{...reference,href:"https://outside.example"},{...reference,body:"copied"}])
+   expect(update.schema.safeParse({...base,linked_resources:[invalid]}).success).toBe(false);
+ });
+});

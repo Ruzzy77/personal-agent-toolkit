@@ -426,6 +426,25 @@ describe("owner web product bridges", () => {
     }
   });
 
+  it("routes scoped Flow library reads and writes through the owner web path", async () => {
+    const fetch = vi.fn(async (_url:string, _init:RequestInit) => Response.json({jsonrpc:"2.0",id:"library",result:{content:[],structuredContent:{entries:[],nextOffset:null}}}));
+    const hostEnv: Env = {...webEnv,HOST_VPC:{fetch} as unknown as Fetcher,HOST_UPSTREAM_TOKEN:"server-host-secret"};
+    const call = (name:string,token:string,args:unknown) => handleHttp(webRequest(`/web/site/host/v1/${name}`,token,{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(args),
+    }),hostEnv);
+    const list={workspace_id:"workspace",query:"보고서",limit:100};
+    const read={workspace_id:"workspace",entry_id:"material-one"};
+    const upsert={workspace_id:"workspace",entry:{id:"material-one",title:"보고서",body:"내용",scope:{kind:"workspace"}},expected_revision:0,idempotency_key:"material-attempt-1"};
+    expect((await call("flow_library_list","host-write-token",list)).status).toBe(403);
+    expect((await call("flow_library_read","host-write-token",read)).status).toBe(403);
+    expect((await call("flow_library_upsert","host-read-token",upsert)).status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await call("flow_library_list","host-read-token",list)).status).toBe(200);
+    expect((await call("flow_library_read","host-read-token",read)).status).toBe(200);
+    expect((await call("flow_library_upsert","host-write-token",upsert)).status).toBe(200);
+    expect(fetch.mock.calls.map(([,init])=>JSON.parse(String(init.body)).params.name)).toEqual(["flow_library_list","flow_library_read","flow_library_upsert"]);
+  });
+
   it("preserves wrapped Host conflict codes on the OAuth web route", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({
       jsonrpc: "2.0",

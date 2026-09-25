@@ -46,6 +46,7 @@ const flowContextLocator = z.discriminatedUnion("product", [
 ]);
 const flowSurfaceLayout = z.object({order:z.array(rootId).max(256),spans:z.record(rootId,z.union([z.literal(4),z.literal(6),z.literal(8),z.literal(12)]))}).strict();
 const flowLinkedResource = z.union([
+  z.object({kind:z.literal("uikit-asset"),id:z.string().regex(/^[a-z0-9][a-z0-9-]{0,100}$/),revision:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
   z.object({kind:z.literal("user-context"),id:z.string().regex(/^(node|pred)_[a-f0-9]{32}$/)}).strict(),
   z.object({kind:z.literal("journal-item"),id:z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i)}).strict(),
   z.object({kind:z.literal("library-issue"),id:z.string().regex(/^(daily|digest|research):\d{4}-\d{2}-\d{2}(?::(?:[01]\d|2[0-3]))?$/)}).strict(),

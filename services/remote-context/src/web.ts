@@ -13,6 +13,7 @@ const TRANSFER_TOKEN = "X-Toolkit-Transfer-Token";
 const WEB_HOST_TOOLS = new Set([
   "host_capabilities", "host_roots", "host_read", "host_write",
   "host_files", "host_transfer",
+  "flow_library_list", "flow_library_read", "flow_library_upsert",
   "flow_workspace_list", "flow_work_list", "flow_work_read",
   "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read",
   "flow_snapshot_create", "flow_asset_import", "flow_change_submit", "flow_change_action",
