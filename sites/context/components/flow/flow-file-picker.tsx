@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { Input } from "@openai/apps-sdk-ui/components/Input";
 import { Menu, IconButton } from "../../app/ui";
-import { ArrowUp, ChevronDown, ChevronRight, Ellipsis, File, Folder, HardDrive, Link2, Search } from "lucide-react";
+import { ArrowUp, ChevronRight, Ellipsis, File, Folder, HardDrive, Link2, Search } from "lucide-react";
 import { workspaceFilePresentation, workspaceMediaType } from "@personal-agent/flow-surface";
-import { displayedFiles, fileKind } from "../../lib/file-list";
+import { displayedFiles, fileBrowserRoot, fileKind } from "../../lib/file-list";
 import { hostCall, type FileEntry, type HostRoot } from "../../lib/host-files";
 import { flowResourceKey } from "../../lib/flow-resources";
 
@@ -16,14 +16,14 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
   selected:Set<string>;busy:boolean;onPick:(root:string,path:string,trigger:HTMLButtonElement)=>void;
   current?:{root:string;path:string};rootId?:string;imagesOnly?:boolean;accept?:"image"|"video"|"audio"|"file";
 }) {
-  const [roots,setRoots]=useState<HostRoot[]>([]);
-  const [root,setRoot]=useState("");
+  const [location,setLocation]=useState<ReturnType<typeof fileBrowserRoot>>(null);
+  const root=location?.id??"";
   const [directory,setDirectory]=useState(".");
   const [entries,setEntries]=useState<FileEntry[]>([]);
   const [cursor,setCursor]=useState<string|null>(null);
   const [query,setQuery]=useState("");
   const [showHidden,setShowHidden]=useState(false);
-  const [loading,setLoading]=useState(false);
+  const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const request=useRef(0);
 
@@ -31,11 +31,10 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
     let active=true;
     void hostCall<{roots:HostRoot[]}>("host_roots").then(data=>{
       if(!active)return;
-      const available=rootId?data.roots.filter(item=>item.id===rootId):data.roots;
-      setRoots(available);
-      setRoot(available[0]?.id??"");
-      if(!available.length)setError("등록된 파일 작업공간을 찾지 못했습니다.");
-    }).catch(()=>{if(active)setError("작업공간을 불러오지 못했습니다.")});
+      const next=fileBrowserRoot(data.roots,rootId);
+      setDirectory(".");setQuery("");setLocation(next);
+      if(!next){setLoading(false);setError("파일 위치를 확인하지 못했습니다.");}
+    }).catch(()=>{if(active){setLoading(false);setError("파일 목록에 연결하지 못했습니다.");}});
     return()=>{active=false};
   },[rootId]);
   useEffect(()=>{
@@ -59,7 +58,6 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
     }catch{if(number===request.current)setError("파일을 더 불러오지 못했습니다.")}
     finally{if(number===request.current)setLoading(false)}
   }
-  function chooseRoot(value:string){setRoot(value);setDirectory(".");setQuery("");}
   function browse(path:string){setDirectory(path);setQuery("");}
   const parts=directory==="."?[]:directory.split("/");
   const fileType=accept??(imagesOnly?"image":null);
@@ -68,18 +66,13 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
     !fileType||(entry.type==="directory"&&entry.name!=="node_modules")||
     (entry.type==="file"&&(fileType==="file"?Boolean(workspaceFilePresentation(entry.path)):fileType==="image"?imageFile.test(entry.name):workspaceMediaType(entry.path)?.kind===fileType))
   );
-  const rootName=root==="workspace"?"Spark":root||"파일 위치";
+  const rootName=location?.label??"파일";
   return <div className="flow-file-picker su-stack">
     <div className="flow-file-toolbar">
       <div className="flow-file-location">
         <IconButton size="md" label="상위 폴더" disabled={!parts.length||loading} onClick={()=>browse(parts.slice(0,-1).join("/")||".")}><ArrowUp size="1em" aria-hidden="true"/></IconButton>
         <nav className="flow-file-breadcrumbs" aria-label="폴더 경로">
-          {roots.length>1?<Menu>
-            <Menu.Trigger><Button type="button" color="primary" variant="ghost" size="md" pill={false} className="flow-file-root" aria-label={"파일 위치: "+rootName}><HardDrive size="1em" aria-hidden="true"/><span className="flow-file-root-name">{rootName}</span><ChevronDown size="1em" aria-hidden="true"/></Button></Menu.Trigger>
-            <Menu.Content align="start" minWidth={180}>
-              <Menu.RadioGroup value={root} onChange={chooseRoot}>{roots.map(item=><Menu.RadioItem key={item.id} value={item.id} onSelect={()=>{if(item.id===root)browse(".")}}>{item.id==="workspace"?"Spark":item.id}</Menu.RadioItem>)}</Menu.RadioGroup>
-            </Menu.Content>
-          </Menu>:<Button type="button" color="primary" variant="ghost" size="md" pill={false} disabled={!root} onClick={()=>browse(".")}><HardDrive size="1em" aria-hidden="true"/>{rootName}</Button>}
+          <Button type="button" color="primary" variant="ghost" size="md" pill={false} className="flow-file-root" disabled={!root} aria-current={!parts.length?"location":undefined} onClick={()=>browse(".")}><HardDrive size="1em" aria-hidden="true"/><span className="flow-file-root-name">{rootName}</span></Button>
           {parts.map((part,index)=><span className="flow-file-crumb" key={index}><ChevronRight size="1em" aria-hidden="true"/>{index===parts.length-1?<span aria-current="location">{part}</span>:<button type="button" onClick={()=>browse(parts.slice(0,index+1).join("/"))}>{part}</button>}</span>)}
         </nav>
       </div>

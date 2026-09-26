@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayedFiles, fileKind } from '../lib/file-list.ts';
+import { displayedFiles, fileBrowserRoot, fileKind } from '../lib/file-list.ts';
 const file = (name, type = 'file', mime = 'text/plain') => ({ name, path: name, type, mime, bytes: 25 });
 
 test('file display hides dotfiles without changing source entries and keeps folders first', () => {
@@ -31,4 +31,19 @@ test('file metadata uses available type information instead of invented dates', 
   assert.equal(fileKind(file('photo.png', 'file', 'image/png')), '이미지');
   assert.equal(fileKind(file('sheet.pdf', 'file', 'application/pdf')), 'PDF');
   assert.equal(fileKind(file('LICENSE')), '파일');
+});
+
+test('Flow browses the registered workspace, not the first internal connection', () => {
+  const source={id:'project/source-2',permission:'read_only'};
+  const workspace={id:'workspace',permission:'read_write',locations:[{root:source.id,path:'work/연구 규정',permission:'read_only',corpus:{space_id:'project',connection_id:'source-2'}}]};
+  assert.deepEqual(fileBrowserRoot([source,workspace]),{id:'workspace',label:'Spark'});
+  assert.deepEqual(fileBrowserRoot([source,workspace],source.id),{id:source.id,label:'연구 규정'});
+  assert.equal(source.permission,'read_only');
+});
+
+test('Flow does not substitute a different root or display internal connection IDs', () => {
+  const source={id:'project/source-2',permission:'read_only'};
+  assert.equal(fileBrowserRoot([source]),null);
+  assert.equal(fileBrowserRoot([{id:'workspace',permission:'read_write'}],source.id),null);
+  assert.deepEqual(fileBrowserRoot([source],source.id),{id:source.id,label:'파일'});
 });

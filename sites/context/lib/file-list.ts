@@ -1,4 +1,4 @@
-import type { FileEntry } from "./host-files";
+import type { FileEntry, HostRoot } from "./host-files";
 export function displayedFiles(entries: FileEntry[], query: string, showHidden: boolean, descending: boolean): FileEntry[] {
   const needle = query.normalize("NFC").toLocaleLowerCase();
   return entries.filter(entry => (showHidden || !entry.name.startsWith(".")) && entry.name.normalize("NFC").toLocaleLowerCase().includes(needle))
@@ -11,4 +11,12 @@ export function fileKind(entry: FileEntry): string {
   if (entry.mime === "application/pdf") return "PDF";
   if (entry.mime.startsWith("image/")) return "이미지";
   return entry.name.includes(".") ? entry.name.split(".").pop()!.toUpperCase() : "파일";
+}
+
+export function fileBrowserRoot(roots: readonly HostRoot[], rootId = "workspace"): {id:string;label:string} | null {
+  const registered=roots.find(root=>root.id===rootId);
+  if(!registered)return null;
+  const location=roots.flatMap(root=>root.locations??[]).find(item=>item.root===rootId);
+  const folderName=location?.path.split("/").filter(Boolean).at(-1);
+  return {id:registered.id,label:rootId==="workspace"?"Spark":folderName||"파일"};
 }

@@ -256,7 +256,7 @@ export function FlowWorkspace(){
     <div hidden={screen!=="work"}>{work?<WorkCanvas work={work} artifactId={artifactId} onSelect={(id:string)=>{void open(space,work.id,id)}} renderers={renderers} prepareContent={prepareContent} resolveMediaUrl={resolveMedia}/>:<div className="flow-product-notice">{space?<B onClick={()=>setPanel("new")}>새 작업</B>:<p>연결된 작업공간이 없습니다.</p>}</div>}</div>
     <div hidden={screen!=="library"}>{libraryError&&<div><p role="alert">{libraryError}</p><B variant="ghost" onClick={()=>void refreshMaterials(space)}>다시 열기</B></div>}{library()}</div>
     <div hidden={screen!=="files"} className="flow-product-files">
-     <FlowFilePicker selected={new Set()} current={file?.kind==="host-file"?file:undefined} busy={busy} onPick={(root,path,trigger)=>{fileReturnRef.current=trigger;setFile(hostFileResource(root,path))}}/>
+     <FlowFilePicker key={root||"workspace"} rootId={root} selected={new Set()} current={file?.kind==="host-file"?file:undefined} busy={busy} onPick={(root,path,trigger)=>{fileReturnRef.current=trigger;setFile(hostFileResource(root,path))}}/>
      {file&&<div ref={filePreviewRef} tabIndex={-1} className="flow-file-preview"><FlowResourceView resource={file} onClose={closeFile} action={work&&writable?<B onClick={()=>void linkResource(file).catch(()=>{})}><Link2 size="1em"/>참고 자료로 연결</B>:undefined}/></div>}
     </div>
    </>}
