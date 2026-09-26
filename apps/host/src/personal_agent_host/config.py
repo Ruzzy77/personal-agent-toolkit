@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from urllib.parse import urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from personal_agent_sync.config import ConnectionConfig, SyncConfig, load_config
 from personal_agent_sync.errors import SyncError
@@ -45,6 +45,7 @@ class BackupConfig:
     target: Path
     paths: tuple[Path, ...]
     time: str
+    sqlite_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -194,16 +195,33 @@ def _backup(value: object) -> BackupConfig | None:
     target = value.get("target")
     paths = value.get("paths", [])
     time = value.get("time", "03:30")
+    sqlite_paths = value.get("sqlite_paths", [])
     if not isinstance(target, str) or not target:
         raise SyncError("invalid_configuration", "host.backup.target is required")
     if not isinstance(paths, list) or not all(isinstance(v, str) for v in paths):
         raise SyncError("invalid_configuration", "host.backup.paths must be strings")
     if not isinstance(time, str) or not re.fullmatch(r"[0-2]\d:[0-5]\d", time):
         raise SyncError("invalid_configuration", "host.backup.time must be HH:MM")
+    if not isinstance(sqlite_paths, list) or not all(
+        isinstance(v, str) and Path(v).expanduser().is_absolute() for v in sqlite_paths
+    ):
+        raise SyncError(
+            "invalid_configuration", "host.backup.sqlite_paths must be absolute paths"
+        )
+    for database in sqlite_paths:
+        resolved = Path(database).expanduser().resolve()
+        if resolved.suffix not in (".sqlite", ".sqlite3", ".db") or not any(
+            Path(root).expanduser().resolve() in resolved.parents for root in paths
+        ):
+            raise SyncError(
+                "invalid_configuration",
+                "SQLite backup paths must be inside host.backup.paths",
+            )
     return BackupConfig(
         target=Path(target).expanduser(),
         paths=tuple(Path(v).expanduser() for v in paths),
         time=time,
+        sqlite_paths=tuple(Path(v).expanduser() for v in sqlite_paths),
     )
 
 
@@ -325,20 +343,48 @@ def load_host_config(path: Path | None = None) -> HostConfig:
     for entry in raw_flows:
         if not isinstance(entry, dict):
             raise SyncError("invalid_configuration", "host.flows entry is invalid")
-        flow_id, root_id, service_url = entry.get("id"), entry.get("root_id"), entry.get("service_url")
-        if not isinstance(flow_id, str) or not ROOT_ID.fullmatch(flow_id) or flow_id in {v.id for v in flows}:
-            raise SyncError("invalid_configuration", "host.flows.id is invalid or duplicated")
+        flow_id, root_id, service_url = (
+            entry.get("id"),
+            entry.get("root_id"),
+            entry.get("service_url"),
+        )
+        if (
+            not isinstance(flow_id, str)
+            or not ROOT_ID.fullmatch(flow_id)
+            or flow_id in {v.id for v in flows}
+        ):
+            raise SyncError(
+                "invalid_configuration", "host.flows.id is invalid or duplicated"
+            )
         if root_id not in ids:
-            raise SyncError("invalid_configuration", "host.flows.root_id is not registered")
+            raise SyncError(
+                "invalid_configuration", "host.flows.root_id is not registered"
+            )
         if not isinstance(service_url, str):
-            raise SyncError("invalid_configuration", "host.flows.service_url is required")
+            raise SyncError(
+                "invalid_configuration", "host.flows.service_url is required"
+            )
         try:
             parsed = urlsplit(service_url)
             port = parsed.port
         except ValueError as exc:
-            raise SyncError("invalid_configuration", "host.flows.service_url is invalid") from exc
-        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or not port or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-            raise SyncError("invalid_configuration", "host.flows.service_url must be a loopback HTTP origin")
+            raise SyncError(
+                "invalid_configuration", "host.flows.service_url is invalid"
+            ) from exc
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost"}
+            or not port
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise SyncError(
+                "invalid_configuration",
+                "host.flows.service_url must be a loopback HTTP origin",
+            )
         flows.append(FlowPolicy(flow_id, root_id, service_url.rstrip("/")))
 
     return HostConfig(

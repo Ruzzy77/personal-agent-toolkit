@@ -6,14 +6,15 @@ import {Textarea} from '@openai/apps-sdk-ui/components/Textarea';
 import {Menu} from '@openai/apps-sdk-ui/components/Menu';
 import {Tooltip} from '@openai/apps-sdk-ui/components/Tooltip';
 import {SegmentedControl} from '@openai/apps-sdk-ui/components/SegmentedControl';
-import {Archive,Info,Download,Moon,Sun,FileDiff,FileText,X,MoreHorizontal,Undo2,Link2} from 'lucide-react';
+import {Archive,Info,Download,Moon,Sun,FileDiff,FileText,X,MoreHorizontal,Undo2} from 'lucide-react';
 import {activeArtifact,newWork,workPickerGroups,reviewCounts,libraryItems,sourceItems,saveSnapshot} from './model.js';
 import {libraryEntryKey} from './library.js';
 import {useWorkspace,downloadText} from './useWorkspace.js';
 import {FileExplorer} from './FileExplorer.jsx';
-import {LibraryView} from './LibraryView.jsx';
+import {LibraryView,LibraryItemBody} from './LibraryView.jsx';
+import {disconnectWorkReference} from './work-surface/work-references.js';
 import {ChangesPanel} from './ChangesPanel.jsx';
-import {WorkCanvas,contentRenderers,SurfaceHeader,exportHtmlArtifact} from './work-surface/index.js';
+import {WorkCanvas,ReferencePanel,contentRenderers,SurfaceHeader,exportHtmlArtifact} from './work-surface/index.js';
 
 const VIEW_KEY='toolkit-flow-view-v1';
 function useViewState(){
@@ -25,7 +26,7 @@ function useViewState(){
 }
 export function App(){
  const {store,setStore,status,workspaceName,toolkitUrl,ready,retry,recover,exportCurrent}=useWorkspace();
- const [view,setView]=useViewState(),[panel,setPanel]=useState(null),[message,setMessage]=useState(''),[resourceMode,setResourceMode]=useState('library');
+ const [view,setView]=useViewState(),[panel,setPanel]=useState(null),[message,setMessage]=useState('');
  const [newName,setNewName]=useState(''),[newSource,setNewSource]=useState(null),[busy,setBusy]=useState(false);
  const [wide,setWide]=useState(()=>matchMedia('(min-width:1200px)').matches);
  const returnRef=useRef(null),sourceTrigger=useRef(null),moreTrigger=useRef(null),timer=useRef(null),scroll=useRef({});
@@ -82,18 +83,17 @@ export function App(){
   else downloadText(filename+'.json',JSON.stringify(a,null,2));
   }catch(e){toast(e.message||'작업물을 내려받지 못했습니다.');}
  }
- const libraryProps={items,sources,work,workspaceId:store.workspaceId,toolkitUrl,onConnect:connect,onFrom:fromItem,onOpenWork:openWork,onUpdateEntry:updateEntry};
+ const libraryProps={items,work,workspaceId:store.workspaceId,toolkitUrl,onConnect:connect,onFrom:fromItem,onOpenWork:openWork,onUpdateEntry:updateEntry};
  const filesProps={workspaceName,workspaceId:store.workspaceId,work,onConnect:connect,onFrom:fromItem,onCollect:collectFile,library:items,toast};
  const panelTitle={sources:'참고 자료',changes:'변경 확인',context:'작업 정보',settings:'설정',new:'새 작업'}[panel];
  const auxiliary=screen==='work'&&wide&&['sources','changes','context'].includes(panel);
- const panelContent=panel==='sources'?<div className="resource-panel">
-  <SegmentedControl value={resourceMode} onChange={setResourceMode} aria-label="자료 위치" size="sm" pill={false}><SegmentedControl.Option value="library">라이브러리</SegmentedControl.Option><SegmentedControl.Option value="files">파일</SegmentedControl.Option></SegmentedControl>
-  {resourceMode==='library'?<LibraryView {...libraryProps} compact/>:<FileExplorer {...filesProps} compact/>}
- </div>:panel==='changes'?<ChangesPanel work={work} artifact={a} changes={store.changes||[]} workspaceId={store.workspaceId} onApplied={retry}/>:
+ const panelContent=panel==='sources'?<ReferencePanel key={work.id} work={work} sources={sources} root="workspace"
+  renderSource={item=><LibraryItemBody item={item} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
+  renderReference={(reference,resource,title)=><LibraryItemBody item={{title,reference,...(reference.kind==='host-file'?{live:true,filePath:reference.path}:{})}} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
+  onDisconnect={item=>setStore(s=>({...s,works:s.works.map(w=>w.id===work.id?{...w,...disconnectWorkReference(w,item)}:w)}))}/>:panel==='changes'?<ChangesPanel work={work} artifact={a} changes={store.changes||[]} workspaceId={store.workspaceId} onApplied={retry}/>:
  panel==='context'?<div className="su-stack" data-gap="section">
   <Field label="작업 이름"><Input value={work.name} onChange={e=>patchWork({name:e.target.value})}/></Field>
   <Field label="작업 목적"><Textarea value={work.purpose||''} onChange={e=>patchWork({purpose:e.target.value})} rows={3}/></Field>
-  {work.sourceIds.length>0&&<section className="su-stack"><h3>참고 자료</h3>{work.sourceIds.map(id=>{const item=sources.find(x=>x.id===id);return item&&<div className="source-row su-row" key={id}><Link2 size="1em"/><span>{item.title}</span><B uniform size="sm" variant="ghost" aria-label={item.title+' 연결 해제'} onClick={()=>patchWork({sourceIds:work.sourceIds.filter(x=>x!==id)})}><X size="1em"/></B></div>})}</section>}
  </div>:panel==='settings'?<div className="su-stack"><h3>화면</h3><SegmentedControl value={view.theme||store.theme} onChange={theme=>setView(v=>({...v,theme}))} aria-label="화면 테마" size="md" pill={false}><SegmentedControl.Option value="light"><Sun size="1em"/>밝게</SegmentedControl.Option><SegmentedControl.Option value="dark"><Moon size="1em"/>어둡게</SegmentedControl.Option></SegmentedControl></div>:
  panel==='new'?<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();create()}}>
   <Field label="작업 이름"><Input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus maxLength={100}/></Field>

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@openai/apps-sdk-ui": "0.2.2",
-    "@personal-agent/flow-surface": "file:vendor/personal-agent-flow-surface-0.1.58.tgz",
+    "@personal-agent/flow-surface": "file:vendor/personal-agent-flow-surface-0.1.62.tgz",
     "@personal-agent/site-runtime": "file:../../packages/site-runtime",
     "@personal-agent/ui-kit": "file:vendor/personal-agent-ui-kit-1.4.1.tgz",
     "lucide-react": "1.44.0",

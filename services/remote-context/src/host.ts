@@ -45,7 +45,7 @@ const flowContextLocator = z.discriminatedUnion("product", [
   z.object({product:z.literal("source"),spaceId:flowSpaceId,readRef:z.string().min(7).max(8192).regex(/^read1\.[A-Za-z0-9_-]+$/)}).strict(),
 ]);
 const flowSurfaceLayout = z.object({order:z.array(rootId).max(256),spans:z.record(rootId,z.union([z.literal(4),z.literal(6),z.literal(8),z.literal(12)]))}).strict();
-const flowLinkedResource = z.union([
+export const flowLinkedResource = z.union([
   z.object({kind:z.literal("uikit-asset"),id:z.string().regex(/^[a-z0-9][a-z0-9-]{0,100}$/),revision:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
   z.object({kind:z.literal("user-context"),id:z.string().regex(/^(node|pred)_[a-f0-9]{32}$/)}).strict(),
   z.object({kind:z.literal("journal-item"),id:z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i)}).strict(),
@@ -88,6 +88,10 @@ interface HostTool {
 }
 
 export const HOST_TOOLS: readonly HostTool[] = [
+  {name:"flow_artifact_read",title:"Read Flow artifact version",description:"Read version-pinned UTF-8 JSON chunks. Concatenate content using nextOffset and version before parsing the artifact.",scope:"host.read",annotations:READ_ONLY,schema:z.object({workspace_id:rootId,artifact_id:rootId.optional(),revision:z.number().int().nonnegative().optional(),source_id:rootId.optional(),change_id:rootId.optional(),part:z.enum(["before","proposal"]).default("proposal"),offset:z.number().int().nonnegative().default(0),limit:z.number().int().min(1).max(1048576).default(65536),version:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict()},
+  {name:"flow_change_list",title:"List Flow changes",description:"Page through change summaries without loading artifact bodies.",scope:"host.read",annotations:READ_ONLY,schema:z.object({workspace_id:rootId,work_id:rootId,offset:z.number().int().nonnegative().default(0),limit:z.number().int().min(1).max(100).default(50),status:z.string().max(30).optional()}).strict()},
+  {name:"flow_change_read",title:"Read Flow change",description:"Read change metadata and exact artifact version references.",scope:"host.read",annotations:READ_ONLY,schema:z.object({workspace_id:rootId,change_id:rootId}).strict()},
+
   {
     name: "host_capabilities",
     title: "Host capabilities",
@@ -189,12 +193,12 @@ export const HOST_TOOLS: readonly HostTool[] = [
   {
     name: "flow_work_list", title: "Find Flow work",
     description: "List work in a registered Flow workspace.", scope: "host.read", annotations: READ_ONLY,
-    schema: z.object({workspace_id: rootId, query: z.string().max(200).optional()}).strict(),
+    schema: z.object({workspace_id: rootId, query: z.string().max(200).optional(), offset:z.number().int().nonnegative().default(0), limit:z.number().int().min(1).max(100).default(50)}).strict(),
   },
   {
     name: "flow_work_read", title: "Read Flow work",
-    description: "Read current work, artifacts, context and change proposals.", scope: "host.read", annotations: READ_ONLY,
-    schema: z.object({workspace_id: rootId, work_id: rootId}).strict(),
+    description: "Read work and artifact summaries, connected sources and undo availability. Read an artifact body with flow_artifact_read; read history with flow_change_list.", scope: "host.read", annotations: READ_ONLY,
+    schema: z.object({workspace_id: rootId, work_id: rootId, offset:z.number().int().nonnegative().default(0),limit:z.number().int().min(1).max(100).default(100)}).strict(),
   },
   {
     name: "flow_work_create", title: "Create Flow work",
@@ -374,14 +378,16 @@ export function hostFailureDetails(result: { content?: unknown[] }) {
   const blocks = Array.isArray(result.content)
     ? result.content as Array<{ text?: string }>
     : [];
-  const message =
+  const rawMessage =
     blocks.find((block) => typeof block.text === "string")?.text
     ?? "File operation failed";
   // A connector may prefix the Host's `code: message` with the tool name.
   const wrapped =
-    /\b(?:host|flow)_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
-  const direct = /^\s*([a-z][a-z0-9_]+):/.exec(message)?.[1];
-  const code = wrapped ?? direct ?? "host_error";
+    /\b(?:host|flow)_[a-z0-9_]+:\s*([a-z][a-z0-9_]+):\s*/.exec(rawMessage);
+  const direct = /^\s*([a-z][a-z0-9_]+):\s*/.exec(rawMessage);
+  const match = wrapped ?? direct;
+  const code = match?.[1] ?? "host_error";
+  const message = match ? rawMessage.slice(match.index + match[0].length).trim() : rawMessage;
   const status =
     code === "version_conflict" ? 409
       : code === "policy_denied" ? 403

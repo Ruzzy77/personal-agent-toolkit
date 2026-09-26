@@ -302,79 +302,403 @@ def create_server(
             )
         return transfers.begin_download(config.root(root), path, expected_version)
 
-    @server.tool(name="flow_workspace_list", title="Flow workspaces", description="List registered Flow workspaces and permissions.", annotations=READ_ONLY)
-    def flow_workspace_list() -> dict[str, Any]:
-        return list_registered(config)
+    @server.tool(
+        name="flow_workspace_list",
+        title="Flow workspaces",
+        description="List registered Flow workspaces and permissions.",
+        annotations=READ_ONLY,
+    )
+    async def flow_workspace_list() -> dict[str, Any]:
+        result = list_registered(config)
+        for workspace in result["workspaces"]:
+            try:
+                detail = await call_flow(config, workspace["id"], "GET", "workspaces")
+                current = next(
+                    item
+                    for item in detail["workspaces"]
+                    if item["id"] == workspace["id"]
+                )
+                workspace.update(current)
+            except (ToolError, KeyError, StopIteration):
+                workspace.update(
+                    {"apiVersion": 0, "capabilities": [], "unavailable": True}
+                )
+        return result
 
-    @server.tool(name="flow_work_list", title="Find Flow work", description="List work in a registered Flow workspace.", annotations=READ_ONLY)
-    async def flow_work_list(workspace_id: str, query: str = "") -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "GET", "works", query={"workspaceId": workspace_id, "query": query})
+    @server.tool(
+        name="flow_work_list",
+        title="Find Flow work",
+        description="List work in a registered Flow workspace.",
+        annotations=READ_ONLY,
+    )
+    async def flow_work_list(
+        workspace_id: str, query: str = "", offset: int = 0, limit: int = 50
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "works",
+            query={
+                "workspaceId": workspace_id,
+                "query": query,
+                "offset": offset,
+                "limit": limit,
+            },
+        )
 
-    @server.tool(name="flow_work_read", title="Read Flow work", description="Read the current work, artifacts, context and change proposals.", annotations=READ_ONLY)
-    async def flow_work_read(workspace_id: str, work_id: str) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "GET", "works/" + path_id(work_id), query={"workspaceId": workspace_id})
+    @server.tool(
+        name="flow_work_read",
+        title="Read Flow work",
+        description="Read work metadata, artifact headers, linked-source summaries and undo availability. Use flow_artifact_read for a body and flow_change_list for history.",
+        annotations=READ_ONLY,
+    )
+    async def flow_work_read(
+        workspace_id: str, work_id: str, offset: int = 0, limit: int = 100
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "works/" + path_id(work_id),
+            query={"workspaceId": workspace_id, "offset": offset, "limit": limit},
+        )
 
-    @server.tool(name="flow_work_create", title="Create Flow work", description="Create work with a first artifact or an exact saved Flow source. Supply a unique idempotency key.", annotations=WRITE)
-    async def flow_work_create(workspace_id: str, name: str, idempotency_key: str, artifact: dict[str, Any] | None = None, source_id: str | None = None, linked_resources: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    @server.tool(
+        name="flow_artifact_read",
+        title="Read Flow artifact version",
+        description="Read one immutable artifact version as UTF-8 JSON chunks. Continue nextOffset with the returned version token; concatenate content before parsing JSON.",
+        annotations=READ_ONLY,
+    )
+    async def flow_artifact_read(
+        workspace_id: str,
+        artifact_id: str | None = None,
+        revision: int | None = None,
+        source_id: str | None = None,
+        change_id: str | None = None,
+        part: Literal["before", "proposal"] = "proposal",
+        offset: int = 0,
+        limit: int = 65536,
+        version: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "offset": offset,
+            "limit": limit,
+            "part": part,
+        }
+        for key, value in (
+            ("artifactId", artifact_id),
+            ("revision", revision),
+            ("sourceId", source_id),
+            ("changeId", change_id),
+            ("version", version),
+        ):
+            if value is not None:
+                query[key] = value
+        return await call_flow(config, workspace_id, "GET", "artifact", query=query)
+
+    @server.tool(
+        name="flow_change_list",
+        title="List Flow changes",
+        description="Page through change summaries without loading artifact bodies.",
+        annotations=READ_ONLY,
+    )
+    async def flow_change_list(
+        workspace_id: str,
+        work_id: str,
+        offset: int = 0,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "workId": work_id,
+            "offset": offset,
+            "limit": limit,
+        }
+        if status is not None:
+            query["status"] = status
+        return await call_flow(config, workspace_id, "GET", "changes", query=query)
+
+    @server.tool(
+        name="flow_change_read",
+        title="Read Flow change",
+        description="Read change metadata and exact artifact version references. Use flow_artifact_read for comparison bodies.",
+        annotations=READ_ONLY,
+    )
+    async def flow_change_read(workspace_id: str, change_id: str) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "changes/" + path_id(change_id),
+            query={"workspaceId": workspace_id},
+        )
+
+    @server.tool(
+        name="flow_work_create",
+        title="Create Flow work",
+        description="Create work with a first artifact or an exact saved Flow source. Supply a unique idempotency key.",
+        annotations=WRITE,
+    )
+    async def flow_work_create(
+        workspace_id: str,
+        name: str,
+        idempotency_key: str,
+        artifact: dict[str, Any] | None = None,
+        source_id: str | None = None,
+        linked_resources: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         if artifact is not None and source_id is not None:
-            raise ToolError("invalid_request", "작업물 또는 보관한 자료 한 가지만 선택해 주세요.")
-        payload: dict[str, Any] = {"workspaceId": workspace_id, "name": name, "idempotencyKey": idempotency_key}
-        if artifact is not None: payload["artifact"] = artifact
-        if source_id is not None: payload["sourceId"] = source_id
-        if linked_resources is not None: payload["linkedResources"] = linked_resources
+            raise ToolError(
+                "invalid_request", "작업물 또는 보관한 자료 한 가지만 선택해 주세요."
+            )
+        payload: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "name": name,
+            "idempotencyKey": idempotency_key,
+        }
+        if artifact is not None:
+            payload["artifact"] = artifact
+        if source_id is not None:
+            payload["sourceId"] = source_id
+        if linked_resources is not None:
+            payload["linkedResources"] = linked_resources
         return await call_flow(config, workspace_id, "POST", "works", payload)
 
-    @server.tool(name="flow_work_update", title="Update Flow work", description="Update only explicitly supplied work name, purpose, source IDs, linked product records, or artifact layout using the current work revision.", annotations=WRITE)
-    async def flow_work_update(workspace_id: str, work_id: str, expected_revision: int, idempotency_key: str, name: str | None = None, purpose: str | None = None, source_ids: list[str] | None = None, linked_resources: list[dict[str, Any]] | None = None, surface_layout: dict[str, Any] | None = None, active_artifact_id: str | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"workspaceId": workspace_id, "expectedRevision": expected_revision, "idempotencyKey": idempotency_key}
-        if name is not None: payload["name"] = name
-        if purpose is not None: payload["purpose"] = purpose
-        if source_ids is not None: payload["sourceIds"] = source_ids
-        if linked_resources is not None: payload["linkedResources"] = linked_resources
-        if surface_layout is not None: payload["surfaceLayout"] = surface_layout
-        if active_artifact_id is not None: payload["activeArtifactId"] = active_artifact_id
-        return await call_flow(config, workspace_id, "PATCH", "works/" + path_id(work_id), payload)
+    @server.tool(
+        name="flow_work_update",
+        title="Update Flow work",
+        description="Update only explicitly supplied work name, purpose, source IDs, linked product records, or artifact layout using the current work revision.",
+        annotations=WRITE,
+    )
+    async def flow_work_update(
+        workspace_id: str,
+        work_id: str,
+        expected_revision: int,
+        idempotency_key: str,
+        name: str | None = None,
+        purpose: str | None = None,
+        source_ids: list[str] | None = None,
+        linked_resources: list[dict[str, Any]] | None = None,
+        surface_layout: dict[str, Any] | None = None,
+        active_artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "expectedRevision": expected_revision,
+            "idempotencyKey": idempotency_key,
+        }
+        if name is not None:
+            payload["name"] = name
+        if purpose is not None:
+            payload["purpose"] = purpose
+        if source_ids is not None:
+            payload["sourceIds"] = source_ids
+        if linked_resources is not None:
+            payload["linkedResources"] = linked_resources
+        if surface_layout is not None:
+            payload["surfaceLayout"] = surface_layout
+        if active_artifact_id is not None:
+            payload["activeArtifactId"] = active_artifact_id
+        return await call_flow(
+            config, workspace_id, "PATCH", "works/" + path_id(work_id), payload
+        )
 
-    @server.tool(name="flow_library_list", title="Find reusable material", description="Search curated material. work_id includes shared entries and only that work's scoped entries.", annotations=READ_ONLY)
-    async def flow_library_list(workspace_id: str, query: str = "", work_id: str | None = None, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-        query_data = {"workspaceId": workspace_id, "query": query, "offset": offset, "limit": limit}
-        if work_id is not None: query_data["workId"] = work_id
+    @server.tool(
+        name="flow_library_list",
+        title="Find reusable material",
+        description="Search curated material. work_id includes shared entries and only that work's scoped entries.",
+        annotations=READ_ONLY,
+    )
+    async def flow_library_list(
+        workspace_id: str,
+        query: str = "",
+        work_id: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        query_data = {
+            "workspaceId": workspace_id,
+            "query": query,
+            "offset": offset,
+            "limit": limit,
+        }
+        if work_id is not None:
+            query_data["workId"] = work_id
         return await call_flow(config, workspace_id, "GET", "library", query=query_data)
 
-    @server.tool(name="flow_library_read", title="Read reusable material", description="Read curated content and its exact original reference without changing the original.", annotations=READ_ONLY)
+    @server.tool(
+        name="flow_library_read",
+        title="Read reusable material",
+        description="Read curated content and its exact original reference without changing the original.",
+        annotations=READ_ONLY,
+    )
     async def flow_library_read(workspace_id: str, entry_id: str) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "GET", "library/" + path_id(entry_id), query={"workspaceId": workspace_id})
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "library/" + path_id(entry_id),
+            query={"workspaceId": workspace_id},
+        )
 
-    @server.tool(name="flow_library_upsert", title="Curate reusable material", description="Create or revise useful content with an explicit work/workspace/personal scope. Does not adopt criteria, alter original sources or publish. expected_revision is zero for a new entry.", annotations=WRITE)
-    async def flow_library_upsert(workspace_id: str, entry: dict[str, Any], expected_revision: int, idempotency_key: str) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "POST", "library", {"workspaceId": workspace_id, "entry": entry, "expectedRevision": expected_revision, "idempotencyKey": idempotency_key})
+    @server.tool(
+        name="flow_library_upsert",
+        title="Curate reusable material",
+        description="Create or revise useful content with an explicit work/workspace/personal scope. Does not adopt criteria, alter original sources or publish. expected_revision is zero for a new entry.",
+        annotations=WRITE,
+    )
+    async def flow_library_upsert(
+        workspace_id: str,
+        entry: dict[str, Any],
+        expected_revision: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "POST",
+            "library",
+            {
+                "workspaceId": workspace_id,
+                "entry": entry,
+                "expectedRevision": expected_revision,
+                "idempotencyKey": idempotency_key,
+            },
+        )
 
-    @server.tool(name="flow_snapshot_list", title="Find saved Flow work", description="Search saved Flow artifact versions in a registered workspace without selecting a work. Returns summaries only.", annotations=READ_ONLY)
-    async def flow_snapshot_list(workspace_id: str, query: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "GET", "snapshots", query={"workspaceId": workspace_id, "query": query, "offset": offset, "limit": limit})
+    @server.tool(
+        name="flow_snapshot_list",
+        title="Find saved Flow work",
+        description="Search saved Flow artifact versions in a registered workspace without selecting a work. Returns summaries only.",
+        annotations=READ_ONLY,
+    )
+    async def flow_snapshot_list(
+        workspace_id: str, query: str = "", offset: int = 0, limit: int = 50
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "snapshots",
+            query={
+                "workspaceId": workspace_id,
+                "query": query,
+                "offset": offset,
+                "limit": limit,
+            },
+        )
 
-    @server.tool(name="flow_snapshot_read", title="Read saved Flow work", description="Read one exact saved Flow artifact version by source ID.", annotations=READ_ONLY)
+    @server.tool(
+        name="flow_snapshot_read",
+        title="Read saved Flow work",
+        description="Read one exact saved Flow artifact version by source ID.",
+        annotations=READ_ONLY,
+    )
     async def flow_snapshot_read(workspace_id: str, source_id: str) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "GET", "snapshots/" + path_id(source_id), query={"workspaceId": workspace_id})
+        return await call_flow(
+            config,
+            workspace_id,
+            "GET",
+            "snapshots/" + path_id(source_id),
+            query={"workspaceId": workspace_id},
+        )
 
-    @server.tool(name="flow_snapshot_create", title="Save Flow artifact", description="Save an immutable version of an existing Flow artifact to the Flow Library. Requires the current artifact revision and a unique idempotency key.", annotations=WRITE)
-    async def flow_snapshot_create(workspace_id: str, work_id: str, artifact_id: str, expected_revision: int, idempotency_key: str) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "POST", "snapshots", {"workspaceId": workspace_id, "workId": work_id, "artifactId": artifact_id, "expectedRevision": expected_revision, "idempotencyKey": idempotency_key})
+    @server.tool(
+        name="flow_snapshot_create",
+        title="Save Flow artifact",
+        description="Save an immutable version of an existing Flow artifact to the Flow Library. Requires the current artifact revision and a unique idempotency key.",
+        annotations=WRITE,
+    )
+    async def flow_snapshot_create(
+        workspace_id: str,
+        work_id: str,
+        artifact_id: str,
+        expected_revision: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "POST",
+            "snapshots",
+            {
+                "workspaceId": workspace_id,
+                "workId": work_id,
+                "artifactId": artifact_id,
+                "expectedRevision": expected_revision,
+                "idempotencyKey": idempotency_key,
+            },
+        )
 
-    @server.tool(name="flow_asset_import", title="Import Flow asset", description="Copy a supported image, media or PDF from the registered workspace root into Flow. Requires the current file version from host_files stat.", annotations=WRITE)
-    async def flow_asset_import(workspace_id: str, root: RootId, path: Annotated[str, Field(min_length=1, max_length=2048)], expected_version: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")]) -> dict[str, Any]:
+    @server.tool(
+        name="flow_asset_import",
+        title="Import Flow asset",
+        description="Copy a supported image, media or PDF from the registered workspace root into Flow. Requires the current file version from host_files stat.",
+        annotations=WRITE,
+    )
+    async def flow_asset_import(
+        workspace_id: str,
+        root: RootId,
+        path: Annotated[str, Field(min_length=1, max_length=2048)],
+        expected_version: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")],
+    ) -> dict[str, Any]:
         return await import_asset(config, workspace_id, root, path, expected_version)
 
-    @server.tool(name="flow_change_submit", title="Submit Flow change", description="Add an artifact, initialize a blank artifact, apply a requested replacement or explicit selection edit, or submit a proposal for comparison. Requires an idempotency key and base artifact revision for edits.", annotations=WRITE)
-    async def flow_change_submit(workspace_id: str, work_id: str, mode: Literal["add", "initialize", "selection", "proposal", "replace"], idempotency_key: str, artifact_id: str | None = None, base_revision: int | None = None, artifact: dict[str, Any] | None = None, selection: dict[str, Any] | None = None, replacement: str | None = None, changes: dict[str, Any] | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"workspaceId": workspace_id, "workId": work_id, "mode": mode, "idempotencyKey": idempotency_key}
-        for field, value in (("artifactId", artifact_id), ("baseRevision", base_revision), ("artifact", artifact), ("selection", selection), ("replacement", replacement), ("changes", changes)):
-            if value is not None: payload[field] = value
+    @server.tool(
+        name="flow_change_submit",
+        title="Submit Flow change",
+        description="Add an artifact, initialize a blank artifact, apply a requested replacement or explicit selection edit, or submit a proposal for comparison. Requires an idempotency key and base artifact revision for edits.",
+        annotations=WRITE,
+    )
+    async def flow_change_submit(
+        workspace_id: str,
+        work_id: str,
+        mode: Literal["add", "initialize", "selection", "proposal", "replace"],
+        idempotency_key: str,
+        artifact_id: str | None = None,
+        base_revision: int | None = None,
+        artifact: dict[str, Any] | None = None,
+        selection: dict[str, Any] | None = None,
+        replacement: str | None = None,
+        changes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "workId": work_id,
+            "mode": mode,
+            "idempotencyKey": idempotency_key,
+        }
+        for field, value in (
+            ("artifactId", artifact_id),
+            ("baseRevision", base_revision),
+            ("artifact", artifact),
+            ("selection", selection),
+            ("replacement", replacement),
+            ("changes", changes),
+        ):
+            if value is not None:
+                payload[field] = value
         return await call_flow(config, workspace_id, "POST", "changes", payload)
 
-    @server.tool(name="flow_change_action", title="Review Flow change", description="Apply or undo one existing Flow change in a registered workspace. Applying a proposal requires the user's explicit choice.", annotations=WRITE)
-    async def flow_change_action(workspace_id: str, change_id: str, action: Literal["apply", "undo"]) -> dict[str, Any]:
-        return await call_flow(config, workspace_id, "POST", "changes/" + path_id(change_id) + "/" + action, {"workspaceId": workspace_id})
+    @server.tool(
+        name="flow_change_action",
+        title="Review Flow change",
+        description="Apply or undo one existing Flow change in a registered workspace. Applying a proposal requires the user's explicit choice.",
+        annotations=WRITE,
+    )
+    async def flow_change_action(
+        workspace_id: str, change_id: str, action: Literal["apply", "undo"]
+    ) -> dict[str, Any]:
+        return await call_flow(
+            config,
+            workspace_id,
+            "POST",
+            "changes/" + path_id(change_id) + "/" + action,
+            {"workspaceId": workspace_id},
+        )
 
     @server.tool(
         name="host_exec",

@@ -9,7 +9,7 @@ Flow 작업 화면에 쓰는 공통 콘텐츠·배치 모듈입니다. UI Kit의
 | 구분 | 구성 요소 | 적용 범위 |
 | --- | --- | --- |
 | 기본 스타일·조작 | UI Kit 토큰·레이아웃, Apps SDK UI 버튼·입력·메뉴, UI Kit `FieldSelect`·`Dialog` | 색상·글꼴·간격·컨트롤은 설치된 UI Kit 1.4.1을 사용합니다. Flow 전용 스타일은 콘텐츠 배치에 한정합니다. |
-| 화면 구조·탐색 | AppHeader, WorkCanvas, LibraryBrowser, BrowseToolbar | 로컬판과 웹판의 작업공간, 라이브러리, 파일 탐색을 공유합니다. 주 작업물만 표시하고 참고 자료는 따로 엽니다. |
+| 화면 구조·탐색 | AppHeader, WorkCanvas, LibraryBrowser, ReferencePanel, BrowseToolbar | 로컬판과 웹판의 작업공간, 라이브러리, 파일 탐색을 공유합니다. 주 작업물만 표시하고 참고 자료는 따로 엽니다. ReferencePanel은 현재 작업의 연결만 표시하며 라이브러리 전체를 섞지 않습니다. |
 | 작업물 구성 | `SurfaceHeader`, `WorkSurface` | 에이전트가 정한 제목 위계와 콘텐츠 구성을 표시합니다. 폭과 순서를 바꾸는 메뉴는 기본 작업 화면에 두지 않습니다. |
 | 콘텐츠 표시 | `contentRenderers`, `ArtifactPreview`, `FilePreview`, `TextContentView`, `HtmlContentView`, `MediaPlayer`, `PdfPreview` | 작업 화면, 자료 읽기, 보관함, 미리보기에서 같은 표시 요소를 사용합니다. |
 | 기존 편집기 호환 | EditorLayout, EditorActions, CompositionEditor, ContentFields, ImageRegionEditor, DiagramFields | 기존 형식 및 제작 예시에 필요한 호환 구성입니다. 기본 작업 화면에는 노출하지 않습니다. |
@@ -122,7 +122,7 @@ const composition=defineComposition({blocks,rows:[
 
 지도, 전용 편집기처럼 형식별 동작이 필요한 콘텐츠는 고유한 `kind`와 렌더러를 등록합니다. 기존 `contentRenderers`를 펼쳐 추가하면 기본 블록과 함께 사용할 수 있습니다. 콘텐츠 유형 목록을 작업 생성 메뉴로 사용하지 않습니다.
 
-작동 예시는 `/examples/components.html`에서, 같은 콘텐츠를 두 배치로 구성한 예시는 `/examples/inspection.html`에서 볼 수 있습니다.
+기존 예시 데이터는 `src/examples`에 보존합니다. 이전 예시 URL은 현재 Flow 화면을 엽니다.
 
 ## 기존 문서·도식 전환
 
@@ -142,4 +142,6 @@ const composition=defineComposition({blocks,rows:[
 
 `MediaPlayer`는 영상과 소리의 재생기를 함께 다룹니다. 콘텐츠 블록과 작업에 연결한 파일 미리보기에서 같은 재생기를 사용합니다. MP3·WAV·OGG·M4A·AAC 오디오와 MP4·WebM 영상을 선택할 수 있습니다. 재생이 실패하면 파일을 열 수 없다는 메시지를 표시합니다.
 
-Local canonical references open the same Flow resource route on the authenticated Toolkit web site configured by TOOLKIT_FLOW_TOOLKIT_URL. This does not proxy account credentials through the HTML sandbox or reinterpret another registered file root as the local workspace root.
+로컬에서 정본 자료를 열 때에는 `TOOLKIT_FLOW_TOOLKIT_URL`에 등록된 Toolkit 웹의 동일한 Flow 자료 경로를 사용합니다. HTML 샌드박스에 계정 정보를 넘기거나 다른 등록 폴더의 경로를 현재 작업공간 경로로 해석하지 않습니다.
+
+`workReferences`는 작업의 자료 ID와 원본 연결을 하나의 목록으로 구성합니다. 같은 자료를 라이브러리와 원본에서 중복 연결했다면 한 항목으로 표시하되, 별도로 정리한 내용은 합치거나 지우지 않습니다. 연결을 해제해도 자료 원본과 라이브러리, 작업물은 보존합니다. 원본 연결 오류는 해당 항목에서 다시 열 수 있게 하며 목록에서 숨기지 않습니다.

@@ -178,7 +178,7 @@ export function withFiles(state){
 }
 export function libraryItems(state){
  const files=workspaceFiles(state);
- const base=(state.legacyReferences?references:[]).map(ref=>{const file=files.find(f=>f.sourceId===ref.id);return file?{...ref,fileId:file.id,path:file.path,body:file.content}:ref});
+ const base=(state.legacyReferences?references:[]).map(ref=>{const file=files.find(f=>f.sourceId===ref.id),source=file?{...ref,fileId:file.id,path:file.path,body:file.content}:ref;return {...source,example:true,collection:'예시 자료'}});
  const snapshots=state.librarySnapshots||[];
  const saved=snapshots.map(v=>({id:v.id,workId:v.workId,artifactId:v.artifactId,artifact:v.artifact,kind:'결과물',collection:'보관한 작업물',title:v.artifact.title,body:artifactText(v.artifact),blocks:v.artifact.blocks}));
  const unsnapshotted=state.works.flatMap(w=>w.artifacts.filter(a=>state.savedIds.includes(a.id)&&!snapshots.some(v=>v.artifactId===a.id)).map(a=>({id:a.id,workId:w.id,artifactId:a.id,artifact:a,kind:'결과물',collection:'보관한 작업물',title:a.title,body:artifactText(a),blocks:a.blocks})));

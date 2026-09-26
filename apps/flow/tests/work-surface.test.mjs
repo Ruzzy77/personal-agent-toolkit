@@ -676,3 +676,45 @@ test('prototype URLs no longer expose a separate manual component editor',async(
  assert.ok(!source.includes('ComponentCatalog'));
  assert.ok(!source.includes('InspectionExample'));
 });
+
+test('work references show only attached material and fold duplicate direct links into it',async()=>{
+ const {workReferences,disconnectWorkReference}=await import('../src/work-surface/work-references.js');
+ const reference={kind:'host-file',root:'research-note/main',path:'자료/실험.csv'};
+ const source={id:'selected',title:'실험 조건',body:'정리한 내용',reference,scope:{kind:'work',workId:'first'}};
+ const work={sourceIds:['selected'],linkedResources:[reference],artifacts:[{id:'unchanged',html:'<h1>결과</h1>'}]};
+ const before=structuredClone(work);
+ const items=workReferences(work,[source,{id:'unrelated',title:'다른 작업 자료'}],'workspace');
+ assert.equal(items.length,1);assert.equal(items[0].title,source.title);assert.equal(items[0].source,source);
+ assert.deepEqual(items[0].linkedReferences,[reference]);
+ assert.deepEqual(disconnectWorkReference(work,items[0]),{sourceIds:[],linkedResources:[]});
+ assert.deepEqual(work,before);assert.equal(source.body,'정리한 내용');
+});
+test('missing references remain reachable and disconnect does not remove other work data',async()=>{
+ const {workReferences,disconnectWorkReference}=await import('../src/work-surface/work-references.js');
+ const reference={kind:'context',locator:{product:'sense',sectionId:'conversation-and-writing'}};
+ const work={sourceIds:['missing'],linkedResources:[reference]};
+ const items=workReferences(work,[]);
+ assert.equal(items.length,2);assert.equal(items[0].missing,true);assert.equal(items[0].title,'연결한 자료');
+ assert.deepEqual(disconnectWorkReference(work,items[0]),{sourceIds:[],linkedResources:[reference]});
+ assert.deepEqual(disconnectWorkReference(work,items[1]),{sourceIds:['missing'],linkedResources:[]});
+});
+test('live file references use their registered root and never substitute another root',async()=>{
+ const {sourceReference,workReferences}=await import('../src/work-surface/work-references.js');
+ const file={id:'file',title:'원본',filePath:'자료/원본.csv',live:true};
+ assert.equal(sourceReference(file),null);
+ assert.deepEqual(sourceReference(file,'workspace'),{kind:'host-file',root:'workspace',path:file.filePath});
+ const reference={kind:'host-file',root:'research-note/main',path:file.filePath};
+ assert.deepEqual(sourceReference({...file,reference},'workspace'),reference);
+ assert.equal(sourceReference({...file,filePath:'../secret'},'workspace'),null);
+ assert.equal(sourceReference({...file,live:false},'workspace'),null);
+ const work={sourceIds:[file.id],linkedResources:[reference]};
+ assert.equal(workReferences(work,[file],'workspace').length,2);
+});
+test('distinct curated content sharing an original is not discarded by reference deduplication',async()=>{
+ const {workReferences}=await import('../src/work-surface/work-references.js');
+ const reference={kind:'context',locator:{product:'corpus',spaceId:'project',documentId:'methods'}};
+ const sources=[{id:'a',title:'첫 정리',reference,body:'첫 내용'},{id:'b',title:'다른 정리',reference,body:'다른 내용'}];
+ const items=workReferences({sourceIds:['a','a','b'],linkedResources:[reference]},sources);
+ assert.equal(items.length,2);assert.deepEqual(items.map(item=>item.source.body),['첫 내용','다른 내용']);
+ assert.equal(items.filter(item=>item.linkedReferences.length).length,1);
+});

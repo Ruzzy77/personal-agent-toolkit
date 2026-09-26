@@ -6,6 +6,7 @@ import { handleAdminSite } from "./admin-site";
 import { executeContextSiteOperation, readJson } from "./context-site";
 import { asContextError, ContextError } from "./errors";
 import { callHost, hostFailureDetails, HOST_TOOLS, hostRequiredScope, transferReceipt } from "./host";
+import {executeFlowResource} from "./flow-resources";
 import { forwardFlowMedia } from "./host-http";
 import type { Env } from "./types";
 
@@ -15,7 +16,7 @@ const WEB_HOST_TOOLS = new Set([
   "host_files", "host_transfer",
   "flow_library_list", "flow_library_read", "flow_library_upsert",
   "flow_workspace_list", "flow_work_list", "flow_work_read",
-  "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read",
+  "flow_artifact_read", "flow_change_list", "flow_change_read", "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read",
   "flow_snapshot_create", "flow_asset_import", "flow_change_submit", "flow_change_action",
 ]);
 
@@ -228,6 +229,11 @@ export async function handleWeb(request: Request, env: Env): Promise<Response | 
     if (transfer) return hostTransfer(request, env, transfer);
     const host = /^\/web\/site\/host\/v1\/((?:host|flow)_[a-z_]+)$/.exec(url.pathname);
     if (host && request.method === "POST") return hostTool(request, env, host[1]!);
+    const resource = /^\/web\/site\/flow\/v1\/(flow_resource_search|flow_resource_read)$/.exec(url.pathname);
+    if(resource&&request.method==="POST"){
+      const principal=await authenticateMcp(request,env,"toolkit",supportedScopes("toolkit"));
+      return json({ok:true,result:await executeFlowResource(env,principal,resource[1]!,await readJson(request))});
+    }
     const context = /^\/web\/site\/v1\/([a-z][a-z0-9_]{0,95})$/.exec(url.pathname);
     if (!context || request.method !== "POST") throw new ContextError("not_found", "Web operation was not found", 404);
     const principal = await authenticateMcp(request, env, "toolkit", supportedScopes("toolkit"));

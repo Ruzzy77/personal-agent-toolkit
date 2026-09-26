@@ -17,10 +17,10 @@ export type FlowWork = {
   surfaceLayout?: {order:string[];spans:Record<string,number>};
 };
 export type FlowWorkItem = {id:string;name:string;purpose:string;revision:number;workspaceId:string;artifact:{id:string;title:string;kind:string;format?:string;revision:number};reviewCount?:number};
-export type FlowSource = {id:string;title:string;kind?:string;collection?:string;body?:string;path?:string;filePath?:string;artifact?:FlowArtifact};
+export type FlowSource = {id:string;title:string;kind?:string;collection?:string;body?:string;path?:string;filePath?:string;artifact?:FlowArtifact;artifactRef?:Pick<FlowArtifact,"id"|"revision"|"kind"|"title">;live?:boolean;root?:string;reference?:FlowLinkedResource;scope?:{kind:"work"|"workspace"|"personal";workId?:string};sourceVersion?:string;example?:boolean};
 export type FlowChange = {id:string;kind:string;workId:string;artifactId:string;status:string;mode:string;appliedRevision?:number;before?:FlowArtifact;proposal?:{artifact?:FlowArtifact}};
-export type FlowSourceCatalogItem = Pick<FlowSource,"id"|"title"|"kind"|"collection"> & {artifactId?:string;artifactRevision?:number};
-export type FlowRead = {stateRevision?:string;work:FlowWork;sources:FlowSource[];sourceCatalog:FlowSourceCatalogItem[];changes:FlowChange[];link:string|null};
+export type FlowSourceCatalogItem = Pick<FlowSource,"id"|"title"|"kind"|"collection"|"scope"|"reference"|"sourceVersion"|"example"> & {artifactId?:string;artifactRevision?:number};
+export type FlowRead = {stateRevision?:string;work:FlowWork;sources:FlowSource[];sourceCatalog?:FlowSourceCatalogItem[];changes:FlowChange[];undo?:FlowChange|null;nextSourceOffset?:number|null;nextChangeOffset?:number|null;link:string|null};
 
 const WORKSPACE = /^[a-z0-9][a-z0-9._-]*$/;
 const ASSET = /^\/api\/flow\/assets\/([a-f0-9]{64}\.(?:png|jpg|webp|gif|mp3|wav|ogg|mp4|webm|m4a|aac|pdf))$/;

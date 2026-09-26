@@ -1,7 +1,7 @@
 .fa-preview{min-width:0}
 .fa-document{max-width:var(--su-measure);font-size:16px;line-height:1.8}
 .fa-document section+section{margin-top:var(--su-space-8)}
-.fa-document h2,.fa-document h3,.fa-document h4,.fa-document h5,.fa-document h6{font-size:19px;font-weight:600;line-height:1.5;margin:0 0 var(--su-space-3)}
+.fa-document h1,.fa-document h2,.fa-document h3,.fa-document h4,.fa-document h5,.fa-document h6{font-size:19px;font-weight:600;line-height:1.5;margin:0 0 var(--su-space-3)}
 .fa-document p{margin:0;white-space:pre-wrap}
 .fa-presentation{max-width:none}
 .fa-presentation-page{box-sizing:border-box;min-width:0;width:100%;display:flex;align-items:center;aspect-ratio:16/9;min-height:16rem;padding:clamp(var(--su-space-4),4vw,var(--su-space-8));border:1px solid var(--su-line);border-radius:var(--su-radius);background:var(--su-paper)}

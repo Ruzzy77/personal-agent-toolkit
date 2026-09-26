@@ -556,6 +556,17 @@ def check_public_mcp_contracts(errors: list[str]) -> None:
             if f"{name}Operations(" not in source or re.search(r"server\.registerTool\(\s*name\s*,", source) is None:
                 errors.append(f"{name} MCP must register the shared operation definitions")
             actual_tools = re.findall(rf"\b({name}_[a-z_]+):\s*op\(", definitions) + [f"{name}_capabilities"] + re.findall(rf"\b({name}_[a-z_]+):\s*op\(", operation_source)
+        if name == "host":
+            # The public Host surface forwards local tools and reads originals
+            # in the authenticated Toolkit service, without copying credentials.
+            remote = (ROOT / "services/remote-context/src/host.ts").read_text(encoding="utf-8")
+            definitions = remote.split("export const HOST_TOOLS:", 1)[1].split("\n];", 1)[0]
+            forwarded = re.findall(r'name:\s*"([a-z_]+)"', definitions)
+            originals = (ROOT / "services/remote-context/src/flow-resources.ts").read_text(encoding="utf-8")
+            original_tools = re.findall(r'name:\s*"(flow_resource_[a-z_]+)"', originals)
+            if set(actual_tools) != set(forwarded):
+                errors.append("Host forwarding tools differ from local registrations")
+            actual_tools = forwarded + original_tools
         if actual_tools != mcp["tools"]:
             errors.append(
                 f"{relative(implementation)} tool registrations differ from products.json"

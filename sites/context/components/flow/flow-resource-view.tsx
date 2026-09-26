@@ -4,13 +4,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { HtmlContentView, MarkdownContent, TextContentView } from "@personal-agent/flow-surface";
 import { ownerFetch } from "../../lib/owner-client";
-import { readCanonical } from "../../lib/context";
-import type { FlowArtifact, FlowContextLocator, FlowSource } from "../../lib/flow-content";
+import type { FlowArtifact, FlowSource } from "../../lib/flow-content";
 import type { FlowResourceSummary } from "../../lib/flow-resources";
-import type { GuidanceSource } from "../../lib/guidance";
 import type { ItemDetailResult } from "../../lib/journal";
 import { JournalItemContent } from "../journal/journal-item-content";
-import { LibraryReader } from "../library/library-reader";
 import {FlowUIKitReference} from "./flow-uikit-reference";
 import { FlowDesignReference } from "./flow-design-reference";
 import { FlowHostFile } from "./flow-host-file";
@@ -29,40 +26,34 @@ function SourceText({body,title,path}: {body:string;title:string;path?:string}) 
     : <p className="flow-muted">본문이 없습니다.</p>;
 }
 
-function JournalRecord({id}: {id:string}) {
-  const [detail,setDetail]=useState<ItemDetailResult|null>(null);
-  const [error,setError]=useState(false);
-  useEffect(()=>{
-    const controller=new AbortController();
-    void ownerFetch(`/api/journal/items/${encodeURIComponent(id)}`,{signal:controller.signal})
-      .then(async response=>{
-        if(!response.ok)throw new Error();
-        const payload=await response.json() as {ok:boolean;result?:ItemDetailResult};
-        if(!payload.ok||payload.result?.item.id!==id)throw new Error();
-        if(!controller.signal.aborted)setDetail(payload.result);
-      })
-      .catch(()=>{if(!controller.signal.aborted)setError(true)});
-    return()=>controller.abort();
-  },[id]);
-  if(error)return <p className="flow-muted" role="alert">기록을 열지 못했습니다. 원본에서 다시 확인해 주세요.</p>;
-  if(!detail)return <p className="flow-muted" role="status">기록을 불러오는 중입니다.</p>;
-  return <JournalItemContent detail={detail}/>;
-}
-
-function ContextDocument({locator}: {locator:FlowContextLocator}) {
-  const [source,setSource]=useState<GuidanceSource|null>(null);
-  const [error,setError]=useState(false);
-  useEffect(()=>{
-    let active=true;
-    void readCanonical(locator).then(value=>{if(active)setSource(value)})
-      .catch(()=>{if(active)setError(true)});
-    return()=>{active=false};
-  },[locator]);
-  if(error)return <p className="flow-muted" role="alert">자료를 열지 못했습니다. 원본에서 다시 확인해 주세요.</p>;
-  if(!source)return <p className="flow-muted" role="status">자료를 불러오는 중입니다.</p>;
-  return locator.product==="source"
-    ? <SourceText body={source.content.body} path={source.title} title={source.title}/>
-    : <ReadableText body={source.content.body} title={source.title}/>;
+function Publication({body,title}:{body:string;title:string}){
+ const [content,setContent]=useState<string|null>(null),[error,setError]=useState(""),[attempt,setAttempt]=useState(0);
+ useEffect(()=>{
+  const controller=new AbortController();
+  async function load(){
+   const doc=new DOMParser().parseFromString(body,"text/html"),images=[...doc.querySelectorAll("img[src]")];
+   let bytes=0;
+   const cache=new Map<string,string>();
+   for(const image of images){
+    const src=image.getAttribute("src")||"";
+    if(!/^\/media\/[A-Za-z0-9/_%.+-]+$/.test(src))continue;
+    if(!cache.has(src)){
+     const response=await ownerFetch(src,{signal:controller.signal});
+     if(!response.ok)throw new Error("발간물의 이미지를 열지 못했습니다.");
+     const blob=await response.blob();bytes+=blob.size;
+     if(bytes>24*1024*1024||!/^image\/(png|jpeg|webp|gif)$/.test(blob.type))throw new Error("발간물의 이미지를 확인하지 못했습니다.");
+     const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=reject;reader.readAsDataURL(blob)});
+     cache.set(src,data);
+    }
+    image.setAttribute("src",cache.get(src)!);image.removeAttribute("srcset");
+   }
+   if(!controller.signal.aborted)setContent("<!doctype html>"+doc.documentElement.outerHTML);
+  }
+  void Promise.resolve().then(()=>{if(controller.signal.aborted)return;setContent(null);setError("");return load()}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"발간물을 열지 못했습니다.")});
+  return()=>controller.abort();
+ },[body,attempt]);
+ if(error)return <div><p role="alert">{error}</p><Button color="primary" variant="ghost" onClick={()=>setAttempt(value=>value+1)}>다시 열기</Button></div>;
+ return content===null?<p role="status">발간물을 여는 중입니다.</p>:<HtmlContentView body={content} name={title} showSourceToggle={false}/>;
 }
 
 function UserContext({resource}:{resource:Extract<FlowResourceSummary,{kind:"user-context"}>}) {
@@ -86,13 +77,12 @@ function ResourceBody({resource,renderSourceArtifact}: {resource:FlowOpenResourc
       :<SourceText body={resource.body??""} path={path} title={resource.title}/>;
   }
   if(resource.kind==="user-context")return <UserContext resource={resource}/>;
-  if(resource.kind==="journal-item")return <JournalRecord key={resource.id} id={resource.id}/>;
-  if(resource.kind==="context")return <ContextDocument key={resource.href} locator={resource.locator}/>;
+  if(resource.kind==="journal-item")return resource.resolved?<JournalItemContent detail={JSON.parse(resource.resolved.body) as ItemDetailResult}/>:<p role="alert">기록을 다시 열어 주세요.</p>;
+  if(resource.kind==="context")return resource.resolved?(resource.resolved.format==="text"?<SourceText body={resource.resolved.body} title={resource.title}/>:<ReadableText body={resource.resolved.body} title={resource.title}/>):<p role="alert">자료를 다시 열어 주세요.</p>;
   if(resource.kind==="uikit-asset")return <FlowUIKitReference key={resource.id+resource.revision} id={resource.id} revision={resource.revision}/>;
   if(resource.kind==="design-recipe")return <FlowDesignReference key={resource.id} id={resource.id}/>;
   if(resource.kind==="host-file")return <FlowHostFile key={resource.root+":"+resource.path} root={resource.root} path={resource.path}/>;
-  const issuePath=/^\/editions\/[A-Za-z0-9/_-]+$/.test(resource.href)?resource.href:null;
-  return issuePath?<LibraryReader key={resource.id} path={issuePath} inline/>:<p className="flow-muted">이 발간물은 여기서 열 수 없습니다. 원본을 확인해 주세요.</p>;
+  return resource.resolved?<Publication body={resource.resolved.body} title={resource.title}/>:<p role="alert">발간물을 다시 열어 주세요.</p>;
 }
 
 export function FlowResourceView({resource,onClose,action,hideTitle=false,renderSourceArtifact}: {resource:FlowOpenResource;onClose?:()=>void;action?:ReactNode;hideTitle?:boolean;renderSourceArtifact?:(artifact:FlowArtifact)=>ReactNode}) {

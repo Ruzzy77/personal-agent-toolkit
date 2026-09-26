@@ -14,7 +14,7 @@ function webPath(path: string, method = "GET"): string {
   if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
     throw new OwnerSessionError(403, "owner request path is invalid");
   }
-  const product = /^(\/site\/v1\/|\/admin\/v1\/|\/site\/host\/v1\/|\/journal\/api\/v1\/|\/library\/api\/v1\/|\/design\/api\/v1\/)/;
+  const product = /^(\/site\/v1\/|\/admin\/v1\/|\/site\/host\/v1\/|\/site\/flow\/v1\/|\/journal\/api\/v1\/|\/library\/api\/v1\/|\/design\/api\/v1\/)/;
   const media = (/^\/library\/media\/.+/.test(path) || /^\/site\/host\/v1\/flow-media\/.+/.test(path)) && ["GET", "HEAD"].includes(method.toUpperCase());
   if (!product.test(path) && !media) {
     throw new OwnerSessionError(403, "owner request path is not available");

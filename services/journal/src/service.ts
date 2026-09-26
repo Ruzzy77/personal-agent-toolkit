@@ -247,7 +247,7 @@ export class JournalService {
               value?.toLocaleLowerCase().includes(query),
             )),
       );
-      return { items: matching.slice(0, input.limit), count: matching.length };
+      return { items: matching.slice(input.offset??0, (input.offset??0)+input.limit), count: matching.length };
     }
     return this.repository.findItems(input);
   }

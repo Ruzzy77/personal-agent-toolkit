@@ -1,4 +1,5 @@
 import {validLibraryEntry,libraryEntryKey,libraryEntryVisible} from '../src/library.js';
+import {sourceCatalog} from './reads.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import {activeArtifact,reviewCounts,validArtifact,validState,validLinkedResources,reviseArtifact,documentArtifact,libraryItems,saveSnapshot,sourceItems,validRect} from '../src/model.js';
 import {contentAssetSources} from '../src/work-surface/validation.js';
@@ -12,10 +13,10 @@ const id=v=>typeof v==='string'&&v.length>0&&v.length<=160;
 const clone=v=>structuredClone(v);
 const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const fingerprint=v=>createHash('sha256').update(JSON.stringify(canonical(v))).digest('hex');
-const sourceSummary=({id,title,kind,collection,artifactId,artifact})=>({id,title,kind,collection,...(artifact?{artifactId,artifactRevision:artifact.revision}:{})});
+const sourceSummary=({id,title,kind,collection,artifactId,artifact,scope,reference,sourceVersion,example})=>({id,title,kind,collection,...(artifact?{artifactId,artifactRevision:artifact.revision}:{}),...(scope?{scope}:{}),...(reference?{reference}:{}),...(sourceVersion?{sourceVersion}:{}),...(example===true?{example:true}:{})});
 
-export function createFlowDomain({read,mutate,workspaceId='workspace',displayName='작업공간',publicUrl='',assetExists=async()=>false}) {
- const link=(workId,artifactId)=>publicUrl?publicUrl.replace(/\/$/,'')+'/?work='+encodeURIComponent(workId)+(artifactId?'&artifact='+encodeURIComponent(artifactId):''):null;
+export function createFlowDomain({read,mutate,workspaceId='workspace',displayName='작업공간',publicUrl='',webLink,assetExists=async()=>false}) {
+ const link=(workId,artifactId)=>webLink?webLink(workId,artifactId):publicUrl?publicUrl.replace(/\/$/,'')+'/?work='+encodeURIComponent(workId)+(artifactId?'&artifact='+encodeURIComponent(artifactId):''):null;
  const checkWorkspace=input=>{if(input!==workspaceId)throw fail(404,'등록된 작업공간이 아닙니다.')};
  const getWork=(state,workId)=>{const work=state?.works.find(w=>w.id===workId);if(!work)throw fail(404,'작업을 찾지 못했습니다.');return work};
  const receipt=(state,token)=>state?.changes?.find(c=>c.idempotencyKey===token);
@@ -28,7 +29,7 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
  function result(c){const {idempotencyKey,inputHash,...visible}=c;return {...visible,link:link(c.workId,c.artifactId)}}
  async function workspaceList(){return {workspaces:[{id:workspaceId,name:displayName,capabilities:['work.read','work.write','change.submit','change.review'],url:publicUrl||null}]}}
  async function workList({workspaceId:given,query=''}){checkWorkspace(given);const {state,revision}=await read(),counts=reviewCounts(state?.changes);return {stateRevision:revision,works:(state?.works||[]).filter(w=>w.name.toLowerCase().includes(String(query).toLowerCase())).map(w=>{const artifact=activeArtifact(w);return {id:w.id,name:w.name,revision:w.revision||0,purpose:w.purpose||'',artifact:{id:artifact.id,title:artifact.title,kind:artifact.kind,...(artifact.kind==='document'?{format:artifact.format}:{}),revision:artifact.revision},reviewCount:counts.get(w.id)||0,link:link(w.id)}})}}
- async function workRead({workspaceId:given,workId}){checkWorkspace(given);const {state,revision}=await read(),w=getWork(state,workId);return {stateRevision:revision,work:clone(w),sources:sourceItems(state).filter(item=>w.sourceIds.includes(item.id)).map(clone),sourceCatalog:libraryItems(state).map(sourceSummary),changes:(state.changes||[]).filter(c=>c.kind==='change'&&c.workId===workId).map(result),link:link(w.id)}}
+ async function workRead({workspaceId:given,workId}){checkWorkspace(given);const {state,revision}=await read(),w=getWork(state,workId);return {stateRevision:revision,work:clone(w),sources:sourceItems(state).filter(item=>w.sourceIds.includes(item.id)).map(clone),sourceCatalog:libraryItems(state).filter(item=>!item.scope||libraryEntryVisible(item,workId)||w.sourceIds.includes(item.id)).map(sourceSummary),changes:(state.changes||[]).filter(c=>c.kind==='change'&&c.workId===workId).map(result),link:link(w.id)}}
  async function snapshotList({workspaceId:given,query='',offset=0,limit=50}) {
   checkWorkspace(given);
   if(typeof query!=='string'||query.length>200||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)
@@ -70,7 +71,6 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
    const w={id:randomUUID(),revision:0,name:workName.trim(),purpose:'',sourceIds:sourceId?[sourceId]:[],linkedResources:linkedResources??[],activeArtifactId:a.id,artifacts:[a]};
    const base=state||{version:4,libraryEntries:[],workspaceId,theme:'light',activeId:w.id,savedIds:[],works:[],librarySnapshots:[],changes:[]};
    const next={...base,works:[...base.works,w],changes:[...(base.changes||[]),{id:randomUUID(),kind:'create',idempotencyKey,inputHash,workId:w.id,artifactId:a.id,status:'completed'}]};
-   if(!validState(next))throw fail(422,'작업을 만들 수 없습니다.');
    return {state:next,result:{work:w,link:link(w.id,a.id)}};
   });
  }
@@ -81,11 +81,10 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
   const inputHash=fingerprint({workspaceId:given,workId,expectedRevision,patch});
   return mutate(state=>{
    const previous=receipt(state,idempotencyKey);if(previous){if(previous.kind!=='work_update'||previous.inputHash!==inputHash)throw fail(409,'재시도 식별자가 다른 변경에 사용되었습니다.');return {state,result:{work:getWork(state,previous.workId),link:link(previous.workId)}}}
-   const w=getWork(state,workId);if(patch.activeArtifactId&&!w.artifacts.some(a=>a.id===patch.activeArtifactId))throw fail(422,'작업물을 찾지 못했습니다.');if(patch.sourceIds){const available=new Set(sourceItems(state).map(item=>item.id));if(patch.sourceIds.some(value=>!available.has(value)))throw fail(422,'등록되지 않은 자료는 연결할 수 없습니다.')}if(w.revision!==expectedRevision)throw fail(409,'작업 맥락이 변경되었습니다.');
+   const w=getWork(state,workId);if(patch.activeArtifactId&&!w.artifacts.some(a=>a.id===patch.activeArtifactId))throw fail(422,'작업물을 찾지 못했습니다.');if(patch.sourceIds){const available=new Set(sourceCatalog(state).map(item=>item.id));if(patch.sourceIds.some(value=>!available.has(value)))throw fail(422,'등록되지 않은 자료는 연결할 수 없습니다.')}if(w.revision!==expectedRevision)throw fail(409,'작업 맥락이 변경되었습니다.');
    if(patch.surfaceLayout){const ids=new Set(w.artifacts.map(item=>item.id));if(patch.surfaceLayout.order.some(item=>!ids.has(item))||Object.keys(patch.surfaceLayout.spans).some(item=>!ids.has(item)))throw fail(422,'배치할 작업물을 다시 확인해 주세요.');}
    const updated={...w,...patch,revision:w.revision+1};
    const next={...state,works:state.works.map(item=>item.id===w.id?updated:item),changes:[...(state.changes||[]),{id:randomUUID(),kind:'work_update',idempotencyKey,inputHash,workId:w.id,status:'completed'}]};
-   if(!validState(next))throw fail(422,'작업 맥락을 저장할 수 없습니다.');
    return {state:next,result:{work:updated,link:link(w.id)}};
   });
  }
@@ -109,7 +108,6 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
    const saved=existing?state:saveSnapshot(state,workId,artifactId),snapshot=existing||saved.librarySnapshots.at(-1);
    const source=libraryItems(saved).find(item=>item.id===snapshot.id);
    const next={...saved,changes:[...(saved.changes||[]),{id:randomUUID(),kind:'snapshot_create',idempotencyKey,inputHash,workId,artifactId,sourceId:snapshot.id,status:'completed'}]};
-   if(!validState(next))throw fail(422,'작업물을 보관할 수 없습니다.');
    return {state:next,result:{source:sourceSummary(source),link:link(workId,artifactId)}};
   });
  }
@@ -205,6 +203,7 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
   checkWorkspace(given);
   return mutate(state=>{
    const c=state?.changes?.find(v=>v.id===changeId);if(!c||c.kind!=='change')throw fail(404,'변경안을 찾지 못했습니다.');
+   if(action==='apply'&&c.status==='completed'||action==='undo'&&c.status==='undone')return {state,result:{change:result(c)}};
    let next=state,updated;
    if(action==='apply'){
     if(!['review','conflict'].includes(c.status))throw fail(409,'적용할 수 없는 상태입니다.');
@@ -214,7 +213,7 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
     const w=getWork(state,c.workId),a=w.artifacts.find(v=>v.id===c.artifactId);
     if(c.mode==='add'){if(!a||a.revision!==0||w.artifacts.length<2)throw fail(409,'그 뒤에 작업물이 수정되었습니다.');const remaining=w.artifacts.filter(v=>v.id!==a.id);next={...state,works:state.works.map(v=>v.id===w.id?{...w,artifacts:remaining,activeArtifactId:w.activeArtifactId===a.id?remaining[0].id:w.activeArtifactId}:v)};}
     else{if(!a||a.revision!==c.appliedRevision)throw fail(409,'그 뒤에 작업물이 수정되었습니다.');next=reviseArtifact(state,w.id,a.id,c.before,c.appliedRevision)}
-    updated={...c,status:'undone',before:null};
+    updated={...c,status:'undone'};
    }else throw fail(422,'변경 동작을 확인해 주세요.');
    next={...next,changes:next.changes.map(v=>v.id===c.id?updated:v)};
    return {state:next,result:{change:result(updated)}};
@@ -245,14 +244,13 @@ export function createFlowDomain({read,mutate,workspaceId='workspace',displayNam
    if(entry.scope.kind==='work')getWork(state,entry.scope.workId);
    const identity=libraryEntryKey(entry);
    const existing=state.libraryEntries.find(e=>e.id===entry.id);
-   if(!existing&&sourceItems(state).some(item=>item.id===entry.id))throw fail(409,'기존 자료와 식별자가 겹칩니다.');
-   const duplicate=identity&&state.libraryEntries.find(e=>e.id!==entry.id&&libraryEntryKey(e)===identity);
+   if(!existing&&sourceCatalog(state).some(item=>item.id===entry.id))throw fail(409,'기존 자료와 식별자가 겹칩니다.');
+   const duplicate=identity&&state.libraryEntries.find(e=>e.id!==entry.id&&libraryEntryKey(e)===identity&&(e.body||'').trim()===(entry.body||'').trim());
    if(duplicate)throw fail(409,'같은 자료가 이미 있습니다. 기존 자료를 확인해 주세요.');
    if((existing?.revision??0)!==expectedRevision)throw fail(409,'자료가 바뀌었습니다. 현재 내용을 확인해 주세요.');
    const updated={...clone(entry),revision:(existing?.revision??0)+1};
    const next={...state,libraryEntries:existing?state.libraryEntries.map(e=>e.id===entry.id?updated:e):[...state.libraryEntries,updated],
     changes:[...(state.changes||[]),{id:randomUUID(),kind:'library_upsert',entryId:entry.id,idempotencyKey,inputHash,status:'completed'}]};
-   if(!validState(next))throw fail(422,'자료를 저장할 수 없습니다.');
    return {state:next,result:{entry:clone(updated)}};
   });
  }

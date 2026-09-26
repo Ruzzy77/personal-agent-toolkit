@@ -183,6 +183,8 @@ export interface JournalEventRecord {
 }
 
 export interface ItemSearchInput {
+  offset?: number;
+  latestOnly?: boolean;
   weekId: string | null;
   startsOn: string | null;
   endsOn: string | null;

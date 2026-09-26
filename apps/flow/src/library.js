@@ -12,6 +12,6 @@ export function validLibraryEntry(e){
 export const libraryEntryKey=e=>e.reference?e.scope.kind+(e.scope.kind==='work'?':'+e.scope.workId:'')+':'+resourceReferenceKey(e.reference):null;
 export const libraryEntryVisible=(e,workId)=>!workId||e.scope.kind!=='work'||e.scope.workId===workId;
 export function libraryEntrySource(e){
- return {...e,kind:'자료',collection:e.scope.kind==='work'?'작업 자료':e.scope.kind==='personal'?'공통 자료':'프로젝트 자료',
+ return {...e,kind:'자료',collection:e.scope.kind==='work'?'작업 자료':e.scope.kind==='personal'?'공통 자료':'작업공간 자료',
   ...(e.reference?.kind==='host-file'?{filePath:e.reference.path,root:e.reference.root,live:true}:{}),body:e.body||''};
 }

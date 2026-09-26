@@ -65,6 +65,7 @@ export class LibraryService {
     limit: number,
     lifecycle: "active" | "trash" | "all" = "active",
     offset = 0,
+    query = "",
   ): Promise<LibraryIssueSummary[]> {
     if (collection !== null && !isCollection(collection)) {
       throw new LibraryError("invalid_collection", "collection is invalid");
@@ -74,6 +75,7 @@ export class LibraryService {
       limit,
       lifecycle,
       offset,
+      query,
     });
   }
 

@@ -519,3 +519,14 @@ describe("owner web product bridges", () => {
     expect(design.status).toBe(200);
   });
 });
+
+it("Flow originals authenticate the existing web grant and retain each product scope",async()=>{
+ const options={method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"Toolkit",limit:5})};
+ const path="/web/site/flow/v1/flow_resource_search";
+ expect((await handleHttp(webRequest(path,undefined,options),webEnv)).status).toBe(401);
+ const result=await handleHttp(webRequest(path,"read-token",options),webEnv);
+ expect(result.status,await result.clone().text()).toBe(200);
+ expect(await body(result)).toMatchObject({ok:true,result:{items:expect.any(Array),partial:false}});
+ const denied=await handleHttp(webRequest("/web/site/flow/v1/flow_resource_read","read-token",{...options,body:JSON.stringify({reference:{kind:"context",locator:{product:"sense",sectionId:"ordinary"}}})}),webEnv);
+ expect(denied.status).toBe(403);
+});

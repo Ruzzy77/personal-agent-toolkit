@@ -217,10 +217,21 @@ def command_uninstall(args: argparse.Namespace) -> int:
     )
 
 
-def _rsync(source: Path, destination: Path) -> None:
+def _rsync(source: Path, destination: Path, databases: tuple[Path, ...] = ()) -> None:
     destination.mkdir(parents=True, exist_ok=True)
+    exclusions = []
+    for database in databases:
+        if source.resolve() in database.resolve().parents:
+            relative = database.resolve().relative_to(source.resolve()).as_posix()
+            exclusions.extend(
+                [
+                    "--exclude=/" + relative,
+                    "--exclude=/" + relative + "-*",
+                    "--exclude=/" + relative + ".*.tmp*",
+                ]
+            )
     subprocess.run(
-        ["rsync", *RSYNC, f"{source}/", f"{destination}/"],
+        ["rsync", *RSYNC, *exclusions, f"{source}/", f"{destination}/"],
         check=True,
         capture_output=True,
         text=True,
@@ -229,14 +240,31 @@ def _rsync(source: Path, destination: Path) -> None:
 
 
 def _copy_sqlite(source: Path, destination: Path) -> None:
+    """Use SQLite's online backup; publish a complete copy atomically."""
+    import tempfile
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    origin = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    copy = sqlite3.connect(destination)
+    handle, name = tempfile.mkstemp(
+        prefix=destination.name + ".", suffix=".tmp", dir=destination.parent
+    )
+    os.close(handle)
+    temporary = Path(name)
+    origin = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
+    copy = sqlite3.connect(temporary)
     try:
         origin.backup(copy)
+        if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise SyncError(
+                "backup_invalid", "SQLite backup did not pass integrity_check"
+            )
+        copy.close()
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
     finally:
         copy.close()
         origin.close()
+        temporary.unlink(missing_ok=True)
 
 
 def _on_mount(path: Path) -> bool:
@@ -262,7 +290,7 @@ def command_backup(args: argparse.Namespace) -> int:
     for source in config.backup.paths:
         if not source.is_dir():
             continue
-        _rsync(source, destination / "paths" / source.name)
+        _rsync(source, destination / "paths" / source.name, config.backup.sqlite_paths)
         copied.append(str(source))
     state = config.sync.data_root
     subprocess.run(
@@ -282,6 +310,24 @@ def command_backup(args: argparse.Namespace) -> int:
         timeout=6 * 3600,
     )
     databases: list[str] = []
+    for database in config.backup.sqlite_paths:
+        if not database.is_file():
+            raise SyncError(
+                "backup_source_missing",
+                f"Registered SQLite database is missing: {database}",
+            )
+        source = next(
+            root
+            for root in config.backup.paths
+            if root.resolve() in database.resolve().parents
+        )
+        relative = (
+            Path("paths")
+            / source.name
+            / database.resolve().relative_to(source.resolve())
+        )
+        _copy_sqlite(database, destination / relative)
+        databases.append(str(relative))
     for db in sorted(state.rglob("*")):
         if db.is_file() and db.suffix in (".db", ".sqlite", ".sqlite3"):
             relative = db.relative_to(state)

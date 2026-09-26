@@ -7,7 +7,7 @@ const TOKEN_HEADER = "X-Toolkit-Transfer-Token";
 const SITE_TOOLS = new Set([
   "host_capabilities", "host_roots", "host_read", "host_write", "host_files", "host_transfer",
   "flow_library_list","flow_library_read","flow_library_upsert","flow_workspace_list", "flow_work_list", "flow_work_read",
-  "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read", "flow_snapshot_create", "flow_asset_import", "flow_change_submit", "flow_change_action",
+  "flow_artifact_read", "flow_change_list", "flow_change_read", "flow_work_create", "flow_work_update", "flow_snapshot_list", "flow_snapshot_read", "flow_snapshot_create", "flow_asset_import", "flow_change_submit", "flow_change_action",
 ]);
 
 const FLOW_MEDIA = /^\/site\/host\/v1\/flow-media\/([a-z0-9][a-z0-9._-]*)\/(assets|examples|files)\/([A-Za-z0-9._-]+)$/;

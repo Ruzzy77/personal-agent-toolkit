@@ -6,6 +6,7 @@ export type FlowResourceSummary = FlowLinkedResource & {
   title: string;
   detail: string;
   href: string;
+  resolved?:{body:string;format:string;version:string};
   context?: {nodes:Array<{node_id:string;name:string;description?:string}>;predicates:Array<{predicate_id:string;name:string;description?:string}>;edges:Array<{edge_id:string;source_id:string;target_id:string;predicate_id:string}>};
 };
 
@@ -20,7 +21,6 @@ type LibraryRecord = {
 const resolutionLabel: Record<JournalRecord["resolution"],string> = {
   active:"진행 중",held:"보류",completed:"완료",canceled:"취소",
 };
-const collectionLabel: Record<string,string> = {daily:"Daily",digest:"Digest",research:"Research"};
 
 export type DesignRecipeRecord = {
   id:string; name:string; description:string; version:string;

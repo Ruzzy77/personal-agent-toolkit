@@ -325,6 +325,11 @@ export class JournalRepository {
   }> {
     const clauses: string[] = [];
     const bindings: unknown[] = [];
+    if (input.latestOnly) {
+      clauses.push(
+        "NOT EXISTS (SELECT 1 FROM items newer WHERE newer.logical_item_id = i.logical_item_id AND newer.week_id > i.week_id)",
+      );
+    }
     if (input.weekId) {
       clauses.push("i.week_id = ?");
       bindings.push(input.weekId);
@@ -359,9 +364,9 @@ export class JournalRepository {
            JOIN weeks w ON w.id = i.week_id
            ${where}
            ORDER BY i.week_id DESC, i.updated_at DESC, i.id
-           LIMIT ?`,
+           LIMIT ? OFFSET ?`,
         )
-        .bind(...bindings, input.limit)
+        .bind(...bindings, input.limit, input.offset ?? 0)
         .all<ItemRow>(),
       this.db
         .prepare(

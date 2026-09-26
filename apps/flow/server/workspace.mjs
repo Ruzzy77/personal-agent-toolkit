@@ -3,6 +3,8 @@ import {spawn} from 'node:child_process';
 import {mkdir,readFile,writeFile,rename,rm,readdir,realpath,stat} from 'node:fs/promises';
 import {join,relative,resolve} from 'node:path';
 import {createFlowDomain} from './domain.mjs';
+import {createFlowStore,compactResult} from './store.mjs';
+import {createFlowReads} from './reads.mjs';
 import {hostname} from 'node:os';
 import {validState,migrateState} from '../src/model.js';
 import {mergeStates} from '../src/merge.js';
@@ -58,28 +60,10 @@ function imageType(bytes,mime){
  throw fault(415,'지원하지 않거나 파일 내용과 형식이 일치하지 않습니다.');
 }
 export function createWorkspaceService(directory,{workspaceRoot=null,workspaceId='workspace',displayName='작업공간',publicUrl='',toolkitUrl='',pdfInspector=pdfPageCount,pdfRenderer=renderPdfPage}={}){
- const file=join(directory,'workspace.json'),assets=join(directory,'assets');
- let writes=Promise.resolve();
- const serialize=fn=>{const result=writes.then(fn);writes=result.catch(()=>{});return result};
- async function read(){
-  try{const bytes=await readFile(file);const state=migrateState(JSON.parse(bytes),workspaceId);if(state.workspaceId!==workspaceId)throw fault(500,'작업공간 식별자가 일치하지 않습니다.');return {revision:hash(bytes),state}}
-  catch(e){if(e.code==='ENOENT')return {revision:'empty',state:null};throw e}
- }
- async function save(state){
-   if(!validState(state)||state.workspaceId!==workspaceId)throw fault(422,'작업 형식이 올바르지 않습니다.');
-   await mkdir(directory,{recursive:true,mode:0o700});
-   const bytes=JSON.stringify(state),tmp=file+'.tmp';
-   try{await writeFile(tmp,bytes,{mode:0o600});await rename(tmp,file)}finally{await rm(tmp,{force:true})}
-   return {revision:hash(bytes)};
- }
- async function mutate(fn){return serialize(async()=>{const current=await read(),update=fn(current.state);if(update.state!==current.state)await save(update.state);return update.result})}
- async function put(state,revision){
-  if(!validState(state)||state.workspaceId!==workspaceId)throw fault(422,'작업 형식이 올바르지 않습니다.');
-  return serialize(async()=>{
-   const current=await read();if(current.revision!==revision)throw fault(409,'다른 화면에서 작업이 변경되었습니다.');
-   return save(state);
-  });
- }
+ const assets=join(directory,'assets');
+ const store=createFlowStore(directory,workspaceId);
+ const {read,put,mutate}=store;
+ const reads=createFlowReads(store,{workspaceId,displayName,publicUrl,toolkitUrl});
  const forbidden=new Set(['.git','.data','.ssh','.codex','node_modules']);
  function checkedParts(path){
   if(typeof path!=='string'||path.startsWith('/')||path.includes('\\')||/[\u0000-\u001f]/.test(path))throw fault(400,'경로 형식이 올바르지 않습니다.');
@@ -132,7 +116,7 @@ export function createWorkspaceService(directory,{workspaceRoot=null,workspaceId
   return {type:'text/plain',content,path:rel};
  }
  const assetExists=async src=>{const match=typeof src==='string'&&src.match(/^\/api\/flow\/assets\/([a-f0-9]{64}\.(?:png|jpg|webp|gif|mp3|wav|ogg|mp4|webm|m4a|aac|pdf))$/);return !!match&&(await stat(join(assets,match[1])).catch(()=>null))?.isFile()};
- const domain=createFlowDomain({read,mutate,workspaceId,displayName,publicUrl,assetExists});
+ const domain=createFlowDomain({read,mutate,workspaceId,displayName,publicUrl,webLink:reads.link,assetExists});
  async function handler(req,res,next){
   let url;
   try{url=new URL(req.url,'http://localhost')}catch{return next()}
@@ -144,7 +128,23 @@ export function createWorkspaceService(directory,{workspaceRoot=null,workspaceId
    if(req.headers.origin&&req.headers.origin!=='http://'+host)throw fault(403,'다른 출처에서는 접근할 수 없습니다.');
    if(req.headers['sec-fetch-site']==='cross-site')throw fault(403,'다른 출처에서는 접근할 수 없습니다.');
    if(!['GET','HEAD'].includes(req.method)&&req.headers['x-toolkit-flow']!=='1')throw fault(403,'요청을 확인할 수 없습니다.');
+   if(url.pathname==='/api/flow/workspace/recover'&&req.method==='POST'){
+    const data=await parseJson(req,2*MAX_STATE);
+    if(!validState(data.base)||!validState(data.state)||data.base.workspaceId!==workspaceId||data.state.workspaceId!==workspaceId)throw fault(422,'복구할 작업 형식을 확인해 주세요.');
+    if(typeof data.idempotencyKey!=='string'||data.idempotencyKey.length<8||data.idempotencyKey.length>160)throw fault(422,'복구 요청을 확인해 주세요.');
+    const inputHash=hash(Buffer.from(JSON.stringify({base:data.base,state:data.state})));
+    const result=await mutate(current=>{
+     if(!current)throw fault(409,'비교할 저장본이 없습니다.');
+     const prior=current.changes?.find(change=>change.idempotencyKey===data.idempotencyKey);
+     if(prior){if(prior.kind!=='browser_recovery'||prior.inputHash!==inputHash)throw fault(409,'다른 복구 요청과 식별자가 겹칩니다.');return {state:current,result:{recovered:true}}}
+     const next=mergeStates(data.base,data.state,current);
+     next.changes=[...(current.changes||[]),{id:'recovery:'+data.idempotencyKey,kind:'browser_recovery',idempotencyKey:data.idempotencyKey,inputHash,status:'completed'}];
+     return {state:next,result:{recovered:true}};
+    });
+    return json(200,{...result,revision:(await read()).revision});
+   }
    if(url.pathname==='/api/flow/workspace/merge'&&req.method==='POST'){
+    if(store.isMigrated())throw fault(426,'새 Toolkit 화면에서 작업을 이어가 주세요. 이 브라우저의 변경은 그대로 남아 있습니다.');
     const data=await parseJson(req,2*MAX_STATE);
     if(!validState(data.base)||!validState(data.state))throw fault(422,'병합할 작업 형식이 올바르지 않습니다.');
     return json(200,await mutate(current=>{
@@ -155,32 +155,37 @@ export function createWorkspaceService(directory,{workspaceRoot=null,workspaceId
     }));
    }
    if(url.pathname==='/api/flow/workspace'){
-    if(req.method==='GET')return json(200,{api:'toolkit-flow-v4',workspaceId,displayName,toolkitUrl,...await read()});
+    if(req.method==='GET')return json(200,{api:'toolkit-flow-v5',apiVersion:5,workspaceId,displayName,toolkitUrl,webUrl:reads.link(),migrated:store.isMigrated()});
     if(req.method==='PUT'){
+     if(store.isMigrated())throw fault(426,'새 Toolkit 화면에서 작업을 이어가 주세요.');
      let data;try{data=JSON.parse(await body(req,MAX_STATE))}catch(e){if(e.status)throw e;throw fault(400,'저장 내용을 읽을 수 없습니다.')}
      return json(200,await put(data,req.headers['if-match']));
     }
     throw fault(405,'지원하지 않는 요청입니다.');
    }
-   if(url.pathname==='/api/flow/workspaces'&&req.method==='GET')return json(200,await domain.workspaceList());
-   if(url.pathname==='/api/flow/works'&&req.method==='GET')return json(200,await domain.workList({workspaceId:url.searchParams.get('workspaceId'),query:url.searchParams.get('query')||''}));
-   if(url.pathname==='/api/flow/works'&&req.method==='POST')return json(201,await domain.workCreate(await parseJson(req,MAX_STATE)));
+   if(url.pathname==='/api/flow/workspaces'&&req.method==='GET')return json(200,reads.workspaceList());
+   if(url.pathname==='/api/flow/works'&&req.method==='GET')return json(200,reads.workList({workspaceId:url.searchParams.get('workspaceId'),query:url.searchParams.get('query')||'',offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||50)}));
+   if(url.pathname==='/api/flow/works'&&req.method==='POST')return json(201,compactResult(await domain.workCreate(await parseJson(req,MAX_STATE))));
    const workPath=url.pathname.match(/^\/api\/flow\/works\/([^/]+)$/);
    if(workPath){const input={workspaceId:url.searchParams.get('workspaceId')||undefined,workId:decodeURIComponent(workPath[1])};
-    if(req.method==='GET')return json(200,await domain.workRead(input));
-    if(req.method==='PATCH')return json(200,await domain.workUpdate({...await parseJson(req,MAX_STATE),workId:input.workId}));
+    if(req.method==='GET')return json(200,reads.workRead({...input,offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||100)}));
+    if(req.method==='PATCH')return json(200,compactResult(await domain.workUpdate({...await parseJson(req,MAX_STATE),workId:input.workId})));
    }
-   if(url.pathname==='/api/flow/library'&&req.method==='GET')return json(200,await domain.libraryList({workspaceId:url.searchParams.get('workspaceId'),query:url.searchParams.get('query')||'',workId:url.searchParams.get('workId')||undefined,offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||50)}));
+   if(url.pathname==='/api/flow/library'&&req.method==='GET')return json(200,reads.libraryList({workspaceId:url.searchParams.get('workspaceId'),query:url.searchParams.get('query')||'',workId:url.searchParams.get('workId')||undefined,offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||50)}));
    if(url.pathname==='/api/flow/library'&&req.method==='POST')return json(200,await domain.libraryUpsert(await parseJson(req,MAX_STATE)));
    const libraryPath=url.pathname.match(/^\/api\/flow\/library\/([^/]+)$/);
-   if(libraryPath&&req.method==='GET')return json(200,await domain.libraryRead({workspaceId:url.searchParams.get('workspaceId'),entryId:decodeURIComponent(libraryPath[1])}));
+   if(libraryPath&&req.method==='GET')return json(200,reads.libraryRead({workspaceId:url.searchParams.get('workspaceId'),entryId:decodeURIComponent(libraryPath[1])}));
    if(url.pathname==='/api/flow/snapshots'&&req.method==='GET')return json(200,await domain.snapshotList({workspaceId:url.searchParams.get('workspaceId'),query:url.searchParams.get('query')||'',offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||50)}));
    if(url.pathname==='/api/flow/snapshots'&&req.method==='POST')return json(201,await domain.snapshotCreate(await parseJson(req,4096)));
    const snapshotPath=url.pathname.match(/^\/api\/flow\/snapshots\/([^/]+)$/);
-   if(snapshotPath&&req.method==='GET')return json(200,await domain.snapshotRead({workspaceId:url.searchParams.get('workspaceId'),sourceId:decodeURIComponent(snapshotPath[1])}));
-   if(url.pathname==='/api/flow/changes'&&req.method==='POST')return json(200,await domain.changeSubmit(await parseJson(req,MAX_STATE)));
+   if(snapshotPath&&req.method==='GET')return json(200,{source:reads.libraryRead({workspaceId:url.searchParams.get('workspaceId'),entryId:decodeURIComponent(snapshotPath[1])}).entry});
+   if(url.pathname==='/api/flow/artifact'&&req.method==='GET')return json(200,reads.artifactRead({workspaceId:url.searchParams.get('workspaceId'),artifactId:url.searchParams.get('artifactId')||undefined,revision:url.searchParams.has('revision')?Number(url.searchParams.get('revision')):undefined,sourceId:url.searchParams.get('sourceId')||undefined,changeId:url.searchParams.get('changeId')||undefined,part:url.searchParams.get('part')||undefined,version:url.searchParams.get('version')||undefined,offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||65536)}));
+   if(url.pathname==='/api/flow/changes'&&req.method==='GET')return json(200,reads.changeList({workspaceId:url.searchParams.get('workspaceId'),workId:url.searchParams.get('workId'),offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||50),status:url.searchParams.get('status')||undefined}));
+   const changeReadPath=url.pathname.match(/^\/api\/flow\/changes\/([^/]+)$/);
+   if(changeReadPath&&req.method==='GET')return json(200,reads.changeRead({workspaceId:url.searchParams.get('workspaceId'),changeId:decodeURIComponent(changeReadPath[1])}));
+   if(url.pathname==='/api/flow/changes'&&req.method==='POST')return json(200,compactResult(await domain.changeSubmit(await parseJson(req,MAX_STATE))));
    const changePath=url.pathname.match(/^\/api\/flow\/changes\/([^/]+)\/(apply|undo)$/);
-   if(changePath&&req.method==='POST')return json(200,await domain.changeAction({...await parseJson(req,1024),changeId:decodeURIComponent(changePath[1]),action:changePath[2]}));
+   if(changePath&&req.method==='POST')return json(200,compactResult(await domain.changeAction({...await parseJson(req,1024),changeId:decodeURIComponent(changePath[1]),action:changePath[2]})));
    if(url.pathname==='/api/flow/files'&&req.method==='GET'){
     if(url.searchParams.get('workspaceId')!==workspaceId)throw fault(400,'등록된 작업공간을 선택해 주세요.');
     return json(200,await listFiles(url.searchParams.get('path')||''));
@@ -237,7 +242,7 @@ export function createWorkspaceService(directory,{workspaceRoot=null,workspaceId
    throw fault(404,'찾을 수 없는 작업 경로입니다.');
   }catch(e){if(!res.headersSent)json(e.status||500,{error:e.status?e.message:'작업공간에 저장하지 못했습니다.'});else res.end()}
  }
- return {handler,read,put,mutate,domain};
+ return {handler,read,put,mutate,domain,reads,store,close:store.close};
 }
 export function assertWorkHost({root,host,workspaceRoot},runtime={platform:process.platform,hostname:hostname()}){
  const path=workspaceRoot&&root?relative(workspaceRoot,root):'..';

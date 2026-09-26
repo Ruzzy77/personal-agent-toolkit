@@ -14,13 +14,25 @@ export function NavAction({active=false,children,...props}){
 
 const screens=[['work','작업공간',FileText],['library','라이브러리',BookOpen],['files','파일',FolderOpen]];
 
-function WorkMenuItems({groups,currentId,reviewCount,onSelect,onCreate,focusOnMount=false}){
+function WorkMenuItems({groups,currentId,reviewCount,onSelect,onCreate,onSearch,focusOnMount=false}){
  const [searching,setSearching]=useState(false),[query,setQuery]=useState('');
+ const [found,setFound]=useState({query:null,works:[],nextOffset:null,error:''}),[moreBusy,setMoreBusy]=useState(false);
  const searchAction=useRef(null),searchInput=useRef(null),firstWork=useRef(null);
  useEffect(()=>{if(!focusOnMount)return;const frame=requestAnimationFrame(()=>firstWork.current?.closest('[role="menuitem"]')?.focus());return()=>cancelAnimationFrame(frame)},[focusOnMount]);
  useEffect(()=>{if(!searching)return;const frame=requestAnimationFrame(()=>searchInput.current?.focus({preventScroll:true}));return()=>cancelAnimationFrame(frame)},[searching,query]);
  const all=[...groups.recent,...groups.other],term=query.trim().toLocaleLowerCase('ko');
- const visible=searching?all.filter(work=>work.name.toLocaleLowerCase('ko').includes(term)):all.slice(0,5);
+ const visible=searching?(onSearch?(found.query===term?found.works:[]):all.filter(work=>work.name.toLocaleLowerCase('ko').includes(term))):all.slice(0,5);
+ useEffect(()=>{
+  if(!searching||!onSearch)return;
+  const controller=new AbortController(),timer=setTimeout(()=>{Promise.resolve(onSearch(term,controller.signal)).then(page=>{if(!controller.signal.aborted)setFound({...page,query:term,error:''})}).catch(()=>{if(!controller.signal.aborted)setFound({query:term,works:[],nextOffset:null,error:'작업을 찾지 못했습니다.'})})},200);
+  return()=>{clearTimeout(timer);controller.abort()};
+ },[searching,term,onSearch]);
+ async function more(event){
+  event.preventDefault();if(moreBusy)return;setMoreBusy(true);
+  try{const page=await onSearch(term,new AbortController().signal,found.nextOffset);setFound(old=>({...page,query:term,works:[...old.works,...page.works],error:''}))}
+  catch{setFound(old=>({...old,error:'목록을 더 불러오지 못했습니다.'}))}
+  finally{setMoreBusy(false)}
+ }
  function searchKeys(event){
   if(event.nativeEvent.isComposing){event.stopPropagation();return}
   if(event.key==='Escape')return;
@@ -41,6 +53,8 @@ function WorkMenuItems({groups,currentId,reviewCount,onSelect,onCreate,focusOnMo
   {visible.map((work,index)=><Menu.Item key={work.id} className="work-menu-option" onSelect={()=>onSelect(work.id)}>
    <span ref={index===0?firstWork:undefined} className="flow-action-label su-row"><span className="truncate" title={work.name}>{work.name}</span>{reviewCount?.get(work.id)>0&&<small className="work-menu-count">수정안 {reviewCount.get(work.id)}건</small>}{work.id===currentId&&<><Check size="1em" aria-hidden="true"/><span className="sr-only">현재 작업</span></>}</span>
   </Menu.Item>)}
+  {searching&&found.error&&<Menu.Item><span role="alert">{found.error}</span></Menu.Item>}
+  {searching&&onSearch&&found.nextOffset!==null&&<Menu.Item disabled={moreBusy} onSelect={more}>{moreBusy?'불러오는 중':'더 보기'}</Menu.Item>}
   {!visible.length&&<Menu.Item><span className="muted small" role="status">찾은 작업이 없습니다.</span></Menu.Item>}
   <Menu.Separator/>
   <Menu.Item onSelect={toggleSearch}><span ref={searchAction} className="su-row">{searching?<X size="1em" aria-hidden="true"/>:<Search size="1em" aria-hidden="true"/>}{searching?'검색 닫기':'작업 찾기'}</span></Menu.Item>

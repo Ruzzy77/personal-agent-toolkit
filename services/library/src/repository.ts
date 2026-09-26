@@ -454,11 +454,13 @@ export async function listIssues(
     limit = 100,
     lifecycle = "active",
     offset = 0,
+    query = "",
   }: {
     collection?: LibraryCollection | null;
     limit?: number;
     lifecycle?: "active" | "trash" | "all";
     offset?: number;
+    query?: string;
   } = {},
 ): Promise<LibraryIssueSummary[]> {
   const managed = await libraryManaged(db);
@@ -472,15 +474,15 @@ export async function listIssues(
         db,
         `SELECT id, collection, date, published_at, title,
         canonical_path, cover_path, version, updated_at
-        FROM documents WHERE collection = ? AND ${lifecycleFilter} ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
-        [collection, boundedLimit, offset],
+        FROM documents WHERE collection = ? AND ${lifecycleFilter} AND instr(lower(title || ' ' || text_content),lower(?)) > 0 ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
+        [collection, query, boundedLimit, offset],
       )
     : prepared(
         db,
         `SELECT id, collection, date, published_at, title,
         canonical_path, cover_path, version, updated_at
-        FROM documents WHERE ${lifecycleFilter} ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
-        [boundedLimit, offset],
+        FROM documents WHERE ${lifecycleFilter} AND instr(lower(title || ' ' || text_content),lower(?)) > 0 ORDER BY published_at DESC,id LIMIT ? OFFSET ?`,
+        [query, boundedLimit, offset],
       );
   const result = await statement.all<SummaryRow>();
   return (result.results ?? []).map(summaryFromRow);

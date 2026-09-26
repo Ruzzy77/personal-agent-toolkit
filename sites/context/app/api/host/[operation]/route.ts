@@ -2,6 +2,7 @@ import { proxyOwnerRequest } from "../../../../lib/owner-service";
 export const dynamic="force-dynamic";
 const operations=new Set([
   "host_roots","host_capabilities","host_read","host_write","host_files","host_transfer",
+  "flow_artifact_read","flow_change_list","flow_change_read",
   "flow_library_list","flow_library_read","flow_library_upsert","flow_workspace_list","flow_work_list","flow_work_read",
   "flow_work_create","flow_work_update","flow_snapshot_list","flow_snapshot_read","flow_snapshot_create","flow_asset_import","flow_change_submit","flow_change_action",
 ]);

@@ -159,7 +159,7 @@ test('Spark writes are atomic and reject stale revisions, including simultaneous
   const results=await Promise.allSettled([service.put(a,first.revision),service.put(b,first.revision)]);
   assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
   assert.equal(results.find(r=>r.status==='rejected').reason.status,409);
-  const bytes=await readFile(join(directory,'workspace.json'),'utf8');assert.equal(JSON.parse(bytes).works[0].name,'A');
+  assert.equal((await service.read()).state.works[0].name,'A');service.close();
  }finally{await rm(directory,{recursive:true,force:true})}
 });
 test('HTTP endpoints reject cross-origin writes, executable uploads and traversal',async()=>{

@@ -168,7 +168,7 @@ describe("Worker Host file HTTP boundary", () => {
       body:JSON.stringify({workspace_id:"workspace",root:"workspace",path:"photos/part.png",expected_version:"sha256:"+"a".repeat(64)}),
     }),env(fetch));
     expect(response?.status).toBe(409);
-    expect(await response?.json()).toMatchObject({error:{code:"version_conflict"}});
+    expect(await response?.json()).toMatchObject({error:{code:"version_conflict",message:"이미지 파일이 변경되었습니다"}});
   });
 
   it("serves registered Flow media through Host without exposing credentials", async () => {

@@ -141,7 +141,9 @@ test('the Flow HTTP route reads saved work without a selected work ID',async()=>
   assert.equal((await list.json()).sources[0].id,saved.source.id);
   const read=await fetch(base+'/api/flow/snapshots/'+encodeURIComponent(saved.source.id)+'?workspaceId=workspace');
   assert.equal(read.status,200);
-  assert.deepEqual((await read.json()).source.artifact,made.work.artifacts[0]);
+  const source=(await read.json()).source;assert.equal(source.artifactRef.id,made.work.artifacts[0].id);assert.equal(source.artifact,undefined);
+  const chunk=await (await fetch(base+'/api/flow/artifact?'+new URLSearchParams({workspaceId:'workspace',sourceId:saved.source.id}))).json();
+  assert.deepEqual(JSON.parse(chunk.content),made.work.artifacts[0]);
   const missing=await fetch(base+'/api/flow/snapshots/missing?workspaceId=workspace');
   assert.equal(missing.status,404);
  }finally{await new Promise(resolve=>server.close(resolve))}
@@ -385,14 +387,17 @@ test('a diagram stays with the other content when its nodes are revised',async()
  assert.equal(saved.composition.blocks[1].content.nodes[1].label,'촬영 조건 비교');
  assert.equal(saved.composition.blocks[1].content.edges[0].to,diagram.content.nodes[1].id);
 }));
-test('v2 is read as v4 without changing the original file until a write',async()=>fixture(async(service,directory)=>{
- const before=initialState(),legacy={...before,version:2,works:before.works.map(({revision,...rest})=>rest)};
- await writeFile(join(directory,'workspace.json'),JSON.stringify(legacy));
- const data=await service.read();assert.equal(data.state.version,4);assert.equal(data.state.works[0].id,legacy.works[0].id);
- assert.equal(JSON.parse(await readFile(join(directory,'workspace.json'),'utf8')).version,2);
- await service.put(data.state,data.revision);
- assert.equal(JSON.parse(await readFile(join(directory,'workspace.json'),'utf8')).version,4);
-}));
+test('v2 reads remain unchanged while the first write uses SQLite',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'flow-legacy-')),service=createWorkspaceService(directory);
+ try{
+  const before=initialState(),legacy={...before,version:2,works:before.works.map(({revision,...rest})=>rest)};
+  await writeFile(join(directory,'workspace.json'),JSON.stringify(legacy));
+  const data=await service.read();assert.equal(data.state.version,4);assert.equal(data.state.works[0].id,legacy.works[0].id);
+  assert.equal(service.store.isMigrated(),false);await service.put(data.state,data.revision);
+  assert.equal(service.store.isMigrated(),true);
+  assert.equal(JSON.parse(await readFile(join(directory,'workspace.json'),'utf8')).version,2);
+ }finally{service.close();await rm(directory,{recursive:true,force:true})}
+});
 test('work create, read, scoped context update and idempotent retry',async()=>fixture(async({domain})=>{
  const first=documentArtifact('첫 문서');const key=randomUUID();
  const made=await domain.workCreate({workspaceId:'workspace',name:'새 작업',artifact:first,idempotencyKey:key});
@@ -539,7 +544,8 @@ test('selection edits only one document block, undo is guarded, proposals wait f
  const unchanged=(await domain.workRead({workspaceId:'workspace',workId:w.id})).work.artifacts[0];assert.equal(unchanged.title,a.title);
  const applied=await domain.changeAction({workspaceId:'workspace',changeId:review.change.id,action:'apply'});assert.equal(applied.change.status,'completed');
  const next=(await domain.workRead({workspaceId:'workspace',workId:w.id})).work.artifacts[0];assert.equal(next.title,'비교할 제목');
- await assert.rejects(domain.changeAction({workspaceId:'workspace',changeId:edit.change.id,action:'undo'}),{status:409});
+ assert.equal((await domain.changeAction({workspaceId:'workspace',changeId:edit.change.id,action:'undo'})).change.status,'undone');
+ assert.equal((await domain.workRead({workspaceId:'workspace',workId:w.id})).work.artifacts[0].revision,next.revision);
 }));
 test('stale proposal remains comparable and duplicate result is not appended',async()=>fixture(async({domain})=>{
  const w=(await domain.workList({workspaceId:'workspace'})).works[0],a=(await domain.workRead({workspaceId:'workspace',workId:w.id})).work.artifacts[0];
@@ -773,4 +779,36 @@ test('saving an unchanged artifact again reuses its existing library snapshot',a
  const one=await domain.snapshotCreate({...input,idempotencyKey:randomUUID()});
  const two=await domain.snapshotCreate({...input,idempotencyKey:randomUUID()});
  assert.equal(one.source.id,two.source.id);assert.equal((await read()).state.librarySnapshots.filter(s=>s.artifactId===work.artifact.id).length,1);
+}));
+
+test('agent source catalogs retain scope and provenance without widening another work scope',async()=>fixture(async({domain,read})=>{
+ const {state}=await read(),first=state.works[0];
+ const {work:other}=await domain.workCreate({workspaceId:'workspace',name:'다른 작업',idempotencyKey:randomUUID()});
+ const reference={kind:'context',locator:{product:'corpus',spaceId:'project',documentId:'methods'}};
+ for(const entry of [
+  {id:'first-material',title:'현재 작업 자료',scope:{kind:'work',workId:first.id},body:'정리한 내용',reference,sourceVersion:'v1'},
+  {id:'other-material',title:'다른 작업 자료',scope:{kind:'work',workId:other.id},body:'다른 작업의 메모'},
+  {id:'shared-material',title:'공통 자료',scope:{kind:'workspace'},body:'다시 참고할 내용'}
+ ])await domain.libraryUpsert({workspaceId:'workspace',entry,expectedRevision:0,idempotencyKey:randomUUID()});
+ const before=await domain.workRead({workspaceId:'workspace',workId:first.id});
+ const material=before.sourceCatalog.find(item=>item.id==='first-material');
+ assert.deepEqual(material.scope,{kind:'work',workId:first.id});assert.deepEqual(material.reference,reference);assert.equal(material.sourceVersion,'v1');
+ assert.equal('body' in material,false);assert.equal(before.sourceCatalog.some(item=>item.id==='other-material'),false);
+ assert.ok(before.sourceCatalog.some(item=>item.id==='shared-material'));
+ await domain.workUpdate({workspaceId:'workspace',workId:first.id,expectedRevision:before.work.revision,idempotencyKey:randomUUID(),sourceIds:['other-material']});
+ const after=await domain.workRead({workspaceId:'workspace',workId:first.id});
+ assert.deepEqual(after.sources[0].scope,{kind:'work',workId:other.id});
+ assert.deepEqual(after.sourceCatalog.find(item=>item.id==='other-material').scope,{kind:'work',workId:other.id});
+ assert.deepEqual(after.work.artifacts,before.work.artifacts);
+}));
+
+test('legacy examples remain identifiable and are not promoted to personal criteria',async()=>fixture(async({domain,read})=>{
+ const before=await read(),work=before.state.works[0];
+ const result=await domain.workRead({workspaceId:'workspace',workId:work.id});
+ const example=result.sourceCatalog.find(item=>item.id==='writing');
+ assert.equal(example.example,true);assert.equal(example.collection,'예시 자료');assert.equal(example.scope,undefined);
+ assert.equal(result.sources.find(item=>item.id==='observation').example,true);
+ const catalog=await domain.libraryList({workspaceId:'workspace'});
+ assert.equal(catalog.entries.find(item=>item.id==='writing').example,true);
+ const after=await read();assert.equal(after.revision,before.revision);assert.deepEqual(after.state.libraryEntries,[]);
 }));

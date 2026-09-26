@@ -37,7 +37,9 @@ test("Flow is the main destination while files keep their own view", () => {
   assert.match(read("../app/flow/page.tsx"), /<FlowWorkspace \/>/);
   assert.match(read("../app/files/page.tsx"), /<WorkspaceFiles\/>/);
   const view=read("../components/flow/flow-workspace.tsx");
-  assert.match(view, /flow_work_read/);
+  assert.match(view, /readFlowWork/);
+  assert.match(read("../lib/flow-client.ts"), /flow_work_read/);
+  assert.match(read("../lib/flow-client.ts"), /flow_artifact_read/);
   assert.match(view, /ArtifactPreview/);
   assert.match(view, /flowContentForWeb/);
   assert.match(view, /<WorkCanvas /);
@@ -108,4 +110,11 @@ test("mobile navigation opens as an opaque panel without mixing with workspace c
   assert.match(css, /\.toolkit-sidebar\{position:sticky;inset:auto;top:0;[^}]*background:var\(--su-paper\)/);
   assert.match(css, /\.toolkit-menu\.is-open\{display:flex;position:fixed;inset:57px 0 0;[^}]*background:var\(--su-paper\);overflow:auto\}/);
   assert.match(css, /body:has\(\.toolkit-menu\.is-open\)\{overflow:hidden\}/);
+});
+
+
+test("Flow bounded reads are reachable through the authenticated web proxy",()=>{
+ const route=read("../app/api/host/[operation]/route.ts");
+ for(const name of ["flow_artifact_read","flow_change_list","flow_change_read"])assert.ok(route.includes('"'+name+'"'));
+ assert.match(route,/proxyOwnerRequest/);
 });

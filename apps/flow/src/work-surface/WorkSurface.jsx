@@ -9,7 +9,7 @@ export function WorkSurface({composition,renderers,context={},label='작업물',
     {column.ids.map(id=>{
      const block=byId.get(id),Renderer=renderers[block.kind];
      return <div className="ws-block" data-kind={block.kind} key={id}>
-      {Renderer?<Renderer block={block} context={context}/>:<section className="ws-unsupported" role="status">이 콘텐츠는 현재 화면에서 열 수 없습니다.</section>}
+      {Renderer?<Renderer block={block} context={block.id===context.primaryHeadingId?{...context,headingLevel:1}:context}/>:<section className="ws-unsupported" role="status">이 콘텐츠는 현재 화면에서 열 수 없습니다.</section>}
      </div>;
     })}
    </div>)}

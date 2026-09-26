@@ -44,3 +44,5 @@ export {B,AppHeader,Overlay,BrowseToolbar} from './FlowShell.jsx';
 export {LibraryBrowser} from './LibraryBrowser.jsx';
 
 export {exportHtmlArtifact} from './html-assets.js';
+
+export {ReferencePanel} from './ReferencePanel.jsx';

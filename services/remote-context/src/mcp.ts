@@ -9,6 +9,7 @@ import {
 import { contextOperations, executeContextOperation } from "./context-api";
 import { asContextError, ContextError } from "./errors";
 import { registerHostTools } from "./host";
+import {registerFlowResourceTools} from "./flow-resources";
 import { MCP_SURFACES } from "./surfaces";
 import {
   disabledProducts,
@@ -76,7 +77,7 @@ async function toolkitServer(
         MANAGEMENT_WRITE_ENABLED: env.LIBRARY_MANAGEMENT_WRITE_ENABLED,
       }),
     );
-  if (!disabled.has("host")) registerHostTools(server, env, principal);
+  if (!disabled.has("host")) {registerHostTools(server, env, principal);registerFlowResourceTools(server,env,principal);}
   return server;
 }
 
@@ -226,6 +227,7 @@ function hostServer(env: Env, principal: Principal): McpServer {
     },
   );
   registerHostTools(server, env, principal);
+  registerFlowResourceTools(server, env, principal);
   return server;
 }
 

@@ -13,7 +13,7 @@
       ],
       "plugin": {
         "path": "plugins/personal-agent-toolkit",
-        "base_version": "1.13.0"
+        "base_version": "1.14.0"
       },
       "registered_app": {
         "id": "asdk_app_6a999d410f788191a9586375f040a6bd",
@@ -41,7 +41,7 @@
         "url": "https://personal-agent-context.hiyaq77.workers.dev/mcp",
         "implementation": "services/remote-context/src/mcp.ts",
         "surface_name": "Personal Agent Toolkit",
-        "surface_version": "1.13.0"
+        "surface_version": "1.14.0"
       }
     }
   },
@@ -386,7 +386,7 @@
       "display_name": "Host",
       "plugin": {
         "path": "plugins/host",
-        "base_version": "0.5.2"
+        "base_version": "0.6.0"
       },
       "delivery": {
         "openai": {
@@ -415,6 +415,9 @@
         "implementation": "apps/host/src/personal_agent_host/server.py",
         "surface_name": "Host",
         "tools": [
+          "flow_artifact_read",
+          "flow_change_list",
+          "flow_change_read",
           "host_capabilities",
           "host_roots",
           "host_search",
@@ -439,9 +442,11 @@
           "host_exec",
           "host_job",
           "host_job_input",
-          "host_job_cancel"
+          "host_job_cancel",
+          "flow_resource_search",
+          "flow_resource_read"
         ],
-        "surface_version": "0.5.2-remote.1"
+        "surface_version": "0.6.0-remote.1"
       },
       "skills": [
         "use-host",

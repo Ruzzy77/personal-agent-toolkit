@@ -20,7 +20,7 @@ export function ArtifactPreview(props:{
   renderers?:Record<string,ComponentType<any>>;
   prepareContent?:(value:ContentComposition)=>ContentComposition;
   resolveMediaUrl?:(value:unknown)=>string|null;
-  headingLevel?:number;compact?:boolean;className?:string;
+  headingLevel?:number;primaryHeading?:boolean;compact?:boolean;className?:string;
 }):ReactNode;
 export function defineComposition(value:ContentComposition):ContentComposition;
 export function stackComposition(blocks:ContentBlock[]):ContentComposition;
@@ -128,3 +128,5 @@ export const BrowseToolbar: ComponentType<any>;
 export const LibraryBrowser: ComponentType<any>;
 
 export function exportHtmlArtifact(artifact:any,resolveMediaUrl?:(value:string)=>string|null):Promise<string>;
+
+export const ReferencePanel: ComponentType<any>;

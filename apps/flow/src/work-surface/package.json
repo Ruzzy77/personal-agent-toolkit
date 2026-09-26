@@ -1,6 +1,6 @@
 {
   "name": "@personal-agent/flow-surface",
-  "version": "0.1.58",
+  "version": "0.1.62",
   "private": true,
   "type": "module",
   "exports": {
@@ -37,6 +37,10 @@
     "./resource-reference": {
       "types": "./resource-reference.d.ts",
       "default": "./resource-reference.js"
+    },
+    "./work-references": {
+      "types": "./work-references.d.ts",
+      "default": "./work-references.js"
     }
   },
   "files": [
