@@ -1,0 +1,7 @@
+#toolkit-guide{width:100%;max-width:var(--su-measure);margin-inline:auto;padding:var(--su-space-6) var(--su-page-gutter) var(--su-space-12);word-break:keep-all;overflow-wrap:anywhere}
+.guide-title{font-size:var(--font-heading-xl-size);line-height:var(--font-heading-xl-line-height);font-weight:var(--font-heading-xl-weight);letter-spacing:var(--font-heading-xl-tracking)}
+#toolkit-guide .su-table tbody th{white-space:nowrap;color:var(--su-ink);vertical-align:top}
+#toolkit-guide .su-table td{vertical-align:top}
+#toolkit-guide .su-table tr:last-child>*{border-bottom:0}
+.guide-section>details{margin:0}
+@media(max-width:767px){#toolkit-guide{padding-inline:var(--su-space-4)}}
