@@ -1,4 +1,6 @@
 "use client";
+import {ButtonLink} from "@openai/apps-sdk-ui/components/Button";
+import {Download} from "lucide-react";
 
 import { useEffect, useState } from "react";
 import { TextContentView, HtmlContentView, resolveRelativeImagePath } from "@personal-agent/flow-surface";
@@ -43,10 +45,10 @@ export function FlowHostFile({root,path}:{root:string;path:string}){
   if(RASTER.test(info.mime))return <HostImagePreview root={root} path={path} name={name}/>;
   if(fileMediaKind(info.mime))return <FileMediaPreview root={root} path={path} mime={info.mime} label={name}/>;
   if(html){
-    if(info.bytes>MAX_TEXT)return <div className="flow-host-unavailable"><p>파일이 커서 화면에 표시할 수 없습니다.</p><a href={fileUrl(root,path)} download>원본 파일 받기</a></div>;
+    if(info.bytes>MAX_TEXT)return <div className="flow-host-unavailable"><p>파일이 커서 화면에 표시할 수 없습니다.</p><ButtonLink href={fileUrl(root,path)} download color="primary" variant="outline" size="md" pill={false}><Download size="1em" aria-hidden="true"/>원본 파일 받기</ButtonLink></div>;
     return <HtmlContentView body={body??undefined} src={body===null?preview:undefined} name={name}/>;
   }
   if(info.mime==="application/pdf")return <iframe className="flow-host-preview" src={preview} sandbox="" title={name+" 미리보기"}/>;
   if(body!==null)return <TextContentView body={body} path={path} title={name} headingLevel={4} className="flow-context-document" resolveImageSrc={src=>{const target=resolveRelativeImagePath(path,src);return target?fileUrl(root,target,true):null}}/>;
-  return <div className="flow-host-unavailable"><p>이 형식은 화면에서 바로 볼 수 없습니다.</p><a href={fileUrl(root,path)} download>원본 파일 받기</a></div>;
+  return <div className="flow-host-unavailable"><p>이 형식은 화면에서 바로 볼 수 없습니다.</p><ButtonLink href={fileUrl(root,path)} download color="primary" variant="outline" size="md" pill={false}><Download size="1em" aria-hidden="true"/>원본 파일 받기</ButtonLink></div>;
 }

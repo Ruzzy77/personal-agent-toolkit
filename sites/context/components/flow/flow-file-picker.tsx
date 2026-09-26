@@ -1,4 +1,5 @@
 "use client";
+import {ListItemAction} from "@personal-agent/flow-surface";
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
@@ -73,7 +74,7 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
         <IconButton size="md" label="상위 폴더" disabled={!parts.length||loading} onClick={()=>browse(parts.slice(0,-1).join("/")||".")}><ArrowUp size="1em" aria-hidden="true"/></IconButton>
         <nav className="flow-file-breadcrumbs" aria-label="폴더 경로">
           <Button type="button" color="primary" variant="ghost" size="md" pill={false} className="flow-file-root" disabled={!root} aria-current={!parts.length?"location":undefined} onClick={()=>browse(".")}><HardDrive size="1em" aria-hidden="true"/><span className="flow-file-root-name">{rootName}</span></Button>
-          {parts.map((part,index)=><span className="flow-file-crumb" key={index}><ChevronRight size="1em" aria-hidden="true"/>{index===parts.length-1?<span aria-current="location">{part}</span>:<button type="button" onClick={()=>browse(parts.slice(0,index+1).join("/"))}>{part}</button>}</span>)}
+          {parts.map((part,index)=><span className="flow-file-crumb" key={index}><ChevronRight size="1em" aria-hidden="true"/>{index===parts.length-1?<span aria-current="location">{part}</span>:<Button type="button" color="primary" variant="ghost" size="md" pill={false} onClick={()=>browse(parts.slice(0,index+1).join("/"))}><span className="flow-file-root-name" title={part}>{part}</span></Button>}</span>)}
         </nav>
       </div>
       <div className="flow-file-tools">
@@ -89,10 +90,10 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
         const limit=fileType==="file"?workspaceFilePresentation(entry.path)?.maxBytes??20*1024*1024:20*1024*1024;
         const tooLarge=Boolean(fileType)&&entry.type==="file"&&entry.bytes>limit;
         const EntryIcon=entry.type==="directory"?Folder:entry.type==="symlink"?Link2:File;
-        return <li key={entry.path}><button type="button" className="flow-file-row" aria-label={fileKind(entry)+": "+entry.name+(linked?", 연결됨":"")+(tooLarge?", 크기 제한 초과":"")} aria-current={current?.root===root&&current.path===entry.path?"true":undefined} disabled={busy||entry.type==="symlink"||linked||tooLarge}
-          onClick={event=>entry.type==="directory"?browse(entry.path):onPick(root,entry.path,event.currentTarget)}>
-          <EntryIcon size={20} aria-hidden="true"/><span className="flow-file-name">{entry.name}</span>{linked&&<small>연결됨</small>}{tooLarge&&<small>{limit===512*1024?"512KB 초과":"20MB 초과"}</small>}
-        </button></li>;
+        return <li key={entry.path}><ListItemAction label={entry.name} icon={<EntryIcon size="1em" aria-hidden="true"/>} aria-label={fileKind(entry)+": "+entry.name+(linked?", 연결됨":"")+(tooLarge?", 크기 제한 초과":"")} aria-current={current?.root===root&&current.path===entry.path?"true":undefined} disabled={busy||entry.type==="symlink"||linked||tooLarge}
+          onClick={(event:React.MouseEvent<HTMLButtonElement>)=>entry.type==="directory"?browse(entry.path):onPick(root,entry.path,event.currentTarget)}>
+          {linked&&<small>연결됨</small>}{tooLarge&&<small>{limit===512*1024?"512KB 초과":"20MB 초과"}</small>}
+        </ListItemAction></li>;
       })}</ul>}
     {cursor&&<Button color="primary" variant="ghost" pill={false} size="sm" disabled={loading} onClick={()=>void more()}>더 보기</Button>}
   </div>;

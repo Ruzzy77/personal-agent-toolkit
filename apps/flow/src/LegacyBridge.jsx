@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {UIKitRoot} from '@personal-agent/ui-kit/react';
-import {B,WorkCanvas,contentRenderers} from './work-surface/index.js';
+import {B,Disclosure,WorkCanvas,contentRenderers} from './work-surface/index.js';
 import {readCache,downloadText} from './useWorkspace.js';
 import {STORAGE_KEY,V2_STORAGE_KEY} from './model.js';
 
@@ -34,7 +34,7 @@ export function LegacyBridge(){
  return <UIKitRoot colorScheme={cache.state.theme||"system"}><main className="su-workspace su-stack" data-gap="section">
   <header><h1>Toolkit</h1><p>작업은 Toolkit 웹에서 이어갈 수 있습니다.</p></header>
   {dirty&&<section className="su-stack" data-gap="section"><h2>이 브라우저에 저장하지 않은 수정이 있습니다.</h2>
-   {changed.map(work=><details key={work.id}><summary>{work.name}</summary><WorkCanvas work={work} renderers={contentRenderers}/></details>)}
+   {changed.map(work=><Disclosure key={work.id} label={work.name}><WorkCanvas work={work} renderers={contentRenderers}/></Disclosure>)}
    {!cache.base&&<p>변경 전 저장본을 확인할 수 없어 자동으로 합칠 수 없습니다. 수정 내용을 보관한 뒤 원본과 비교해 주세요.</p>}
    <div className="su-row">{cache.base&&<B disabled={busy} onClick={()=>void recover()}>{busy?'복구하는 중':'수정 내용 복구'}</B>}<B variant="ghost" onClick={()=>downloadText('toolkit-workspace-draft.json',cache.raw||JSON.stringify(cache))}>수정 내용 내려받기</B></div>
   </section>}

@@ -89,11 +89,11 @@ export function App(){
   renderSource={(item,{onHeadingChange})=><LibraryItemBody onHeadingChange={onHeadingChange} item={item} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
   renderReference={(reference,resource,title)=><LibraryItemBody item={{title,reference,...(reference.kind==='host-file'?{live:true,filePath:reference.path}:{})}} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
   onDisconnect={item=>setStore(s=>({...s,works:s.works.map(w=>w.id===work.id?{...w,...disconnectWorkReference(w,item)}:w)}))}/>:panel==='changes'?<ChangesPanel work={work} artifact={a} changes={store.changes||[]} workspaceId={store.workspaceId} onApplied={retry}/>:
- panel==='context'?<div className="su-stack" data-gap="section">
+ panel==='context'?<div className="su-stack">
   <Field label="작업 이름"><Input value={work.name} onChange={e=>patchWork({name:e.target.value})}/></Field>
   <Field label="작업 목적"><Textarea value={work.purpose||''} onChange={e=>patchWork({purpose:e.target.value})} rows={3}/></Field>
  </div>:panel==='settings'?<ThemeSetting value={view.theme||store.theme} onChange={theme=>setView(v=>({...v,theme}))}/>:
- panel==='new'?<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();create()}}>
+ panel==='new'?<form className="su-stack" onSubmit={e=>{e.preventDefault();create()}}>
   <Field label="작업 이름"><Input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus maxLength={100}/></Field>
   {newSource&&<p className="small muted">{newSource.title}</p>}
   <div className="su-row"><B type="submit" variant="solid" disabled={!newName.trim()}>시작하기</B><B variant="ghost" onClick={close}>취소</B></div>

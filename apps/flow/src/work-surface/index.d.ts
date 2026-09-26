@@ -132,3 +132,6 @@ export function exportHtmlArtifact(artifact:any,resolveMediaUrl?:(value:string)=
 export const ReferencePanel: ComponentType<any>;
 
 export function ThemeSetting(props:{value:"light"|"dark";onChange:(value:"light"|"dark")=>void}):ReactNode;
+
+export function Disclosure(props:{label:ReactNode;open?:boolean;onOpenChange?:(open:boolean)=>void;defaultOpen?:boolean;children?:ReactNode}):ReactNode;
+export const ListItemAction:ComponentType<any>;

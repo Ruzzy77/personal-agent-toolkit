@@ -1,21 +1,22 @@
 import React,{useState,useRef} from 'react';
 import {ExternalLink,Check,Link2} from 'lucide-react';
+import {ButtonLink} from '@openai/apps-sdk-ui/components/Button';
 import {Input} from '@openai/apps-sdk-ui/components/Input';
 import {Textarea} from '@openai/apps-sdk-ui/components/Textarea';
 import {Field} from '@personal-agent/ui-kit/react';
 import {B} from './ui.jsx';
 import {fileContentUrl} from './file-preview.js';
 import {resourceLink} from './resource-link.js';
-import {LibraryBrowser,ArtifactPreview,TextContentView,HtmlContentView,FilePreview,workspaceFilePresentation,contentRenderers} from './work-surface/index.js';
+import {Disclosure,LibraryBrowser,ArtifactPreview,TextContentView,HtmlContentView,FilePreview,workspaceFilePresentation,contentRenderers} from './work-surface/index.js';
 
 export function LibraryItemBody({item,workspaceId,toolkitUrl,onHeadingChange}){
  const filePath=item.filePath||item.path;
  const original=item.reference&&resourceLink(item.reference,toolkitUrl,workspaceId);
  const external=item.reference&&(item.reference.kind!=='host-file'||item.reference.root!=='workspace');
- if(external)return <div className="su-stack">{item.body&&<div className="reading-text">{item.body}</div>}{original?<a href={original} target="_blank" rel="noopener noreferrer" className="su-row"><ExternalLink size="1em"/>원본 열기</a>:<p className="muted">원본을 열려면 Toolkit 웹 연결이 필요합니다.</p>}</div>;
+ if(external)return <div className="su-stack">{item.body&&<div className="reading-text">{item.body}</div>}{original?<div><ButtonLink href={original} target="_blank" rel="noopener noreferrer" color="primary" variant="ghost" size="md" pill={false}><ExternalLink size="1em" aria-hidden="true"/>원본 열기</ButtonLink></div>:<p className="muted">원본을 열려면 Toolkit 웹 연결이 필요합니다.</p>}</div>;
  if(item.live&&filePath&&workspaceId){
   const preview=workspaceFilePresentation(filePath)?.viewer?<FilePreview href={fileContentUrl(workspaceId,filePath)} name={item.title} headingLevel={2}/>:<p className="muted">이 파일은 미리보기를 지원하지 않습니다.</p>;
-  return item.body?<div className="su-stack"><div className="reading-text">{item.body}</div><details><summary>원본</summary>{preview}</details></div>:preview;
+  return item.body?<div className="su-stack"><div className="reading-text">{item.body}</div><Disclosure label="원본">{preview}</Disclosure></div>:preview;
  }
  if(item.artifact)return <ArtifactPreview onHeadingChange={onHeadingChange} artifact={item.artifact} renderers={contentRenderers} headingLevel={2}/>;
  if(filePath)return /\.html?$/i.test(filePath)?<HtmlContentView body={item.body||''} name={item.title}/>:<TextContentView body={item.body||''} path={filePath} title={item.title} headingLevel={2}/>;

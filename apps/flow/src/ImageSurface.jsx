@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Field} from '@personal-agent/ui-kit/react';
-import {ImageRegionEditor,fullImageRegion,validImageRegion,imageCropGeometry} from './work-surface/index.js';
+import {Disclosure,ImageRegionEditor,fullImageRegion,validImageRegion,imageCropGeometry} from './work-surface/index.js';
 import {Input} from '@openai/apps-sdk-ui/components/Input';
 import {B} from './ui.jsx';
 import {Crop,Download,Maximize2,ZoomIn} from 'lucide-react';
@@ -40,6 +40,6 @@ export function ImageSurface({artifact:a,onChange,onCommit,onSelection,zoom='fit
     <ImageContent artifact={a} crop={crop} onError={()=>setFailed(true)}/>
    </div>}
   </div>}
-  {mode==='view'&&<details className="image-description"><summary className="small muted">이미지 설명</summary><div className="su-section"><Field label="대체 텍스트"><Input aria-label="대체 텍스트" value={a.alt||''} onChange={e=>onChange({alt:e.target.value})}/></Field></div></details>}
+  {mode==='view'&&<Disclosure label="이미지 설명"><div className="su-section"><Field label="대체 텍스트"><Input aria-label="대체 텍스트" value={a.alt||''} onChange={e=>onChange({alt:e.target.value})}/></Field></div></Disclosure>}
  </div>;
 }

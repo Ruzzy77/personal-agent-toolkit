@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Button } from "@openai/apps-sdk-ui/components/Button";
+import { Button,ButtonLink } from "@openai/apps-sdk-ui/components/Button";
+import { Download,ExternalLink } from "lucide-react";
 import { HtmlContentView, MarkdownContent, TextContentView } from "@personal-agent/flow-surface";
 import { ownerFetch } from "../../lib/owner-client";
 import type { FlowArtifact, FlowSource } from "../../lib/flow-content";
@@ -52,7 +53,7 @@ function Publication({body,title}:{body:string;title:string}){
   void Promise.resolve().then(()=>{if(controller.signal.aborted)return;setContent(null);setError("");return load()}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"발간물을 열지 못했습니다.")});
   return()=>controller.abort();
  },[body,attempt]);
- if(error)return <div><p role="alert">{error}</p><Button color="primary" variant="ghost" onClick={()=>setAttempt(value=>value+1)}>다시 열기</Button></div>;
+ if(error)return <div><p role="alert">{error}</p><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>setAttempt(value=>value+1)}>다시 열기</Button></div>;
  return content===null?<p role="status">발간물을 여는 중입니다.</p>:<HtmlContentView body={content} name={title} showSourceToggle={false}/>;
 }
 
@@ -90,9 +91,9 @@ export function FlowResourceView({resource,onClose,action,hideTitle=false,render
     <header className="flow-resource-view-head">
       <div><span>{resource.detail}</span>{!hideTitle&&<h3>{resource.title}</h3>}</div>
       <div className="flow-resource-view-actions">
-        {resource.kind==="host-file"?<a href={resource.href} download>원본 받기</a>:resource.kind!=="flow-source"&&<a href={resource.href} target="_blank" rel="noopener noreferrer">원본 열기</a>}
+        {resource.kind==="host-file"?<ButtonLink href={resource.href} download color="primary" variant="ghost" size="md" pill={false}><Download size="1em" aria-hidden="true"/>원본 받기</ButtonLink>:resource.kind!=="flow-source"&&<ButtonLink href={resource.href} target="_blank" rel="noopener noreferrer" color="primary" variant="ghost" size="md" pill={false}><ExternalLink size="1em" aria-hidden="true"/>원본 열기</ButtonLink>}
         {action}
-        {onClose&&<Button type="button" color="primary" variant="ghost" pill={false} size="sm" onClick={onClose}>닫기</Button>}
+        {onClose&&<Button type="button" color="primary" variant="ghost" pill={false} size="md" onClick={onClose}>닫기</Button>}
       </div>
     </header>
     <div className="flow-resource-view-body"><ResourceBody resource={resource} renderSourceArtifact={renderSourceArtifact}/></div>

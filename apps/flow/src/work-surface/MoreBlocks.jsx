@@ -8,6 +8,7 @@ import './more-blocks.css';
 import {BlockTitle} from './BlockTitle.jsx';
 import {MediaPlayer} from './MediaPlayer.jsx';
 import {ImageDialog} from './ImageDialog.jsx';
+import {Disclosure} from './FlowControls.jsx';
 
 export function MetricsBlock({block,context}){
  const {heading,items=[]}=block.content;
@@ -111,7 +112,7 @@ export function AudioBlock({block,context}){
   {heading&&<BlockTitle context={context}>{heading}</BlockTitle>}
   {src?<MediaPlayer kind="audio" src={src} label={heading||caption||'오디오'}/>:<p>오디오 파일이 연결되지 않았습니다.</p>}
   {caption&&<p>{caption}</p>}
-  {transcript&&<details><summary>대본</summary><p>{transcript}</p></details>}
+  {transcript&&<Disclosure label="대본"><p>{transcript}</p></Disclosure>}
  </section>;
 }
 

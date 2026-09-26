@@ -739,3 +739,14 @@ test('Flow theme settings share a labelled control and inline option content',as
  assert.match(local,/<ThemeSetting value={view.theme\|\|store.theme}/);
  assert.doesNotMatch(local,/<SegmentedControl/);
 });
+
+test('shared navigation and disclosures do not fall back to unstyled native controls',async()=>{
+ for(const path of ['LibraryBrowser.jsx','FlowControls.jsx']){
+  const source=await readFile(new URL('../src/work-surface/'+path,import.meta.url),'utf8');
+  assert.doesNotMatch(source,/<(?:button|select|details|summary)\b/,path);
+ }
+ for(const path of ['LibraryView.jsx','FileExplorer.jsx','LegacyBridge.jsx']){
+  const source=await readFile(new URL('../src/'+path,import.meta.url),'utf8');
+  assert.doesNotMatch(source,/<(?:button|select|details|summary)\b/,path);
+ }
+});

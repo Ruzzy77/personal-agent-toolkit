@@ -56,7 +56,6 @@ body{font-family:var(--su-font);background:var(--su-paper);color:var(--su-ink);f
 .library-table .collection-meta{width:180px}
 .library-table .collection-kind{width:96px}
 .flow-browse-table td:first-child{padding:0}
-.flow-browse-table .su-tools-item{padding:var(--su-space-3)}
 .flow-list-icon{width:var(--control-icon-size-md);height:var(--control-icon-size-md);flex:none}
 .item-metadata{display:flex;align-items:baseline;gap:var(--su-space-3);flex-wrap:wrap}
 .library-reading{max-width:768px;margin:0 auto}
@@ -76,9 +75,6 @@ body{font-family:var(--su-font);background:var(--su-paper);color:var(--su-ink);f
 .file-list-pane{min-width:0}
 .file-type{width:100px}
 .file-size{width:80px}
-.file-row{white-space:normal}
-.file-row span{min-width:0;overflow-wrap:anywhere}
-.file-row[aria-current="true"]{font-weight:var(--font-weight-semibold)}
 .file-detail{border-left:1px solid var(--su-line);padding-left:var(--su-space-6);min-width:0;align-content:start;gap:var(--su-space-6)}
 .file-detail-heading{margin:0}
 .file-detail-heading h2{font-size:20px;font-weight:600;line-height:28px;overflow-wrap:anywhere;min-width:0}

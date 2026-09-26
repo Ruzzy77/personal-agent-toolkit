@@ -1,0 +1,7 @@
+.flow-list-action-content{display:flex;align-items:center;gap:var(--button-gap);width:100%;min-width:0;text-align:start}
+.flow-list-action-content>svg{flex:none}
+.flow-list-action-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-list-action-description{flex:none;color:var(--su-muted);font-size:var(--control-font-size-sm)}
+.flow-disclosure{min-width:0;border-block:1px solid var(--su-line)}
+.flow-disclosure-content{padding-block:var(--su-space-4);gap:var(--su-space-4)}
+.flow-disclosure-content>.flow-resource-view{border-top:0;padding-top:0}

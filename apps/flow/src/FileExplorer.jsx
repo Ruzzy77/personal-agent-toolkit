@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Folder,FileText,Image as ImageIcon,Film,Music2,ArrowUp,ArrowDown,ChevronRight,X,Download,Link2,Archive} from 'lucide-react';
 import {B,BrowseToolbar} from './ui.jsx';
-import {SurfaceHeader,ImageDialog,MediaPlayer,PdfPreview,TextContentView,HtmlContentView,markdownImageHref} from './work-surface/index.js';
+import {ListItemAction,SurfaceHeader,ImageDialog,MediaPlayer,PdfPreview,TextContentView,HtmlContentView,markdownImageHref} from './work-surface/index.js';
 import {filePreviewKind,fileContentUrl} from './file-preview.js';
 import {workspaceFileSource} from './model.js';
 
@@ -66,7 +66,7 @@ export function FileExplorer({compact=false,workspaceId,workspaceName='작업공
   <BrowseToolbar className="files-toolbar" leading={<B variant="ghost" size="md" uniform aria-label="상위 폴더" disabled={!path} onClick={()=>navigate(parts.slice(0,-1).join('/'))}><ArrowUp size="1em"/></B>} search={{label:'파일 이름 검색',placeholder:'이 폴더에서 찾기',value:query,onChange:setQuery}}/>
 
   <div className={'file-columns '+(selected?'has-selection':'')}>
-   <section className="file-list-pane" aria-label="파일 목록"><div className="su-table-wrap flow-browse-table"><table className="su-table file-table" data-layout="fixed"><thead><tr><th scope="col" aria-sort={descending?'descending':'ascending'}><button className="su-table-sort" onClick={()=>setDescending(v=>!v)}>이름{descending?<ArrowUp size={14}/>:<ArrowDown size={14}/>}</button></th><th className="file-type" scope="col">종류</th></tr></thead><tbody>{visible.map(file=><tr className={selected?.path===file.path?'selected':''} key={file.path}><td><button ref={node=>{if(node)rowRefs.current.set(file.path,node);else rowRefs.current.delete(file.path)}} aria-current={selected?.path===file.path?'true':undefined} className="su-tools-item file-row" onClick={()=>open(file)}><FileIcon file={file}/><span>{file.name}</span></button></td><td className="file-type muted">{fileType(file)}</td></tr>)}</tbody></table></div>
+   <section className="file-list-pane" aria-label="파일 목록"><div className="su-table-wrap flow-browse-table"><table className="su-table file-table" data-layout="fixed"><thead><tr><th scope="col" aria-sort={descending?'descending':'ascending'}><B variant="ghost" size="md" onClick={()=>setDescending(v=>!v)}>이름{descending?<ArrowUp size={14}/>:<ArrowDown size={14}/>}</B></th><th className="file-type" scope="col">종류</th></tr></thead><tbody>{visible.map(file=><tr className={selected?.path===file.path?'selected':''} key={file.path}><td><ListItemAction label={file.name} icon={<FileIcon file={file}/>} ref={node=>{if(node)rowRefs.current.set(file.path,node);else rowRefs.current.delete(file.path)}} aria-current={selected?.path===file.path?'true':undefined} onClick={()=>open(file)}/></td><td className="file-type muted">{fileType(file)}</td></tr>)}</tbody></table></div>
     {loading&&<p className="empty-state" role="status">파일을 여는 중입니다.</p>}
     {error&&<div className="empty-state"><p className="su-error" role="alert">{error}</p><B onClick={()=>navigate('')}>작업공간으로</B></div>}
     {!loading&&!error&&!visible.length&&<p className="empty-state">{query?'검색 결과가 없습니다.':'폴더가 비어 있습니다.'}</p>}

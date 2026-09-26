@@ -46,3 +46,5 @@ export {LibraryBrowser} from './LibraryBrowser.jsx';
 export {exportHtmlArtifact} from './html-assets.js';
 
 export {ReferencePanel} from './ReferencePanel.jsx';
+
+export {Disclosure,ListItemAction} from './FlowControls.jsx';

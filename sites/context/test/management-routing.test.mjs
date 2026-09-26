@@ -140,3 +140,15 @@ test("Flow settings reuse the shared theme control and name the destination",()=
  assert.match(view,/자료 관리와 폴더 연결/);
  assert.doesNotMatch(view,/계정과 연결 설정/);
 });
+
+test("Flow interaction surfaces use UIKit controls rather than native fallbacks",()=>{
+ for(const path of ["../components/flow/flow-workspace.tsx","../components/flow/flow-file-picker.tsx"]){
+  assert.doesNotMatch(read(path),/<(?:button|select|details|summary|input|textarea)\b/,path);
+ }
+});
+
+test("resource toolbars respond to their pane width rather than the whole viewport",()=>{
+ const css=read("../components/flow/flow-workspace.css");
+ assert.match(css,/\.flow-resource-view\{container-type:inline-size/);
+ assert.match(css,/@container\(max-width:560px\)\{\.flow-resource-view-head\{flex-direction:column/);
+});
