@@ -101,7 +101,7 @@ test("workspace root picker is wide enough for long registered root names", () =
 
 test("workspace popovers stay above sticky file headers and sidebar actions align", () => {
   const css = read("../app/workspace.css");
-  assert.match(css, /\.ui-document \[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
+  assert.match(css, /html\[data-uikit\] \[data-radix-popper-content-wrapper\]\{z-index:100!important\}/);
   assert.match(css, /\.toolkit-account-trigger>span\{justify-content:flex-start!important\}/);
 });
 
@@ -117,4 +117,17 @@ test("Flow bounded reads are reachable through the authenticated web proxy",()=>
  const route=read("../app/api/host/[operation]/route.ts");
  for(const name of ["flow_artifact_read","flow_change_list","flow_change_read"])assert.ok(route.includes('"'+name+'"'));
  assert.match(route,/proxyOwnerRequest/);
+});
+
+
+test("Toolkit brightness has one owner outside document styling",()=>{
+ const ui=read("../app/ui.tsx"),root=read("../app/layout.tsx"),theme=read("../app/toolkit-theme.tsx");
+ assert.match(ui,/<ToolkitThemeProvider>/);
+ assert.match(theme,/<UIKitRoot colorScheme={theme}>/);
+ assert.doesNotMatch(root,/<body[^>]*ui-document/);
+ for(const path of ["../app/toolkit-shell.tsx","../components/flow/flow-workspace.tsx"]){
+  const view=read(path);assert.match(view,/useToolkitTheme/);assert.doesNotMatch(view,/dataset\.theme\s*=/);
+ }
+ const css=read("../app/globals.css");
+ for(const sheet of ["react.css","layout.css","components.css","document.css"])assert.ok(css.includes("@personal-agent/ui-kit/"+sheet));
 });

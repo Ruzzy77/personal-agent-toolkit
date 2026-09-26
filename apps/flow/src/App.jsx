@@ -1,6 +1,6 @@
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {B,AppHeader,Overlay} from './ui.jsx';
-import {Field} from '@personal-agent/ui-kit/react';
+import {Field,UIKitRoot} from '@personal-agent/ui-kit/react';
 import {Input} from '@openai/apps-sdk-ui/components/Input';
 import {Textarea} from '@openai/apps-sdk-ui/components/Textarea';
 import {Menu} from '@openai/apps-sdk-ui/components/Menu';
@@ -37,7 +37,6 @@ export function App(){
  const counts=reviewCounts(store.changes),review=(store.changes||[]).some(c=>c.workId===work.id&&['review','conflict'].includes(c.status));
  const undo=(store.changes||[]).findLast(c=>c.workId===work.id&&c.artifactId===a.id&&c.status==='completed'&&c.before&&c.appliedRevision===a.revision);
  useEffect(()=>{const media=matchMedia('(min-width:1200px)'),update=()=>setWide(media.matches);media.addEventListener('change',update);return()=>media.removeEventListener('change',update)},[]);
- useEffect(()=>{document.documentElement.dataset.theme=view.theme||store.theme;document.documentElement.style.colorScheme=view.theme||store.theme},[view.theme,store.theme]);
  useLayoutEffect(()=>{window.scrollTo(0,scroll.current[position]||0)},[position]);
  useEffect(()=>()=>clearTimeout(timer.current),[]);
  function toast(text){setMessage(text);clearTimeout(timer.current);timer.current=setTimeout(()=>setMessage(''),3200)}
@@ -100,7 +99,7 @@ export function App(){
   {newSource&&<p className="small muted">{newSource.title}</p>}
   <div className="su-row"><B type="submit" variant="solid" disabled={!newName.trim()}>시작하기</B><B variant="ghost" onClick={close}>취소</B></div>
  </form>:null;
- return <>
+ return <UIKitRoot colorScheme={view.theme||store.theme}>
   <div className="app-shell" inert={!ready||undefined}>
    <a className="su-skip" href="#flow-main">본문으로</a>
    <AppHeader screen={screen} onNavigate={navigate} navigationReturnRef={returnRef} onSettings={trigger=>{returnRef.current=trigger;setPanel('settings')}}
@@ -125,5 +124,5 @@ export function App(){
   {!ready&&<div className="startup-state su-stack" role="status"><p>{status.message||'작업을 여는 중입니다.'}</p>{status.phase==='error'&&<B onClick={exportCurrent}>기존 내용 내려받기</B>}</div>}
   {message&&<div className="su-toast" role="status">{message}</div>}
   <Overlay open={Boolean(panel)&&!auxiliary} title={panelTitle||''} onClose={close} returnFocusRef={returnRef} placement={panel==='sources'?'right':'center'}>{panelContent}</Overlay>
- </>;
+ </UIKitRoot>;
 }

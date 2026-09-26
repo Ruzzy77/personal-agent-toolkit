@@ -4,7 +4,7 @@ Flow 작업물을 중심으로 파일·Sense·Corpus·Journal·Library와 UIKit 
 
 ## UI Kit
 
-공통 자산은 `@personal-agent/ui-kit@1.4.1`입니다. `vendor/personal-agent-ui-kit-1.4.1.tgz`와 잠금 파일로 버전을 고정하고 `react.css`, `document.css`, `react` 진입점을 사용합니다. 공통 CSS 복사본을 별도로 수정·관리하지 않습니다. 상단바는 `.su-appbar > .su-appbar__inner`, 읽기 본문은 문서 프로필을 사용합니다. 작업·관리 화면의 부모 배치는 `su-workspace`, `su-section`, `su-toolbar`, `su-row`, `su-stack`, `su-grid`로 구성합니다.
+공통 자산은 `@personal-agent/ui-kit@2.2.2`입니다. `vendor/personal-agent-ui-kit-2.2.2.tgz`와 잠금 파일로 버전을 고정하고 `react.css`, `layout.css`, 필요한 영역의 `components.css`·`document.css`, `react` 진입점을 사용합니다. 공통 CSS 복사본을 별도로 수정·관리하지 않습니다. 상단바는 `.su-appbar > .su-appbar__inner`, 읽기 본문은 문서 프로필을 사용합니다. 작업·관리 화면의 부모 배치는 `su-workspace`, `su-section`, `su-toolbar`, `su-row`, `su-stack`, `su-grid`로 구성합니다.
 
 Flow는 작업공간, 라이브러리, 파일을 하나의 상단바에서 제공합니다. apps/flow/src/work-surface의 버전 고정 패키지로 로컬판과 AppHeader, WorkCanvas, LibraryBrowser 및 읽기 화면을 공유합니다. 주 화면에는 에이전트가 만든 HTML이나 기존 작업물 하나를 표시합니다. 블록 편집 폼, 배치 선택기와 유형별 생성 메뉴는 기본 화면에 두지 않습니다.
 

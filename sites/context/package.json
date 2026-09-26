@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@openai/apps-sdk-ui": "0.2.2",
-    "@personal-agent/flow-surface": "file:vendor/personal-agent-flow-surface-0.1.62.tgz",
+    "@personal-agent/flow-surface": "file:vendor/personal-agent-flow-surface-0.1.64.tgz",
     "@personal-agent/site-runtime": "file:../../packages/site-runtime",
-    "@personal-agent/ui-kit": "file:vendor/personal-agent-ui-kit-1.4.1.tgz",
+    "@personal-agent/ui-kit": "file:vendor/personal-agent-ui-kit-2.2.2.tgz",
     "lucide-react": "1.44.0",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm": "3.1.0",

@@ -19,7 +19,7 @@ For a new work, `flow_work_create` accepts an optional complete artifact. Omitti
 
 ## Compose and revise
 
-Use HTML for new agent-authored work. Apply the installed UIKit and the project design guidance; inline its CSS and scripts rather than loading a CDN. Preserve existing legacy artifacts when no conversion was requested. The exact HTML contract is in `apps/flow/src/work-surface/README.md`.
+Use HTML for new agent-authored work. Apply the installed UIKit and the project design guidance. For interactive React artifacts, use the UIKit screen command in the shared Spark authoring environment: `ui_kit.py screen App.jsx output.html --title "Title"`. It owns CSS ordering and the offline bundle; do not create a package project or ad hoc bundler for each artifact. Use `UIKitRoot colorScheme="inherit"` so Flow controls brightness without remounting the artifact. Use official FieldSelect for styled selection, with visibleLabel and description where needed; native HTML select is a different implementation. Keep the existing document authoring tool for editable reports. Preserve existing legacy artifacts when no conversion was requested. The exact HTML contract is in `apps/flow/src/work-surface/README.md`.
 
 - `flow_change_submit` with `mode: "replace"` applies a requested revision immediately to the same artifact ID. Include `artifact_id`, current `base_revision`, the complete artifact and an idempotency key. Read and reconcile a conflict before resubmitting; never merely advance the expected version.
 - `initialize` fills an existing blank artifact under the same ID.

@@ -1,7 +1,9 @@
-@layer theme,base,ui-kit,components,utilities;
+@layer theme,base,components,utilities;
 @import "tailwindcss";
 @import "@openai/apps-sdk-ui/css";
 @import "@personal-agent/ui-kit/react.css";
+@import "@personal-agent/ui-kit/layout.css";
+@import "@personal-agent/ui-kit/components.css";
 @source "../node_modules/@openai/apps-sdk-ui/dist/es";
 
 html,body,#root{min-height:100%;margin:0}

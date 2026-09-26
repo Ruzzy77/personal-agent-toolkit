@@ -1,6 +1,6 @@
 {
   "name": "@personal-agent/flow-surface",
-  "version": "0.1.62",
+  "version": "0.1.64",
   "private": true,
   "type": "module",
   "exports": {
@@ -54,7 +54,7 @@
     "react": "^19.2.8",
     "lucide-react": "^1.44.0",
     "@openai/apps-sdk-ui": "0.2.2",
-    "@personal-agent/ui-kit": "1.4.1"
+    "@personal-agent/ui-kit": "2.2.2"
   },
   "dependencies": {
     "react-markdown": "9.1.0",

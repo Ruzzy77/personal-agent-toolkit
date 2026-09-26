@@ -1,5 +1,6 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
+import {useToolkitTheme} from "../../app/toolkit-theme";
 import {Archive,Download,FileText,Info,Link2,MoreHorizontal,Moon,Sun,Undo2} from "lucide-react";
 import {Input} from "@openai/apps-sdk-ui/components/Input";
 import {Textarea} from "@openai/apps-sdk-ui/components/Textarea";
@@ -71,10 +72,11 @@ function MaterialContent({item,workspaceId,root,onSave,onRetry}:{item:Material;w
  </div>;
 }
 export function FlowWorkspace(){
+ const {theme,setTheme}=useToolkitTheme();
  const [spaces,setSpaces]=useState<Workspace[]>([]),[space,setSpace]=useState(""),[works,setWorks]=useState<FlowWorkItem[]>([]),[detail,setDetail]=useState<FlowRead|null>(null);
  const [screen,setScreen]=useState<Screen>("work"),[panel,setPanel]=useState<string|null>(null),[artifactId,setArtifactId]=useState<string>(),[materials,setMaterials]=useState<Material[]>([]),[materialOffset,setMaterialOffset]=useState<number|null>(null),[libraryError,setLibraryError]=useState("");
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[name,setName]=useState(""),[source,setSource]=useState<Material|null>(null);
- const [resource,setResource]=useState<FlowOpenResource|null>(null),[file,setFile]=useState<FlowOpenResource|null>(null),[theme,setTheme]=useState("light");
+ const [resource,setResource]=useState<FlowOpenResource|null>(null),[file,setFile]=useState<FlowOpenResource|null>(null);
  const [draftName,setDraftName]=useState(""),[draftPurpose,setDraftPurpose]=useState("");
  const returnRef=useRef<HTMLElement|null>(null),sourceTrigger=useRef<HTMLButtonElement>(null),moreTrigger=useRef<HTMLButtonElement>(null),request=useRef(0),selected=useRef(""),revision=useRef(""),busyRef=useRef(false),panelRef=useRef<string|null>(null),scroll=useRef<Record<string,number>>({});
  const mutate=useRef(createFlowMutator(hostCall)).current,selectedArtifact=useRef<string|undefined>(undefined);
@@ -121,7 +123,6 @@ export function FlowWorkspace(){
   return hostCall<{workspaces:Workspace[]}>("flow_workspace_list").then(async({workspaces})=>{
    setSpaces(workspaces);
    const viewTarget=new URLSearchParams(location.search).get("screen");if(viewTarget==="library"||viewTarget==="files")setScreen(viewTarget);
-   setTheme(document.documentElement.dataset.theme==="dark"?"dark":"light");
    const params=new URLSearchParams(location.search),remembered=flowSelectionFromStorage(sessionStorage.getItem(FLOW_LAST_WORK_KEY));
    const workspaceId=selectFlowWorkspace(workspaces.map(s=>s.id),preferred,params.get("workspace"),remembered);
    if(!workspaceId){setSpace("");setDetail(null);setLoading(false);return}
@@ -263,7 +264,7 @@ export function FlowWorkspace(){
    {panel==="context"&&work&&<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();void updateWork({name:draftName.trim(),purpose:draftPurpose}).then(close).catch(()=>{})}}><Field label="작업 이름"><Input value={draftName} onChange={e=>setDraftName(e.target.value)} maxLength={160}/></Field><Field label="작업 목적"><Textarea value={draftPurpose} onChange={e=>setDraftPurpose(e.target.value)} rows={3}/></Field><div className="su-row"><B type="submit" variant="solid" disabled={!draftName.trim()||!writable||busy}>저장</B><B variant="ghost" onClick={close}>취소</B></div></form>}
    {panel==="settings"&&<div className="su-stack" data-gap="section">
     {spaces.length>1&&<FieldSelect aria-label="작업공간" visibleLabel value={space} options={spaces.map(s=>({value:s.id,label:s.id}))} onChange={option=>{close();setLoading(true);setError("");void initialize(option.value)}}/>}
-    <SegmentedControl value={theme} onChange={value=>{setTheme(value);document.documentElement.dataset.theme=value;localStorage.setItem("toolkit-theme",value)}} aria-label="화면 테마" size="md" pill={false}><SegmentedControl.Option value="light"><Sun size="1em"/>밝게</SegmentedControl.Option><SegmentedControl.Option value="dark"><Moon size="1em"/>어둡게</SegmentedControl.Option></SegmentedControl>
+    <SegmentedControl value={theme} onChange={value=>setTheme(value as "light"|"dark")} aria-label="화면 테마" size="md" pill={false}><SegmentedControl.Option value="light"><Sun size="1em"/>밝게</SegmentedControl.Option><SegmentedControl.Option value="dark"><Moon size="1em"/>어둡게</SegmentedControl.Option></SegmentedControl>
     <a href="/settings">계정과 연결 설정</a>
    </div>}
    {panel==="changes"&&<div className="su-stack" data-gap="section">{proposals.map(change=><ChangeDetail key={change.id} change={change} workspaceId={space} current={work?.artifacts.find(a=>a.id===change.artifactId)} onApply={writable?()=>act(change.id,"apply"):undefined} busy={busy}/>)}</div>}

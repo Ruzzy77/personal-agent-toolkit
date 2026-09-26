@@ -20,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
-      <body className="ui-document"><UIProvider><ToolkitShell>{children}</ToolkitShell></UIProvider></body>
+    <html lang="ko" data-uikit="openai" data-density="comfortable" data-color-scheme="light" data-theme="light">
+      <body><UIProvider><ToolkitShell>{children}</ToolkitShell></UIProvider></body>
     </html>
   );
 }

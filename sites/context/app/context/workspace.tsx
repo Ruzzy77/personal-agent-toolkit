@@ -455,7 +455,7 @@ export default function Home() {
       {!narrow && <aside className="context-source-nav" aria-labelledby="navigation-title">
         {navigationBody}
       </aside>}
-      <main id="main" tabIndex={-1}>
+      <main id="main" className="ui-document" tabIndex={-1}>
         <div className="status-area" role="status" aria-live="polite">{message}</div>
         {storageError && <div className="notice su-stack"><p>{storageError}</p><UiButton onClick={downloadRecovery}>보관본 내려받기</UiButton></div>}
         {entry ? <>

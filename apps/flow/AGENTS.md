@@ -1,6 +1,6 @@
 # Toolkit Flow 앱 작업 지침
 
-이 앱은 기존 Personal Agent Toolkit의 작업 화면이다. UI Kit 1.4.1 패키지를 직접 사용하고, 공통 버튼·입력·대화상자를 임의 재구현하지 않는다. 이 앱은 에이전트가 만든 작업물을 표시하고, 자료 참조와 변경 확인을 지원한다.
+이 앱은 기존 Personal Agent Toolkit의 작업 화면이다. UI Kit 2.2.2 패키지를 직접 사용하고, 공통 버튼·입력·대화상자를 임의 재구현하지 않는다. 이 앱은 에이전트가 만든 작업물을 표시하고, 자료 참조와 변경 확인을 지원한다.
 
 - 사용자 데이터는 앱 소스가 아닌 `TOOLKIT_FLOW_DATA_DIR`에 둔다. 실제 저장본을 테스트 초기값으로 사용하거나 초기화하지 않는다.
 - 앱 서비스는 등록된 `TOOLKIT_FLOW_EXEC_HOST`와 `TOOLKIT_FLOW_WORKSPACE_ROOT`가 일치하는 실행 환경에서만 시작한다. Mac에 마운트된 원격 경로에서 Node·Python·빌드·테스트를 실행하지 않는다.

@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {UIKitRoot} from '@personal-agent/ui-kit/react';
 import {B,WorkCanvas,contentRenderers} from './work-surface/index.js';
 import {readCache,downloadText} from './useWorkspace.js';
 import {STORAGE_KEY,V2_STORAGE_KEY} from './model.js';
@@ -30,7 +31,7 @@ export function LegacyBridge(){
   }catch(e){setError(e.message||'수정 내용을 복구하지 못했습니다. 이 브라우저의 내용은 그대로 남아 있습니다.')}
   finally{setBusy(false)}
  }
- return <main className="su-page su-stack" data-gap="section">
+ return <UIKitRoot colorScheme={cache.state.theme||"system"}><main className="su-workspace su-stack" data-gap="section">
   <header><h1>Toolkit</h1><p>작업은 Toolkit 웹에서 이어갈 수 있습니다.</p></header>
   {dirty&&<section className="su-stack" data-gap="section"><h2>이 브라우저에 저장하지 않은 수정이 있습니다.</h2>
    {changed.map(work=><details key={work.id}><summary>{work.name}</summary><WorkCanvas work={work} renderers={contentRenderers}/></details>)}
@@ -40,5 +41,5 @@ export function LegacyBridge(){
   {recovered&&<p role="status">수정 내용을 복구했습니다.</p>}
   {error&&<div className="su-stack"><p role="alert">{error}</p><div><B variant="ghost" onClick={()=>{setError('');setAttempt(value=>value+1)}}>다시 연결</B></div></div>}
   {href&&<div><a href={href}>Toolkit에서 계속하기</a></div>}
- </main>;
+ </main></UIKitRoot>;
 }

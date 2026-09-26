@@ -1,6 +1,6 @@
 {
   "name": "personal-agent-toolkit",
-  "version": "1.14.0+codex.20260926015138",
+  "version": "1.14.0+codex.20260926053652",
   "description": "Use personal context, publishing, and workspace tools through one installation.",
   "author": {
     "name": "Ruzzy77",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Personal Agent Toolkit",
     "shortDescription": "Personal context, publishing, and work",
-    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, Library publishing, the owner’s Host workspace. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation.",
+    "longDescription": "One private OpenAI plugin connects Sense guidance, Corpus context and Work files, the Hypes relationship model, Journal progress, Library publishing, the owner\u2019s Host workspace. Each product keeps its own short name, Skill, rules, and data boundary while sharing one installation.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

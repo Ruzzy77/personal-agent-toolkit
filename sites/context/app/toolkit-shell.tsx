@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
+import {useToolkitTheme} from "./toolkit-theme";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { BookOpen, FileText, Folder, LayoutDashboard, Image, LogOut, Menu as MenuIcon, Moon, Settings, Sun, UserRound, X } from "lucide-react";
 import { IconButton, Menu } from "./ui";
 import { clearOwnerIdentity, ownerFetch } from "../lib/owner-client";
@@ -22,25 +23,10 @@ const subscribeMobile = (notify: () => void) => {
 export function ToolkitShell({ children }: { children: React.ReactNode }) {
   const router = useRouter(), pathname = usePathname();
   const mobile = useSyncExternalStore(subscribeMobile, () => matchMedia('(max-width:760px)').matches, () => false);
-  const [dark, setDark] = useState(false), [error, setError] = useState(""), [menuOpen, setMenuOpen] = useState(false);
-  useEffect(() => {
-    let active = true;
-    const observer = new MutationObserver(() => setDark(document.documentElement.dataset.theme === "dark"));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    queueMicrotask(() => {
-      if (!active) return;
-      let saved = null;
-      try { saved = localStorage.getItem("toolkit-theme"); } catch {}
-      const value = saved ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.dataset.theme = value; setDark(value === "dark");
-    });
-    return () => { active = false; observer.disconnect(); };
-  }, []);
-  function theme() {
-    const value = dark ? "light" : "dark";
-    setDark(!dark); document.documentElement.dataset.theme = value;
-    try { localStorage.setItem("toolkit-theme", value); } catch {}
-  }
+  const {theme:currentTheme,setTheme}=useToolkitTheme();
+  const dark=currentTheme==="dark";
+  const [error, setError] = useState(""), [menuOpen, setMenuOpen] = useState(false);
+  function theme() {setTheme(dark ? "light" : "dark");}
   async function logout() {
     try {
       const response = await ownerFetch("/auth/logout", { method: "POST" });

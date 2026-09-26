@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import {ToolkitThemeProvider} from './toolkit-theme';
 import { Children, isValidElement, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode, type OptionHTMLAttributes } from 'react';
 import { AppsSDKUIProvider } from '@openai/apps-sdk-ui/components/AppsSDKUIProvider';
 import { Button, type ButtonProps } from '@openai/apps-sdk-ui/components/Button';
@@ -13,7 +14,7 @@ import { ArrowUp, ArrowDown, RefreshCw, Ellipsis, type LucideIcon } from 'lucide
 
 export { Menu, Tooltip };
 export { Checkbox } from '@openai/apps-sdk-ui/components/Checkbox';
-export function UIProvider({children}:{children:ReactNode}) { return <AppsSDKUIProvider linkComponent={Link}>{children}</AppsSDKUIProvider>; }
+export function UIProvider({children}:{children:ReactNode}) { return <ToolkitThemeProvider><AppsSDKUIProvider linkComponent={Link}>{children}</AppsSDKUIProvider></ToolkitThemeProvider>; }
 const subscribe = (notify:()=>void) => { const media=matchMedia('(pointer:coarse)'); media.addEventListener('change',notify); return ()=>media.removeEventListener('change',notify); };
 function useControlSize() { return useSyncExternalStore(subscribe,()=>matchMedia('(pointer:coarse)').matches,()=>false) ? '2xl' as const : 'md' as const; }
 function textOf(children:ReactNode):string { return Children.toArray(children).map(child=>isValidElement<{children?:ReactNode}>(child)?textOf(child.props.children):String(child)).join('').trim(); }
