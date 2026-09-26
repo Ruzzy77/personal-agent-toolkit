@@ -750,3 +750,34 @@ test('shared navigation and disclosures do not fall back to unstyled native cont
   assert.doesNotMatch(source,/<(?:button|select|details|summary)\b/,path);
  }
 });
+
+
+test('library content owns one action group and hides read actions while editing',async()=>{
+ const browser=await readFile(new URL('../src/work-surface/LibraryBrowser.jsx',import.meta.url),'utf8');
+ assert.match(browser,/renderItem\(selected,{focusHeading,onHeadingChange,back}\)/);
+ assert.doesNotMatch(browser,/actions\?\.\(selected/);
+ const local=await readFile(new URL('../src/LibraryView.jsx',import.meta.url),'utf8');
+ const editor=local.slice(local.indexOf('function EntryContent'),local.indexOf('export function LibraryView'));
+ assert.match(editor,/if\(editing\)return <form/);
+ assert.ok(editor.indexOf('</form>')<editor.indexOf('return renderBody('));
+ assert.match(editor,/자료 수정<\/B>}{actions}/);
+ assert.match(local,/renderBody={actions=><LibraryItemBody[^>]*actions={actions}/);
+ const css=await readFile(new URL('../src/styles.css',import.meta.url),'utf8');
+ assert.doesNotMatch(css,/\.library-item-actions\{[^}]*padding/);
+});
+
+test('reference actions are passed into the reader instead of placed after its body',async()=>{
+ const panel=await readFile(new URL('../src/work-surface/ReferencePanel.jsx',import.meta.url),'utf8');
+ assert.match(panel,/renderSource\(item.source,{focusHeading,onHeadingChange,actions}\)/);
+ assert.match(panel,/renderReference\(item.reference,item.resource,item.title,{actions}\)/);
+ assert.match(panel,/disconnect\(item,back\)/);
+ assert.doesNotMatch(panel,/actions={\(item/);
+});
+
+test('file actions stay together before potentially long previews',async()=>{
+ const view=await readFile(new URL('../src/FileExplorer.jsx',import.meta.url),'utf8');
+ const actions=view.slice(view.indexOf('<div className="file-detail-actions su-row">'),view.indexOf('{!preview&&'));
+ for(const text of ['참고 자료로 연결','라이브러리에 추가','이 파일로 새 작업','파일 다운로드'])assert.ok(actions.includes(text),text);
+ assert.equal((view.match(/이 파일로 새 작업/g)||[]).length,1);
+ assert.match(actions,/variant="outline" onClick={\(\)=>onFrom\(currentItem\)}/);
+});

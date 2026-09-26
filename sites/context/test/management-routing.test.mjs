@@ -152,3 +152,25 @@ test("resource toolbars respond to their pane width rather than the whole viewpo
  assert.match(css,/\.flow-resource-view\{container-type:inline-size/);
  assert.match(css,/@container\(max-width:560px\)\{\.flow-resource-view-head\{flex-direction:column/);
 });
+
+
+test("library actions share their content owner's edit state and one row",()=>{
+ const view=read("../components/flow/flow-workspace.tsx");
+ const material=view.slice(view.indexOf('function MaterialContent'),view.indexOf('export function FlowWorkspace'));
+ assert.match(material,/if\(editing\)return <form/);
+ assert.ok(material.indexOf('</form>')<material.indexOf('const controls='));
+ assert.match(material,/자료 수정<\/B>}\s*{actions}/);
+ assert.match(material,/className="flow-material-actions su-row">{controls}<\/div>/);
+ assert.doesNotMatch(view,/actions={\(item:Material\)/);
+});
+
+test("original reference actions use the resource header rather than a trailing row",()=>{
+ const view=read("../components/flow/flow-workspace.tsx");
+ assert.match(view,/action={actionsInOriginal\?controls:undefined}/);
+ assert.match(view,/renderSource={[^\n]*actions={actions}/);
+ assert.match(view,/renderReference={[^\n]*action={actions}/);
+ const reader=read("../components/flow/flow-resource-view.tsx");
+ const header=reader.slice(reader.indexOf('<header'),reader.indexOf('</header>'));
+ assert.ok(header.includes('원본 받기'));
+ assert.ok(header.includes('{action}'));
+});

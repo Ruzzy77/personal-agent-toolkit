@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {Folder,FileText,Image as ImageIcon,Film,Music2,ArrowUp,ArrowDown,ChevronRight,X,Download,Link2,Archive} from 'lucide-react';
+import {Folder,FileText,Image as ImageIcon,Film,Music2,ArrowUp,ArrowDown,ChevronRight,X,Download,Link2,Archive,Plus} from 'lucide-react';
 import {B,BrowseToolbar} from './ui.jsx';
 import {ListItemAction,SurfaceHeader,ImageDialog,MediaPlayer,PdfPreview,TextContentView,HtmlContentView,markdownImageHref} from './work-surface/index.js';
 import {filePreviewKind,fileContentUrl} from './file-preview.js';
@@ -73,7 +73,8 @@ export function FileExplorer({compact=false,workspaceId,workspaceName='작업공
    </section>
    {selected&&<section className="file-detail su-stack" aria-label="파일 미리보기"><SurfaceHeader className="file-detail-heading" title={<h2 ref={detailTitle} tabIndex={-1}>{selected.name}</h2>} actions={<B variant="ghost" size="sm" uniform aria-label="미리보기 닫기" onClick={close}><X size="1em"/></B>}/>
     <div className="file-detail-actions su-row">{currentItem&&<><B disabled={linked} onClick={()=>onConnect(currentItem)}><Link2 size="1em"/>{linked?'연결됨':'참고 자료로 연결'}</B>{<B disabled={collected} onClick={()=>onCollect({...selected,live:true})}><Archive size="1em"/>{collected?'라이브러리에 있음':'라이브러리에 추가'}</B>}</>}
-     {preview?.kind==='image'&&<B variant="ghost" onClick={()=>setImageOpen(true)}>확대</B>}
+     {currentItem&&<B variant="outline" onClick={()=>onFrom(currentItem)}><Plus size="1em" aria-hidden="true"/>이 파일로 새 작업</B>}
+     {preview?.kind==='image'&&<B variant="outline" onClick={()=>setImageOpen(true)}>확대</B>}
      {preview&&preview.kind!=='error'&&<B variant="ghost" uniform aria-label="파일 다운로드" onClick={download}><Download size="1em"/></B>}</div>
     {!preview&&<p className="empty-state" role="status">미리보기를 여는 중입니다.</p>}
     {preview?.kind==='text'&&<TextContentView key={selected.path} body={preview.content} path={selected.path} title={selected.name} resolveImageSrc={src=>markdownImageHref(fileContentUrl(workspaceId,selected.path),src)}/>}
@@ -82,7 +83,6 @@ export function FileExplorer({compact=false,workspaceId,workspaceName='작업공
     {(preview?.kind==='video'||preview?.kind==='audio')&&<MediaPlayer kind={preview.kind} src={preview.src} label={selected.name} className="file-media-preview"/>}
     {preview?.kind==='pdf'&&<PdfPreview key={selected.path} href={preview.src} name={selected.name} className="file-pdf-preview"/>}
     {preview?.kind==='error'&&<p className="su-error" role="alert">{preview.message}</p>}
-    {currentItem&&<div className="su-row"><B variant="ghost" onClick={()=>onFrom(currentItem)}>이 파일로 새 작업<ChevronRight size="1em"/></B></div>}
    </section>}
   </div>
  </div>;

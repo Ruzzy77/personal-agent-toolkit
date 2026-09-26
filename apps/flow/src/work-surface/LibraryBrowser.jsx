@@ -7,7 +7,7 @@ import {ListItemAction} from './FlowControls.jsx';
 import {splitContentHeading} from './composition.js';
 
 const asPage=value=>Array.isArray(value)?{items:value,nextCursor:null}:value;
-export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasMore=false,actions,compact=false,showSearch=true,backLabel='자료 목록',emptyLabel='아직 정리한 자료가 없습니다.'}){
+export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasMore=false,compact=false,showSearch=true,backLabel='자료 목록',emptyLabel='아직 정리한 자료가 없습니다.'}){
  const [query,setQuery]=useState(''),[selectedId,setSelectedId]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[opened,setOpened]=useState({});
  const rows=useRef(new Map()),container=useRef(null),heading=useRef(null),reader=useRef(null);
  const [results,setResults]=useState({term:'',items:[],nextCursor:null,error:'',partial:false}),[paging,setPaging]=useState(false),[searchAttempt,setSearchAttempt]=useState(0);
@@ -53,8 +53,7 @@ export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasM
   {selected?<section className="flow-library-detail">
    <div className="su-row"><Button color="primary" variant="ghost" pill={false} size="md" onClick={back}><ArrowLeft size="1em"/>{backLabel}</Button></div>
    <Heading ref={heading} tabIndex={-1} className={hasHeading?'sr-only':'flow-library-detail-title'}>{selected.title}</Heading>
-   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading,onHeadingChange})}
-   {!busy&&!error&&actions?.(selected,{back})}
+   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading,onHeadingChange,back})}
   </section>:<>
    {showSearch&&<div className="flow-library-search"><Input type="search" size="md" aria-label="라이브러리 검색" placeholder="자료 찾기" value={query} onChange={e=>{reader.current?.abort();setPaging(false);setError("");setQuery(e.target.value)}} startAdornment={<Search size="1em" aria-hidden="true"/>}/></div>}
    {searching?<p role="status">자료를 찾는 중입니다.</p>:onSearch&&term&&results.error?<div className="su-stack"><p role="alert">{results.error}</p><div><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>setSearchAttempt(value=>value+1)}>다시 검색</Button></div></div>:matching.length?<ul className="flow-library-list">{matching.map(item=><li key={item.id}>

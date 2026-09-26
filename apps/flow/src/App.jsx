@@ -86,8 +86,8 @@ export function App(){
  const panelTitle={sources:'참고 자료',changes:'변경 확인',context:'작업 정보',settings:'설정',new:'새 작업'}[panel];
  const auxiliary=screen==='work'&&wide&&['sources','changes','context'].includes(panel);
  const panelContent=panel==='sources'?<ReferencePanel key={work.id} work={work} sources={sources} root="workspace"
-  renderSource={(item,{onHeadingChange})=><LibraryItemBody onHeadingChange={onHeadingChange} item={item} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
-  renderReference={(reference,resource,title)=><LibraryItemBody item={{title,reference,...(reference.kind==='host-file'?{live:true,filePath:reference.path}:{})}} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
+  renderSource={(item,{onHeadingChange,actions})=><LibraryItemBody actions={actions} onHeadingChange={onHeadingChange} item={item} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
+  renderReference={(reference,resource,title,{actions})=><LibraryItemBody actions={actions} item={{title,reference,...(reference.kind==='host-file'?{live:true,filePath:reference.path}:{})}} workspaceId={store.workspaceId} toolkitUrl={toolkitUrl}/>}
   onDisconnect={item=>setStore(s=>({...s,works:s.works.map(w=>w.id===work.id?{...w,...disconnectWorkReference(w,item)}:w)}))}/>:panel==='changes'?<ChangesPanel work={work} artifact={a} changes={store.changes||[]} workspaceId={store.workspaceId} onApplied={retry}/>:
  panel==='context'?<div className="su-stack">
   <Field label="작업 이름"><Input value={work.name} onChange={e=>patchWork({name:e.target.value})}/></Field>

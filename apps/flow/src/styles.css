@@ -63,7 +63,6 @@ body{font-family:var(--su-font);background:var(--su-paper);color:var(--su-ink);f
 .library-reading .item-detail h2{font-size:28px;line-height:40px;font-weight:600;letter-spacing:-.025em}
 .item-detail .reading-text{font-size:16px;line-height:28px;white-space:pre-wrap}
 .library-main .reading-text{min-height:120px}
-.library-item-actions{border-top:1px solid var(--su-line);padding-top:24px}
 .design-preview{aspect-ratio:16/10;align-content:center}
 .design-preview h3{font-size:24px;line-height:36px;font-weight:600}
 .empty-state{padding-block:var(--su-section-gap);color:var(--su-muted);display:grid;gap:var(--su-stack-gap);justify-items:start}
