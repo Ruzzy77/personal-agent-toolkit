@@ -77,6 +77,14 @@ export function FlowWorkspace(){
  const [screen,setScreen]=useState<Screen>("work"),[panel,setPanel]=useState<string|null>(null),[artifactId,setArtifactId]=useState<string>(),[materials,setMaterials]=useState<Material[]>([]),[materialOffset,setMaterialOffset]=useState<number|null>(null),[libraryError,setLibraryError]=useState("");
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[name,setName]=useState(""),[source,setSource]=useState<Material|null>(null);
  const [resource,setResource]=useState<FlowOpenResource|null>(null),[file,setFile]=useState<FlowOpenResource|null>(null);
+ const filePreviewRef=useRef<HTMLDivElement>(null),fileReturnRef=useRef<HTMLButtonElement|null>(null);
+ useEffect(()=>{
+  if(!file)return;
+  filePreviewRef.current?.focus({preventScroll:true});
+  filePreviewRef.current?.scrollIntoView({block:"start"});
+ },[file]);
+ function closeFile(){setFile(null);requestAnimationFrame(()=>fileReturnRef.current?.focus())}
+
  const [draftName,setDraftName]=useState(""),[draftPurpose,setDraftPurpose]=useState("");
  const returnRef=useRef<HTMLElement|null>(null),sourceTrigger=useRef<HTMLButtonElement>(null),moreTrigger=useRef<HTMLButtonElement>(null),request=useRef(0),selected=useRef(""),revision=useRef(""),busyRef=useRef(false),panelRef=useRef<string|null>(null),scroll=useRef<Record<string,number>>({});
  const mutate=useRef(createFlowMutator(hostCall)).current,selectedArtifact=useRef<string|undefined>(undefined);
@@ -248,8 +256,8 @@ export function FlowWorkspace(){
     <div hidden={screen!=="work"}>{work?<WorkCanvas work={work} artifactId={artifactId} onSelect={(id:string)=>{void open(space,work.id,id)}} renderers={renderers} prepareContent={prepareContent} resolveMediaUrl={resolveMedia}/>:<div className="flow-product-notice">{space?<B onClick={()=>setPanel("new")}>새 작업</B>:<p>연결된 작업공간이 없습니다.</p>}</div>}</div>
     <div hidden={screen!=="library"}>{libraryError&&<div><p role="alert">{libraryError}</p><B variant="ghost" onClick={()=>void refreshMaterials(space)}>다시 열기</B></div>}{library()}</div>
     <div hidden={screen!=="files"} className="flow-product-files">
-     <FlowFilePicker selected={new Set()} busy={busy} onPick={(root,path)=>setFile(hostFileResource(root,path))}/>
-     {file&&<FlowResourceView resource={file} onClose={()=>setFile(null)} action={work&&writable?<B onClick={()=>void linkResource(file).catch(()=>{})}><Link2 size="1em"/>참고 자료로 연결</B>:undefined}/>}
+     <FlowFilePicker selected={new Set()} current={file?.kind==="host-file"?file:undefined} busy={busy} onPick={(root,path,trigger)=>{fileReturnRef.current=trigger;setFile(hostFileResource(root,path))}}/>
+     {file&&<div ref={filePreviewRef} tabIndex={-1} className="flow-file-preview"><FlowResourceView resource={file} onClose={closeFile} action={work&&writable?<B onClick={()=>void linkResource(file).catch(()=>{})}><Link2 size="1em"/>참고 자료로 연결</B>:undefined}/></div>}
     </div>
    </>}
   </main>

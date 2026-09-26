@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { Input } from "@openai/apps-sdk-ui/components/Input";
-import { Switch } from "@openai/apps-sdk-ui/components/Switch";
-import { FieldSelect } from "../../app/ui";
+import { Menu, IconButton } from "../../app/ui";
+import { ArrowUp, ChevronDown, ChevronRight, Ellipsis, File, Folder, HardDrive, Link2, Search } from "lucide-react";
 import { workspaceFilePresentation, workspaceMediaType } from "@personal-agent/flow-surface";
 import { displayedFiles, fileKind } from "../../lib/file-list";
 import { hostCall, type FileEntry, type HostRoot } from "../../lib/host-files";
@@ -12,9 +12,9 @@ import { flowResourceKey } from "../../lib/flow-resources";
 
 type Listing={entries:FileEntry[];next_cursor:string|null};
 
-export function FlowFilePicker({selected,busy,onPick,rootId,imagesOnly=false,accept}:{
-  selected:Set<string>;busy:boolean;onPick:(root:string,path:string)=>void;
-  rootId?:string;imagesOnly?:boolean;accept?:"image"|"video"|"audio"|"file";
+export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=false,accept}:{
+  selected:Set<string>;busy:boolean;onPick:(root:string,path:string,trigger:HTMLButtonElement)=>void;
+  current?:{root:string;path:string};rootId?:string;imagesOnly?:boolean;accept?:"image"|"video"|"audio"|"file";
 }) {
   const [roots,setRoots]=useState<HostRoot[]>([]);
   const [root,setRoot]=useState("");
@@ -68,24 +68,37 @@ export function FlowFilePicker({selected,busy,onPick,rootId,imagesOnly=false,acc
     !fileType||(entry.type==="directory"&&entry.name!=="node_modules")||
     (entry.type==="file"&&(fileType==="file"?Boolean(workspaceFilePresentation(entry.path)):fileType==="image"?imageFile.test(entry.name):workspaceMediaType(entry.path)?.kind===fileType))
   );
-  return <div className="flow-file-picker">
-    {roots.length>1&&<FieldSelect aria-label="작업공간" value={root} onChange={option=>chooseRoot(option.value)}>{roots.map(item=><option key={item.id} value={item.id}>{item.id==="workspace"?"Spark":item.id}</option>)}</FieldSelect>}
-    <nav className="flow-file-breadcrumbs" aria-label="폴더 경로">
-      <button type="button" onClick={()=>browse(".")}>{root==="workspace"?"Spark":root||"작업공간"}</button>
-      {parts.map((part,index)=><span key={index}><span aria-hidden="true">/</span><button type="button" aria-current={index===parts.length-1?"location":undefined} onClick={()=>browse(parts.slice(0,index+1).join("/"))}>{part}</button></span>)}
-    </nav>
-    <label>파일 찾기<Input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder={cursor?"불러온 파일에서 찾기":"현재 폴더에서 찾기"}/></label>
-    {!fileType&&<Switch checked={showHidden} onCheckedChange={setShowHidden} label="숨김 파일 보기"/>}
+  const rootName=root==="workspace"?"Spark":root||"파일 위치";
+  return <div className="flow-file-picker su-stack">
+    <div className="flow-file-toolbar">
+      <div className="flow-file-location">
+        <IconButton size="md" label="상위 폴더" disabled={!parts.length||loading} onClick={()=>browse(parts.slice(0,-1).join("/")||".")}><ArrowUp size="1em" aria-hidden="true"/></IconButton>
+        <nav className="flow-file-breadcrumbs" aria-label="폴더 경로">
+          {roots.length>1?<Menu>
+            <Menu.Trigger><Button type="button" color="primary" variant="ghost" size="md" pill={false} className="flow-file-root" aria-label={"파일 위치: "+rootName}><HardDrive size="1em" aria-hidden="true"/><span className="flow-file-root-name">{rootName}</span><ChevronDown size="1em" aria-hidden="true"/></Button></Menu.Trigger>
+            <Menu.Content align="start" minWidth={180}>
+              <Menu.RadioGroup value={root} onChange={chooseRoot}>{roots.map(item=><Menu.RadioItem key={item.id} value={item.id} onSelect={()=>{if(item.id===root)browse(".")}}>{item.id==="workspace"?"Spark":item.id}</Menu.RadioItem>)}</Menu.RadioGroup>
+            </Menu.Content>
+          </Menu>:<Button type="button" color="primary" variant="ghost" size="md" pill={false} disabled={!root} onClick={()=>browse(".")}><HardDrive size="1em" aria-hidden="true"/>{rootName}</Button>}
+          {parts.map((part,index)=><span className="flow-file-crumb" key={index}><ChevronRight size="1em" aria-hidden="true"/>{index===parts.length-1?<span aria-current="location">{part}</span>:<button type="button" onClick={()=>browse(parts.slice(0,index+1).join("/"))}>{part}</button>}</span>)}
+        </nav>
+      </div>
+      <div className="flow-file-tools">
+        <div className="flow-file-search"><Input type="search" aria-label="파일 찾기" value={query} onChange={event=>setQuery(event.target.value)} placeholder={cursor?"불러온 파일에서 찾기":"현재 폴더에서 찾기"} startAdornment={<Search size="1em" aria-hidden="true"/>}/></div>
+        {!fileType&&<Menu><Menu.Trigger><IconButton size="md" label="파일 보기 옵션" selected={showHidden}><Ellipsis size="1em" aria-hidden="true"/></IconButton></Menu.Trigger><Menu.Content align="end" minWidth={180}><Menu.CheckboxItem checked={showHidden} onCheckedChange={value=>setShowHidden(value===true)} indicatorVariant="ghost">숨김 파일 보기</Menu.CheckboxItem></Menu.Content></Menu>}
+      </div>
+    </div>
     {error&&<p className="flow-error" role="alert">{error}</p>}
     {loading&&!entries.length?<p className="flow-muted" role="status">파일을 불러오는 중입니다.</p>:
       visible.length===0&&!error?<p className="flow-muted">{query?"찾은 파일이 없습니다.":"폴더가 비어 있습니다."}</p>:
-      <ul className="flow-resource-options">{visible.map(entry=>{
+      <ul className="flow-file-list" aria-label="파일 목록" aria-busy={loading}>{visible.map(entry=>{
         const linked=selected.has(flowResourceKey({kind:"host-file",root,path:entry.path}));
         const limit=fileType==="file"?workspaceFilePresentation(entry.path)?.maxBytes??20*1024*1024:20*1024*1024;
         const tooLarge=Boolean(fileType)&&entry.type==="file"&&entry.bytes>limit;
-        return <li key={entry.path}><button type="button" disabled={busy||entry.type==="symlink"||linked||tooLarge}
-          onClick={()=>entry.type==="directory"?browse(entry.path):onPick(root,entry.path)}>
-          <span>{fileKind(entry)}</span><strong>{entry.name}</strong>{linked&&<small>연결됨</small>}{tooLarge&&<small>{limit===512*1024?"512KB 초과":"20MB 초과"}</small>}
+        const EntryIcon=entry.type==="directory"?Folder:entry.type==="symlink"?Link2:File;
+        return <li key={entry.path}><button type="button" className="flow-file-row" aria-label={fileKind(entry)+": "+entry.name+(linked?", 연결됨":"")+(tooLarge?", 크기 제한 초과":"")} aria-current={current?.root===root&&current.path===entry.path?"true":undefined} disabled={busy||entry.type==="symlink"||linked||tooLarge}
+          onClick={event=>entry.type==="directory"?browse(entry.path):onPick(root,entry.path,event.currentTarget)}>
+          <EntryIcon size={20} aria-hidden="true"/><span className="flow-file-name">{entry.name}</span>{linked&&<small>연결됨</small>}{tooLarge&&<small>{limit===512*1024?"512KB 초과":"20MB 초과"}</small>}
         </button></li>;
       })}</ul>}
     {cursor&&<Button color="primary" variant="ghost" pill={false} size="sm" disabled={loading} onClick={()=>void more()}>더 보기</Button>}
