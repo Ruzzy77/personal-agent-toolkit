@@ -16,7 +16,7 @@ export function DocumentSurface({artifact:a,onChange,viewBlockId,onViewBlock,onS
  function go(index){setSlide(index);onViewBlock(a.blocks[index].id)}
  return <>{a.format==='slides'?<>{block(a.blocks[current],current)}<nav className="slide-navigation su-row" aria-label="발표 페이지">
   <B variant="ghost" uniform disabled={current===0} aria-label="이전 장" onClick={()=>go(current-1)}><ChevronLeft size="1em"/></B><span>{current+1} / {a.blocks.length}</span>
-  <B variant="ghost" uniform disabled={current===a.blocks.length-1} aria-label="다음 장" onClick={()=>go(current+1)}><ChevronRight size="1em"/></B><B variant="ghost" onClick={()=>onChange({format:'document'})}>전체 문서</B>
+  <B variant="ghost" uniform disabled={current===a.blocks.length-1} aria-label="다음 장" onClick={()=>go(current+1)}><ChevronRight size="1em"/></B><B variant="outline" onClick={()=>onChange({format:'document'})}>전체 문서</B>
  </nav></>:a.blocks.map(block)}
- <div className="add-section"><B variant="ghost" onClick={()=>onChange(current=>({blocks:[...current.blocks,{id:crypto.randomUUID(),heading:'',text:''}]}))}><Plus size="1em"/>내용 추가</B></div></>;
+ <div className="add-section"><B variant="outline" onClick={()=>onChange(current=>({blocks:[...current.blocks,{id:crypto.randomUUID(),heading:'',text:''}]}))}><Plus size="1em"/>내용 추가</B></div></>;
 }

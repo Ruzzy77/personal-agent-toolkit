@@ -48,13 +48,13 @@ export function CompositionEditor({composition,onChange,onPick,onAddFile,resolve
         <ContentFields block={block} busy={busy} onPick={onPick} resolveImageUrl={resolveImageUrl} onChange={content=>updateBlock(id,content)}/>
        </div>
        {expanded&&<div className="flow-content-block-actions">
-        <Button type="button" color="primary" variant="ghost" pill={false} size="sm" aria-label={label+' '+(at+1)+' 삭제'} disabled={busy||composition.blocks.length<=1} onClick={()=>remove(id)}>삭제</Button>
+        <Button type="button" color="primary" variant="outline" pill={false} size="sm" aria-label={label+' '+(at+1)+' 삭제'} disabled={busy||composition.blocks.length<=1} onClick={()=>remove(id)}>삭제</Button>
        </div>}
       </section>;
   })}</div>
   <div className="flow-content-add">
-   <Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={busy||composition.blocks.length>=100} onClick={add}>내용 추가</Button>
-   {onAddFile&&<Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={busy||composition.blocks.length>=100} onClick={onAddFile}>파일 추가</Button>}
+   <Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={busy||composition.blocks.length>=100} onClick={add}>내용 추가</Button>
+   {onAddFile&&<Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={busy||composition.blocks.length>=100} onClick={onAddFile}>파일 추가</Button>}
   </div>
  </div>;
 }

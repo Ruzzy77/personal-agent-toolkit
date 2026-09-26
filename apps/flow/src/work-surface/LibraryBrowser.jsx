@@ -53,18 +53,18 @@ export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasM
   {selected?<section className="flow-library-detail">
    <div className="su-row"><Button color="primary" variant="ghost" pill={false} size="md" onClick={back}><ArrowLeft size="1em"/>{backLabel}</Button></div>
    <Heading ref={heading} tabIndex={-1} className={hasHeading?'sr-only':'flow-library-detail-title'}>{selected.title}</Heading>
-   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading,onHeadingChange})}
+   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading,onHeadingChange})}
    {!busy&&!error&&actions?.(selected,{back})}
   </section>:<>
    {showSearch&&<div className="flow-library-search"><Input type="search" size="md" aria-label="라이브러리 검색" placeholder="자료 찾기" value={query} onChange={e=>{reader.current?.abort();setPaging(false);setError("");setQuery(e.target.value)}} startAdornment={<Search size="1em" aria-hidden="true"/>}/></div>}
-   {searching?<p role="status">자료를 찾는 중입니다.</p>:onSearch&&term&&results.error?<div className="su-stack"><p role="alert">{results.error}</p><div><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>setSearchAttempt(value=>value+1)}>다시 검색</Button></div></div>:matching.length?<ul className="flow-library-list">{matching.map(item=><li key={item.id}>
+   {searching?<p role="status">자료를 찾는 중입니다.</p>:onSearch&&term&&results.error?<div className="su-stack"><p role="alert">{results.error}</p><div><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>setSearchAttempt(value=>value+1)}>다시 검색</Button></div></div>:matching.length?<ul className="flow-library-list">{matching.map(item=><li key={item.id}>
     <ListItemAction ref={node=>{if(node)rows.current.set(item.id,node);else rows.current.delete(item.id)}} onClick={()=>open(item)} icon={<FileText size="1em" aria-hidden="true"/>} label={item.title}>
      {item.collection&&<span className="flow-library-group">{item.collection}</span>}
     </ListItemAction>
    </li>)}</ul>:<p className="flow-library-empty">{term?'찾는 자료가 없습니다.':emptyLabel}</p>}
-   {term&&results.partial&&<div><p role="alert">일부 자료에 연결하지 못했습니다. 연결된 자료부터 표시합니다.</p><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>setSearchAttempt(value=>value+1)}>다시 검색</Button></div>}
+   {term&&results.partial&&<div><p role="alert">일부 자료에 연결하지 못했습니다. 연결된 자료부터 표시합니다.</p><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>setSearchAttempt(value=>value+1)}>다시 검색</Button></div>}
    {error&&<p role="alert">{error}</p>}
-   {!searching&&(term&&onSearch?results.nextCursor!==null:hasMore)&&<div><Button variant="ghost" color="primary" size="md" pill={false} disabled={paging} onClick={()=>void more()}>{paging?'불러오는 중':'더 보기'}</Button></div>}
+   {!searching&&(term&&onSearch?results.nextCursor!==null:hasMore)&&<div><Button variant="outline" color="primary" size="md" pill={false} disabled={paging} onClick={()=>void more()}>{paging?'불러오는 중':'더 보기'}</Button></div>}
   </>}
  </div>;
 }

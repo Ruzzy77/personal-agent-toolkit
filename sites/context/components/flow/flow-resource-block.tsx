@@ -31,6 +31,6 @@ export function FlowResourceBlock({block,context,artifactTitle}: {block:ContentB
       ? <span className="flow-resource-kind">{String(block.content.detail??"연결 자료")}</span>
       : <ResourceBlock block={block} context={context}/>}
     <p className="flow-muted" role={error?"alert":"status"}>{error?"자료를 열지 못했습니다.":"자료를 불러오는 중입니다."}</p>
-    {error&&<B variant="ghost" onClick={()=>setAttempt(value=>value+1)}>다시 열기</B>}
+    {error&&<B variant="outline" onClick={()=>setAttempt(value=>value+1)}>다시 열기</B>}
   </div>;
 }

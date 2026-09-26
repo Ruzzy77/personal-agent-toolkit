@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {useToolkitTheme} from "../../app/toolkit-theme";
-import {Archive,ChevronRight,Download,FileText,FolderCog,Info,Link2,MoreHorizontal,Undo2} from "lucide-react";
+import {Archive,ChevronRight,Download,FileText,FolderCog,Info,Link2,MoreHorizontal,Pencil,Plus,Undo2} from "lucide-react";
 import {Input} from "@openai/apps-sdk-ui/components/Input";
 import {Textarea} from "@openai/apps-sdk-ui/components/Textarea";
 import {Menu} from "@openai/apps-sdk-ui/components/Menu";
@@ -55,12 +55,12 @@ function MaterialContent({item,workspaceId,root,onSave,onRetry,onHeadingChange}:
  if(editing)return <form className="su-stack" onSubmit={e=>{e.preventDefault();void save()}}>
   <Field label="이름"><Input value={title} onChange={e=>setTitle(e.target.value)} maxLength={160}/></Field>
   <Field label="내용"><Textarea value={body} onChange={e=>setBody(e.target.value)} rows={12}/></Field>
-  {error&&<p role="alert">{error}</p>}<div className="su-row"><B type="submit" variant="solid" disabled={busy||!title.trim()||!body.trim()&&!item.reference}>저장</B><B variant="ghost" onClick={cancel} disabled={busy}>취소</B></div>
+  {error&&<p role="alert">{error}</p>}<div className="su-row"><B type="submit" variant="solid" disabled={busy||!title.trim()||!body.trim()&&!item.reference}>저장</B><B variant="outline" onClick={cancel} disabled={busy}>취소</B></div>
  </form>;
  const originalContent=<>
   {resource&&<FlowResourceView resource={resource} hideTitle={!item.body&&resource.title===item.title}/>}
   {resource&&item.sourceVersion&&resource.kind!=="flow-source"&&resource.resolved?.version&&item.sourceVersion!==resource.resolved.version&&<p className="flow-muted">정리할 때 참고한 원본과 현재 원본의 버전이 다릅니다.</p>}
-  {originalError&&<div className="su-stack"><p role="alert">{originalError}</p><div><B variant="ghost" onClick={()=>{onRetry?.();setReadAttempt(value=>value+1)}}>다시 열기</B></div></div>}
+  {originalError&&<div className="su-stack"><p role="alert">{originalError}</p><div><B variant="outline" onClick={()=>{onRetry?.();setReadAttempt(value=>value+1)}}>다시 열기</B></div></div>}
   {showOriginal&&referenceKey!=="null"&&!resource&&!originalError&&<p role="status">원본을 여는 중입니다.</p>}
  </>;
  return <div className="su-stack" data-gap="section">
@@ -70,7 +70,7 @@ function MaterialContent({item,workspaceId,root,onSave,onRetry,onHeadingChange}:
   {item.artifact&&<ArtifactPreview onHeadingChange={onHeadingChange} artifact={item.artifact} renderers={contentRenderers} prepareContent={c=>flowContentForWeb(workspaceId,c)} resolveMediaUrl={v=>flowMediaUrl(workspaceId,v)} headingLevel={2}/>}
   {item.body?referenceKey!=="null"&&<Disclosure label="원본" open={showOriginal} onOpenChange={setShowOriginal}>{originalContent}</Disclosure>:originalContent}
   {error&&<p role="alert">{error}</p>}
-  {item.scope&&onSave&&<div><B variant="ghost" onClick={()=>{baseline.current=item;setTitle(item.title);setBody(item.body||"");setEditing(true)}}>자료 수정</B></div>}
+  {item.scope&&onSave&&<div><B variant="outline" onClick={()=>{baseline.current=item;setTitle(item.title);setBody(item.body||"");setEditing(true)}}><Pencil size="1em" aria-hidden="true"/>자료 수정</B></div>}
  </div>;
 }
 export function FlowWorkspace(){
@@ -236,7 +236,7 @@ export function FlowWorkspace(){
  const availableUndo=detail?.undo;const undo=availableUndo&&availableUndo.artifactId===artifact?.id&&availableUndo.appliedRevision===artifact?.revision?availableUndo:null;
  const proposals=detail?.changes.filter(change=>["review","conflict"].includes(change.status))||[];
  const library=(compact=false)=><LibraryBrowser key={space} items={materials} compact={compact} onOpen={readMaterial} onSearch={searchMaterials} hasMore={materialOffset!==null} onLoadMore={async(signal:AbortSignal)=>{if(materialOffset===null)return;const page=await loadMaterials(space,"",signal,materialOffset);setMaterials(items=>[...items,...page.entries]);setMaterialOffset(page.nextOffset)}} renderItem={(item:Material,{focusHeading,onHeadingChange}:{focusHeading:()=>void;onHeadingChange:(value:boolean)=>void})=><MaterialContent key={item.id} item={item} workspaceId={space} root={root} onHeadingChange={onHeadingChange} onRetry={focusHeading} onSave={writable?saveMaterial:undefined}/>}
-  actions={(item:Material)=><div className="su-row">{work&&writable&&<B disabled={busy||isConnected(item)} onClick={()=>void connect(item).catch(()=>{})}><Link2 size="1em"/>{isConnected(item)?"연결됨":"참고 자료로 연결"}</B>}{writable&&<B variant="ghost" onClick={()=>{setSource(item);setName(item.title);setPanel("new")}}>{item.artifact?"복사해서 새 작업":"이 자료로 새 작업"}</B>}</div>}/>;
+  actions={(item:Material)=><div className="su-row">{work&&writable&&<B disabled={busy||isConnected(item)} onClick={()=>void connect(item).catch(()=>{})}><Link2 size="1em"/>{isConnected(item)?"연결됨":"참고 자료로 연결"}</B>}{writable&&<B variant="outline" onClick={()=>{setSource(item);setName(item.title);setPanel("new")}}><Plus size="1em" aria-hidden="true"/>{item.artifact?"복사해서 새 작업":"이 자료로 새 작업"}</B>}</div>}/>;
  const title=({sources:"참고 자료",context:"작업 정보",new:"새 작업",settings:"설정",changes:"변경 확인",resource:resource?.kind==="library-issue"?"참고 자료":resource?.title||"참고 자료"} as Record<string,string>)[panel||""]||"";
  return <div className="flow-product">
   <a className="su-skip" href="#flow-main">본문으로</a>
@@ -256,7 +256,7 @@ export function FlowWorkspace(){
    {error&&<div className="flow-product-notice su-stack"><p role="alert">{error}</p><div><B onClick={()=>{setLoading(true);setError("");void initialize(space)}}>다시 연결</B></div></div>}
    {loading&&!detail?<p className="flow-product-notice" role="status">작업을 여는 중입니다.</p>:<>
     <div hidden={screen!=="work"}>{work?<WorkCanvas work={work} artifactId={artifactId} onSelect={(id:string)=>{void open(space,work.id,id)}} renderers={renderers} prepareContent={prepareContent} resolveMediaUrl={resolveMedia}/>:<div className="flow-product-notice">{space?<B onClick={()=>setPanel("new")}>새 작업</B>:<p>연결된 작업공간이 없습니다.</p>}</div>}</div>
-    <div hidden={screen!=="library"}>{libraryError&&<div><p role="alert">{libraryError}</p><B variant="ghost" onClick={()=>void refreshMaterials(space)}>다시 열기</B></div>}{library()}</div>
+    <div hidden={screen!=="library"}>{libraryError&&<div><p role="alert">{libraryError}</p><B variant="outline" onClick={()=>void refreshMaterials(space)}>다시 열기</B></div>}{library()}</div>
     <div hidden={screen!=="files"} className="flow-product-files">
      <FlowFilePicker key={root||"workspace"} rootId={root} selected={new Set()} current={file?.kind==="host-file"?file:undefined} busy={busy} onPick={(root,path,trigger)=>{fileReturnRef.current=trigger;setFile(hostFileResource(root,path))}}/>
      {file&&<div ref={filePreviewRef} tabIndex={-1} className="flow-file-preview"><FlowResourceView resource={file} onClose={closeFile} action={work&&writable?<B onClick={()=>void linkResource(file).catch(()=>{})}><Link2 size="1em"/>참고 자료로 연결</B>:undefined}/></div>}
@@ -270,8 +270,8 @@ export function FlowWorkspace(){
     renderReference={(_reference:FlowLinkedResource,value:FlowOpenResource)=><FlowResourceView resource={value} hideTitle/>}
     onDisconnect={writable?(item:WorkReference)=>{const patch=disconnectWorkReference(work,item);return updateWork({source_ids:patch.sourceIds,linked_resources:patch.linkedResources})}:undefined}/>}
    {panel==="resource"&&resource&&<FlowResourceView resource={resource} hideTitle action={work&&writable?<B onClick={()=>void linkResource(resource).catch(()=>{})}>참고 자료로 연결</B>:undefined}/>}
-   {panel==="new"&&<form className="su-stack" onSubmit={e=>{e.preventDefault();void createWork()}}><Field label="작업 이름"><Input value={name} onChange={e=>setName(e.target.value)} autoFocus maxLength={160}/></Field>{source&&<p>{source.title}</p>}<div className="su-row"><B type="submit" variant="solid" disabled={!name.trim()||!writable||busy}>시작하기</B><B variant="ghost" onClick={close}>취소</B></div></form>}
-   {panel==="context"&&work&&<form className="su-stack" onSubmit={e=>{e.preventDefault();void updateWork({name:draftName.trim(),purpose:draftPurpose}).then(close).catch(()=>{})}}><Field label="작업 이름"><Input value={draftName} onChange={e=>setDraftName(e.target.value)} maxLength={160}/></Field><Field label="작업 목적"><Textarea value={draftPurpose} onChange={e=>setDraftPurpose(e.target.value)} rows={3}/></Field><div className="su-row"><B type="submit" variant="solid" disabled={!draftName.trim()||!writable||busy}>저장</B><B variant="ghost" onClick={close}>취소</B></div></form>}
+   {panel==="new"&&<form className="su-stack" onSubmit={e=>{e.preventDefault();void createWork()}}><Field label="작업 이름"><Input value={name} onChange={e=>setName(e.target.value)} autoFocus maxLength={160}/></Field>{source&&<p>{source.title}</p>}<div className="su-row"><B type="submit" variant="solid" disabled={!name.trim()||!writable||busy}>시작하기</B><B variant="outline" onClick={close}>취소</B></div></form>}
+   {panel==="context"&&work&&<form className="su-stack" onSubmit={e=>{e.preventDefault();void updateWork({name:draftName.trim(),purpose:draftPurpose}).then(close).catch(()=>{})}}><Field label="작업 이름"><Input value={draftName} onChange={e=>setDraftName(e.target.value)} maxLength={160}/></Field><Field label="작업 목적"><Textarea value={draftPurpose} onChange={e=>setDraftPurpose(e.target.value)} rows={3}/></Field><div className="su-row"><B type="submit" variant="solid" disabled={!draftName.trim()||!writable||busy}>저장</B><B variant="outline" onClick={close}>취소</B></div></form>}
    {panel==="settings"&&<div className="flow-settings su-stack">
     {spaces.length>1&&<FieldSelect aria-label="작업공간" visibleLabel value={space} options={spaces.map(s=>({value:s.id,label:s.id}))} onChange={option=>{close();setLoading(true);setError("");void initialize(option.value)}}/>}
     <ThemeSetting value={theme} onChange={setTheme}/>

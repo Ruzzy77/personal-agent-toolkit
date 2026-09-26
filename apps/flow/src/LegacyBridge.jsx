@@ -36,10 +36,10 @@ export function LegacyBridge(){
   {dirty&&<section className="su-stack" data-gap="section"><h2>이 브라우저에 저장하지 않은 수정이 있습니다.</h2>
    {changed.map(work=><Disclosure key={work.id} label={work.name}><WorkCanvas work={work} renderers={contentRenderers}/></Disclosure>)}
    {!cache.base&&<p>변경 전 저장본을 확인할 수 없어 자동으로 합칠 수 없습니다. 수정 내용을 보관한 뒤 원본과 비교해 주세요.</p>}
-   <div className="su-row">{cache.base&&<B disabled={busy} onClick={()=>void recover()}>{busy?'복구하는 중':'수정 내용 복구'}</B>}<B variant="ghost" onClick={()=>downloadText('toolkit-workspace-draft.json',cache.raw||JSON.stringify(cache))}>수정 내용 내려받기</B></div>
+   <div className="su-row">{cache.base&&<B disabled={busy} onClick={()=>void recover()}>{busy?'복구하는 중':'수정 내용 복구'}</B>}<B variant="outline" onClick={()=>downloadText('toolkit-workspace-draft.json',cache.raw||JSON.stringify(cache))}>수정 내용 내려받기</B></div>
   </section>}
   {recovered&&<p role="status">수정 내용을 복구했습니다.</p>}
-  {error&&<div className="su-stack"><p role="alert">{error}</p><div><B variant="ghost" onClick={()=>{setError('');setAttempt(value=>value+1)}}>다시 연결</B></div></div>}
+  {error&&<div className="su-stack"><p role="alert">{error}</p><div><B variant="outline" onClick={()=>{setError('');setAttempt(value=>value+1)}}>다시 연결</B></div></div>}
   {href&&<div><a href={href}>Toolkit에서 계속하기</a></div>}
  </main></UIKitRoot>;
 }

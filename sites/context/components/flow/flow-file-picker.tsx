@@ -95,6 +95,6 @@ export function FlowFilePicker({selected,busy,onPick,current,rootId,imagesOnly=f
           {linked&&<small>연결됨</small>}{tooLarge&&<small>{limit===512*1024?"512KB 초과":"20MB 초과"}</small>}
         </ListItemAction></li>;
       })}</ul>}
-    {cursor&&<Button color="primary" variant="ghost" pill={false} size="sm" disabled={loading} onClick={()=>void more()}>더 보기</Button>}
+    {cursor&&<Button color="primary" variant="outline" pill={false} size="sm" disabled={loading} onClick={()=>void more()}>더 보기</Button>}
   </div>;
 }

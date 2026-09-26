@@ -29,9 +29,9 @@ export function PdfPreview({href,name='',className=''}) {
   {metadata.href===href&&metadata.error?<p role="alert">{metadata.error} 원본을 내려받아 확인해 주세요.</p>:null}
   {ready&&<>
    <div className="ws-pdf-preview-toolbar" aria-label="PDF 쪽 이동">
-    {metadata.pages>1&&<Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={page===1} onClick={()=>setPage(value=>value-1)}><ChevronLeft size="1em"/>이전</Button>}
+    {metadata.pages>1&&<Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={page===1} onClick={()=>setPage(value=>value-1)}><ChevronLeft size="1em"/>이전</Button>}
     <span>{page}쪽 / {metadata.pages}쪽</span>
-    {metadata.pages>1&&<Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={page===metadata.pages} onClick={()=>setPage(value=>value+1)}>다음<ChevronRight size="1em"/></Button>}
+    {metadata.pages>1&&<Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={page===metadata.pages} onClick={()=>setPage(value=>value+1)}>다음<ChevronRight size="1em"/></Button>}
    </div>
    {failedSrc===src?<p role="alert">{page}쪽을 표시하지 못했습니다.</p>:<img key={src} src={src||''} alt={name+' '+page+'쪽'} loading="lazy" onError={()=>setFailedSrc(src||'')}/>}
   </>}

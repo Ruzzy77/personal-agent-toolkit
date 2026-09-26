@@ -28,10 +28,10 @@ export function DiagramSurface({artifact:a,onChange,onCommit,readOnly=false,fitV
  }
  return <div className="su-stack" data-gap="section">
   {!readOnly&&<div className="artifact-tools su-toolbar">
-   {proposal?<><span className="small muted">배치 미리보기</span><div className="su-row"><B variant="solid" onClick={()=>{if(onCommit({nodes:proposal.nodes},proposal.revision))setProposal(null)}}>적용</B><B variant="ghost" onClick={()=>setProposal(null)}>취소</B></div></>:<><div className="su-row">
+   {proposal?<><span className="small muted">배치 미리보기</span><div className="su-row"><B variant="solid" onClick={()=>{if(onCommit({nodes:proposal.nodes},proposal.revision))setProposal(null)}}>적용</B><B variant="outline" onClick={()=>setProposal(null)}>취소</B></div></>:<><div className="su-row">
     <B onClick={()=>{const n={id:crypto.randomUUID(),label:'새 항목',detail:'',x:500,y:300};onCommit({nodes:[...a.nodes,n]},a.revision);select('node',n.id)}}><Plus size="1em"/>항목 추가</B>
-    <B variant="ghost" disabled={!a.nodes.length} onClick={()=>setProposal({nodes:layoutNodes(a.nodes,'vertical'),revision:a.revision})}>세로 배치</B>
-    <B variant="ghost" disabled={!a.nodes.length} onClick={()=>setProposal({nodes:layoutNodes(a.nodes,'horizontal'),revision:a.revision})}>가로 배치</B>
+    <B variant="outline" disabled={!a.nodes.length} onClick={()=>setProposal({nodes:layoutNodes(a.nodes,'vertical'),revision:a.revision})}>세로 배치</B>
+    <B variant="outline" disabled={!a.nodes.length} onClick={()=>setProposal({nodes:layoutNodes(a.nodes,'horizontal'),revision:a.revision})}>가로 배치</B>
    </div><B uniform variant="ghost" aria-label={fit?'크게 보기':'전체 보기'} title={fit?'크게 보기':'전체 보기'} onClick={()=>onFitChange?onFitChange(!fit):setLocalFit(v=>!v)}><Maximize2 size="1em"/></B></>}
   </div>}
   <div className={'artifact-detail-layout '+(!readOnly&&!proposal&&(node||edge)?'has-detail':'')}>
@@ -46,7 +46,7 @@ export function DiagramSurface({artifact:a,onChange,onCommit,readOnly=false,fitV
     {a.nodes.length>1&&<div className="su-row connection-picker"><FieldSelect visibleLabel aria-label="연결할 항목" placeholder="항목 선택" value={target} options={a.nodes.filter(n=>n.id!==node.id).map(n=>({value:n.id,label:n.label||'제목 없음',disabled:a.edges.some(e=>e.from===node.id&&e.to===n.id)}))} onChange={option=>setTarget(option.value)}/><B disabled={!target} onClick={connect}><Link2 size="1em"/>연결</B></div>}
     <p className="small muted">항목을 끌거나, 항목에 초점을 둔 뒤 방향키로 이동할 수 있습니다.</p>
    </>}
-   <div><B variant="ghost" onClick={()=>{onCommit(node?{nodes:a.nodes.filter(n=>n.id!==node.id),edges:a.edges.filter(e=>e.from!==node.id&&e.to!==node.id)}:{edges:a.edges.filter(e=>e.id!==edge.id)},a.revision);setSelected(null)}}><Trash2 size="1em"/>{node?'항목 삭제':'연결 삭제'}</B></div>
+   <div><B variant="outline" onClick={()=>{onCommit(node?{nodes:a.nodes.filter(n=>n.id!==node.id),edges:a.edges.filter(e=>e.from!==node.id&&e.to!==node.id)}:{edges:a.edges.filter(e=>e.id!==edge.id)},a.revision);setSelected(null)}}><Trash2 size="1em"/>{node?'항목 삭제':'연결 삭제'}</B></div>
   </section>}
   </div>
  </div>;

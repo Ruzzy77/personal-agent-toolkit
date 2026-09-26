@@ -17,6 +17,6 @@ export function WorkCanvas({work,artifactId,onSelect,renderers,prepareContent,re
    {artifact.kind==='blank'?<div className="flow-canvas-empty"><h1>{work.name}</h1>{artifact.draftText?<p>{artifact.draftText}</p>:<p>아직 작업물이 없습니다.</p>}</div>:
     <ArtifactPreview artifact={artifact} renderers={renderers} prepareContent={prepareContent} resolveMediaUrl={resolveMediaUrl} headingLevel={2} primaryHeading={hasHeading} onHeadingChange={value=>setHtmlHeading(current=>current?.key===headingKey&&current.value===value?current:{key:headingKey,value})}/>}
   </article>
-  {other.length>0&&<nav className="flow-related-results" aria-label="다른 작업물">{other.map(a=><Button key={a.id} color="primary" variant="ghost" size="md" pill={false} onClick={()=>onSelect?.(a.id)}>{a.title||'제목 없는 작업물'}</Button>)}</nav>}
+  {other.length>0&&<nav className="flow-related-results" aria-label="다른 작업물">{other.map(a=><Button key={a.id} color="primary" variant="outline" size="md" pill={false} onClick={()=>onSelect?.(a.id)}>{a.title||'제목 없는 작업물'}</Button>)}</nav>}
  </div>;
 }

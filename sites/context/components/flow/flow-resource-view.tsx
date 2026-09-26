@@ -53,7 +53,7 @@ function Publication({body,title}:{body:string;title:string}){
   void Promise.resolve().then(()=>{if(controller.signal.aborted)return;setContent(null);setError("");return load()}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"발간물을 열지 못했습니다.")});
   return()=>controller.abort();
  },[body,attempt]);
- if(error)return <div><p role="alert">{error}</p><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>setAttempt(value=>value+1)}>다시 열기</Button></div>;
+ if(error)return <div><p role="alert">{error}</p><Button color="primary" variant="outline" size="md" pill={false} onClick={()=>setAttempt(value=>value+1)}>다시 열기</Button></div>;
  return content===null?<p role="status">발간물을 여는 중입니다.</p>:<HtmlContentView body={content} name={title} showSourceToggle={false}/>;
 }
 
@@ -91,9 +91,9 @@ export function FlowResourceView({resource,onClose,action,hideTitle=false,render
     <header className="flow-resource-view-head">
       <div><span>{resource.detail}</span>{!hideTitle&&<h3>{resource.title}</h3>}</div>
       <div className="flow-resource-view-actions">
-        {resource.kind==="host-file"?<ButtonLink href={resource.href} download color="primary" variant="ghost" size="md" pill={false}><Download size="1em" aria-hidden="true"/>원본 받기</ButtonLink>:resource.kind!=="flow-source"&&<ButtonLink href={resource.href} target="_blank" rel="noopener noreferrer" color="primary" variant="ghost" size="md" pill={false}><ExternalLink size="1em" aria-hidden="true"/>원본 열기</ButtonLink>}
+        {resource.kind==="host-file"?<ButtonLink href={resource.href} download color="primary" variant="outline" size="md" pill={false}><Download size="1em" aria-hidden="true"/>원본 받기</ButtonLink>:resource.kind!=="flow-source"&&<ButtonLink href={resource.href} target="_blank" rel="noopener noreferrer" color="primary" variant="outline" size="md" pill={false}><ExternalLink size="1em" aria-hidden="true"/>원본 열기</ButtonLink>}
         {action}
-        {onClose&&<Button type="button" color="primary" variant="ghost" pill={false} size="md" onClick={onClose}>닫기</Button>}
+        {onClose&&<Button type="button" color="primary" variant="outline" pill={false} size="md" onClick={onClose}>닫기</Button>}
       </div>
     </header>
     <div className="flow-resource-view-body"><ResourceBody resource={resource} renderSourceArtifact={renderSourceArtifact}/></div>

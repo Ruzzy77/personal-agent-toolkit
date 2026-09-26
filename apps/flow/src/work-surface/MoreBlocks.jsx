@@ -100,7 +100,7 @@ export function CodeBlock({block,context}){
   catch{setCopyState('error')}
  }
  return <section className="ws-code">
-  <div className="ws-code-heading">{heading&&<BlockTitle context={context}>{heading}</BlockTitle>}<span>{language||'text'}</span><Button color="primary" variant="ghost" pill={false} size="sm" onClick={copy}>{copyState==='copied'?<Check size="1em"/>:<Copy size="1em"/>}{copyState==='copied'?'복사됨':'복사'}</Button></div>
+  <div className="ws-code-heading">{heading&&<BlockTitle context={context}>{heading}</BlockTitle>}<span>{language||'text'}</span><Button color="primary" variant="outline" pill={false} size="sm" onClick={copy}>{copyState==='copied'?<Check size="1em"/>:<Copy size="1em"/>}{copyState==='copied'?'복사됨':'복사'}</Button></div>
   <pre className="su-code"><code>{code}</code></pre>
   {copyState==='error'&&<p role="alert">복사하지 못했습니다. 코드를 직접 선택해 주세요.</p>}
  </section>;

@@ -30,9 +30,9 @@ function DocumentPreview({artifact,headingLevel,primaryHeading}){
    slides?<div className="fa-presentation-page"><DocumentBlock block={blocks[current]} Heading={primaryHeading?'h1':Heading} page={current+1}/></div>:
    blocks.map((block,index)=><DocumentBlock key={block.id} block={block} Heading={primaryHeading&&index===0?'h1':Heading}/>)}
   {slides&&blocks.length>0&&<nav className="fa-slide-navigation" aria-label="발표 페이지">
-   <Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={current===0} onClick={()=>setPage(current-1)}>이전 장</Button>
+   <Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={current===0} onClick={()=>setPage(current-1)}>이전 장</Button>
    <span aria-live="polite">{current+1} / {blocks.length}</span>
-   <Button type="button" color="primary" variant="ghost" pill={false} size="sm" disabled={current===blocks.length-1} onClick={()=>setPage(current+1)}>다음 장</Button>
+   <Button type="button" color="primary" variant="outline" pill={false} size="sm" disabled={current===blocks.length-1} onClick={()=>setPage(current+1)}>다음 장</Button>
   </nav>}
  </div>;
 }
@@ -46,7 +46,7 @@ function ImagePreview({artifact,resolveMediaUrl}){
   {geometry?<div className="fa-image-crop" style={{aspectRatio:geometry.aspectRatio}}>
    <img src={source} alt={artifact.alt||artifact.title} style={geometry.imageStyle}/>
   </div>:<img src={source} alt={artifact.alt||artifact.title}/>}
-  <div className="fa-image-actions"><Button type="button" color="primary" variant="ghost" pill={false} size="sm" onClick={()=>setOpen(true)}>확대</Button></div>
+  <div className="fa-image-actions"><Button type="button" color="primary" variant="outline" pill={false} size="sm" onClick={()=>setOpen(true)}>확대</Button></div>
   <ImageDialog image={open?{src:source,alt:artifact.alt||artifact.title,title:artifact.title}:null} onClose={()=>setOpen(false)}/>
  </figure>;
 }

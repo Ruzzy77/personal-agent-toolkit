@@ -96,7 +96,7 @@ export function App(){
  panel==='new'?<form className="su-stack" onSubmit={e=>{e.preventDefault();create()}}>
   <Field label="작업 이름"><Input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus maxLength={100}/></Field>
   {newSource&&<p className="small muted">{newSource.title}</p>}
-  <div className="su-row"><B type="submit" variant="solid" disabled={!newName.trim()}>시작하기</B><B variant="ghost" onClick={close}>취소</B></div>
+  <div className="su-row"><B type="submit" variant="solid" disabled={!newName.trim()}>시작하기</B><B variant="outline" onClick={close}>취소</B></div>
  </form>:null;
  return <UIKitRoot colorScheme={view.theme||store.theme}>
   <div className="app-shell" inert={!ready||undefined}>
@@ -114,7 +114,7 @@ export function App(){
      </Menu.Content></Menu>
     </>}/>
    <div className="flow-body"><main id="flow-main" className="main-surface">
-    {status.message&&<div className="storage-notice su-stack"><p role="alert">{status.message}</p><div className="su-row"><B onClick={retry}>다시 연결</B><B variant="ghost" onClick={exportCurrent}>현재 내용 내려받기</B>{status.phase==='conflict'&&<B variant="ghost" onClick={()=>recover().catch(e=>toast(e.message))}>저장본 다시 열기</B>}</div></div>}
+    {status.message&&<div className="storage-notice su-stack"><p role="alert">{status.message}</p><div className="su-row"><B onClick={retry}>다시 연결</B><B variant="outline" onClick={exportCurrent}>현재 내용 내려받기</B>{status.phase==='conflict'&&<B variant="outline" onClick={()=>recover().catch(e=>toast(e.message))}>저장본 다시 열기</B>}</div></div>}
     <div hidden={screen!=='work'}><WorkCanvas work={work} artifactId={a.id} onSelect={selectArtifact} renderers={contentRenderers}/></div>
     <div hidden={screen!=='library'}><LibraryView {...libraryProps}/></div>
     <div hidden={screen!=='files'}><FileExplorer {...filesProps}/></div>

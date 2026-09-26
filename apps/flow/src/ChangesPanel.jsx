@@ -23,7 +23,7 @@ export function ChangesPanel({work,artifact,changes,workspaceId,onApplied}){
    <div className="request-job-heading"><span className="small muted">{({review:'수정안',conflict:'재확인이 필요한 수정안',completed:c.mode==='add'?'추가된 작업물':'반영된 변경',undone:'되돌린 변경'})[c.status]}</span>{current?.title&&<h3>{current.title}</h3>}</div>
    {['review','conflict'].includes(c.status)&&<ReviewComparison current={<Artifact artifact={current}/>} proposed={c.proposal?.artifact?<Artifact artifact={c.proposal.artifact}/>:c.proposal?.replacement!==undefined?<p>{c.proposal.replacement}</p>:<dl className="request-fields">{Object.entries(c.proposal?.changes||{}).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{typeof value==='string'?value:JSON.stringify(value)}</dd></div>)}</dl>}/>}
    {c.status==='review'&&<div className="su-row"><B variant="solid" disabled={!!busy} onClick={()=>run(c,'apply')}>수정안 반영</B></div>}
-   {c.status==='completed'&&(c.before||c.mode==='add')&&<div className="su-row"><B variant="ghost" disabled={!!busy} onClick={()=>run(c,'undo')}>변경 되돌리기</B></div>}
+   {c.status==='completed'&&(c.before||c.mode==='add')&&<div className="su-row"><B variant="outline" disabled={!!busy} onClick={()=>run(c,'undo')}>변경 되돌리기</B></div>}
   </section>})}
  </div>;
 }

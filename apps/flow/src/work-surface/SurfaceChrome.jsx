@@ -17,7 +17,7 @@ export function SurfaceHeader({title,meta,actions,className=''}) {
 export function EditorActions({busy=false,disabled=false,cancelDisabled=false,onCancel,saveLabel='저장',className=''}) {
  return <div className={'flow-editor-actions su-row '+className}>
   <Button type="submit" color="primary" variant="solid" pill={false} size="md" disabled={busy||disabled}>{busy?'저장 중':saveLabel}</Button>
-  <Button type="button" color="primary" variant="ghost" pill={false} size="md" disabled={busy||cancelDisabled} onClick={onCancel}>취소</Button>
+  <Button type="button" color="primary" variant="outline" pill={false} size="md" disabled={busy||cancelDisabled} onClick={onCancel}>취소</Button>
  </div>;
 }
 

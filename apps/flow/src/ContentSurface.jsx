@@ -38,7 +38,7 @@ function WorkspaceFilePicker({workspaceId,kind,onChoose,onClose}){
  const parts=directory?directory.split('/'):[];
  const visible=entries.filter(item=>(item.type==='directory'||item.type==='file'&&(kind==='file'?!!workspaceFilePresentation(item.path):workspaceMediaType(item.path)?.kind===kind))&&item.name.toLocaleLowerCase('ko').includes(query.toLocaleLowerCase('ko')));
  return <section className="content-media-picker" aria-label={kind==='video'?'영상 선택':kind==='audio'?'오디오 선택':'파일 선택'}>
-  <div className="content-media-picker-head"><h3>{kind==='video'?'영상 선택':kind==='audio'?'오디오 선택':'파일 선택'}</h3><B variant="ghost" size="sm" onClick={onClose}>닫기</B></div>
+  <div className="content-media-picker-head"><h3>{kind==='video'?'영상 선택':kind==='audio'?'오디오 선택':'파일 선택'}</h3><B variant="outline" size="sm" onClick={onClose}>닫기</B></div>
   <nav className="content-media-breadcrumbs" aria-label="폴더 경로"><B variant="ghost" size="sm" onClick={()=>browse('')}>작업공간</B>
    {parts.map((part,index)=><React.Fragment key={index}><span aria-hidden="true">/</span><B variant="ghost" size="sm" onClick={()=>browse(parts.slice(0,index+1).join('/'))}>{part}</B></React.Fragment>)}
   </nav>
@@ -136,7 +136,7 @@ export function ContentSurface({artifact,title,actions,onChange,onCommit,uploadI
  return <>
   <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={event=>void chooseImage(event.target.files?.[0])}/>
   <SurfaceHeader className="work-piece-heading content-heading" title={heading?<div className="ws-heading"><h2 className="ws-heading-title">{heading.content.title}</h2>{heading.content.description&&<p>{heading.content.description}</p>}</div>:editing?<h2 className="artifact-title">{artifact.title||'제목 없음'}</h2>:title}
-   actions={!editing&&<>{actions}<B ref={editTrigger} variant="ghost" size="sm" disabled={editBlocked} onClick={start}>내용 수정</B></>}/>
+   actions={!editing&&<>{actions}<B ref={editTrigger} variant="outline" size="sm" disabled={editBlocked} onClick={start}>내용 수정</B></>}/>
   {editing?<form ref={editorRef} tabIndex={-1} className="content-editor-form" aria-label="작업 화면 수정" onSubmit={event=>{event.preventDefault();void save()}}>
     <EditorActions busy={busy} disabled={!valid||!dirty} onCancel={()=>close()}/>
     <EditorLayout fieldsClassName="content-editor-fields" preview={preview?<ArtifactPreview artifact={{...artifact,composition:preview}} renderers={contentRenderers} compact/>:<p className="muted small">내용을 입력하면 여기에 표시됩니다.</p>}>
