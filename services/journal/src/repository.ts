@@ -339,10 +339,9 @@ export class JournalRepository {
     }
     if (input.query) {
       clauses.push(
-        "(i.title LIKE ? OR i.summary LIKE ? OR i.project_key LIKE ? OR i.source_ref LIKE ?)",
+        "(instr(lower(i.title), lower(?)) > 0 OR instr(lower(i.summary), lower(?)) > 0 OR instr(lower(coalesce(i.project_key, '')), lower(?)) > 0 OR instr(lower(coalesce(i.source_ref, '')), lower(?)) > 0)",
       );
-      const pattern = `%${input.query}%`;
-      bindings.push(pattern, pattern, pattern, pattern);
+      bindings.push(input.query, input.query, input.query, input.query);
     }
     if (input.projectKey) {
       clauses.push("i.project_key = ?");

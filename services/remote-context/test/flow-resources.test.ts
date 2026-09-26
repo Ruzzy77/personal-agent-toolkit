@@ -59,7 +59,7 @@ it("reports an unavailable source separately without hiding other search results
 });
 
 
-it("shows the latest record once without removing older record access", async () => {
+it("searches long Korean titles literally and keeps only the latest record without removing older access", async () => {
   const principal: Principal = {
     ownerId: "journal-flow-test",
     scopes: new Set(["journal.read"]),
@@ -70,7 +70,7 @@ it("shows the latest record once without removing older record access", async ()
   const actor = {kind: "owner" as const, id: "test", scopes: new Set(["journal.write"]), auth: "oauth" as const};
   const input = {
     sourceKind: "test", sourceKey: crypto.randomUUID(), sourceRef: null, sourceVersion: null,
-    projectKey: "flow-dedup", title: "Flow 중복 검색 확인", summary: "이전 주 기록",
+    projectKey: "flow-dedup", title: "Toolkit 통합 관리 배포 후 클라이언트 확인 및 100%_자료 검색", summary: "이전 주 기록",
     lane: "direct" as const, responsibility: "user" as const, dueAt: null,
     durableOutcome: null, corpusTargetSpace: null, occurredAt: null,
   };
@@ -79,11 +79,11 @@ it("shows the latest record once without removing older record access", async ()
   if (!first || !latest) throw new Error("Missing fixture records");
   expect(latest.item.id).not.toBe(first.item.id);
   expect(latest.item.logicalItemId).toBe(first.item.logicalItemId);
-  const result = await flowResourceSearch(runtime, principal, {query: "Flow 중복 검색 확인", limit: 1});
+  const result = await flowResourceSearch(runtime, principal, {query: "Toolkit 통합 관리 배포 후 클라이언트 확인 및 100%_자료 검색", limit: 1});
   expect(result.items).toHaveLength(1);
   expect(result.items[0]!.reference).toEqual({kind: "journal-item", id: latest.item.id});
   if (result.nextCursor) {
-    const tail = await flowResourceSearch(runtime, principal, {query: "Flow 중복 검색 확인", limit: 1, cursor: result.nextCursor});
+    const tail = await flowResourceSearch(runtime, principal, {query: "Toolkit 통합 관리 배포 후 클라이언트 확인 및 100%_자료 검색", limit: 1, cursor: result.nextCursor});
     expect(tail.items).toHaveLength(0);
     expect(tail.nextCursor).toBeNull();
   }
