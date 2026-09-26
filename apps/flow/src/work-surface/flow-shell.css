@@ -19,3 +19,7 @@
 .flow-global .brand{color:inherit;text-decoration:none}.flow-global .truncate{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:900px){.flow-global .primary-navigation,.flow-global .global-settings{display:none}.flow-global .compact-navigation{display:block}.flow-global .toolbar-leading{border:0;padding:0}}
 @media(max-width:767px){.flow-global-inner{padding-inline:var(--su-space-4);gap:var(--su-space-3)}.flow-global .brand{font-size:21px}.flow-global .header-actions{gap:var(--su-space-1)}.flow-global .header-secondary-action{display:none}.flow-global .compact-work-action{display:flex}}
+
+.flow-theme-setting{justify-content:space-between;gap:var(--su-space-4)}
+.flow-theme-option{flex-wrap:nowrap;white-space:nowrap}
+.flow-theme-option>svg{flex:none}

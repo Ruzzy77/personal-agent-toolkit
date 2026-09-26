@@ -1,12 +1,24 @@
 import './flow-shell.css';
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useId,useRef,useState} from 'react';
 import {Button} from '@openai/apps-sdk-ui/components/Button';
 import {Input} from '@openai/apps-sdk-ui/components/Input';
 import {Menu} from '@openai/apps-sdk-ui/components/Menu';
+import {SegmentedControl} from '@openai/apps-sdk-ui/components/SegmentedControl';
 import {Dialog,NavigationAction} from '@personal-agent/ui-kit/react';
-import {ArrowLeft,BookOpen,Check,ChevronDown,ChevronRight,FileText,FolderOpen,Plus,Search,Settings,X} from 'lucide-react';
+import {ArrowLeft,BookOpen,Check,ChevronDown,ChevronRight,FileText,FolderOpen,Moon,Plus,Search,Settings,Sun,X} from 'lucide-react';
 
 export const B=({children,...props})=><Button color="primary" variant="outline" size="md" pill={false} {...props}>{children}</Button>;
+
+export function ThemeSetting({value,onChange}){
+ const labelId=useId();
+ return <div className="flow-theme-setting su-row">
+  <span id={labelId}>화면 테마</span>
+  <SegmentedControl value={value} onChange={onChange} aria-labelledby={labelId} size="lg" pill={false}>
+   <SegmentedControl.Option value="light"><span className="flow-theme-option su-row"><Sun size="1em" aria-hidden="true"/><span>밝게</span></span></SegmentedControl.Option>
+   <SegmentedControl.Option value="dark"><span className="flow-theme-option su-row"><Moon size="1em" aria-hidden="true"/><span>어둡게</span></span></SegmentedControl.Option>
+  </SegmentedControl>
+ </div>;
+}
 
 export function NavAction({active=false,children,...props}){
  return <NavigationAction current={active} {...props}>{children}</NavigationAction>;

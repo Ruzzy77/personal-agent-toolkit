@@ -131,3 +131,12 @@ test("Toolkit brightness has one owner outside document styling",()=>{
  const css=read("../app/globals.css");
  for(const sheet of ["react.css","layout.css","components.css","document.css"])assert.ok(css.includes("@personal-agent/ui-kit/"+sheet));
 });
+
+test("Flow settings reuse the shared theme control and name the destination",()=>{
+ const view=read("../components/flow/flow-workspace.tsx");
+ assert.match(view,/<ThemeSetting value={theme} onChange={setTheme}\/>/);
+ assert.doesNotMatch(view,/<SegmentedControl/);
+ assert.match(view,/<ButtonLink href="\/settings"/);
+ assert.match(view,/자료 관리와 폴더 연결/);
+ assert.doesNotMatch(view,/계정과 연결 설정/);
+});

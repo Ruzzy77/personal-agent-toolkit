@@ -1,14 +1,14 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {useToolkitTheme} from "../../app/toolkit-theme";
-import {Archive,Download,FileText,Info,Link2,MoreHorizontal,Moon,Sun,Undo2} from "lucide-react";
+import {Archive,ChevronRight,Download,FileText,FolderCog,Info,Link2,MoreHorizontal,Undo2} from "lucide-react";
 import {Input} from "@openai/apps-sdk-ui/components/Input";
 import {Textarea} from "@openai/apps-sdk-ui/components/Textarea";
 import {Menu} from "@openai/apps-sdk-ui/components/Menu";
 import {Tooltip} from "@openai/apps-sdk-ui/components/Tooltip";
-import {SegmentedControl} from "@openai/apps-sdk-ui/components/SegmentedControl";
+import {ButtonLink} from "@openai/apps-sdk-ui/components/Button";
 import {Field,FieldSelect} from "@personal-agent/ui-kit/react";
-import {B,AppHeader,Overlay,WorkCanvas,LibraryBrowser,ReferencePanel,ArtifactPreview,ReviewComparison,contentRenderers,exportHtmlArtifact,TextContentView,HtmlContentView} from "@personal-agent/flow-surface";
+import {B,AppHeader,Overlay,ThemeSetting,WorkCanvas,LibraryBrowser,ReferencePanel,ArtifactPreview,ReviewComparison,contentRenderers,exportHtmlArtifact,TextContentView,HtmlContentView} from "@personal-agent/flow-surface";
 import {sourceReference,workReferences,disconnectWorkReference} from "@personal-agent/flow-surface/work-references";
 import type {WorkReference} from "@personal-agent/flow-surface/work-references";
 import {readFlowWork,readFlowMaterial,readFlowArtifact,resourceCall,createFlowMutator} from "../../lib/flow-client";
@@ -270,10 +270,10 @@ export function FlowWorkspace(){
    {panel==="resource"&&resource&&<FlowResourceView resource={resource} hideTitle action={work&&writable?<B onClick={()=>void linkResource(resource).catch(()=>{})}>참고 자료로 연결</B>:undefined}/>}
    {panel==="new"&&<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();void createWork()}}><Field label="작업 이름"><Input value={name} onChange={e=>setName(e.target.value)} autoFocus maxLength={160}/></Field>{source&&<p>{source.title}</p>}<div className="su-row"><B type="submit" variant="solid" disabled={!name.trim()||!writable||busy}>시작하기</B><B variant="ghost" onClick={close}>취소</B></div></form>}
    {panel==="context"&&work&&<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();void updateWork({name:draftName.trim(),purpose:draftPurpose}).then(close).catch(()=>{})}}><Field label="작업 이름"><Input value={draftName} onChange={e=>setDraftName(e.target.value)} maxLength={160}/></Field><Field label="작업 목적"><Textarea value={draftPurpose} onChange={e=>setDraftPurpose(e.target.value)} rows={3}/></Field><div className="su-row"><B type="submit" variant="solid" disabled={!draftName.trim()||!writable||busy}>저장</B><B variant="ghost" onClick={close}>취소</B></div></form>}
-   {panel==="settings"&&<div className="su-stack" data-gap="section">
+   {panel==="settings"&&<div className="flow-settings su-stack">
     {spaces.length>1&&<FieldSelect aria-label="작업공간" visibleLabel value={space} options={spaces.map(s=>({value:s.id,label:s.id}))} onChange={option=>{close();setLoading(true);setError("");void initialize(option.value)}}/>}
-    <SegmentedControl value={theme} onChange={value=>setTheme(value as "light"|"dark")} aria-label="화면 테마" size="md" pill={false}><SegmentedControl.Option value="light"><Sun size="1em"/>밝게</SegmentedControl.Option><SegmentedControl.Option value="dark"><Moon size="1em"/>어둡게</SegmentedControl.Option></SegmentedControl>
-    <a href="/settings">계정과 연결 설정</a>
+    <ThemeSetting value={theme} onChange={setTheme}/>
+    <div className="flow-settings-navigation"><ButtonLink href="/settings" color="primary" variant="ghost" size="lg" pill={false} block opticallyAlign="start"><span className="flow-settings-link su-row"><FolderCog size="1em" aria-hidden="true"/><span>자료 관리와 폴더 연결</span><ChevronRight size="1em" aria-hidden="true"/></span></ButtonLink></div>
    </div>}
    {panel==="changes"&&<div className="su-stack" data-gap="section">{proposals.map(change=><ChangeDetail key={change.id} change={change} workspaceId={space} current={work?.artifacts.find(a=>a.id===change.artifactId)} onApply={writable?()=>act(change.id,"apply"):undefined} busy={busy}/>)}</div>}
 

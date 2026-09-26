@@ -729,3 +729,13 @@ test('HTML headings are reported after rendering, not inferred from JSX bundle t
  assert.ok(canvas.includes('htmlHeading?.key===headingKey'));
  assert.ok(canvas.includes('onHeadingChange='));
 });
+
+test('Flow theme settings share a labelled control and inline option content',async()=>{
+ const shell=await readFile(new URL('../src/work-surface/FlowShell.jsx',import.meta.url),'utf8');
+ assert.match(shell,/export function ThemeSetting/);
+ assert.match(shell,/aria-labelledby={labelId}/);
+ assert.equal((shell.match(/className="flow-theme-option su-row"/g)||[]).length,2);
+ const local=await readFile(new URL('../src/App.jsx',import.meta.url),'utf8');
+ assert.match(local,/<ThemeSetting value={view.theme\|\|store.theme}/);
+ assert.doesNotMatch(local,/<SegmentedControl/);
+});

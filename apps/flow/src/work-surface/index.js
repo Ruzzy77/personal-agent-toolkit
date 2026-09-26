@@ -40,7 +40,7 @@ export {SurfaceHeader,EditorActions,EditorLayout,ArtifactLayoutMenu} from './Sur
 
 export {WorkCanvas} from './WorkCanvas.jsx';
 export {HtmlArtifact} from './HtmlArtifact.jsx';
-export {B,AppHeader,Overlay,BrowseToolbar} from './FlowShell.jsx';
+export {B,AppHeader,Overlay,BrowseToolbar,ThemeSetting} from './FlowShell.jsx';
 export {LibraryBrowser} from './LibraryBrowser.jsx';
 
 export {exportHtmlArtifact} from './html-assets.js';

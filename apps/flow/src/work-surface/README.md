@@ -9,7 +9,7 @@ Flow 작업 화면에 쓰는 공통 콘텐츠·배치 모듈입니다. UI Kit의
 | 구분 | 구성 요소 | 적용 범위 |
 | --- | --- | --- |
 | 기본 스타일·조작 | UI Kit 토큰·레이아웃, Apps SDK UI 버튼·입력·메뉴, UI Kit `FieldSelect`·`Dialog` | 색상·글꼴·간격·컨트롤은 설치된 UI Kit 2.2.2을 사용합니다. Flow 전용 스타일은 콘텐츠 배치에 한정합니다. |
-| 화면 구조·탐색 | AppHeader, WorkCanvas, LibraryBrowser, ReferencePanel, BrowseToolbar | 로컬판과 웹판의 작업공간, 라이브러리, 파일 탐색을 공유합니다. 주 작업물만 표시하고 참고 자료는 따로 엽니다. ReferencePanel은 현재 작업의 연결만 표시하며 라이브러리 전체를 섞지 않습니다. |
+| 화면 구조·탐색 | AppHeader, WorkCanvas, LibraryBrowser, ReferencePanel, BrowseToolbar, ThemeSetting | 로컬판과 웹판의 작업공간, 라이브러리, 파일 탐색을 공유합니다. 주 작업물만 표시하고 참고 자료는 따로 엽니다. ReferencePanel은 현재 작업의 연결만 표시하며 라이브러리 전체를 섞지 않습니다. |
 | 작업물 구성 | `SurfaceHeader`, `WorkSurface` | 에이전트가 정한 제목 위계와 콘텐츠 구성을 표시합니다. 폭과 순서를 바꾸는 메뉴는 기본 작업 화면에 두지 않습니다. |
 | 콘텐츠 표시 | `contentRenderers`, `ArtifactPreview`, `FilePreview`, `TextContentView`, `HtmlContentView`, `MediaPlayer`, `PdfPreview` | 작업 화면, 자료 읽기, 보관함, 미리보기에서 같은 표시 요소를 사용합니다. |
 | 기존 편집기 호환 | EditorLayout, EditorActions, CompositionEditor, ContentFields, ImageRegionEditor, DiagramFields | 기존 형식 및 제작 예시에 필요한 호환 구성입니다. 기본 작업 화면에는 노출하지 않습니다. |

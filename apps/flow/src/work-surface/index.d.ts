@@ -130,3 +130,5 @@ export const LibraryBrowser: ComponentType<any>;
 export function exportHtmlArtifact(artifact:any,resolveMediaUrl?:(value:string)=>string|null):Promise<string>;
 
 export const ReferencePanel: ComponentType<any>;
+
+export function ThemeSetting(props:{value:"light"|"dark";onChange:(value:"light"|"dark")=>void}):ReactNode;

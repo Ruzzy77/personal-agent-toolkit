@@ -180,3 +180,9 @@
 .flow-file-preview>.flow-resource-view{border-top:0;padding-top:0}
 .flow-material-text{white-space:pre-wrap;line-height:1.7}
 @media(max-width:900px){.flow-product-files:has(.flow-resource-view){grid-template-columns:minmax(0,1fr)}.flow-product-files:has(.flow-resource-view)>.flow-file-picker{display:none}}
+
+.flow-settings{gap:var(--su-space-4)}
+.flow-settings-navigation{border-top:1px solid var(--su-line);padding-top:var(--su-space-4)}
+.flow-settings-link{width:100%;flex-wrap:nowrap;gap:var(--su-space-2)}
+.flow-settings-link>span{flex:1;text-align:start;white-space:normal}
+.flow-settings-link>svg{flex:none}

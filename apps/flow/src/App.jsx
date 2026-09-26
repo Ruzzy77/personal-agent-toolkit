@@ -5,8 +5,7 @@ import {Input} from '@openai/apps-sdk-ui/components/Input';
 import {Textarea} from '@openai/apps-sdk-ui/components/Textarea';
 import {Menu} from '@openai/apps-sdk-ui/components/Menu';
 import {Tooltip} from '@openai/apps-sdk-ui/components/Tooltip';
-import {SegmentedControl} from '@openai/apps-sdk-ui/components/SegmentedControl';
-import {Archive,Info,Download,Moon,Sun,FileDiff,FileText,X,MoreHorizontal,Undo2} from 'lucide-react';
+import {Archive,Info,Download,FileDiff,FileText,X,MoreHorizontal,Undo2} from 'lucide-react';
 import {activeArtifact,newWork,workPickerGroups,reviewCounts,libraryItems,sourceItems,saveSnapshot} from './model.js';
 import {libraryEntryKey} from './library.js';
 import {useWorkspace,downloadText} from './useWorkspace.js';
@@ -14,7 +13,7 @@ import {FileExplorer} from './FileExplorer.jsx';
 import {LibraryView,LibraryItemBody} from './LibraryView.jsx';
 import {disconnectWorkReference} from './work-surface/work-references.js';
 import {ChangesPanel} from './ChangesPanel.jsx';
-import {WorkCanvas,ReferencePanel,contentRenderers,SurfaceHeader,exportHtmlArtifact} from './work-surface/index.js';
+import {WorkCanvas,ReferencePanel,ThemeSetting,contentRenderers,SurfaceHeader,exportHtmlArtifact} from './work-surface/index.js';
 
 const VIEW_KEY='toolkit-flow-view-v1';
 function useViewState(){
@@ -93,7 +92,7 @@ export function App(){
  panel==='context'?<div className="su-stack" data-gap="section">
   <Field label="작업 이름"><Input value={work.name} onChange={e=>patchWork({name:e.target.value})}/></Field>
   <Field label="작업 목적"><Textarea value={work.purpose||''} onChange={e=>patchWork({purpose:e.target.value})} rows={3}/></Field>
- </div>:panel==='settings'?<div className="su-stack"><h3>화면</h3><SegmentedControl value={view.theme||store.theme} onChange={theme=>setView(v=>({...v,theme}))} aria-label="화면 테마" size="md" pill={false}><SegmentedControl.Option value="light"><Sun size="1em"/>밝게</SegmentedControl.Option><SegmentedControl.Option value="dark"><Moon size="1em"/>어둡게</SegmentedControl.Option></SegmentedControl></div>:
+ </div>:panel==='settings'?<ThemeSetting value={view.theme||store.theme} onChange={theme=>setView(v=>({...v,theme}))}/>:
  panel==='new'?<form className="su-stack" data-gap="section" onSubmit={e=>{e.preventDefault();create()}}>
   <Field label="작업 이름"><Input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus maxLength={100}/></Field>
   {newSource&&<p className="small muted">{newSource.title}</p>}
