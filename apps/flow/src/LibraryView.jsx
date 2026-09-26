@@ -8,7 +8,7 @@ import {fileContentUrl} from './file-preview.js';
 import {resourceLink} from './resource-link.js';
 import {LibraryBrowser,ArtifactPreview,TextContentView,HtmlContentView,FilePreview,workspaceFilePresentation,contentRenderers} from './work-surface/index.js';
 
-export function LibraryItemBody({item,workspaceId,toolkitUrl}){
+export function LibraryItemBody({item,workspaceId,toolkitUrl,onHeadingChange}){
  const filePath=item.filePath||item.path;
  const original=item.reference&&resourceLink(item.reference,toolkitUrl,workspaceId);
  const external=item.reference&&(item.reference.kind!=='host-file'||item.reference.root!=='workspace');
@@ -17,7 +17,7 @@ export function LibraryItemBody({item,workspaceId,toolkitUrl}){
   const preview=workspaceFilePresentation(filePath)?.viewer?<FilePreview href={fileContentUrl(workspaceId,filePath)} name={item.title} headingLevel={2}/>:<p className="muted">이 파일은 미리보기를 지원하지 않습니다.</p>;
   return item.body?<div className="su-stack"><div className="reading-text">{item.body}</div><details><summary>원본</summary>{preview}</details></div>:preview;
  }
- if(item.artifact)return <ArtifactPreview artifact={item.artifact} renderers={contentRenderers} headingLevel={2}/>;
+ if(item.artifact)return <ArtifactPreview onHeadingChange={onHeadingChange} artifact={item.artifact} renderers={contentRenderers} headingLevel={2}/>;
  if(filePath)return /\.html?$/i.test(filePath)?<HtmlContentView body={item.body||''} name={item.title}/>:<TextContentView body={item.body||''} path={filePath} title={item.title} headingLevel={2}/>;
  return item.body?<div className="reading-text">{item.body}</div>:<p className="muted">본문이 없습니다.</p>;
 }
@@ -42,6 +42,6 @@ function EntryContent({item,onUpdate,children}){
  return <>{children}{onUpdate&&item.scope&&<div className="su-row"><B size="md" variant="ghost" onClick={()=>{baseline.current=item;setTitle(item.title);setBody(item.body||'');setEditing(true)}}>자료 수정</B></div>}</>;
 }
 export function LibraryView({items,work,workspaceId,toolkitUrl,onConnect,onFrom,onOpenWork,onUpdateEntry}){
- return <LibraryBrowser items={items} renderItem={item=><EntryContent key={item.id} item={item} onUpdate={onUpdateEntry}><LibraryItemBody item={item} workspaceId={workspaceId} toolkitUrl={toolkitUrl}/></EntryContent>}
+ return <LibraryBrowser items={items} renderItem={(item,{onHeadingChange})=><EntryContent key={item.id} item={item} onUpdate={onUpdateEntry}><LibraryItemBody item={item} workspaceId={workspaceId} toolkitUrl={toolkitUrl} onHeadingChange={onHeadingChange}/></EntryContent>}
   actions={item=><LibraryItemActions item={item} work={work} onConnect={onConnect} onFrom={onFrom} onOpenWork={onOpenWork}/>}/>;
 }

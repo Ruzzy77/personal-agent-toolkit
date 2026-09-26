@@ -3,9 +3,10 @@ import {htmlArtifactDocument,htmlArtifactContainer,validHtmlArtifact} from './ht
 import './html-artifact.css';
 import {readHtmlAssets} from './html-assets.js';
 const identity=value=>value;
-export function HtmlArtifact({artifact,resolveMediaUrl=identity}){
+export function HtmlArtifact({artifact,resolveMediaUrl=identity,onHeadingChange}){
  const frame=useRef(null),channel=useMemo(()=>crypto.randomUUID(),[artifact.id]);
  const [height,setHeight]=useState(320),[loaded,setLoaded]=useState(null),[error,setError]=useState('');
+ const headingCallback=useRef(onHeadingChange);headingCallback.current=onHeadingChange;
  const valid=validHtmlArtifact(artifact);
  const assetKey=JSON.stringify([artifact.assets,valid?artifact.assets.map(asset=>resolveMediaUrl(asset.src)):[]]);
  useEffect(()=>{
@@ -19,7 +20,7 @@ export function HtmlArtifact({artifact,resolveMediaUrl=identity}){
  },[artifact.id,artifact.revision,assetKey,valid]);
  const document=useMemo(()=>loaded?.key===assetKey?htmlArtifactDocument(artifact.html,loaded.values,channel,globalThis.document?.documentElement.dataset.theme||'light'):null,[artifact.html,loaded,assetKey,channel]);
  useEffect(()=>{
-  const receive=event=>{if(event.source===frame.current?.contentWindow&&event.data?.channel===channel&&event.data?.type==='flow-artifact-size'&&Number.isFinite(event.data.height))setHeight(Math.min(50000,Math.max(160,event.data.height)))};
+  const receive=event=>{if(event.source===frame.current?.contentWindow&&event.data?.channel===channel&&event.data?.type==='flow-artifact-size'&&Number.isFinite(event.data.height)){setHeight(Math.min(50000,Math.max(160,event.data.height)));if(typeof event.data.hasHeading==='boolean')headingCallback.current?.(event.data.hasHeading)}};
   window.addEventListener('message',receive);
   const observer=new MutationObserver(()=>frame.current?.contentWindow?.postMessage({channel,theme:globalThis.document.documentElement.dataset.theme||'light'},'*'));
   observer.observe(globalThis.document.documentElement,{attributes:true,attributeFilter:['data-theme']});

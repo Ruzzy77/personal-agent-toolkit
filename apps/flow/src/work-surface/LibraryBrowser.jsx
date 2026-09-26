@@ -13,8 +13,11 @@ export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasM
  const listed=items.find(item=>item.id===selectedId)||results.items.find(item=>item.id===selectedId)||opened[selectedId];
  const loaded=opened[selectedId];
  const selected=listed?(loaded&&listed.revision>loaded.revision?{...loaded,...listed}:{...listed,...loaded}):null;
+ const [htmlHeading,setHtmlHeading]=useState(null);
+ const headingKey=selected?.id+':'+selected?.artifact?.revision;
+ const onHeadingChange=value=>setHtmlHeading(current=>current?.key===headingKey&&current.value===value?current:{key:headingKey,value});
  const originalHeading=selected?.original?.resolved?.format==='html'&&/<h1(?:\s|>)/i.test(selected.original.resolved.body)||selected?.resource?.resolved?.format==='html'&&/<h1(?:\s|>)/i.test(selected.resource.resolved.body);
- const hasHeading=originalHeading||(selected?.artifact?.kind==='html'?/<h1(?:\s|>)/i.test(selected.artifact.html||''):(selected?.artifact?.kind==='content'&&splitContentHeading(selected.artifact.composition).heading)||selected?.artifact?.blocks?.[0]?.heading===selected?.title);
+ const hasHeading=originalHeading||(selected?.artifact?.kind==='html'?(htmlHeading?.key===headingKey?htmlHeading.value:true):(selected?.artifact?.kind==='content'&&splitContentHeading(selected.artifact.composition).heading)||selected?.artifact?.blocks?.[0]?.heading===selected?.title);
  const Heading=compact?'h3':'h1';
  const focusHeading=()=>heading.current?.focus({preventScroll:true});
  const term=query.trim();
@@ -49,7 +52,7 @@ export function LibraryBrowser({items,renderItem,onOpen,onSearch,onLoadMore,hasM
   {selected?<section className="flow-library-detail">
    <div className="su-row"><Button color="primary" variant="ghost" pill={false} size="md" onClick={back}><ArrowLeft size="1em"/>{backLabel}</Button></div>
    <Heading ref={heading} tabIndex={-1} className={hasHeading?'sr-only':'flow-library-detail-title'}>{selected.title}</Heading>
-   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading})}
+   {error?<div className="su-stack"><p role="alert">{error}</p><div><Button color="primary" variant="ghost" size="md" pill={false} onClick={()=>open(listed)}>다시 열기</Button></div></div>:busy?<p role="status">자료를 여는 중입니다.</p>:renderItem(selected,{focusHeading,onHeadingChange})}
    {!busy&&!error&&actions?.(selected,{back})}
   </section>:<>
    {showSearch&&<div className="flow-library-search"><Input type="search" size="md" aria-label="라이브러리 검색" placeholder="자료 찾기" value={query} onChange={e=>{reader.current?.abort();setPaging(false);setError("");setQuery(e.target.value)}} startAdornment={<Search size="1em" aria-hidden="true"/>}/></div>}

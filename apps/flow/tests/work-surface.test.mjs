@@ -718,3 +718,14 @@ test('distinct curated content sharing an original is not discarded by reference
  assert.equal(items.length,2);assert.deepEqual(items.map(item=>item.source.body),['첫 내용','다른 내용']);
  assert.equal(items.filter(item=>item.linkedReferences.length).length,1);
 });
+
+
+test('HTML headings are reported after rendering, not inferred from JSX bundle text',async()=>{
+ const html=await readFile(new URL('../src/work-surface/html-artifact.js',import.meta.url),'utf8');
+ assert.ok(html.includes('previousHeading'));
+ assert.ok(html.includes('getClientRects()'));
+ assert.ok(html.includes('hasHeading:e.data.hasHeading===true'));
+ const canvas=await readFile(new URL('../src/work-surface/WorkCanvas.jsx',import.meta.url),'utf8');
+ assert.ok(canvas.includes('htmlHeading?.key===headingKey'));
+ assert.ok(canvas.includes('onHeadingChange='));
+});

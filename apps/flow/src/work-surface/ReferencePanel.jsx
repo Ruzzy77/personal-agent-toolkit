@@ -19,6 +19,6 @@ export function ReferencePanel({work,sources,root,readReference,readSource,rende
   finally{setRemoving(false)}
  }
  return <LibraryBrowser items={items} compact showSearch={false} onOpen={open} backLabel="참고 자료" emptyLabel="연결한 자료가 없습니다."
-  renderItem={(item,{focusHeading})=>item.source?renderSource(item.source,{focusHeading}):renderReference(item.reference,item.resource,item.title)}
+  renderItem={(item,{focusHeading,onHeadingChange})=>item.source?renderSource(item.source,{focusHeading,onHeadingChange}):renderReference(item.reference,item.resource,item.title)}
   actions={(item,{back})=><>{failure?.id===item.id&&<p role="alert">{failure.message}</p>}{onDisconnect&&<div className="su-row"><Button color="primary" variant="ghost" size="md" pill={false} disabled={busy||removing} onClick={()=>void disconnect(item,back)}><Unlink size="1em"/>연결 해제</Button></div>}</>}/>;
 }

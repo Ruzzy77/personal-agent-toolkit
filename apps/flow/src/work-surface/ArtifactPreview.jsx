@@ -55,10 +55,10 @@ function DiagramPreview({artifact}){
  return <div className="fa-diagram"><DiagramCanvas title={artifact.title} nodes={artifact.nodes||[]} edges={artifact.edges||[]} readOnly/></div>;
 }
 
-export function ArtifactPreview({artifact,renderers,prepareContent=identity,resolveMediaUrl=localMedia,headingLevel=4,primaryHeading=false,compact=false,className=''}){
+export function ArtifactPreview({artifact,renderers,prepareContent=identity,resolveMediaUrl=localMedia,headingLevel=4,primaryHeading=false,onHeadingChange,compact=false,className=''}){
  if(!artifact)return null;
  let content=null;
- if(artifact.kind==='html')content=<HtmlArtifact artifact={artifact} resolveMediaUrl={resolveMediaUrl}/>;
+ if(artifact.kind==='html')content=<HtmlArtifact artifact={artifact} resolveMediaUrl={resolveMediaUrl} onHeadingChange={onHeadingChange}/>;
  else if(artifact.kind==='content'&&artifact.composition&&renderers)
   content=<WorkSurface composition={prepareContent(artifact.composition)} renderers={renderers} context={{headingLevel:clampHeading(headingLevel),primaryHeadingId:primaryHeading?splitContentHeading(artifact.composition).heading?.id:undefined}} label={artifact.title+' 내용'}/>;
  else if(artifact.kind==='document')content=<DocumentPreview key={(artifact.id??artifact.title)+':'+(artifact.revision??0)+':'+(artifact.format??'document')} artifact={artifact} headingLevel={headingLevel} primaryHeading={primaryHeading}/>;

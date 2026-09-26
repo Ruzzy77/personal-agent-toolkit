@@ -20,7 +20,7 @@ export function ArtifactPreview(props:{
   renderers?:Record<string,ComponentType<any>>;
   prepareContent?:(value:ContentComposition)=>ContentComposition;
   resolveMediaUrl?:(value:unknown)=>string|null;
-  headingLevel?:number;primaryHeading?:boolean;compact?:boolean;className?:string;
+  headingLevel?:number;primaryHeading?:boolean;onHeadingChange?:(value:boolean)=>void;compact?:boolean;className?:string;
 }):ReactNode;
 export function defineComposition(value:ContentComposition):ContentComposition;
 export function stackComposition(blocks:ContentBlock[]):ContentComposition;
@@ -119,7 +119,7 @@ export function EditorLayout(props:{children:ReactNode;preview:ReactNode;preview
 export function ArtifactLayoutMenu(props:{title?:string;span:number;index:number;count:number;disabled?:boolean;onChange:(kind:"span"|"move",value:number)=>void}):ReactNode;
 
 export const WorkCanvas: ComponentType<{work:any;artifactId?:string;onSelect?:(id:string)=>void;renderers?:any;prepareContent?:(composition:any)=>any;resolveMediaUrl?:(value:any)=>string|null}>;
-export const HtmlArtifact: ComponentType<{artifact:any;resolveMediaUrl?:(value:any)=>string|null}>;
+export const HtmlArtifact: ComponentType<{artifact:any;onHeadingChange?:(value:boolean)=>void;resolveMediaUrl?:(value:any)=>string|null}>;
 
 export const AppHeader: ComponentType<any>;
 export const B: ComponentType<any>;

@@ -28,7 +28,7 @@ import "./flow-workspace.css";
 type Workspace={id:string;permission:string;root_id?:string;apiVersion?:number;capabilities?:string[]};
 type Material=FlowSource&{external?:boolean;original?:FlowOpenResource;revision?:number;scope?:{kind:"work"|"workspace"|"personal";workId?:string};reference?:FlowLinkedResource;sourceVersion?:string};
 type Screen="work"|"library"|"files";
-function MaterialContent({item,workspaceId,root,onSave,onRetry}:{item:Material;workspaceId:string;root?:string;onRetry?:()=>void;onSave?:(item:Material,patch:{title:string;body:string})=>Promise<void>}){
+function MaterialContent({item,workspaceId,root,onSave,onRetry,onHeadingChange}:{item:Material;workspaceId:string;root?:string;onHeadingChange?:(value:boolean)=>void;onRetry?:()=>void;onSave?:(item:Material,patch:{title:string;body:string})=>Promise<void>}){
  const draftKey="flow-library-draft:"+workspaceId+":"+item.id;
  const [draft]=useState(()=>{try{const raw=sessionStorage.getItem(draftKey);return raw?JSON.parse(raw) as {title:string;body:string;base:Material}:null}catch{return null}});
  const [original,setOriginal]=useState<{key:string;resource?:FlowOpenResource;error?:string}>({key:""}),[error,setError]=useState(""),[editing,setEditing]=useState(Boolean(draft)),[busy,setBusy]=useState(false),[title,setTitle]=useState(draft?.title??item.title),[body,setBody]=useState(draft?.body??item.body??"");
@@ -61,7 +61,7 @@ function MaterialContent({item,workspaceId,root,onSave,onRetry}:{item:Material;w
   {!item.artifact&&item.body&&(item.filePath&&!sourceReference(item,root)
    ?/\.html?$/i.test(item.filePath)?<HtmlContentView body={item.body} name={item.title}/>:<TextContentView body={item.body} path={item.filePath} title={item.title} headingLevel={2}/>
    :<div className="flow-material-text">{item.body}</div>)}
-  {item.artifact&&<ArtifactPreview artifact={item.artifact} renderers={contentRenderers} prepareContent={c=>flowContentForWeb(workspaceId,c)} resolveMediaUrl={v=>flowMediaUrl(workspaceId,v)} headingLevel={2}/>}
+  {item.artifact&&<ArtifactPreview onHeadingChange={onHeadingChange} artifact={item.artifact} renderers={contentRenderers} prepareContent={c=>flowContentForWeb(workspaceId,c)} resolveMediaUrl={v=>flowMediaUrl(workspaceId,v)} headingLevel={2}/>}
   {item.body&&referenceKey!=="null"&&<details open={showOriginal} onToggle={event=>setShowOriginal(event.currentTarget.open)}><summary>원본</summary>{resource&&<FlowResourceView resource={resource}/>}</details>}
   {!item.body&&resource&&<FlowResourceView resource={resource} hideTitle={resource.title===item.title}/>}
   {resource&&item.sourceVersion&&resource.kind!=="flow-source"&&resource.resolved?.version&&item.sourceVersion!==resource.resolved.version&&<p>정리할 때 참고한 원본과 현재 원본의 버전이 다릅니다.</p>}
@@ -225,7 +225,7 @@ export function FlowWorkspace(){
  }
  const availableUndo=detail?.undo;const undo=availableUndo&&availableUndo.artifactId===artifact?.id&&availableUndo.appliedRevision===artifact?.revision?availableUndo:null;
  const proposals=detail?.changes.filter(change=>["review","conflict"].includes(change.status))||[];
- const library=(compact=false)=><LibraryBrowser key={space} items={materials} compact={compact} onOpen={readMaterial} onSearch={searchMaterials} hasMore={materialOffset!==null} onLoadMore={async(signal:AbortSignal)=>{if(materialOffset===null)return;const page=await loadMaterials(space,"",signal,materialOffset);setMaterials(items=>[...items,...page.entries]);setMaterialOffset(page.nextOffset)}} renderItem={(item:Material,{focusHeading}:{focusHeading:()=>void})=><MaterialContent key={item.id} item={item} workspaceId={space} root={root} onRetry={focusHeading} onSave={writable?saveMaterial:undefined}/>}
+ const library=(compact=false)=><LibraryBrowser key={space} items={materials} compact={compact} onOpen={readMaterial} onSearch={searchMaterials} hasMore={materialOffset!==null} onLoadMore={async(signal:AbortSignal)=>{if(materialOffset===null)return;const page=await loadMaterials(space,"",signal,materialOffset);setMaterials(items=>[...items,...page.entries]);setMaterialOffset(page.nextOffset)}} renderItem={(item:Material,{focusHeading,onHeadingChange}:{focusHeading:()=>void;onHeadingChange:(value:boolean)=>void})=><MaterialContent key={item.id} item={item} workspaceId={space} root={root} onHeadingChange={onHeadingChange} onRetry={focusHeading} onSave={writable?saveMaterial:undefined}/>}
   actions={(item:Material)=><div className="su-row">{work&&writable&&<B disabled={busy||isConnected(item)} onClick={()=>void connect(item).catch(()=>{})}><Link2 size="1em"/>{isConnected(item)?"연결됨":"참고 자료로 연결"}</B>}{writable&&<B variant="ghost" onClick={()=>{setSource(item);setName(item.title);setPanel("new")}}>{item.artifact?"복사해서 새 작업":"이 자료로 새 작업"}</B>}</div>}/>;
  const title=({sources:"참고 자료",context:"작업 정보",new:"새 작업",settings:"설정",changes:"변경 확인",resource:resource?.kind==="library-issue"?"참고 자료":resource?.title||"참고 자료"} as Record<string,string>)[panel||""]||"";
  return <div className="flow-product">
@@ -256,7 +256,7 @@ export function FlowWorkspace(){
   {message&&<div className="su-toast" role="status">{message}</div>}
   <Overlay open={Boolean(panel)} title={title} onClose={close} returnFocusRef={returnRef} placement={panel==="sources"||panel==="resource"?"right":"center"}>
    {panel==="sources"&&work&&<ReferencePanel key={space+":"+work.id} work={work} sources={detail?.sources||[]} root={root} readReference={readLinked} readSource={readMaterial} busy={busy}
-    renderSource={(item:Material,{focusHeading}:{focusHeading:()=>void})=><MaterialContent key={item.id} item={item} workspaceId={space} root={root} onRetry={focusHeading}/>}
+    renderSource={(item:Material,{focusHeading,onHeadingChange}:{focusHeading:()=>void;onHeadingChange:(value:boolean)=>void})=><MaterialContent key={item.id} item={item} workspaceId={space} root={root} onHeadingChange={onHeadingChange} onRetry={focusHeading}/>}
     renderReference={(_reference:FlowLinkedResource,value:FlowOpenResource)=><FlowResourceView resource={value} hideTitle/>}
     onDisconnect={writable?(item:WorkReference)=>{const patch=disconnectWorkReference(work,item);return updateWork({source_ids:patch.sourceIds,linked_resources:patch.linkedResources})}:undefined}/>}
    {panel==="resource"&&resource&&<FlowResourceView resource={resource} hideTitle action={work&&writable?<B onClick={()=>void linkResource(resource).catch(()=>{})}>참고 자료로 연결</B>:undefined}/>}
